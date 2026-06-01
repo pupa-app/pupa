@@ -53,14 +53,11 @@ the heavy app graph. Keep `AppView` untouched except for one optional hook (sugg
 first-chat prompt + a "needs backend" reminder banner).
 
 ### New persistence flags
-Add a tiny `@Observable OnboardingState` (mirrors the `SettingsStore` UserDefaults-JSON
-pattern, key `pupa.onboarding.v1`) — or, simplest, two `@AppStorage` keys read in the root:
+Two `@AppStorage` keys (constants in `OnboardingKeys`, same `UserDefaults.standard` suite as the `SettingsStore` snapshot):
 - `pupa.onboarding.completed` : Bool — gates the onboarding flow.
 - `pupa.onboarding.backendSkipped` : Bool — drives the "connect your backend" reminder banner inside the app.
 
-Reuse the existing UserDefaults snapshot convention seen in
-[SettingsStore.swift](../Pupa/Sources/PupaApp/Settings/SettingsStore.swift) (`storageKey` +
-JSON `Snapshot`) rather than inventing a new persistence mechanism.
+**Migration for existing users:** `RootView.init()` checks once — if `completed` is absent AND a `SettingsStore` snapshot already exists (`pupa.settings.v1`), it sets `completed = true` so an app update never replays onboarding for someone who already configured the app. A fresh install has no settings snapshot (the store only persists on first mutation), so it correctly reads as a new user.
 
 ### New root coordinator
 **New file:** `Pupa/Sources/PupaApp/App/RootView.swift`
@@ -98,10 +95,10 @@ instant onboarding dismisses (the "first win" feels instant).
 
 ### 2. OnboardingFlowView — carousel + setup container
 **New file:** `Pupa/Sources/PupaApp/App/OnboardingFlowView.swift`
-- A `TabView(selection:)` with `.page` style (paging dots) holding slides 1–5, plus a final transition that sets `onboardingDone = true`.
-- Persistent chrome: page-dots indicator, "Skip" top-trailing on every slide (jumps to the backend step, or finishes), and a primary "Continue" button per slide.
-- New value-slide subview `OnboardingSlide(title:subtitle:art:)` for slides 1–4. "Art" should use **real app surfaces**: render shrunken, non-interactive previews of an actual tracker/checklist card and the chat bubble UI so the slides demo the product, not clip-art. Pull visual styling from existing component views and `MemoryTheme` palette.
-- Light entrance animation per slide (content slides/fades in) reusing the spring idiom; respect Reduce Motion.
+- A **hand-rolled carousel** (a `page` index + `.transition` swap inside a `ZStack`), NOT a paged `TabView` — SwiftUI's `PageTabViewStyle` is iOS-only and the macOS demo target must compile too. Holds 4 value slides + 1 backend step; the final action sets `onboardingDone = true`.
+- Persistent chrome: a custom `PageDots` indicator, "Skip" top-trailing on the value slides (jumps to the backend step), and a primary "Continue" button per slide.
+- New value-slide subview `OnboardingSlide(content:)` driven by `OnboardingContent.valueSlides`. "Art" uses **real app surfaces** (`OnboardingArtView`): mock tracker/checklist cards, chat bubbles, and a memory-file card built from the app's own card styling + `MemoryTheme` palette — demoing the product, not clip-art.
+- Light slide/opacity transition per page reusing the spring/ease idiom; respect Reduce Motion (falls back to opacity).
 
 ### 3. Backend connect step (slide 5) — reuse, don't rebuild
 - **Reuse the existing pairing UI/logic** rather than duplicating it:
