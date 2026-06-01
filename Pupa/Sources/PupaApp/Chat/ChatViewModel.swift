@@ -1,0 +1,1271 @@
+import Foundation
+import Observation
+import SwiftUI
+import AGUIKit
+
+public struct ChatBubble: Identifiable, Hashable {
+    /// `system` bubbles are local-only — emitted by client-side slash commands
+    /// (e.g. `/help` output, "Unknown command" fallbacks) and never reach the
+    /// backend. `toolRound` bubbles are also local-only — they aggregate the
+    /// tool calls the model issued within a single round into one expandable
+    /// row driven by `AGUIKit.SessionEvent.toolCallStarted` / `.toolCallFinished`.
+    /// AGUIKit's `AgentSession` maintains its own `messages` list and does not
+    /// read from `ChatViewModel`, so display-only bubbles can't leak into the
+    /// conversation history sent to the agent.
+    /// `humanQuestion` bubbles are local-only too — emitted when the
+    /// `ask_user_questions` frontend tool's handler awaits the user's
+    /// reply via [HumanInTheLoopBridge](../Tools/HumanInTheLoopBridge.swift).
+    /// Visually distinct (yellow tint + question-mark glyph) and may
+    /// carry multiple question rows in `humanQuestions`, each with its
+    /// own options. Like other app-only bubbles, they never reach the
+    /// backend — the user's actual replies are returned from the tool
+    /// handler and the backend gets them as a `ToolMessage` via the
+    /// `CopilotKitMiddlewareWithFrontendInterrupt` resume payload.
+    public enum Role: String { case user, assistant, system, toolRound, humanQuestion, shellApproval }
+    public let id: String
+    public let role: Role
+    public var text: String
+    /// Optional inline image attached to a user bubble. Rendered above the
+    /// text inside the bubble. Always nil for assistant / system / toolRound bubbles.
+    public var imageData: Data?
+    /// Tool calls aggregated into this bubble. Always empty for non-`toolRound`
+    /// roles; populated incrementally as `.toolCallStarted` / `.toolCallFinished`
+    /// events arrive within one agent round.
+    public var toolEntries: [ToolCallEntry]
+    /// Question rows for a `humanQuestion` bubble. The agent may pack
+    /// multiple clarifying questions into one call; each row carries its
+    /// own optional suggested-answer buttons. Empty for every other bubble
+    /// role.
+    public var humanQuestions: [HumanQuestionRow]
+
+    public init(
+        id: String = UUID().uuidString,
+        role: Role,
+        text: String = "",
+        imageData: Data? = nil,
+        toolEntries: [ToolCallEntry] = [],
+        humanQuestions: [HumanQuestionRow] = []
+    ) {
+        self.id = id
+        self.role = role
+        self.text = text
+        self.imageData = imageData
+        self.toolEntries = toolEntries
+        self.humanQuestions = humanQuestions
+    }
+}
+
+/// One row inside a `humanQuestion` bubble — a single question the agent is
+/// waiting on, with its suggested options. Answer state is held in
+/// `ChatViewModel.pendingAnswers` keyed by index, not on the row itself,
+/// so the bubble stays a passive view of the conversation state.
+public struct HumanQuestionRow: Identifiable, Hashable, Sendable {
+    public let id: String
+    public let question: String
+    public let options: [String]
+
+    public init(id: String = UUID().uuidString, question: String, options: [String]) {
+        self.id = id
+        self.question = question
+        self.options = options
+    }
+}
+
+/// One tool-call line item inside a `toolRound` bubble. The `id` is the AG-UI
+/// `toolCallId`, which is also the key used to patch the entry from `.pending`
+/// to `.done` / `.failed` when the paired `.toolCallFinished` arrives.
+public struct ToolCallEntry: Identifiable, Hashable {
+    public enum State: String, Hashable { case pending, done, failed }
+    public let id: String
+    public let name: String
+    /// Pretty-printed JSON of the arguments. Empty until the call finishes.
+    public var argsJSON: String
+    /// Pretty-printed result payload. Empty until the call finishes, or stays
+    /// empty for backend tools whose server didn't emit a `TOOL_CALL_RESULT`.
+    public var resultText: String
+    public var state: State
+
+    public init(
+        id: String,
+        name: String,
+        argsJSON: String = "",
+        resultText: String = "",
+        state: State = .pending
+    ) {
+        self.id = id
+        self.name = name
+        self.argsJSON = argsJSON
+        self.resultText = resultText
+        self.state = state
+    }
+}
+
+/// A user-picked image, prepared (downscaled + re-encoded) for sending and
+/// display. Held by `ChatPanel` while the user is composing a message and
+/// passed into `ChatViewModel.send` at submit time.
+public struct PickedImage: Equatable, Sendable {
+    public let data: Data
+    public let mimeType: String
+
+    public init(data: Data, mimeType: String) {
+        self.data = data
+        self.mimeType = mimeType
+    }
+}
+
+/// What a `ChatViewModel` is bound to for its entire lifetime. Pinned at init
+/// — a session never moves between myApps, so tool dispatch and per-turn
+/// context can target a fixed scope without re-checking `activeMyAppId`.
+/// Switching the visible scope is handled by `ChatSessionCoordinator`
+/// returning a different `ChatViewModel`, not by mutating an existing one.
+public enum ChatScope: Equatable, Hashable, Sendable {
+    case myApp(UUID)
+    case memory
+}
+
+@MainActor
+@Observable
+public final class ChatViewModel {
+    /// Immutable scope binding — set at init, never changes. Determines which
+    /// myApp's canvas (if any) this session's tools mutate and which tool
+    /// surface is advertised per turn.
+    public let pinnedScope: ChatScope
+    /// The backend threadId this session is permanently bound to. Set at init
+    /// from the store's current thread for this scope — never mutated.
+    public let threadId: String
+    public private(set) var bubbles: [ChatBubble] = []
+    public private(set) var isStreaming = false
+    public private(set) var lastError: String?
+    /// For memory sessions only — the file path the user is currently viewing
+    /// in the sidebar. Read into per-turn agent context so the model knows
+    /// which file is in focus. The coordinator updates this when the user
+    /// navigates between memory files; a single `.memory` session persists
+    /// across those navigations so the conversation stays coherent.
+    public var memoryFocusedPath: String = ""
+    /// When true, slash commands render more detail (e.g. `/tools` includes
+    /// tool descriptions, not just names). Per-session, in-memory only —
+    /// resets on app launch and is not shared across `ChatScope`s. Flip with
+    /// `/verbose`.
+    public private(set) var verbose: Bool = false
+    /// True iff the agent's `ask_user_questions` frontend tool is awaiting
+    /// the user's answers. The composer reads this to gate input (the
+    /// user must submit via the bubble's Submit button or hit cancel).
+    public var hasPendingQuestion: Bool { pendingContinuation != nil }
+    /// True iff the agent's `request_shell_approval` frontend tool is awaiting
+    /// the user's Approve / Deny decision. The composer reads this to gate input.
+    public var hasPendingShellApproval: Bool { pendingShellApprovalContinuation != nil }
+    /// True iff every pending answer has been filled in (non-empty after
+    /// trimming whitespace). The bubble's Submit button reads this to
+    /// decide whether the user can submit yet.
+    public var pendingAnswersComplete: Bool {
+        guard hasPendingQuestion else { return false }
+        return !pendingAnswers.isEmpty &&
+            pendingAnswers.allSatisfy { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+    }
+
+    /// Mutable so the session can be swapped when `SettingsStore.backendURL`
+    /// or `SettingsStore.apiKey` change — see `rebuildSessionIfSettingsChanged()`.
+    /// The threadId is preserved across the swap so the backend checkpointer
+    /// keeps the conversation history; in-flight bubbles aren't affected
+    /// because they live on `self.bubbles`, not on the session.
+    private var session: AgentSession
+    /// Cached `(url, authHeaders)` captured at the last session build.
+    /// We compare the *resolved* `authHeaders` (not just the legacy `apiKey`
+    /// field) so the session rebuilds when the user pairs a device.
+    private var sessionBackendURL: URL
+    private var sessionAuthHeaders: [String: String]
+    /// Whether `loadHistoryIfNeeded()` has already run for this VM.
+    private var hasLoadedHistory = false
+    private let store: MyAppStore
+    private let memory: MemoryStore
+    private let settings: SettingsStore
+    /// Held so `/tools` can enumerate exactly the tool surface advertised to
+    /// the model — `AgentSession` reads from the same `ToolRegistry` when
+    /// building each `RunAgentInput.tools`.
+    private let registry: ToolRegistry
+    /// Reused for AGUIKit's `AgentClient` and the REST `BackendToolsClient`
+    /// when the session is rebuilt mid-app on a settings change.
+    private let urlSession: URLSession
+    /// Per-session sticky picker for the "Live canvas state" preview slate.
+    /// Keeps the same 2 preview item ids per component across turns until
+    /// one disappears, so the cache-stable canvas summary doesn't churn on
+    /// unrelated mutations. Lifetime is the chat session; the instance is
+    /// discarded with the `ChatViewModel`. See `CanvasSummary.swift`.
+    private let previewTracker = CanvasPreviewTracker()
+    private var streamTask: Task<Void, Never>?
+    /// The id of the currently-open tool-round bubble, if one is collecting
+    /// streamed `.toolCallStarted` events. Cleared on the next
+    /// `.assistantMessageStart` (LLM resumes narration after the tool batch),
+    /// on `.completed`, or on `.error`. Crucially NOT cleared on
+    /// `.roundFinished`: a single frontend tool call arrives as
+    /// `.toolCallStarted` → `.roundFinished` → `.toolCallFinished` (the last
+    /// event is yielded by `AgentSession.runLoop` *after* `runOneRound`
+    /// returns), so closing on `.roundFinished` would orphan the pending entry
+    /// and freeze the spinner. The bubble itself stays visible after closing;
+    /// the id is dropped so the next `.toolCallStarted` opens a fresh bubble.
+    private var openToolRoundId: String?
+    /// Id of the currently-displayed question bubble — set while the
+    /// `ask_user_questions` frontend tool is awaiting the user's reply
+    /// via `HumanInTheLoopBridge`. Cleared on submit / cancel /
+    /// `newThread()`.
+    private var pendingBubbleId: String?
+    /// Continuation suspended by `askQuestions(...)`. Resumed exactly
+    /// once: with the user's answers on submit, or with empty answers on
+    /// cancel / new-thread. Nil when no question is pending.
+    private var pendingContinuation: CheckedContinuation<[String], Never>?
+    /// The in-progress answer for each pending question, indexed by row
+    /// position in the bubble's `humanQuestions` array. Mutated by the
+    /// bubble view via `setPendingAnswer(rowIndex:value:)`. Empty when no
+    /// interrupt is active.
+    public private(set) var pendingAnswers: [String] = []
+    /// Continuation suspended by `requestShellApproval(command:)`. Resumed
+    /// exactly once via `submitShellApproval` or cleared on cancel / new-thread.
+    private var pendingShellApprovalContinuation: CheckedContinuation<(approved: Bool, remember: Bool), Never>?
+    /// Fired on every `isStreaming` transition so the coordinator can update
+    /// its derived `busyMyApps` set without polling.
+    private let onStreamingChange: ((Bool) -> Void)?
+    /// Per-session skill activation state. nil for sub-run sessions (which
+    /// always get the full legacy tool surface). When non-nil, drives the
+    /// skill-gate logic in `allowedToolNames(scope:store:skillState:)`.
+    private let skillState: SkillState
+
+    /// Client-side slash commands (e.g. `/reset`, `/help`). Built lazily so
+    /// the closures can capture `self`. See [SlashCommands.swift].
+    /// `@ObservationIgnored` so the `@Observable` macro doesn't try to
+    /// instrument a `lazy var` (unsupported combination).
+    @ObservationIgnored
+    public private(set) lazy var slashCommands: SlashCommandRegistry = SlashCommandRegistry(commands: [
+        SlashCommand(
+            name: "reset",
+            summary: "Start a new chat thread (clears conversation; canvas and memories untouched)"
+        ) { [weak self] in
+            self?.newThread()
+            return .appOnly
+        },
+        SlashCommand(
+            name: "help",
+            summary: "List available slash commands (local-only — not sent to the agent)"
+        ) { [weak self] in
+            self?.appendHelpBubble()
+            return .appOnly
+        },
+        SlashCommand(
+            name: "tools",
+            summary: "List the tools available to this agent (local-only)"
+        ) { [weak self] in
+            self?.appendToolsBubble()
+            return .appOnly
+        },
+        SlashCommand(
+            name: "verbose",
+            summary: "Toggle verbose output for slash commands (e.g. /tools shows descriptions)"
+        ) { [weak self] in
+            self?.toggleVerbose()
+            return .appOnly
+        },
+        SlashCommand(
+            name: "ag-ui-payload",
+            summary: "Print the AG-UI RunAgentInput payload (context, tools, state) that would go to the backend next turn"
+        ) { [weak self] in
+            self?.appendPromptDumpBubble()
+            return .appOnly
+        }
+    ])
+
+    private func toggleVerbose() {
+        verbose.toggle()
+        appendBubble(ChatBubble(role: .system, text: "Verbose mode: \(verbose ? "on" : "off")"))
+    }
+
+    private func appendHelpBubble() {
+        let lines = slashCommands.availableCommands.map { "/\($0.name) — \($0.summary)" }
+        let body = "Available commands (local-only, not sent to the agent):\n" + lines.joined(separator: "\n")
+        appendBubble(ChatBubble(role: .system, text: body))
+    }
+
+    /// Snapshot the FE → BE wire payload (`RunAgentInput` shape) the chat
+    /// **would** send on its next turn — context entries, the advertised tool
+    /// surface for the active scope, the per-turn `state` (disabled backend
+    /// tools), and the live `threadId` from the bound `AgentSession`. Encodes
+    /// the result as pretty-printed JSON and drops it into the transcript as a
+    /// `system` bubble. Read-only: nothing is sent over the wire and no
+    /// session state is mutated. Messages are intentionally **not** included
+    /// — `AgentSession` owns history internally and there's no accessor; if
+    /// you need transcript dumps too, add `messagesSnapshot()` on `AgentSession`.
+    /// The three private statics this reuses (`contextEntries`,
+    /// `allowedToolNames`, `stateJSON`) are the same ones `send(_:)` calls, so
+    /// the dump reflects exactly what would land in the next `RunAgentInput`.
+    private func appendPromptDumpBubble() {
+        let placeholderId = UUID().uuidString
+        appendBubble(ChatBubble(id: placeholderId, role: .system, text: "Building /ag-ui-payload…"))
+        let scope = pinnedScope
+        let focusedPath = memoryFocusedPath
+        let store = store
+        let memory = memory
+        let settings = settings
+        let registry = registry
+        let session = session
+        let previewTracker = previewTracker
+        let skillState = skillState
+        Task { [weak self] in
+            let context = await Self.contextEntries(
+                store: store,
+                memory: memory,
+                scope: scope,
+                focusedPath: focusedPath,
+                previewTracker: previewTracker
+            )
+            let allowed = await MainActor.run { Self.allowedToolNames(scope: scope, store: store, skillState: skillState) }
+            let advertised = registry.descriptors
+                .filter { allowed.contains($0.name) }
+                .sorted { $0.name < $1.name }
+            let state = await Self.stateJSON(settings: settings, scope: scope, store: store)
+            let forwardedProps = await MainActor.run { Self.forwardedPropsJSON(scope: scope, store: store, settings: settings) }
+            let threadId = await session.threadId
+
+            let scopeString: String = {
+                switch scope {
+                case .memory: return "memory"
+                case .myApp(let id): return "myApp:\(id.uuidString)"
+                }
+            }()
+
+            let payload: AnyJSON = .object([
+                "threadId": .string(threadId),
+                "scope": .string(scopeString),
+                "state": state,
+                "forwardedProps": forwardedProps,
+                "context": .array(context.map { entry in
+                    .object([
+                        "description": .string(entry.description),
+                        "value": .string(entry.value),
+                    ])
+                }),
+                "tools": .array(advertised.map { d in
+                    .object([
+                        "name": .string(d.name),
+                        "description": .string(d.description),
+                        "parameters": d.parameters,
+                    ])
+                }),
+                "messages": .string("<managed by AgentSession; not dumped — extend AgentSession with messagesSnapshot() if you need this>"),
+            ])
+
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let jsonString = (try? encoder.encode(payload))
+                .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+            let header = "/ag-ui-payload — AG-UI RunAgentInput that would be sent on the next turn (read-only snapshot)"
+            await MainActor.run {
+                self?.mutateBubble(id: placeholderId) { $0.text = header + "\n" + jsonString }
+            }
+        }
+    }
+
+    /// Human-readable name of the agent the chat is currently bound to. Shown
+    /// in the chat header and at the top of the `/tools` listing.
+    public var agentDisplayName: String {
+        switch pinnedScope {
+        case .memory:
+            return "Orchestrator"
+        case .myApp(let id):
+            return store.myApps.first(where: { $0.id == id })?.name ?? "MyApp"
+        }
+    }
+
+    /// Accent color for the active agent — purple for the orchestrator, a
+    /// creation-order palette color per MyApp (same index as the sidebar dot).
+    public var agentColor: Color {
+        switch pinnedScope {
+        case .memory: return .orchestratorColor
+        case .myApp(let id):
+            let sorted = store.myApps.sorted { $0.createdAt < $1.createdAt }
+            let index = sorted.firstIndex(where: { $0.id == id }) ?? 0
+            return .color(atIndex: index)
+        }
+    }
+
+    /// Tool names advertised to the model on the next round for the given
+    /// scope. Single source of truth shared by `send(_:)` (per-round
+    /// `toolFilter`) and the `/tools` listing — keeps both in lockstep so
+    /// `/tools` shows exactly what the model will see.
+    ///
+    /// For myApp scopes, the set is resolved from the live `MyApp.components`
+    /// list: `MyAppType.baseToolNames` always, plus
+    /// `toolNamesByKind[kind]` for each component kind currently on the
+    /// canvas, minus any tool whose `coPresenceGates` requirements aren't
+    /// met. Recomputing per round (via the async `toolFilter` closure in
+    /// `AgentSession.send`) is what lets the agent's `addComponent` call
+    /// expose the new kind's tools mid-turn.
+    static func allowedToolNames(
+        scope: ChatScope,
+        store: MyAppStore,
+        skillState: SkillState
+    ) -> Set<String> {
+        switch scope {
+        case .memory:
+            // Memory-mode chat is the orchestrator surface: memory FS +
+            // HITL + orchestrator tools. Notifications stay skill-gated —
+            // the orchestrator rarely needs to schedule banners.
+            var memResult: Set<String> = MyAppType.memoryToolNames
+                .union(MyAppType.humanInTheLoopToolNames)
+                .union(MyAppType.orchestratorToolNames)
+            if skillState.isNotificationsActivated {
+                memResult.formUnion(MyAppType.notificationToolNames)
+            } else {
+                memResult.insert("get_skill_notifications")
+            }
+            return memResult
+        case .myApp(let id):
+            guard let myApp = store.myApps.first(where: { $0.id == id }),
+                  let type = MyAppTypeRegistry.shared.resolve(id: myApp.typeId) else {
+                return MyAppType.humanInTheLoopToolNames
+            }
+            let kinds = Set(myApp.components.map(\.kindString))
+
+            // Skill-gated surface: base tools + HITL are always visible.
+            // Component-kind tools, memory tools, and notifications are
+            // hidden until the agent calls the matching get_skill_* gate.
+            var result: Set<String> = type.baseToolNames
+                .union(MyAppType.humanInTheLoopToolNames)
+            if skillState.isNotificationsActivated {
+                result.formUnion(MyAppType.notificationToolNames)
+            } else {
+                result.insert("get_skill_notifications")
+            }
+
+            for kind in kinds {
+                guard type.toolNamesByKind[kind] != nil else { continue }
+                if skillState.isActivated(kind: kind) {
+                    result.formUnion(type.toolNamesByKind[kind]!)
+                } else {
+                    result.insert("get_skill_\(kind)")
+                }
+            }
+
+            // Co-presence filtering still applies after skill unlock.
+            // TODO: co-presence is evaluated against the components present at
+            // gate-call time (when isActivated flips). Removing a component
+            // after unlocking does NOT re-gate its tools — the latch is
+            // one-way by design, but document this if it causes confusion.
+            if !type.coPresenceGates.isEmpty {
+                result = result.filter { name in
+                    guard let required = type.coPresenceGates[name] else { return true }
+                    return required.isSubset(of: kinds)
+                }
+            }
+
+            // get_skill_memories is always advertised because every myApp has
+            // at minimum an AGENTS.md in its memory root, so memory access is
+            // universally relevant — this is intentional, not an oversight.
+            if skillState.isMemoriesActivated {
+                result.formUnion(MyAppType.memoryToolNames)
+            } else {
+                result.insert("get_skill_memories")
+            }
+
+            return result
+        }
+    }
+
+    /// Prompt fragment forwarded to the agent for a myApp scope, gated on
+    /// which component kinds currently exist on the canvas. `nil` for
+    /// scopes / typeIds without a registered `MyAppType`.
+    static func activeSystemPromptFragment(myApp: MyApp, type: MyAppType) -> String {
+        let kinds = Set(myApp.components.map(\.kindString))
+        return type.resolvedSystemPromptFragment(kindsPresent: kinds)
+    }
+
+    /// Append a "Loading tools…" system bubble, then fetch the backend tool
+    /// list and rewrite the bubble in place with the full report. The
+    /// frontend half is resolved synchronously from the same `ToolRegistry`
+    /// `AgentSession` will read on the next turn, filtered to the active
+    /// scope's allowed set — so the listing matches what the model actually
+    /// receives. Backend half is fetched lazily from `GET /backend-tools` so
+    /// `/tools` reflects current `enabledByEnv` state without restarting.
+    private func appendToolsBubble() {
+        let placeholderId = UUID().uuidString
+        appendBubble(ChatBubble(id: placeholderId, role: .system, text: "Loading tools…"))
+        let allowed = Self.allowedToolNames(scope: pinnedScope, store: store, skillState: skillState)
+        let frontendDescriptors = registry.descriptors
+            .filter { allowed.contains($0.name) }
+            .sorted { $0.name < $1.name }
+        let groups = Self.groupFrontendTools(
+            descriptors: frontendDescriptors,
+            scope: pinnedScope,
+            store: store
+        )
+        let agentName = agentDisplayName
+        let backendURL = settings.backendURL
+        let authHeaders = settings.authHeaders
+        let disabledByUser = settings.disabledBackendTools
+        let verbose = self.verbose
+        Task { [weak self] in
+            let backend: [BackendToolDescriptor]?
+            do {
+                backend = try await BackendToolsClient(
+                    backendURL: backendURL,
+                    extraHeaders: authHeaders
+                ).list()
+            } catch {
+                backend = nil
+            }
+            let body = Self.renderToolsBody(
+                agentName: agentName,
+                frontendGroups: groups,
+                frontendIsEmpty: frontendDescriptors.isEmpty,
+                backend: backend?.sorted { $0.name < $1.name },
+                disabledByUser: disabledByUser,
+                verbose: verbose
+            )
+            await MainActor.run {
+                self?.mutateBubble(id: placeholderId) { $0.text = body }
+            }
+        }
+    }
+
+    /// One labelled bucket of frontend tools for `/tools` rendering. Order
+    /// inside `tools` is whatever the caller passed in (alphabetical at the
+    /// call site in `appendToolsBubble`).
+    struct ToolGroup: Equatable {
+        let label: String
+        let tools: [ToolDescriptor]
+    }
+
+    /// Bucket the advertised frontend descriptors by component so `/tools`
+    /// can render headed sections instead of one flat alphabetical list.
+    /// Groups are derived from `MyAppType` (`baseToolNames`, `toolNamesByKind`,
+    /// `memoryToolNames`, `notificationToolNames`, `orchestratorToolNames`) —
+    /// no tool-name lists are duplicated here. Each descriptor lands in the
+    /// first matching group, so a base-tool name doesn't double-print under
+    /// a kind group. Empty groups are dropped by the caller via `tools.isEmpty`.
+    /// Returned order is the order `/tools` renders sections: Canvas, then
+    /// the canvas-kind groups, Memory, Notifications, Orchestrator, Other.
+    static func groupFrontendTools(
+        descriptors: [ToolDescriptor],
+        scope: ChatScope,
+        store: MyAppStore
+    ) -> [ToolGroup] {
+        var canvasNames: Set<String> = []
+        var kindGroups: [(label: String, names: Set<String>)] = []
+        var skillGateNames: Set<String> = []
+        if case .myApp(let id) = scope,
+           let myApp = store.myApps.first(where: { $0.id == id }),
+           let type = MyAppTypeRegistry.shared.resolve(id: myApp.typeId) {
+            canvasNames = type.baseToolNames
+            // Render kind groups in a stable order independent of dictionary
+            // iteration; only kinds the type actually declares show up.
+            let kindOrder = ["tracker", "calendar", "checklist"]
+            for kind in kindOrder {
+                if let names = type.toolNamesByKind[kind], !names.isEmpty {
+                    kindGroups.append((label: kind.capitalized, names: names))
+                    skillGateNames.insert("get_skill_\(kind)")
+                }
+            }
+            // Defensive: surface any kinds the type declares beyond the
+            // known three so future kinds don't fall through to "Other".
+            for kind in type.toolNamesByKind.keys.sorted() where !kindOrder.contains(kind) {
+                if let names = type.toolNamesByKind[kind], !names.isEmpty {
+                    kindGroups.append((label: kind.capitalized, names: names))
+                    skillGateNames.insert("get_skill_\(kind)")
+                }
+            }
+            skillGateNames.insert("get_skill_memories")
+        }
+        // `get_skill_notifications` exists in every scope (memory + myApp)
+        // since notifications are app-global.
+        skillGateNames.insert("get_skill_notifications")
+
+        let orderedDefinitions: [(label: String, names: Set<String>)] = [
+            (label: "Canvas", names: canvasNames),
+        ] + kindGroups + [
+            (label: "Skill Gates", names: skillGateNames),
+            (label: "Memory", names: MyAppType.memoryToolNames),
+            (label: "Notifications", names: MyAppType.notificationToolNames),
+            (label: "Orchestrator", names: MyAppType.orchestratorToolNames),
+            (label: "Human-in-the-loop", names: MyAppType.humanInTheLoopToolNames),
+        ]
+
+        var assigned: Set<String> = []
+        var result: [ToolGroup] = []
+        for def in orderedDefinitions {
+            let bucket = descriptors.filter { def.names.contains($0.name) && !assigned.contains($0.name) }
+            if bucket.isEmpty { continue }
+            for d in bucket { assigned.insert(d.name) }
+            result.append(ToolGroup(label: def.label, tools: bucket))
+        }
+        let leftovers = descriptors.filter { !assigned.contains($0.name) }
+        if !leftovers.isEmpty {
+            result.append(ToolGroup(label: "Other", tools: leftovers))
+        }
+        return result
+    }
+
+    static func renderToolsBody(
+        agentName: String,
+        frontendGroups: [ToolGroup],
+        frontendIsEmpty: Bool,
+        backend: [BackendToolDescriptor]?,
+        disabledByUser: Set<String>,
+        verbose: Bool
+    ) -> String {
+        var out = "Agent: \(agentName)\n\n"
+        out += "Frontend tools (advertised to the model this turn):\n"
+        if frontendIsEmpty {
+            out += "  (none)\n"
+        } else {
+            for (idx, group) in frontendGroups.enumerated() {
+                if idx > 0 { out += "\n" }
+                out += "  \(group.label):\n"
+                for d in group.tools {
+                    if verbose {
+                        out += "    • \(d.name) — \(d.description)\n"
+                    } else {
+                        out += "    • \(d.name)\n"
+                    }
+                }
+            }
+        }
+        out += "\nBackend tools:\n"
+        switch backend {
+        case .none:
+            out += "  (failed to load — backend offline?)"
+        case .some(let list) where list.isEmpty:
+            out += "  (none registered)"
+        case .some(let list):
+            for d in list {
+                let suffix: String
+                if !d.enabledByEnv {
+                    suffix = " (disabled — env var not set)"
+                } else if disabledByUser.contains(d.name) {
+                    suffix = " (disabled in Settings)"
+                } else {
+                    suffix = ""
+                }
+                if verbose {
+                    out += "  • \(d.name) — \(d.description)\(suffix)\n"
+                } else {
+                    out += "  • \(d.name)\(suffix)\n"
+                }
+            }
+            // Trim the trailing newline so the bubble doesn't end with blank space.
+            if out.hasSuffix("\n") { out.removeLast() }
+        }
+        return out
+    }
+
+    public init(
+        store: MyAppStore,
+        memory: MemoryStore,
+        settings: SettingsStore,
+        registry: ToolRegistry,
+        scope: ChatScope,
+        threadId: String,
+        urlSession: URLSession = .shared,
+        skillState: SkillState,
+        onStreamingChange: ((Bool) -> Void)? = nil
+    ) {
+        self.store = store
+        self.memory = memory
+        self.settings = settings
+        self.registry = registry
+        self.urlSession = urlSession
+        self.pinnedScope = scope
+        self.threadId = threadId
+        self.skillState = skillState
+        self.onStreamingChange = onStreamingChange
+        let initialURL = settings.backendURL
+        let initialHeaders = settings.authHeaders
+        let client = AgentClient(
+            endpoint: initialURL,
+            session: urlSession,
+            extraHeaders: initialHeaders
+        )
+        self.session = AgentSession(
+            client: client,
+            registry: registry,
+            threadId: threadId
+        )
+        self.sessionBackendURL = initialURL
+        self.sessionAuthHeaders = initialHeaders
+    }
+
+    /// Swap `session` for a fresh one if the user changed `backendURL` or
+    /// `apiKey` in Settings since the current session was built. The threadId
+    /// is preserved across the swap so the backend's checkpointer continues
+    /// the same conversation. Bubbles already in `self.bubbles` stay put —
+    /// they're a `ChatViewModel` property, not a session property.
+    private func rebuildSessionIfSettingsChanged() {
+        let url = settings.backendURL
+        let headers = settings.authHeaders
+        guard url != sessionBackendURL || headers != sessionAuthHeaders else { return }
+        let client = AgentClient(
+            endpoint: url,
+            session: urlSession,
+            extraHeaders: headers
+        )
+        // threadId is immutable — carry it across the rebuild so the backend
+        // checkpointer keeps the conversation history.
+        session = AgentSession(
+            client: client,
+            registry: registry,
+            threadId: threadId
+        )
+        sessionBackendURL = url
+        sessionAuthHeaders = headers
+    }
+
+    public func send(_ raw: String, image: PickedImage? = nil) {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Allow sends with an image but no text — the agent can still reason
+        // about the image alone. Block only if both inputs are empty.
+        guard (!text.isEmpty || image != nil), !isStreaming else { return }
+        // Slash-command interception. Runs before the user bubble is appended
+        // so app-only commands (e.g. `/reset`) leave no trace in the chat
+        // transcript and never hit the backend. Image attachments paired with
+        // a slash command are dropped.
+        switch slashCommands.dispatch(text) {
+        case .appOnly:
+            return
+        case .rewriteMessage(let rewritten):
+            text = rewritten
+        case .hiddenHint:
+            return
+        case .unknown(let name):
+            appendBubble(
+                ChatBubble(role: .system, text: "Unknown command: /\(name) — type /help for the list.")
+            )
+            return
+        case .notACommand:
+            break
+        }
+
+        // If the agent is parked on an `ask_user_questions` interrupt, the
+        // user must submit answers via the bubble's Submit button — not by
+        // typing in the composer. We intentionally drop the send here so a
+        // stray Enter press doesn't accidentally start a new turn while
+        // the graph is waiting for resume values. The bubble's Submit
+        // affordance is the only correct exit.
+        if pendingContinuation != nil || pendingShellApprovalContinuation != nil {
+            return
+        }
+
+        appendBubble(ChatBubble(role: .user, text: text, imageData: image?.data))
+
+        // Capture the first user message as the thread title (set-once).
+        let isFirstUserMessage = !bubbles.dropLast().contains(where: { $0.role == .user })
+        if isFirstUserMessage {
+            store.setThreadTitle(Self.deriveTitle(text), threadId: threadId, for: pinnedScope)
+        }
+
+        setStreaming(true)
+        lastError = nil
+
+        rebuildSessionIfSettingsChanged()
+
+        let scope = pinnedScope
+        let focusedPath = memoryFocusedPath
+        let store = store
+        let memory = memory
+        let settings = settings
+        let imagePayload: (data: Data, mimeType: String)? = image.map { ($0.data, $0.mimeType) }
+        let previewTracker = previewTracker
+        // Resolve per-agent LLM selection at send time. The chosen model
+        // is sent in `forwardedProps["llm"]` and survives across all rounds
+        // of the turn (AgentSession merges it with the resume payload).
+        // No override (or the orchestrator scope) → empty object → backend
+        // uses its env-configured default.
+        let baseForwardedProps = Self.forwardedPropsJSON(scope: scope, store: store, settings: settings)
+        let stream = session.send(
+            text,
+            image: imagePayload,
+            context: { [store, memory, previewTracker] in
+                await Self.contextEntries(store: store, memory: memory, scope: scope, focusedPath: focusedPath, previewTracker: previewTracker)
+            },
+            // Recompute on every round so the kind-gated tool surface grows
+            // mid-turn the instant the agent's `addComponent` call adds a
+            // component of a new kind (and shrinks when the last one is
+            // removed). MainActor hop reads the live `MyAppStore`.
+            toolFilter: { [store, skillState] in
+                await MainActor.run { Self.allowedToolNames(scope: scope, store: store, skillState: skillState) }
+            },
+            state: { [settings, store] in
+                await Self.stateJSON(settings: settings, scope: scope, store: store)
+            },
+            forwardedProps: baseForwardedProps
+        )
+        consume(stream: stream)
+    }
+
+    /// Update the in-progress answer for a single question row. The bubble
+    /// view calls this when the user taps an option, types into the
+    /// inline TextField, or picks "Other…". The agent only sees these
+    /// values when the user taps Submit and `submitInterruptAnswers()`
+    /// fires.
+    public func setPendingAnswer(rowIndex: Int, value: String) {
+        guard pendingContinuation != nil,
+              pendingAnswers.indices.contains(rowIndex) else { return }
+        pendingAnswers[rowIndex] = value
+    }
+
+    /// Submit the collected answers to the suspended `ask_user_questions`
+    /// tool handler. No-op if no question is pending or the user hasn't
+    /// filled every row. Appends a transcript bubble summarising what was
+    /// sent, then resumes the bridge's continuation — AGUIKit's dispatch
+    /// loop returns the answers as the tool result and POSTs the resume
+    /// to the backend.
+    public func submitInterruptAnswers() {
+        guard let continuation = pendingContinuation, pendingAnswersComplete else { return }
+        let answers = pendingAnswers
+        // Append a single user bubble summarising the submitted answers
+        // so the chat transcript reflects what was sent. For a
+        // single-question interrupt the bubble shows the answer text
+        // alone; for multi-row the answers are numbered to match the
+        // question rows.
+        let summary: String = answers.count == 1
+            ? answers[0]
+            : answers.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n")
+        appendBubble(ChatBubble(role: .user, text: summary))
+        pendingContinuation = nil
+        pendingBubbleId = nil
+        pendingAnswers = []
+        continuation.resume(returning: answers)
+    }
+
+    /// Resume the shell approval interrupt with the user's decision. Called
+    /// from the `ShellApprovalBubbleView` Approve / Deny buttons.
+    public func submitShellApproval(approved: Bool, remember: Bool) {
+        guard let continuation = pendingShellApprovalContinuation else { return }
+        let label = approved ? (remember ? "Always allow" : "Allow once") : "Deny"
+        appendBubble(ChatBubble(role: .user, text: label))
+        pendingShellApprovalContinuation = nil
+        continuation.resume(returning: (approved: approved, remember: remember))
+    }
+
+    /// Shared event-pump for both the initial `send` and the post-interrupt
+    /// `resume` streams. Mirrors what was previously inlined in `send`.
+    private func consume(stream: AsyncThrowingStream<SessionEvent, Error>) {
+        streamTask?.cancel()
+        streamTask = Task { [weak self] in
+            do {
+                for try await event in stream {
+                    self?.apply(event)
+                }
+            } catch {
+                if case AgentClientError.cancelled = error { } else {
+                    self?.lastError = String(describing: error)
+                }
+            }
+            self?.setStreaming(false)
+            self?.streamTask = nil
+        }
+    }
+
+    public func cancel() {
+        streamTask?.cancel()
+        streamTask = nil
+        // User-initiated cancel must resume the suspended ask_user_questions
+        // handler with empty answers so the bridge's continuation fires
+        // exactly once and AGUIKit's dispatch loop unblocks. The handler
+        // returns those empty answers as the tool result; the backend
+        // graph stays parked on the interrupt and re-emits it on the
+        // next user send (the user will see the question panel again).
+        if let continuation = pendingContinuation {
+            pendingContinuation = nil
+            pendingBubbleId = nil
+            pendingAnswers = []
+            continuation.resume(returning: [])
+        }
+        if let continuation = pendingShellApprovalContinuation {
+            pendingShellApprovalContinuation = nil
+            continuation.resume(returning: (approved: false, remember: false))
+        }
+        setStreaming(false)
+    }
+
+    /// Start a new conversation. Stops any in-flight stream on this VM, then
+    /// appends a fresh thread to the store for this scope, making it current.
+    /// The `ConversationPager` observes the store and creates a brand-new,
+    /// empty VM for the new thread — this VM's bubbles are untouched so the
+    /// user can swipe back and read the old conversation.
+    public func newThread() {
+        cancel()
+        store.addThread(for: pinnedScope)
+    }
+
+    // MARK: - History loading
+
+    /// Fetch and render the backend transcript when this VM has no bubbles.
+    /// Called by `ConversationPager` when a conversation page becomes visible.
+    /// On success, also seeds `AgentSession.messages` with the prior human
+    /// messages so the backend recognises subsequent sends as continuations.
+    /// On failure, appends an inline error bubble — never blocks sending.
+    public func loadHistoryIfNeeded() {
+        guard bubbles.isEmpty, !hasLoadedHistory else { return }
+        hasLoadedHistory = true
+        let threadId = self.threadId
+        let backendURL = settings.backendURL
+        let headers = settings.authHeaders
+        let urlSession = self.urlSession
+        let session = self.session
+        Task { [weak self] in
+            let client = BackendThreadsClient(
+                backendURL: backendURL,
+                extraHeaders: headers,
+                session: urlSession
+            )
+            do {
+                let messages = try await client.fetchTranscript(threadId: threadId)
+                guard !messages.isEmpty else { return }
+                let bubbles = TranscriptMapper.bubbles(from: messages)
+                let agentMessages = messages
+                    .filter { $0.role == "human" }
+                    .map { AgentMessage.user($0.content, id: $0.id ?? UUID().uuidString) }
+                await session.reset(messages: agentMessages)
+                await MainActor.run { [weak self] in
+                    guard let self, self.bubbles.isEmpty else { return }
+                    self.bubbles = bubbles
+                }
+            } catch {
+                await MainActor.run { [weak self] in
+                    self?.bubbles = [ChatBubble(role: .system, text: "Could not load history: \(error.localizedDescription)")]
+                }
+            }
+        }
+    }
+
+    // MARK: - Helpers
+
+    /// Trim `text` to its first ~6 words / 40 characters for use as a thread title.
+    static func deriveTitle(_ text: String) -> String {
+        let line = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .components(separatedBy: .newlines).first ?? ""
+        let words = line.split(separator: " ").prefix(6).joined(separator: " ")
+        let trimmed = words.isEmpty ? line : words
+        return trimmed.count > 40 ? String(trimmed.prefix(40)) : trimmed
+    }
+
+    // MARK: - Stream handling
+
+    /// Internal so tests can drive the state machine directly without
+    /// spinning up a real `AgentSession` — the streamed-event handlers (in
+    /// particular the `toolRound` lifecycle) are subtle enough to warrant
+    /// focused unit tests at this layer.
+    func apply(_ event: SessionEvent) {
+        switch event {
+        case .assistantMessageStart(let id):
+            // LLM is resuming narration after any tool batch — close the open
+            // tool-round bubble so the next .toolCallStarted opens a fresh one.
+            openToolRoundId = nil
+            appendBubble(ChatBubble(id: id, role: .assistant, text: ""))
+        case .assistantMessageDelta(let id, let delta):
+            mutateBubble(id: id) { $0.text.append(delta) }
+        case .assistantMessageEnd(let id, let text):
+            mutateBubble(id: id) { $0.text = text }
+        case .toolCallStarted(let id, let name):
+            openOrAppendToolRoundEntry(id: id, name: name)
+        case .toolCallFinished(let id, let name, let arguments, let result):
+            finishToolRoundEntry(id: id, name: name, arguments: arguments, result: result)
+        case .roundFinished:
+            // Do NOT close the round here. `.toolCallFinished` is yielded by
+            // `AgentSession.runLoop` after `runOneRound` returns, i.e. after
+            // `.roundFinished` has already fired. Closing here would leave the
+            // entry pending forever.
+            break
+        case .completed:
+            openToolRoundId = nil
+        case .error(let message, _):
+            openToolRoundId = nil
+            lastError = message
+        }
+    }
+
+    private func openOrAppendToolRoundEntry(id: String, name: String) {
+        // Dedupe by id across ALL toolRound bubbles (not just the currently-
+        // open one). In the mixed frontend+backend case backend tools get one
+        // `TOOL_CALL_START` in round 1 (model emission) and another in round
+        // 2 when `ToolNode` actually executes them after the frontend
+        // interrupt resumes — same id both times. The shell-approval flow
+        // makes this worse: between the two starts an `.assistantMessageStart`
+        // can close round 1's bubble (resetting `openToolRoundId` to nil),
+        // so a per-open-bubble dedupe would miss and a fresh empty bubble B
+        // would open. `.toolCallFinished` then picks bubble A via its fallback
+        // scan and bubble B's `.pending` entry never resolves — stuck spinner.
+        // Scanning every toolRound bubble keeps round 1's entry the single
+        // source of truth.
+        if bubbles.contains(where: { $0.role == .toolRound && $0.toolEntries.contains(where: { $0.id == id }) }) {
+            return
+        }
+        if openToolRoundId == nil {
+            let bubble = ChatBubble(role: .toolRound, text: "")
+            openToolRoundId = bubble.id
+            appendBubble(bubble)
+        }
+        guard let roundId = openToolRoundId else { return }
+        mutateBubble(id: roundId) { bubble in
+            bubble.toolEntries.append(ToolCallEntry(id: id, name: name, state: .pending))
+        }
+    }
+
+    private func finishToolRoundEntry(id: String, name: String, arguments: AnyJSON, result: AnyJSON?) {
+        let argsJSON = prettyJSONString(arguments)
+        let resultText = result.map(prettyJSONString) ?? ""
+        let entryState = Self.entryState(for: result)
+        // Prefer the currently-open round; fall back to a scan so a late
+        // `.toolCallFinished` (e.g. arriving after the user hit Stop and the
+        // round was force-closed by `.completed`/`.error`) still flips the
+        // entry's spinner instead of leaving it pending forever.
+        let bubbleId: String? = openToolRoundId
+            ?? bubbles.first(where: { $0.role == .toolRound && $0.toolEntries.contains(where: { $0.id == id }) })?.id
+        guard let bubbleId else { return }
+        mutateBubble(id: bubbleId) { bubble in
+            guard let idx = bubble.toolEntries.firstIndex(where: { $0.id == id }) else { return }
+            bubble.toolEntries[idx].argsJSON = argsJSON
+            bubble.toolEntries[idx].resultText = resultText
+            bubble.toolEntries[idx].state = entryState
+        }
+    }
+
+    /// Classify a finished tool result as `.done` or `.failed`. Matches the
+    /// failure shape AGUIKit uses for thrown handler errors (see
+    /// `AgentSession.runLoop`): an object carrying `ok: false` and a non-empty
+    /// `error` field. Anything else — including `nil` (backend tool with no
+    /// server-emitted result) — counts as success.
+    private static func entryState(for result: AnyJSON?) -> ToolCallEntry.State {
+        guard case .object(let fields) = result else { return .done }
+        if case .bool(let ok) = fields["ok"], ok == false { return .failed }
+        return .done
+    }
+
+    private func appendBubble(_ bubble: ChatBubble) {
+        bubbles.append(bubble)
+    }
+
+    private func mutateBubble(id: String, _ body: (inout ChatBubble) -> Void) {
+        guard let idx = bubbles.firstIndex(where: { $0.id == id }) else { return }
+        body(&bubbles[idx])
+    }
+
+    private func setStreaming(_ value: Bool) {
+        guard isStreaming != value else { return }
+        isStreaming = value
+        onStreamingChange?(value)
+    }
+
+    // MARK: - State (per-turn agent state, distinct from `context`)
+
+    /// Build the `RunAgentInput.forwardedProps` payload sent at the start of
+    /// every turn (and merged into resume rounds by `AgentSession`).
+    /// Currently carries only the per-agent LLM selection — the resolved
+    /// `(provider, model)` for the active scope:
+    /// - `.myApp(id)`: from `MyAppStore.myAppLLM(for: id)`.
+    /// - `.memory`: from `SettingsStore.orchestratorLLM()` (the orchestrator
+    ///   has no MyApp parent, so its selection is stored globally).
+    /// Empty object → backend uses its env-configured default model.
+    @MainActor
+    private static func forwardedPropsJSON(
+        scope: ChatScope,
+        store: MyAppStore,
+        settings: SettingsStore
+    ) -> AnyJSON {
+        let selection: (provider: String, model: String)?
+        switch scope {
+        case .myApp(let id):
+            selection = store.myAppLLM(for: id)
+        case .memory:
+            selection = settings.orchestratorLLM()
+        }
+        guard let (provider, model) = selection else {
+            return .object([:])
+        }
+        return .object([
+            "llm": .object([
+                "provider": .string(provider),
+                "model": .string(model),
+            ])
+        ])
+    }
+
+    /// Build the `RunAgentInput.state` payload pushed every turn. Lands in
+    /// the LangGraph agent state on the server via `prepare_stream`; the
+    /// `ToolGatingMiddleware` reads `state["disabled_tools"]` to drop muted
+    /// backend tools from the model's tool list per call. Distinct from
+    /// `context` because state is typed runtime data, not free-text guidance.
+    private static func stateJSON(
+        settings: SettingsStore,
+        scope: ChatScope,
+        store: MyAppStore
+    ) async -> AnyJSON {
+        await MainActor.run {
+            let disabled = settings.disabledBackendTools.sorted().map { AnyJSON.string($0) }
+            var entries: [String: AnyJSON] = ["disabled_tools": .array(disabled)]
+            // Resolve shellApprovalDisabled through the settings hierarchy:
+            // per-myApp override (if any) beats the global toggle.
+            let myAppSettings: [UUID: [String: SettingValue]]
+            let resolveScope: SettingsScope
+            if case .myApp(let id) = scope,
+               let myApp = store.myApp(withId: id) {
+                myAppSettings = [id: myApp.settings]
+                resolveScope = .myApp(id)
+            } else {
+                myAppSettings = [:]
+                resolveScope = .global
+            }
+            let effective = EffectiveSettings(
+                globalSource: GlobalSettingsSource(shellApprovalDisabled: settings.shellApprovalDisabled),
+                myAppSettings: myAppSettings
+            )
+            if effective.resolve(ShellApprovalDisabledKey.self, at: resolveScope) {
+                entries["shell_approval_disabled"] = .bool(true)
+            }
+            return .object(entries)
+        }
+    }
+
+    // MARK: - Context
+
+    private static func contextEntries(
+        store: MyAppStore,
+        memory: MemoryStore,
+        scope: ChatScope,
+        focusedPath: String,
+        previewTracker: CanvasPreviewTracker
+    ) async -> [AgentContextEntry] {
+        await MainActor.run {
+            let memoriesPayload: [String: [String]] = ["paths": memory.snapshotPaths()]
+            let memoriesJSON = (try? JSONEncoder().encode(memoriesPayload)).flatMap { String(data: $0, encoding: .utf8) } ?? "{\"paths\":[]}"
+            let memoriesEntry = AgentContextEntry(
+                description: "User memories — sandboxed markdown FileSystem persisted across sessions. Payload: flat list of paths relative to memories root. Explore via ls/read/grepMemories; write/append/editMemoryFile to save user-volunteered facts (e.g. diet.md, notes/goals.md); move/delete/createMemoryFolder for organisation.",
+                value: memoriesJSON
+            )
+
+            switch scope {
+            case .memory:
+                // Snapshot the myApps sidebar so the orchestrator can resolve
+                // user-mentioned myApp names without an extra `listMyApps`
+                // round trip. `listMyApps` is still registered for when the
+                // model wants a deterministic, fresh read mid-turn.
+                let myAppsSnapshot: [[String: String]] = store.myApps.map { myApp in
+                    [
+                        "id": myApp.id.uuidString,
+                        "typeId": myApp.typeId,
+                        "name": myApp.name,
+                        "iconSystemName": myApp.iconSystemName,
+                    ]
+                }
+                let modePayload: [String: AnyJSON] = [
+                    "mode": .string("memory"),
+                    "focusedFile": .string(focusedPath),
+                    "memoryFolder": .string(MemoryStore.orchestratorFolder()),
+                    "myApps": .array(myAppsSnapshot.map { dict in
+                        .object(dict.mapValues { .string($0) })
+                    }),
+                ]
+                let modeJSON = (try? JSONEncoder().encode(modePayload)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+                // System prompt via OrchestratorPolicy — reads
+                // orchestrator/AGENTS.md; falls back to hardcoded text.
+                let orchDescription = OrchestratorPolicy().buildSystemPrompt(memory: memory)
+                return [
+                    memoriesEntry,
+                    AgentContextEntry(
+                        description: orchDescription,
+                        value: modeJSON
+                    ),
+                ]
+
+            case .myApp(let id):
+                guard let myApp = store.myApps.first(where: { $0.id == id }) else {
+                    // MyApp removed mid-stream. Fall back to memories-only
+                    // context so the agent at least sees a coherent payload.
+                    return [memoriesEntry]
+                }
+                let summary = CanvasSummary.build(myApp: myApp, previewTracker: previewTracker)
+                let canvasJSON = summary.toJSONString()
+                // System prompt via MyAppPolicy — reads <myapps/name>/AGENTS.md;
+                // falls back to the type-fragment description.
+                let typeDescription = MyAppPolicy(myAppId: id).buildSystemPrompt(
+                    myApp: myApp, memory: memory
+                )
+                let typePayload: [String: String] = [
+                    "typeId": myApp.typeId,
+                    "myAppName": myApp.name,
+                    "memoryFolder": MemoryStore.myAppFolder(myAppName: myApp.name),
+                ]
+                let typeJSON = (try? JSONEncoder().encode(typePayload)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+                return [
+                    AgentContextEntry(
+                        description: "Live canvas state — thin enum. Shape: {components: [{id, name, kind, itemCount, summary}], activeComponentId}. `summary` is YOUR slot — set via the kind's render tool with only `summary` arg; rides every turn until overwritten (record field names, select-option meanings, user intent, data state). Drill via list/search/get per-kind; `getCanvasState` = full-dump escape hatch.",
+                        value: canvasJSON
+                    ),
+                    memoriesEntry,
+                    AgentContextEntry(description: typeDescription, value: typeJSON),
+                ]
+            }
+        }
+    }
+}
+
+// MARK: - HumanInTheLoopBridge
+
+extension ChatViewModel: HumanInTheLoopBridge {
+    /// Render a `humanQuestion` bubble for the given rows, suspend the
+    /// caller until the user taps Submit (or cancels), return the
+    /// collected answers. Driven by the `ask_user_questions` frontend
+    /// tool's handler in [AppTools.swift](../Tools/AppTools.swift).
+    public func requestShellApproval(command: String) async -> (approved: Bool, remember: Bool) {
+        openToolRoundId = nil
+        let bubble = ChatBubble(role: .shellApproval, text: command)
+        appendBubble(bubble)
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<(approved: Bool, remember: Bool), Never>) in
+                pendingShellApprovalContinuation = continuation
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                guard let self, let continuation = self.pendingShellApprovalContinuation else { return }
+                self.pendingShellApprovalContinuation = nil
+                continuation.resume(returning: (approved: false, remember: false))
+            }
+        }
+    }
+
+    public func askQuestions(_ questions: [HumanQuestionRow]) async -> [String] {
+        // Close any open tool-round bubble — `ask_user_questions` is
+        // typically the only call in its batch, so the spinner should
+        // resolve before we render the question panel.
+        openToolRoundId = nil
+        let bubble = ChatBubble(role: .humanQuestion, humanQuestions: questions)
+        appendBubble(bubble)
+        pendingBubbleId = bubble.id
+        pendingAnswers = Array(repeating: "", count: questions.count)
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<[String], Never>) in
+                pendingContinuation = continuation
+            }
+        } onCancel: {
+            // Cancellation must resume the continuation exactly once.
+            // Hop back to the main actor to read/clear the stored
+            // continuation safely.
+            Task { @MainActor [weak self] in
+                guard let self, let continuation = self.pendingContinuation else { return }
+                self.pendingContinuation = nil
+                self.pendingBubbleId = nil
+                self.pendingAnswers = []
+                continuation.resume(returning: [])
+            }
+        }
+    }
+}
+
+/// Pretty-print an `AnyJSON` payload as a human-readable string. Used to
+/// render tool-call args and results inside an expanded `toolRound` bubble.
+/// Falls back to the encoder's default output if pretty-printing fails.
+private func prettyJSONString(_ value: AnyJSON) -> String {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    if let data = try? encoder.encode(value), let s = String(data: data, encoding: .utf8) {
+        return s
+    }
+    return ""
+}

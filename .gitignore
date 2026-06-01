@@ -1,0 +1,26 @@
+# Swift / SwiftPM
+.build/
+build/
+.swiftpm/
+Package.resolved
+# PupaHost pins remote SPM versions for reproducible builds — keep this one.
+!PupaHost/PupaHost.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+
+# Xcode user state
+**/xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+
+# Swift compiler intermediates (sometimes emitted to project root)
+*.d
+*.dia
+*.swiftdeps
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+.claude/*
+!.claude/skills/
+*.swp

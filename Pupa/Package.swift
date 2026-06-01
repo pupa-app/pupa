@@ -1,0 +1,47 @@
+// swift-tools-version:6.0
+import PackageDescription
+
+let package = Package(
+    name: "Pupa",
+    platforms: [
+        .iOS(.v17),
+        .macOS(.v14),
+    ],
+    products: [
+        // The reusable iOS/macOS app code: views, state stores, tools.
+        // Drop this into an Xcode App target's Package Dependencies and import PupaApp.
+        .library(name: "PupaApp", targets: ["PupaApp"]),
+        // A macOS-runnable build of the same app, useful for fast iteration
+        // outside Xcode. Start a backend on :8004 (see backend/), then `swift run PupaDemo`.
+        .executable(name: "PupaDemo", targets: ["PupaDemo"]),
+    ],
+    dependencies: [
+        .package(path: "../AGUIKit"),
+        .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.4.0"),
+        // GoogleWebRTC xcframework wrapped as SwiftPM. Same dep as
+        // screenshare-sidecar so publisher + viewer speak the same SDK build.
+        .package(url: "https://github.com/stasel/WebRTC.git", from: "137.0.0"),
+    ],
+    targets: [
+        .target(
+            name: "PupaApp",
+            dependencies: [
+                .product(name: "AGUIKit", package: "AGUIKit"),
+                .product(name: "MarkdownUI", package: "swift-markdown-ui"),
+                .product(name: "WebRTC", package: "WebRTC"),
+            ],
+            path: "Sources/PupaApp",
+            resources: [.process("Resources")]
+        ),
+        .executableTarget(
+            name: "PupaDemo",
+            dependencies: ["PupaApp"],
+            path: "Sources/PupaDemo"
+        ),
+        .testTarget(
+            name: "PupaAppTests",
+            dependencies: ["PupaApp"],
+            path: "Tests/PupaAppTests"
+        ),
+    ]
+)

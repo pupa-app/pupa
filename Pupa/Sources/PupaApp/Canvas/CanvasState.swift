@@ -1,0 +1,714 @@
+import Foundation
+
+public enum FieldType: String, Codable, Sendable {
+    case text
+    case number
+    case select
+    /// A URL or emoji that the card grid renders as a hero. Stored as a
+    /// `[String: String]` value like every other field — the view layer decides
+    /// how to display it.
+    case image
+    /// A URL the user wants quick access to (Amazon product page, recipe
+    /// source, GitHub repo, …). Rendered on each card as a clickable pill
+    /// that opens the URL in the default browser. Stored as a plain string;
+    /// invalid URLs fall back to a non-clickable text pill.
+    case link
+}
+
+public struct FieldDef: Codable, Hashable, Sendable, Identifiable {
+    public var name: String
+    public var label: String?
+    public var type: FieldType
+    public var options: [String]?
+    /// When `true`, the field disappears from form / card / filter / kanban
+    /// group-by UI but its values are kept on every item so unhide is fully
+    /// reversible. Soft-hide is the only "remove" verb on a tracker field —
+    /// hard removal would orphan item data, which is incompatible with the
+    /// "items are hard to delete" invariant. `nil` decodes as visible.
+    public var hidden: Bool?
+    public var id: String { name }
+
+    public init(
+        name: String,
+        label: String? = nil,
+        type: FieldType,
+        options: [String]? = nil,
+        hidden: Bool? = nil
+    ) {
+        self.name = name
+        self.label = label
+        self.type = type
+        self.options = options
+        self.hidden = hidden
+    }
+}
+
+/// One row in a tracker. `id` is stable across every schema mutation so the
+/// agent (and SwiftUI) can refer to a row without depending on its array
+/// position. `values` is sparse — a missing key for any field is treated as
+/// empty by the view layer, which is what lets `addTrackerField` /
+/// `hideTrackerField` etc. mutate `TrackerData.fields` without ever touching
+/// items.
+///
+/// `linkedItems` (added in project `0.0.41`) holds inline references to
+/// items in other components (tracker rows, calendar events, or other
+/// checklist rows). Each ref renders as a chain-link pill on the row's
+/// card; deleting the target sweeps the ref via
+/// `MyAppStore.cascadeRemoveRefs`.
+public struct TrackerItem: Codable, Hashable, Identifiable, Sendable {
+    public let id: UUID
+    public var values: [String: String]
+    public var linkedItems: [ComponentItemRef]
+
+    public init(
+        id: UUID = UUID(),
+        values: [String: String],
+        linkedItems: [ComponentItemRef] = []
+    ) {
+        self.id = id
+        self.values = values
+        self.linkedItems = linkedItems
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, values, linkedItems, schemaVersion
+    }
+
+    /// Backward-compatible decoder. `linkedItems` defaults to empty when
+    /// absent so on-disk blobs from before `0.0.41` decode cleanly.
+    /// `schemaVersion` is read but not acted on here; migrations are applied
+    /// at a higher level via `MigrationRegistry` before decoding.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(UUID.self, forKey: .id)
+        self.values = try c.decode([String: String].self, forKey: .values)
+        self.linkedItems = try c.decodeIfPresent([ComponentItemRef].self, forKey: .linkedItems) ?? []
+        _ = try c.decodeIfPresent(Int.self, forKey: .schemaVersion)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(values, forKey: .values)
+        try c.encode(linkedItems, forKey: .linkedItems)
+        try c.encode(schemaVersion, forKey: .schemaVersion)
+    }
+}
+
+extension TrackerItem: Item {
+    public static var kind: String { "tracker" }
+
+    /// Best-effort display name for pills and pickers. Prefers well-known
+    /// keys ("title", "name", "label") then falls back to the first
+    /// non-empty value in sorted-key order. Callers with full field
+    /// metadata should prefer `MyAppStore.displayNameForTrackerItem`.
+    public var displayName: String {
+        let preferred = ["title", "name", "label", "text"]
+        for key in preferred {
+            if let v = values[key]?.nonEmpty { return v }
+        }
+        return values.sorted(by: { $0.key < $1.key })
+                     .first(where: { $0.value.nonEmpty != nil })?
+                     .value ?? "–"
+    }
+}
+
+/// How a tracker renders its items. Same underlying `TrackerData` —
+/// only the SwiftUI view differs. Switching modes is non-destructive.
+public enum TrackerViewMode: String, Codable, Hashable, Sendable {
+    case grid    // adaptive card grid (default)
+    case kanban  // Jira-style swimlanes grouped by a select field's options
+}
+
+public struct TrackerData: Codable, Hashable, Sendable {
+    public var title: String
+    public var fields: [FieldDef]
+    /// Stable-id rows. Each `TrackerItem.values` is sparse `[String: String]`
+    /// keyed by `FieldDef.name`; missing keys are treated as empty at the
+    /// view layer, which is what lets the field-schema mutators stay
+    /// non-destructive to existing items.
+    public var items: [TrackerItem]
+    public var filter: [String: String]
+    public var viewMode: TrackerViewMode
+    /// Name of the `select` field whose options are used as kanban columns when
+    /// `viewMode == .kanban`. Nil means "auto-pick first eligible select field"
+    /// at switch time. Retained across grid/kanban toggles so the user's
+    /// column choice survives.
+    public var columnField: String?
+
+    public init(
+        title: String,
+        fields: [FieldDef],
+        items: [TrackerItem] = [],
+        filter: [String: String] = [:],
+        viewMode: TrackerViewMode = .grid,
+        columnField: String? = nil
+    ) {
+        self.title = title
+        self.fields = fields
+        self.items = items
+        self.filter = filter
+        self.viewMode = viewMode
+        self.columnField = columnField
+    }
+
+    /// Non-hidden fields only. Every UI read site (form, card, filter,
+    /// kanban group-by, "usable select" guards) should walk this — hidden
+    /// fields keep their item values but disappear from the UI.
+    public var visibleFields: [FieldDef] {
+        fields.filter { !($0.hidden ?? false) }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case title, fields, items, filter, viewMode, columnField
+    }
+
+    /// Custom decoder. Handles two backward-compat concerns:
+    /// - Pre-`viewMode` blobs default `viewMode` / `columnField` to `.grid` / `nil`.
+    /// - Pre-stable-id blobs stored `items` as `[[String: String]]`; we probe
+    ///   for that shape first and stamp fresh UUIDs once at decode time
+    ///   (never lazily — lazy assignment would regenerate IDs on every relaunch
+    ///   and silently re-key UI state). The next `persist()` writes the new
+    ///   `[TrackerItem]` shape and the legacy branch never runs again for
+    ///   that blob.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.title = try c.decode(String.self, forKey: .title)
+        self.fields = try c.decode([FieldDef].self, forKey: .fields)
+        self.items = (try? c.decodeIfPresent([TrackerItem].self, forKey: .items)) ?? []
+        self.filter = try c.decodeIfPresent([String: String].self, forKey: .filter) ?? [:]
+        self.viewMode = try c.decodeIfPresent(TrackerViewMode.self, forKey: .viewMode) ?? .grid
+        self.columnField = try c.decodeIfPresent(String.self, forKey: .columnField)
+    }
+}
+
+/// Kind-agnostic pointer to an item in another component (or in the
+/// same component for a self-link). Stored on every link-bearing item
+/// kind — tracker rows, calendar events, and checklist rows — and
+/// rendered as an inline chain-link pill with the target's live display
+/// name (resolved by `MyAppStore.displayNameForRefTarget`). The
+/// underlying on-disk JSON shape (`{componentId, itemId}`) is identical
+/// to the pre-`0.0.41` `TrackerItemRef`, so persisted blobs decode
+/// untouched.
+public struct ComponentItemRef: Codable, Hashable, Sendable {
+    public var componentId: String
+    public var itemId: UUID
+
+    public init(componentId: String, itemId: UUID) {
+        self.componentId = componentId
+        self.itemId = itemId
+    }
+}
+
+/// Pre-`0.0.41` name for `ComponentItemRef`. Kept as a typealias for
+/// one release so call sites in app code that haven't been updated yet
+/// keep compiling. Remove in the next major refactor.
+public typealias TrackerItemRef = ComponentItemRef
+
+/// One event on a calendar component. `start` is an ISO-8601 instant (the
+/// agent emits strings; the view formats locally). `end` and `notes` are
+/// optional. Stable `id` so the agent can refer to an event across
+/// reorderings or partial updates.
+///
+/// `linkedItems` attaches the event to zero or more tracker items —
+/// rendered as inline pills below the title. Edits to the linked tracker
+/// item update the pill (the tracker item's display name is pulled
+/// fresh at render time), but the event's own fields stay independent.
+/// Deleting a tracker item drops it from every event's `linkedItems` so
+/// no dangling references survive.
+public struct CalendarEvent: Codable, Hashable, Identifiable, Sendable {
+    public let id: UUID
+    public var title: String
+    public var start: String       // ISO-8601, e.g. "2026-05-14T10:00:00Z"
+    public var end: String?        // ISO-8601, optional
+    public var location: String?
+    public var notes: String?
+    public var linkedItems: [ComponentItemRef]
+
+    public init(
+        id: UUID = UUID(),
+        title: String,
+        start: String,
+        end: String? = nil,
+        location: String? = nil,
+        notes: String? = nil,
+        linkedItems: [ComponentItemRef] = []
+    ) {
+        self.id = id
+        self.title = title
+        self.start = start
+        self.end = end
+        self.location = location
+        self.notes = notes
+        self.linkedItems = linkedItems
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, start, end, location, notes, linkedItems, schemaVersion
+    }
+
+    /// Backward-compatible decoder. Pre-link persisted blobs have no
+    /// `linkedItems` field; `decodeIfPresent` returns nil so we default
+    /// to an empty array. The event then behaves as a normal ad-hoc
+    /// event with no attached references. `schemaVersion` is read but
+    /// not acted on here; migrations are applied at a higher level via
+    /// `MigrationRegistry` before decoding.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(UUID.self, forKey: .id)
+        self.title = try c.decode(String.self, forKey: .title)
+        self.start = try c.decode(String.self, forKey: .start)
+        self.end = try c.decodeIfPresent(String.self, forKey: .end)
+        self.location = try c.decodeIfPresent(String.self, forKey: .location)
+        self.notes = try c.decodeIfPresent(String.self, forKey: .notes)
+        self.linkedItems = try c.decodeIfPresent([ComponentItemRef].self, forKey: .linkedItems) ?? []
+        _ = try c.decodeIfPresent(Int.self, forKey: .schemaVersion)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(title, forKey: .title)
+        try c.encode(start, forKey: .start)
+        try c.encodeIfPresent(end, forKey: .end)
+        try c.encodeIfPresent(location, forKey: .location)
+        try c.encodeIfPresent(notes, forKey: .notes)
+        try c.encode(linkedItems, forKey: .linkedItems)
+        try c.encode(schemaVersion, forKey: .schemaVersion)
+    }
+}
+
+extension CalendarEvent: Item {
+    public static var kind: String { "calendar" }
+    public var displayName: String { title.nonEmpty ?? "–" }
+}
+
+/// How a calendar renders its events. Same underlying `CalendarData` —
+/// only the SwiftUI view differs. Switching modes is non-destructive.
+public enum CalendarViewMode: String, Codable, Hashable, Sendable {
+    case list    // upcoming-events list grouped by day (default)
+    case month   // 7-column grid with selected-day expansion below
+}
+
+public struct CalendarData: Codable, Hashable, Sendable {
+    public var title: String
+    public var events: [CalendarEvent]
+    public var viewMode: CalendarViewMode
+
+    public init(
+        title: String,
+        events: [CalendarEvent] = [],
+        viewMode: CalendarViewMode = .list
+    ) {
+        self.title = title
+        self.events = events
+        self.viewMode = viewMode
+    }
+
+    /// Events sorted ascending by `start`. The view renders this; the
+    /// underlying `events` array preserves insertion order so the agent can
+    /// address events by stable id without worrying about reorderings.
+    public var sortedEvents: [CalendarEvent] {
+        events.sorted { $0.start < $1.start }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case title, events, viewMode
+    }
+
+    /// Backward-compatible decoder. `viewMode` defaults to `.list` when
+    /// absent — covers any pre-toggle persisted blob.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.title = try c.decode(String.self, forKey: .title)
+        self.events = try c.decodeIfPresent([CalendarEvent].self, forKey: .events) ?? []
+        self.viewMode = try c.decodeIfPresent(CalendarViewMode.self, forKey: .viewMode) ?? .list
+    }
+}
+
+/// One row in a checklist. `id` is stable across reorderings so the agent
+/// (and SwiftUI) can refer to a row without depending on its array
+/// position. `done` is the checkbox state; `text` the displayed line.
+///
+/// `linkedItems` attaches the row to zero or more items in other
+/// components (today: tracker items and calendar events) — rendered as
+/// inline chain-link pills under the row's text, with the linked item's
+/// live display name pulled at render time. Deleting the target item
+/// drops its ref from every checklist row's `linkedItems` automatically.
+public struct ChecklistItem: Codable, Hashable, Identifiable, Sendable {
+    public let id: UUID
+    public var text: String
+    public var done: Bool
+    public var linkedItems: [ComponentItemRef]
+
+    public init(
+        id: UUID = UUID(),
+        text: String,
+        done: Bool = false,
+        linkedItems: [ComponentItemRef] = []
+    ) {
+        self.id = id
+        self.text = text
+        self.done = done
+        self.linkedItems = linkedItems
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, text, done, linkedItems, schemaVersion
+    }
+
+    /// Backward-compatible decoder. `linkedItems` defaults to empty when
+    /// absent so any pre-link persisted blob decodes cleanly.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(UUID.self, forKey: .id)
+        self.text = try c.decode(String.self, forKey: .text)
+        self.done = try c.decodeIfPresent(Bool.self, forKey: .done) ?? false
+        self.linkedItems = try c.decodeIfPresent([ComponentItemRef].self, forKey: .linkedItems) ?? []
+        _ = try c.decodeIfPresent(Int.self, forKey: .schemaVersion)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(text, forKey: .text)
+        try c.encode(done, forKey: .done)
+        try c.encode(linkedItems, forKey: .linkedItems)
+        try c.encode(schemaVersion, forKey: .schemaVersion)
+    }
+}
+
+extension ChecklistItem: Item {
+    public static var kind: String { "checklist" }
+    public var displayName: String { text.nonEmpty ?? "–" }
+}
+
+public struct ChecklistData: Codable, Hashable, Sendable {
+    public var title: String
+    public var items: [ChecklistItem]
+
+    public init(title: String, items: [ChecklistItem] = []) {
+        self.title = title
+        self.items = items
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case title, items
+    }
+
+    /// Backward-compatible decoder — `items` defaults to `[]` when
+    /// absent so a freshly-seeded empty body decodes cleanly.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.title = try c.decode(String.self, forKey: .title)
+        self.items = try c.decodeIfPresent([ChecklistItem].self, forKey: .items) ?? []
+    }
+}
+
+// MARK: - Slack component
+
+/// One agent in a Slack component. `id` is stable and used as the
+/// memory-namespace key (memory tools rebase paths under
+/// `memories/agents/{id}/` when invoked on this agent's behalf).
+/// `role` is short-form ("marketing", "dev"); `systemPromptAddition`
+/// is the persona text appended to the base system prompt for any
+/// invocation of this agent.
+public struct SlackAgent: Codable, Hashable, Sendable, Identifiable {
+    public let id: String
+    public var name: String
+    public var role: String
+    public var systemPromptAddition: String
+    /// Per-agent LLM provider override (one of `KnownLLMProvider.*`). When
+    /// `nil` the agent inherits its parent MyApp's choice (or the backend
+    /// default when neither is set). Paired with `llmModel` — both must be
+    /// non-nil for the override to apply.
+    public var llmProvider: String?
+    /// Per-agent logical LLM model id (e.g. `"claude-sonnet-4-6"`). See `llmProvider`.
+    public var llmModel: String?
+
+    public init(
+        id: String = UUID().uuidString,
+        name: String,
+        role: String,
+        systemPromptAddition: String,
+        llmProvider: String? = nil,
+        llmModel: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.role = role
+        self.systemPromptAddition = systemPromptAddition
+        self.llmProvider = llmProvider
+        self.llmModel = llmModel
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, role, systemPromptAddition, llmProvider, llmModel
+    }
+
+    /// Backward-compatible decoder — `llmProvider` / `llmModel` were added
+    /// later, so any persisted SlackAgent blob lacking them decodes cleanly
+    /// with `nil` for both.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(String.self, forKey: .id)
+        self.name = try c.decode(String.self, forKey: .name)
+        self.role = try c.decode(String.self, forKey: .role)
+        self.systemPromptAddition = try c.decode(String.self, forKey: .systemPromptAddition)
+        self.llmProvider = try c.decodeIfPresent(String.self, forKey: .llmProvider)
+        self.llmModel = try c.decodeIfPresent(String.self, forKey: .llmModel)
+    }
+}
+
+/// How a Slack channel is presented in the sidebar and which members
+/// can post. `channel` is an open public room; `groupDM` is a fixed
+/// roster of 3+ members; `dm` is a fixed pair (one user + one agent,
+/// or two agents).
+public enum SlackChannelType: String, Codable, Hashable, Sendable {
+    case channel
+    case groupDM
+    case dm
+}
+
+/// One room in a Slack component. `memberAgentIds` is the assigned
+/// roster (agents that can post + are auto-eligible to be `@`-mentioned);
+/// `subscriberAgentIds` is informational only in v1 (used by the
+/// sidebar to show "subscribed channels" per agent).
+public struct SlackChannel: Codable, Hashable, Sendable, Identifiable {
+    public let id: String
+    public var name: String
+    public var type: SlackChannelType
+    public var memberAgentIds: [String]
+    public var subscriberAgentIds: [String]
+
+    public init(
+        id: String = UUID().uuidString,
+        name: String,
+        type: SlackChannelType,
+        memberAgentIds: [String] = [],
+        subscriberAgentIds: [String] = []
+    ) {
+        self.id = id
+        self.name = name
+        self.type = type
+        self.memberAgentIds = memberAgentIds
+        self.subscriberAgentIds = subscriberAgentIds
+    }
+}
+
+/// Who authored a `SlackMessage`. `user` is the human typing in the
+/// composer; `agent` is any `SlackAgent` posting via `slackPostMessage`.
+public enum SlackAuthorKind: String, Codable, Hashable, Sendable {
+    case user
+    case agent
+}
+
+/// One message in a Slack channel. `authorId` is the user identifier
+/// ("user" for the human; an agent's stable id for agents).
+/// `mentionedAgentIds` is the parsed `@`-mention list — for user
+/// messages it drives which agents the composer invokes; for agent
+/// messages it's informational (rendered as pills in the view).
+public struct SlackMessage: Codable, Hashable, Sendable, Identifiable {
+    public let id: String
+    public let channelId: String
+    public var authorKind: SlackAuthorKind
+    public var authorId: String
+    public var text: String
+    public var timestamp: Date
+    public var mentionedAgentIds: [String]
+
+    public init(
+        id: String = UUID().uuidString,
+        channelId: String,
+        authorKind: SlackAuthorKind,
+        authorId: String,
+        text: String,
+        timestamp: Date = Date(),
+        mentionedAgentIds: [String] = []
+    ) {
+        self.id = id
+        self.channelId = channelId
+        self.authorKind = authorKind
+        self.authorId = authorId
+        self.text = text
+        self.timestamp = timestamp
+        self.mentionedAgentIds = mentionedAgentIds
+    }
+}
+
+/// Body of a Slack canvas component — the full state of the
+/// multi-agent room: every agent, every channel, the message history
+/// per channel, and which channel the user is currently viewing.
+/// Persists as part of the enclosing `CanvasApp` via `MyAppStore`'s
+/// UserDefaults blob.
+public struct SlackData: Codable, Hashable, Sendable {
+    public var agents: [SlackAgent]
+    public var channels: [SlackChannel]
+    public var messagesByChannel: [String: [SlackMessage]]
+    public var activeChannelId: String?
+
+    public init(
+        agents: [SlackAgent] = [],
+        channels: [SlackChannel] = [],
+        messagesByChannel: [String: [SlackMessage]] = [:],
+        activeChannelId: String? = nil
+    ) {
+        self.agents = agents
+        self.channels = channels
+        self.messagesByChannel = messagesByChannel
+        self.activeChannelId = activeChannelId
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case agents, channels, messagesByChannel, activeChannelId
+    }
+
+    /// Backward-compatible decoder — every field defaults so a
+    /// pre-Slack on-disk blob or a freshly-seeded empty body decodes
+    /// cleanly.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.agents = try c.decodeIfPresent([SlackAgent].self, forKey: .agents) ?? []
+        self.channels = try c.decodeIfPresent([SlackChannel].self, forKey: .channels) ?? []
+        self.messagesByChannel = try c.decodeIfPresent([String: [SlackMessage]].self, forKey: .messagesByChannel) ?? [:]
+        self.activeChannelId = try c.decodeIfPresent(String.self, forKey: .activeChannelId)
+    }
+}
+
+public enum CanvasApp: Codable, Hashable, Sendable {
+    case empty
+    case tracker(TrackerData)
+    case calendar(CalendarData)
+    case checklist(ChecklistData)
+    case slack(SlackData)
+
+    enum CodingKeys: String, CodingKey { case kind, data }
+    enum Kind: String, Codable { case empty, tracker, calendar, checklist, slack }
+
+    /// Stable string used by tool dispatch and component-kind routing.
+    /// Matches the `Kind.rawValue` written by the encoder.
+    public var kindString: String {
+        switch self {
+        case .empty: return "empty"
+        case .tracker: return "tracker"
+        case .calendar: return "calendar"
+        case .checklist: return "checklist"
+        case .slack: return "slack"
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let kind = try c.decode(Kind.self, forKey: .kind)
+        switch kind {
+        case .empty: self = .empty
+        case .tracker:
+            let data = try c.decode(TrackerData.self, forKey: .data)
+            self = .tracker(data)
+        case .calendar:
+            let data = try c.decode(CalendarData.self, forKey: .data)
+            self = .calendar(data)
+        case .checklist:
+            let data = try c.decode(ChecklistData.self, forKey: .data)
+            self = .checklist(data)
+        case .slack:
+            let data = try c.decode(SlackData.self, forKey: .data)
+            self = .slack(data)
+        }
+    }
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .empty:
+            try c.encode(Kind.empty, forKey: .kind)
+        case .tracker(let d):
+            try c.encode(Kind.tracker, forKey: .kind)
+            try c.encode(d, forKey: .data)
+        case .calendar(let d):
+            try c.encode(Kind.calendar, forKey: .kind)
+            try c.encode(d, forKey: .data)
+        case .checklist(let d):
+            try c.encode(Kind.checklist, forKey: .kind)
+            try c.encode(d, forKey: .data)
+        case .slack(let d):
+            try c.encode(Kind.slack, forKey: .kind)
+            try c.encode(d, forKey: .data)
+        }
+    }
+
+    /// Empty typed body for a component of the given kind. Used by
+    /// `MyAppStore.addComponent` and `MyApp.init` so a freshly created
+    /// component carries the right `kindString` before any render tool
+    /// runs — that's what lets the kind-gated tool filter (see
+    /// `MyAppType.resolvedToolNames`) advertise the per-kind tools on the
+    /// next agent round. Unknown kinds fall back to `.empty`.
+    public static func emptyBody(forKind kind: String) -> CanvasApp {
+        switch kind {
+        case "tracker": return .tracker(TrackerData(title: "", fields: []))
+        case "calendar": return .calendar(CalendarData(title: "", events: []))
+        case "checklist": return .checklist(ChecklistData(title: "", items: []))
+        case "slack": return .slack(SlackData())
+        default: return .empty
+        }
+    }
+
+    /// Apply `transform` to every `linkedItems` array inside this component
+    /// body. Used by `cascadeRemoveRefs` to sweep ref deletions without a
+    /// per-kind switch at the call site.
+    mutating func mapLinkedItems(_ transform: (inout [ComponentItemRef]) -> Void) {
+        switch self {
+        case .tracker(var t):
+            for i in t.items.indices { transform(&t.items[i].linkedItems) }
+            self = .tracker(t)
+        case .calendar(var cal):
+            for i in cal.events.indices { transform(&cal.events[i].linkedItems) }
+            self = .calendar(cal)
+        case .checklist(var cl):
+            for i in cl.items.indices { transform(&cl.items[i].linkedItems) }
+            self = .checklist(cl)
+        case .slack, .empty:
+            break
+        }
+    }
+}
+
+/// One slot in a MyApp's component list. A MyApp can contain multiple
+/// components of different kinds (a tracker plus a calendar, say); the
+/// sidebar expands the MyApp into a child row per component. `id` is a
+/// stable, agent-addressable string like `"tracker-1"` or `"calendar-1"`.
+public struct Component: Codable, Hashable, Identifiable, Sendable {
+    public let id: String
+    public var name: String
+    public var iconSystemName: String
+    public var body: CanvasApp
+    /// LLM-populated content-summary slot — the agent's running summary
+    /// of what this component is for AND what's currently in it
+    /// ("Q1 OKR tracker; rows are individual key results, status field
+    /// encodes RAG; 12 rows, 4 done"). The app NEVER auto-fills this —
+    /// it stays `nil` until the agent writes to it via the kind's render
+    /// tool (`renderTracker(summary: "…")`, `renderCalendar(summary: "…")`,
+    /// `renderChecklist(summary: "…")`). Surfaced in the canvas summary
+    /// context entry on every turn so the agent's own notes round-trip
+    /// across turns without depending on chat history. Passing only
+    /// `summary` to a render tool is a valid "update note" call that
+    /// leaves the body untouched.
+    public var summary: String?
+
+    public init(
+        id: String,
+        name: String,
+        iconSystemName: String,
+        body: CanvasApp,
+        summary: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.iconSystemName = iconSystemName
+        self.body = body
+        self.summary = summary
+    }
+
+    /// Convenience: kind string of the component's body, matching the
+    /// `CanvasApp` discriminator written by the encoder.
+    public var kindString: String { body.kindString }
+}

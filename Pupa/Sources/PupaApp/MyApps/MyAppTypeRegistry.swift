@@ -1,0 +1,45 @@
+import Foundation
+
+/// Append-only registry of `MyAppType`s the app knows how to render. The
+/// built-in `tracker` type is registered at app bootstrap; future BYO types
+/// can call `register(_:)` to add their own (see Phase C in the design doc).
+@MainActor
+public final class MyAppTypeRegistry {
+    public static let shared = MyAppTypeRegistry()
+
+    private var types: [MyAppType] = []
+
+    private init() {}
+
+    /// Register a type. Re-registering an id replaces the existing one.
+    public func register(_ type: MyAppType) {
+        if let idx = types.firstIndex(where: { $0.id == type.id }) {
+            types[idx] = type
+        } else {
+            types.append(type)
+        }
+    }
+
+    public func resolve(id: String) -> MyAppType? {
+        types.first { $0.id == id }
+    }
+
+    public var allTypes: [MyAppType] { types }
+
+    /// Idempotent — registers the built-in `tracker` type and its item policy
+    /// if absent. Called from `AppView.init`.
+    public func registerBuiltins() {
+        if resolve(id: MyAppType.tracker.id) == nil {
+            register(.tracker)
+        }
+        if !ItemPolicyRegistry.shared.isRegistered(forKind: "tracker") {
+            ItemPolicyRegistry.shared.register(TrackerItemPolicy(), forKind: "tracker")
+        }
+        if !ItemPolicyRegistry.shared.isRegistered(forKind: "calendar") {
+            ItemPolicyRegistry.shared.register(CalendarEventPolicy(), forKind: "calendar")
+        }
+        if !ItemPolicyRegistry.shared.isRegistered(forKind: "checklist") {
+            ItemPolicyRegistry.shared.register(ChecklistItemPolicy(), forKind: "checklist")
+        }
+    }
+}
