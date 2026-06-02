@@ -16,6 +16,13 @@ struct SplashView: View {
 
     var body: some View {
         ZStack {
+            // Opaque backing so the splash fully covers the app underneath. The
+            // gradient's far stop is translucent (`opacity(0.55)`) by design;
+            // without this base the app would show through the bottom-trailing
+            // corner. Backing with `cardBackground` (the app's own surface, light
+            // or dark) reproduces the intended washed-purple falloff opaquely.
+            Color.cardBackground.ignoresSafeArea()
+
             LinearGradient(
                 colors: [Color.orchestratorColor, Color.orchestratorColor.opacity(0.55)],
                 startPoint: .topLeading,
