@@ -32,7 +32,7 @@ struct DemoApp: App {
 
     var body: some Scene {
         WindowGroup("Pupa") {
-            AppView()
+            RootView()
         }
     }
 }

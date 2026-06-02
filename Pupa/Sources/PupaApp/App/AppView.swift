@@ -34,8 +34,17 @@ public struct AppView: View {
     /// inside `MyAppHomeView` pushes onto this path so Back returns to the
     /// landing page instead of clearing the whole detail pane.
     @State private var detailPath: [SidebarSelection] = []
+    /// Set when the user skipped backend pairing during onboarding. Drives the
+    /// dismissible reminder banner until a backend is paired.
+    @AppStorage(OnboardingKeys.backendSkipped) private var backendSkipped = false
+    /// Presents the pairing sheet from the reminder banner.
+    @State private var showBackendSheet = false
 
-    public init() {
+    /// `settings` is optional so `RootView` can hand in the shared
+    /// `SettingsStore` it also gives to onboarding — pairing done during
+    /// onboarding then mutates the very instance this view reads. Callers that
+    /// don't care (previews, the macOS demo) pass nothing and get a fresh one.
+    public init(settings injectedSettings: SettingsStore? = nil) {
         MyAppTypeRegistry.shared.registerBuiltins()
         // Install the UNUserNotificationCenter delegate before any agent
         // turn can call `sendNotification`. Idempotent.
@@ -45,7 +54,7 @@ public struct AppView: View {
         // Idempotent: writes each example's AGENTS.md persona files on
         // launches where any are missing. User edits survive every launch.
         ExampleRegistry.seedAll(globalMemory: memory)
-        let settings = SettingsStore()
+        let settings = injectedSettings ?? SettingsStore()
         self._store = State(initialValue: store)
         self._memory = State(initialValue: memory)
         self._settings = State(initialValue: settings)
@@ -60,6 +69,15 @@ public struct AppView: View {
     }
 
     public var body: some View {
+        platformBody
+            .safeAreaInset(edge: .top) {
+                if showBackendReminder { backendReminderBanner }
+            }
+            .sheet(isPresented: $showBackendSheet) { backendPairingSheet }
+    }
+
+    @ViewBuilder
+    private var platformBody: some View {
         #if os(iOS)
         iOSBody
             .onChange(of: store.myApps) { _, apps in
@@ -85,6 +103,70 @@ public struct AppView: View {
             for app in apps { coordinator.ensureMyAppMemory(app) }
         }
         #endif
+    }
+
+    /// Show the "connect your backend" nudge only when the user explicitly
+    /// skipped pairing during onboarding and the active backend is still
+    /// unpaired. `isPaired` reads the Keychain live, so the banner clears the
+    /// moment pairing completes (from the banner's sheet or from Settings).
+    private var showBackendReminder: Bool {
+        // Read `activeBackend` first so this view observes `backends` —
+        // `isPaired` alone reads the Keychain and registers no dependency, so
+        // the banner wouldn't clear when pairing mutates the store otherwise.
+        let active = settings.activeBackend
+        return backendSkipped && !settings.isPaired(active.id)
+    }
+
+    private var backendReminderBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "link.badge.plus")
+                .foregroundStyle(.orange)
+            Text("Connect your backend to start chatting")
+                .font(.subheadline)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+            Spacer(minLength: 8)
+            Button("Connect") { showBackendSheet = true }
+                .font(.subheadline.weight(.semibold))
+                .buttonStyle(.plain)
+                .foregroundStyle(.tint)
+            Button {
+                // Acknowledge — stop nagging for this install.
+                backendSkipped = false
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.regularMaterial)
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    /// Reuses the production pairing UI, operating on the active backend in the
+    /// shared `SettingsStore` — same wiring as the Settings sheet's edit path.
+    private var backendPairingSheet: some View {
+        let entry = settings.activeBackend
+        return BackendEditSheet(
+            title: "Connect backend",
+            initialEntry: entry,
+            onSave: { updated in
+                settings.updateBackend(
+                    entry.id,
+                    label: updated.label,
+                    url: updated.url,
+                    certFingerprint: .some(updated.certFingerprint)
+                )
+                showBackendSheet = false
+            },
+            onDelete: nil,
+            onCancel: { showBackendSheet = false },
+            settings: settings
+        )
     }
 
     #if os(iOS)
