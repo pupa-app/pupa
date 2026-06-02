@@ -141,3 +141,33 @@ client only needs its URL (Settings → Backend; default
 `http://localhost:8004/`) and a paired-device token. The wire protocol
 is plain AG-UI, so any AG-UI-compatible agent backend is a drop-in URL
 swap.
+
+## Signing & build configuration
+
+The Xcode project (`PupaHost`) carries **no signing identity** — no
+`DEVELOPMENT_TEAM` lives in `project.pbxproj` (keeps personal Apple
+account info out of the repo). Signing is supplied per-developer via an
+xcconfig override:
+
+- [`PupaHost/Config.xcconfig`](../PupaHost/Config.xcconfig) — committed,
+  set as the project's base configuration (Debug + Release, inherited by
+  all targets). It only does `#include? "Local.xcconfig"`. The `?` makes
+  the include optional, so clones / CI without the file still build (just
+  unsigned).
+- `PupaHost/Local.xcconfig` — **git-ignored**, created by each developer.
+  Holds the one line `DEVELOPMENT_TEAM = <your team id>`.
+
+**First-time setup on a fresh clone:** create `PupaHost/Local.xcconfig`
+with your Apple Developer team ID:
+
+```
+DEVELOPMENT_TEAM = XXXXXXXXXX
+```
+
+Then build/run in Xcode as normal (automatic signing). Do **not** set the
+team via Xcode's *Signing & Capabilities* dropdown — that writes
+`DEVELOPMENT_TEAM` back into `project.pbxproj` and re-leaks it.
+
+The app's bundle ID is `app.pupa.ios` (a generic placeholder). The bundle
+ID is permanent once an app record exists in App Store Connect, so settle
+on the final value before creating that record.
