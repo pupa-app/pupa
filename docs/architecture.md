@@ -52,7 +52,7 @@ handlers.
 
 | Area | What it owns |
 |---|---|
-| [`App/`](../Pupa/Sources/PupaApp/App/) | `AppView` (root split view), `PupaApp` scene, app icon. |
+| [`App/`](../Pupa/Sources/PupaApp/App/) | `RootView` (launch coordinator), `SplashView`, first-install onboarding (`OnboardingFlowView` + slides), `AppView` (root split view), `PupaApp` scene, app icon. |
 | [`MyApps/`](../Pupa/Sources/PupaApp/MyApps/) | `MyApp` model + `MyAppStore` (the single mutation surface), `MyAppType` (kind registry), example apps, `ItemEventLog` (reversible change log). |
 | [`Canvas/`](../Pupa/Sources/PupaApp/Canvas/) | `CanvasState` + the per-shape SwiftUI views (`TrackerView`, `CalendarView`, `ChecklistView`, `KanbanView`, `SlackView`) and the cross-component link picker. |
 | [`Chat/`](../Pupa/Sources/PupaApp/Chat/) | `ChatViewModel`, `ChatSessionCoordinator` (drives `AgentSession`), conversation pager, slash commands, transcript mapping. |
@@ -62,6 +62,19 @@ handlers.
 | [`Slack/`](../Pupa/Sources/PupaApp/Slack/) | `SlackInvoker` — multi-agent room invocation policy. |
 | [`ScreenShare/`](../Pupa/Sources/PupaApp/ScreenShare/) | WebRTC viewer + signalling client for the backend's `/screenshare/ws` broker. |
 | [`Settings/`](../Pupa/Sources/PupaApp/Settings/) | `SettingsStore` (backend URL, API key, disabled tools), backend-tools client. |
+
+## Launch sequence
+
+`RootView` is the scene root (`PupaApp`, demo, host all mount it). It owns
+the shared `SettingsStore` and drives a strict two-phase launch: `SplashView`
+plays on every cold launch and fully fades out *before* the next surface fades
+in — so splash and onboarding never blend. On first install (`OnboardingKeys`
+absent) `OnboardingFlowView` runs a value carousel + a backend-pairing step
+that reuses the production `BackendEditSheet` against the same `SettingsStore`
+the app reads; existing users skip straight to `AppView`. Skipping pairing
+sets a flag that surfaces a dismissible "connect your backend" banner in
+`AppView`; finishing while paired parks a suggested first message
+(`OnboardingHandoff`) that the first `ChatPanel` consumes.
 
 ## Canvas mutations
 
@@ -115,6 +128,10 @@ in `RunAgentInput.forwardedProps["llm"]`.
   on the backend → history dies with the backend process.
 - **Paired-device token** → iOS Keychain (service
   `com.pupa.backend-token`).
+- **Onboarding flags** → `UserDefaults` booleans `pupa.onboarding.completed`
+  (gates the first-install flow; back-filled `true` for pre-existing users so
+  an update doesn't replay it) and `pupa.onboarding.backendSkipped` (drives the
+  connect-backend reminder banner).
 
 ## Backend
 

@@ -108,6 +108,15 @@ public struct ChatPanel: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.cardBackground)
+        .onAppear {
+            // First chat opened after onboarding: pre-fill the composer with a
+            // suggested message so the user's first action is a single tap.
+            // Consume-once, so ordinary chat opens are untouched.
+            if draft.isEmpty, !viewModel.isStreaming,
+               let suggested = OnboardingHandoff.shared.consumeSuggestedPrompt() {
+                draft = suggested
+            }
+        }
     }
 
     private var header: some View {

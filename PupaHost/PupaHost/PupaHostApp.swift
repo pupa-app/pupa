@@ -5,7 +5,7 @@ import PupaApp
 struct PupaHostApp: App {
     var body: some Scene {
         WindowGroup {
-            AppView()
+            RootView()
         }
     }
 }

@@ -7,7 +7,7 @@ public struct PupaApp: App {
 
     public var body: some Scene {
         WindowGroup {
-            AppView()
+            RootView()
         }
     }
 }
