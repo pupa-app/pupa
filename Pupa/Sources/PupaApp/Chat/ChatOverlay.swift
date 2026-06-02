@@ -3,10 +3,10 @@ import SwiftUI
 /// Floating chat overlay. Collapsed by default as a circular pupa
 /// button bottom-trailing of the detail pane; tapping expands it into a
 /// floating card (defaulting to roughly half the available space) that hosts
-/// a `ConversationPager` — a horizontal swipeable list of conversations for
-/// the active scope. The card is user-resizable via a grip on its top-leading
-/// corner. The chosen size survives expand/collapse within a session but
-/// resets each launch.
+/// a `ConversationPager` — the `ChatPanel` for the active scope's current
+/// conversation, with a header dropdown for switching threads. The card is
+/// user-resizable via a grip on its top-leading corner. The chosen size
+/// survives expand/collapse within a session but resets each launch.
 struct ChatOverlay: View {
     let scope: ChatScope
     let coordinator: ChatSessionCoordinator

@@ -24,7 +24,11 @@ public struct AppView: View {
     @State private var selection: SidebarSelection?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     #if os(iOS)
-    @State private var showSidebar = false
+    /// Whether the slide-in sidebar/menu is open. Persisted so the app opens to
+    /// the same state it was left in; defaults to `true` so a fresh install
+    /// lands on an open menu. Written through by the toolbar toggle and the
+    /// auto-close on selection, so "last state" survives relaunch.
+    @AppStorage("pupa.ui.sidebarOpen") private var showSidebar = true
     #endif
     /// Which chat session is shown in the overlay. Decoupled from `selection`
     /// so the agent dropdown can switch chat context without moving the canvas.

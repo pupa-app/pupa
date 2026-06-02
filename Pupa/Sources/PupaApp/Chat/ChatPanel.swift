@@ -19,11 +19,17 @@ public struct AgentPickerEntry: Identifiable {
 
 public struct ChatPanel: View {
     @Bindable var viewModel: ChatViewModel
-    /// Title of the current conversation thread. `nil` when the thread has no
-    /// title yet (no messages sent). Shown in the header next to the agent name.
-    let currentThreadTitle: String?
+    /// All conversation threads for the current scope, oldest-first. Drives the
+    /// header thread-selector dropdown.
+    let threads: [ChatThread]
+    /// The id of the thread currently shown in this panel — checkmarked in the
+    /// dropdown.
+    let currentThreadId: String
     let agents: [AgentPickerEntry]
     let onSwitchAgent: (ChatScope) -> Void
+    /// Called with a thread id when the user picks a different conversation
+    /// from the dropdown.
+    let onSelectThread: (String) -> Void
     /// Called when the user taps the `+` button to start a new conversation.
     let onAddThread: (() -> Void)?
     /// Called when the user deletes the current thread. `nil` when only one
@@ -37,16 +43,20 @@ public struct ChatPanel: View {
 
     public init(
         viewModel: ChatViewModel,
-        currentThreadTitle: String? = nil,
+        threads: [ChatThread] = [],
+        currentThreadId: String = "",
         agents: [AgentPickerEntry],
         onSwitchAgent: @escaping (ChatScope) -> Void,
+        onSelectThread: @escaping (String) -> Void = { _ in },
         onAddThread: (() -> Void)? = nil,
         onDeleteThread: (() -> Void)? = nil
     ) {
         self.viewModel = viewModel
-        self.currentThreadTitle = currentThreadTitle
+        self.threads = threads
+        self.currentThreadId = currentThreadId
         self.agents = agents
         self.onSwitchAgent = onSwitchAgent
+        self.onSelectThread = onSelectThread
         self.onAddThread = onAddThread
         self.onDeleteThread = onDeleteThread
     }
@@ -122,13 +132,10 @@ public struct ChatPanel: View {
     private var header: some View {
         HStack(spacing: 8) {
             agentDropdown
-            if let title = currentThreadTitle {
-                Text("· \(title)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
+            Text("·")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            threadDropdown
             Spacer()
             if let add = onAddThread {
                 Button(action: add) {
@@ -177,6 +184,47 @@ public struct ChatPanel: View {
                 Image(systemName: "chevron.down")
                     .font(.caption2)
                     .foregroundStyle(viewModel.agentColor.opacity(0.7))
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Conversation selector. Replaces the old horizontal swipe-pager: tapping
+    /// opens a `Menu` listing every thread for the scope (newest first, the
+    /// active one checkmarked) plus a destructive "Delete this conversation"
+    /// action. The menu's own list scrolls when there are many threads.
+    @ViewBuilder
+    private var threadDropdown: some View {
+        let currentTitle = threads.first(where: { $0.id == currentThreadId })?.title ?? ""
+        Menu {
+            ForEach(threads.reversed()) { thread in
+                Button {
+                    onSelectThread(thread.id)
+                } label: {
+                    let label = thread.title.isEmpty ? "New chat" : thread.title
+                    if thread.id == currentThreadId {
+                        Label(label, systemImage: "checkmark")
+                    } else {
+                        Text(label)
+                    }
+                }
+            }
+            if let onDeleteThread {
+                Divider()
+                Button(role: .destructive, action: onDeleteThread) {
+                    Label("Delete this conversation", systemImage: "trash")
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(currentTitle.isEmpty ? "New chat" : currentTitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Image(systemName: "chevron.down")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary.opacity(0.7))
             }
         }
         .buttonStyle(.plain)

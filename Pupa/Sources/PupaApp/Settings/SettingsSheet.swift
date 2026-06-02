@@ -80,20 +80,42 @@ public struct SettingsSheet: View {
         self.onClose = onClose
     }
 
+    /// Top-level Settings categories. Each pushes a screen with that
+    /// category's real controls (the existing section builders, re-hosted in
+    /// their own `Form`).
+    private enum SettingsCategory: Hashable {
+        case backend, security, examples, developer
+    }
+
     public var body: some View {
         NavigationStack {
-            Form {
-                backendSection
-                securitySection
-                if onRestoreExample != nil {
-                    examplesSection
+            List {
+                NavigationLink(value: SettingsCategory.backend) {
+                    categoryRow(icon: "network", title: "Backend",
+                                caption: "Server URL, API key, pairing")
                 }
-                developerSection
+                NavigationLink(value: SettingsCategory.security) {
+                    categoryRow(icon: "lock.shield", title: "Security",
+                                caption: "Shell-command approval")
+                }
+                if onRestoreExample != nil {
+                    NavigationLink(value: SettingsCategory.examples) {
+                        categoryRow(icon: "sparkles", title: "Examples",
+                                    caption: "Add a sample workspace")
+                    }
+                }
+                NavigationLink(value: SettingsCategory.developer) {
+                    categoryRow(icon: "hammer", title: "Developer",
+                                caption: "Backend tool toggles")
+                }
             }
             .navigationTitle("Settings")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
+            .navigationDestination(for: SettingsCategory.self) { category in
+                categoryDetail(category)
+            }
             .toolbar {
                 ToolbarItem(placement: .navigation) {
                     InfoBadge(
@@ -147,6 +169,41 @@ public struct SettingsSheet: View {
         }
         .task { await loadTools() }
         .task(id: probeKey) { await probeAllBackends() }
+    }
+
+    /// One row in the top-level category list: icon + title + one-line caption.
+    private func categoryRow(icon: String, title: String, caption: String) -> some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                Text(caption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } icon: {
+            Image(systemName: icon)
+        }
+    }
+
+    /// Pushed detail screen for a category — re-hosts the matching section
+    /// builder in its own `Form` so the existing controls/logic are unchanged.
+    @ViewBuilder
+    private func categoryDetail(_ category: SettingsCategory) -> some View {
+        Group {
+            switch category {
+            case .backend:
+                Form { backendSection }.navigationTitle("Backend")
+            case .security:
+                Form { securitySection }.navigationTitle("Security")
+            case .examples:
+                Form { examplesSection }.navigationTitle("Examples")
+            case .developer:
+                Form { developerSection }.navigationTitle("Developer")
+            }
+        }
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 
     /// Cache key for the per-backend probe task. Re-run whenever the list,

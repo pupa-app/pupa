@@ -63,16 +63,27 @@ public struct MyAppSidebarView: View {
             // SwiftUI's `nil` write, leaving the just-popped row stuck
             // "selected" and blocking re-tap until a different row was
             // touched.
+            // MyApps scroll and fill the available space…
             List(selection: $selection) {
                 myAppsSection
+            }
+            #if os(macOS)
+            .listStyle(.sidebar)
+            #endif
+            .frame(maxHeight: .infinity)
+
+            // …while the Orchestrator is pinned to the bottom in its own list
+            // (a separate `List(selection:)` so its row + memory-file tags keep
+            // driving the shared `selection`). Height-capped so the memories
+            // disclosure scrolls inside it rather than shoving MyApps off-screen.
+            Divider()
+            List(selection: $selection) {
                 orchestratorSection
             }
             #if os(macOS)
             .listStyle(.sidebar)
             #endif
-            .onChange(of: selection) { _, new in
-                if let new { onSelectionChange(new) }
-            }
+            .frame(maxHeight: 240)
 
             Divider()
             HStack(spacing: 8) {
@@ -88,12 +99,18 @@ public struct MyAppSidebarView: View {
                     settingsSheetPresented = true
                 } label: {
                     Label("Settings", systemImage: "gearshape")
+                        .imageScale(.large)
+                        .font(.title3)
                 }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
                 .accessibilityLabel("Open Settings")
             }
             .padding(12)
+        }
+        // Fires for selection changes from either list (shared binding).
+        .onChange(of: selection) { _, new in
+            if let new { onSelectionChange(new) }
         }
         .sheet(isPresented: $newSheetPresented) {
             NewMyAppSheet(store: store) { newSheetPresented = false }
@@ -295,6 +312,15 @@ public struct MyAppSidebarView: View {
             if orchestratorExpanded {
                 orchestratorMemoriesDisclosure
                     .padding(.leading, 16)
+            }
+        } header: {
+            HStack(spacing: 6) {
+                Text("Orchestrator")
+                InfoBadge(
+                    title: "Orchestrator",
+                    message: "A global agent with its own chat and shared memory that spans every myapp. Use it for cross-app tasks and notes that aren't tied to a single canvas. Expand the row to browse its memories."
+                )
+                Spacer()
             }
         }
     }
