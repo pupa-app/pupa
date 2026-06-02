@@ -6,6 +6,9 @@ Package.resolved
 # PupaHost pins remote SPM versions for reproducible builds — keep this one.
 !PupaHost/PupaHost.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 
+# Local signing override — holds each developer's DEVELOPMENT_TEAM, never committed.
+PupaHost/Local.xcconfig
+
 # Xcode user state
 **/xcuserdata/
 *.xcuserstate

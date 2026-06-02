@@ -1,0 +1,11 @@
+// Shared, committed build configuration.
+//
+// Signing identity is intentionally NOT stored in the Xcode project or in
+// this file. Each developer provides their own Apple Developer team via a
+// local, git-ignored override:
+//
+//   PupaHost/Local.xcconfig   ->   DEVELOPMENT_TEAM = YOURTEAMID
+//
+// The `#include?` below is optional: builds still succeed without the file
+// (e.g. on CI), they just won't be code-signed for a specific team.
+#include? "Local.xcconfig"
