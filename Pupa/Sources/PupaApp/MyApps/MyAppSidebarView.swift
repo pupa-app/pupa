@@ -63,18 +63,37 @@ public struct MyAppSidebarView: View {
             // SwiftUI's `nil` write, leaving the just-popped row stuck
             // "selected" and blocking re-tap until a different row was
             // touched.
+            // MyApps scroll and fill the available space…
             List(selection: $selection) {
                 myAppsSection
-                orchestratorSection
             }
             #if os(macOS)
             .listStyle(.sidebar)
             #endif
-            .onChange(of: selection) { _, new in
-                if let new { onSelectionChange(new) }
-            }
+            .frame(maxHeight: .infinity)
 
+            // …while the Orchestrator is pinned to the bottom in its own list
+            // (a separate `List(selection:)` so its row + memory-file tags keep
+            // driving the shared `selection`). Collapsed it sits as a single
+            // slim footer row; expanding grows it to a height-capped scroll so
+            // the memories disclosure scrolls inside it rather than shoving
+            // MyApps off-screen.
             Divider()
+            List(selection: $selection) {
+                orchestratorSection
+            }
+            #if os(macOS)
+            .listStyle(.sidebar)
+            #else
+            .listStyle(.plain)
+            // Blend with the footer instead of reading as a raised white card
+            // on the grouped MyApps background — a single hairline divider above
+            // is the only separator, matching the Settings section delimiters.
+            .scrollContentBackground(.hidden)
+            #endif
+            .scrollDisabled(!orchestratorExpanded)
+            .frame(maxHeight: orchestratorExpanded ? 240 : 52)
+
             HStack(spacing: 8) {
                 Button {
                     selection = .screenShare
@@ -88,6 +107,8 @@ public struct MyAppSidebarView: View {
                     settingsSheetPresented = true
                 } label: {
                     Label("Settings", systemImage: "gearshape")
+                        .imageScale(.large)
+                        .font(.title3)
                 }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
@@ -95,14 +116,16 @@ public struct MyAppSidebarView: View {
             }
             .padding(12)
         }
+        // Fires for selection changes from either list (shared binding).
+        .onChange(of: selection) { _, new in
+            if let new { onSelectionChange(new) }
+        }
         .sheet(isPresented: $newSheetPresented) {
             NewMyAppSheet(store: store) { newSheetPresented = false }
         }
         .sheet(isPresented: $settingsSheetPresented) {
             SettingsSheet(
                 settings: settings,
-                store: store,
-                activeMyAppId: store.activeMyAppId,
                 onRestoreExample: { example in
                     let id = store.restoreExample(example)
                     // Refresh the example's AGENTS.md files so the
@@ -280,6 +303,10 @@ public struct MyAppSidebarView: View {
                     Image(systemName: "square.stack.3d.up.fill")
                 }
                 .foregroundStyle(Color.orchestratorColor)
+                InfoBadge(
+                    title: "Orchestrator",
+                    message: "A global agent with its own chat and shared memory that spans every myapp. Use it for cross-app tasks and notes that aren't tied to a single canvas. Expand the row to browse its memories."
+                )
                 Spacer(minLength: 0)
                 chevronButton(
                     isOpen: orchestratorExpanded,
@@ -371,11 +398,10 @@ public struct MyAppSidebarView: View {
                 .buttonStyle(.borderless)
             }
         }
-        .onAppear {
-            // Reveal the active MyApp on first render so the user lands on a
-            // sidebar that already shows their current component.
-            expandedMyApps.insert(store.activeMyAppId)
-        }
+        // MyApp rows start collapsed and only expand when the user taps the
+        // chevron. (Previously we auto-expanded the active myApp on appear,
+        // which also re-opened it every time the menu was reopened — e.g. on
+        // returning from a pushed section.)
     }
 
     @ViewBuilder

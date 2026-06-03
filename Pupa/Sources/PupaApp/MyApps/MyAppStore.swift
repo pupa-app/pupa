@@ -7,12 +7,10 @@ import Observation
 ///
 /// Persistence is a single JSON blob under `pupa.myapps.v1`. On first
 /// launch under a fresh install (or upgrade from any earlier `Space`-era
-/// storage), `load()` seeds the pre-populated "Example: Job Search"
-/// workspace via `JobSearchExample.make()` — a single MyApp with a
-/// tracker / checklist / calendar / slack component, intended to give
-/// new users a working demo of the full canvas instead of an empty
-/// placeholder. Users can restore the example any time from Settings
-/// via `restoreExampleMyApp()`. The spaces→myapps rename in project
+/// storage), `load()` seeds the pre-populated "Example: Wellbeing Coach"
+/// workspace via `WellbeingCoachExample.make()` — a working demo of the
+/// full canvas instead of an empty placeholder. Users can add any example
+/// any time from Settings → Examples. The spaces→myapps rename in project
 /// `0.0.26` is a clean break with no migration of older
 /// `pupa.spaces.v1` / `pupa.canvas.v1` data.
 /// The component refactor (project `0.0.31`) is backward-compatible at the
@@ -2318,7 +2316,7 @@ public final class MyAppStore {
             return (snap.myApps, active, snap.memoryThreads, snap.memoryCurrentThreadId, log)
         }
 
-        let myApp = JobSearchExample.make()
+        let myApp = WellbeingCoachExample.make()
         let firstThread = ChatThread()
         let snap = Snapshot(
             myApps: [myApp],

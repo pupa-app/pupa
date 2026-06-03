@@ -24,7 +24,15 @@ public struct AppView: View {
     @State private var selection: SidebarSelection?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     #if os(iOS)
-    @State private var showSidebar = false
+    /// Whether the slide-in sidebar/menu is open. Persisted so the app opens to
+    /// the same state it was left in; defaults to `true` so a fresh install
+    /// lands on an open menu. Written through by the toolbar toggle and the
+    /// auto-close on selection, so "last state" survives relaunch.
+    @AppStorage("pupa.ui.sidebarOpen") private var showSidebar = true
+    /// Drives the slide-in menu width: on a regular width class (iPad, or a
+    /// large iPhone in landscape) the drawer stays slim instead of swallowing
+    /// the whole screen the way it does on compact iPhones.
+    @Environment(\.horizontalSizeClass) private var hSizeClass
     #endif
     /// Which chat session is shown in the overlay. Decoupled from `selection`
     /// so the agent dropdown can switch chat context without moving the canvas.
@@ -170,6 +178,14 @@ public struct AppView: View {
     }
 
     #if os(iOS)
+    /// Width of the slide-in menu drawer. Compact (iPhone portrait) keeps the
+    /// near-full-width drawer; regular (iPad, large iPhone landscape) caps it at
+    /// a slim sidebar width so most of the canvas stays visible behind it.
+    private var sidebarWidth: CGFloat {
+        if hSizeClass == .regular { return 320 }
+        return UIScreen.main.bounds.width - 56
+    }
+
     private var iOSBody: some View {
         ZStack(alignment: .leading) {
             ZStack {
@@ -225,10 +241,12 @@ public struct AppView: View {
                     onSelectionChange: dispatchSelection,
                     onDeleteMyApp: deleteMyApp
                 )
-                .frame(width: UIScreen.main.bounds.width - 56)
-                .background(Color(uiColor: .systemBackground))
+                .frame(width: sidebarWidth)
+                // Bleed only the background behind the status bar / home
+                // indicator; the content keeps its safe-area insets so the
+                // brand header sits below the clock instead of under it.
+                .background(Color(uiColor: .systemBackground).ignoresSafeArea())
                 .shadow(radius: 10)
-                .ignoresSafeArea()
                 .transition(.move(edge: .leading))
             }
         }

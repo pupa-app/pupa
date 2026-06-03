@@ -73,10 +73,22 @@ public final class ChatSessionCoordinator {
         // Use the cert-pinning session when the active backend has a fingerprint;
         // fall back to .shared (or the injected test session) otherwise.
         self.urlSession = urlSession ?? settings.backendSession
-        let gate = AgentInvocationGate()
+        let gate = AgentInvocationGate(
+            maxChainDepth: settings.a2aMaxChainDepth,
+            maxTurnsPerPair: settings.a2aMaxTurnsPerPair
+        )
         self.agentInvocationGate = gate
         self.slackInvoker = SlackInvoker(gate: gate)
         bootstrapMemories()
+    }
+
+    /// Refresh the A2A gate's limits from the current `SettingsStore` values.
+    /// Called right before each gate decision so changes made in
+    /// Settings → Agent-to-agent take effect on the next invocation without
+    /// an app restart.
+    private func syncGateLimitsFromSettings() {
+        agentInvocationGate.maxChainDepth = settings.a2aMaxChainDepth
+        agentInvocationGate.maxTurnsPerPair = settings.a2aMaxTurnsPerPair
     }
 
     /// Write AGENTS.md for every existing myApp and the orchestrator at
@@ -246,6 +258,7 @@ public final class ChatSessionCoordinator {
     /// instead of running anyway and stomping on a concurrent run.
     func runOneShot(myAppId: UUID, prompt: String, caller: UUID? = nil) async throws -> String {
         let target: AgentInvocationKey = .myApp(myAppId)
+        syncGateLimitsFromSettings()
         let decision = agentInvocationGate.decide(caller: caller, target: target)
         guard case let .proceed(invocationId, treeRoot) = decision else {
             let ancestors = caller.map { agentInvocationGate.ancestorChain(from: $0) } ?? []
@@ -437,6 +450,7 @@ public final class ChatSessionCoordinator {
         }
         let invocationId: UUID
         let treeRoot: UUID
+        syncGateLimitsFromSettings()
         switch agentInvocationGate.decide(caller: caller, target: .slack(agentId: agentId)) {
         case .reentrant: return .reentrant(targetName: agent.name)
         case .busy: return .busy(targetName: agent.name)
