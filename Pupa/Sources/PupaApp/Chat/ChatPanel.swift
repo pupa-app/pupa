@@ -2,6 +2,9 @@ import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
 import MarkdownUI
+#if os(iOS)
+import UIKit
+#endif
 
 public struct AgentPickerEntry: Identifiable {
     public let scope: ChatScope
@@ -40,6 +43,12 @@ public struct ChatPanel: View {
     @State private var pickedImage: PickedImage?
     @State private var isLoadingImage: Bool = false
     @State private var isDropTargeted: Bool = false
+    /// Presents the system photo-library picker (driven by the paperclip menu).
+    @State private var showPhotoPicker: Bool = false
+    #if os(iOS)
+    /// Presents the in-app camera capture sheet (paperclip menu → Take Photo).
+    @State private var showCameraSheet: Bool = false
+    #endif
 
     public init(
         viewModel: ChatViewModel,
@@ -253,13 +262,30 @@ public struct ChatPanel: View {
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
                 HStack(spacing: 8) {
-                    PhotosPicker(selection: $pickerItem, matching: .images, photoLibrary: .shared()) {
+                    Menu {
+                        Button {
+                            showPhotoPicker = true
+                        } label: {
+                            Label("Photo Library", systemImage: "photo.on.rectangle")
+                        }
+                        #if os(iOS)
+                        if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                            Button {
+                                showCameraSheet = true
+                            } label: {
+                                Label("Take Photo", systemImage: "camera")
+                            }
+                        }
+                        #endif
+                    } label: {
                         Image(systemName: "paperclip")
                             .padding(8)
                     }
+                    .menuStyle(.button)
                     .buttonStyle(.bordered)
+                    .menuIndicator(.hidden)
                     .disabled(viewModel.isStreaming || isLoadingImage)
-                    .help("Attach an image (or drag & drop one onto the chat)")
+                    .help("Attach an image — pick from your library or take a photo (or drag & drop one onto the chat)")
                     TextField(composerPlaceholder, text: $draft, axis: .vertical)
                         .textFieldStyle(.roundedBorder)
                         .lineLimit(1...4)
@@ -295,7 +321,41 @@ public struct ChatPanel: View {
                 }
             }
         }
+        .photosPicker(
+            isPresented: $showPhotoPicker,
+            selection: $pickerItem,
+            matching: .images,
+            photoLibrary: .shared()
+        )
+        #if os(iOS)
+        .sheet(isPresented: $showCameraSheet) {
+            CameraPicker { data in
+                showCameraSheet = false
+                acceptCapturedImage(data)
+            }
+            .ignoresSafeArea()
+        }
+        #endif
     }
+
+    #if os(iOS)
+    /// Funnel a camera capture through the same prepare → `PickedImage` path as
+    /// library picks and drag-and-drop, so the attachment preview / send flow
+    /// is identical regardless of source.
+    private func acceptCapturedImage(_ data: Data?) {
+        guard let data else { return }
+        isLoadingImage = true
+        Task {
+            let prepared = ImagePreparer.prepare(data)
+            await MainActor.run {
+                if let prepared {
+                    self.pickedImage = PickedImage(data: prepared.data, mimeType: prepared.mimeType)
+                }
+                self.isLoadingImage = false
+            }
+        }
+    }
+    #endif
 
     private func handleDroppedProviders(_ providers: [NSItemProvider]) -> Bool {
         guard let provider = providers.first else { return false }

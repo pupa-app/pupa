@@ -74,16 +74,21 @@ public struct MyAppSidebarView: View {
 
             // …while the Orchestrator is pinned to the bottom in its own list
             // (a separate `List(selection:)` so its row + memory-file tags keep
-            // driving the shared `selection`). Height-capped so the memories
-            // disclosure scrolls inside it rather than shoving MyApps off-screen.
+            // driving the shared `selection`). Collapsed it sits as a single
+            // slim footer row; expanding grows it to a height-capped scroll so
+            // the memories disclosure scrolls inside it rather than shoving
+            // MyApps off-screen.
             Divider()
             List(selection: $selection) {
                 orchestratorSection
             }
             #if os(macOS)
             .listStyle(.sidebar)
+            #else
+            .listStyle(.plain)
             #endif
-            .frame(maxHeight: 240)
+            .scrollDisabled(!orchestratorExpanded)
+            .frame(maxHeight: orchestratorExpanded ? 240 : 52)
 
             Divider()
             HStack(spacing: 8) {
@@ -297,6 +302,10 @@ public struct MyAppSidebarView: View {
                     Image(systemName: "square.stack.3d.up.fill")
                 }
                 .foregroundStyle(Color.orchestratorColor)
+                InfoBadge(
+                    title: "Orchestrator",
+                    message: "A global agent with its own chat and shared memory that spans every myapp. Use it for cross-app tasks and notes that aren't tied to a single canvas. Expand the row to browse its memories."
+                )
                 Spacer(minLength: 0)
                 chevronButton(
                     isOpen: orchestratorExpanded,
@@ -312,15 +321,6 @@ public struct MyAppSidebarView: View {
             if orchestratorExpanded {
                 orchestratorMemoriesDisclosure
                     .padding(.leading, 16)
-            }
-        } header: {
-            HStack(spacing: 6) {
-                Text("Orchestrator")
-                InfoBadge(
-                    title: "Orchestrator",
-                    message: "A global agent with its own chat and shared memory that spans every myapp. Use it for cross-app tasks and notes that aren't tied to a single canvas. Expand the row to browse its memories."
-                )
-                Spacer()
             }
         }
     }

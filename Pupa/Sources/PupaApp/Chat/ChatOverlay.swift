@@ -17,6 +17,13 @@ struct ChatOverlay: View {
     @State private var isExpanded: Bool = false
     @State private var userSize: CGSize? = nil
     @State private var dragStartSize: CGSize? = nil
+    /// Height of the on-screen keyboard (0 when hidden). Drives manual
+    /// keyboard avoidance: the card is bottom-anchored, so default SwiftUI
+    /// avoidance can't lift this floating overlay — in landscape the composer
+    /// ended up behind the keyboard. We track the keyboard height ourselves
+    /// (see `.ignoresSafeArea(.keyboard)` + the notification observers below)
+    /// and lift/shrink the card to keep the input visible. Always 0 on macOS.
+    @State private var keyboardHeight: CGFloat = 0
 
     private let edgePadding: CGFloat = 16
     private let iconSize: CGFloat = 56
@@ -26,9 +33,17 @@ struct ChatOverlay: View {
 
     var body: some View {
         GeometryReader { geo in
+            // Portion of the keyboard overlapping the card's content area (the
+            // home-indicator inset is already excluded from `geo.size`).
+            let overlap = max(0, keyboardHeight - geo.safeAreaInsets.bottom)
+            // Space the card may occupy once the keyboard is up.
+            let available = CGSize(
+                width: geo.size.width,
+                height: max(0, geo.size.height - overlap)
+            )
             ZStack(alignment: .bottomTrailing) {
                 if isExpanded {
-                    card(in: geo.size)
+                    card(in: available)
                         .transition(
                             .scale(scale: 0.6, anchor: .bottomTrailing)
                             .combined(with: .opacity)
@@ -43,8 +58,36 @@ struct ChatOverlay: View {
             }
             .padding(edgePadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            // Lift the bottom-anchored card above the keyboard.
+            .padding(.bottom, overlap)
+        }
+        #if os(iOS)
+        // Keep the GeometryReader at full height (don't let the system shrink
+        // it for the keyboard) so we can do the avoidance ourselves above.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        .onReceive(NotificationCenter.default.publisher(
+            for: UIResponder.keyboardWillChangeFrameNotification
+        )) { note in updateKeyboard(from: note, hidden: false) }
+        .onReceive(NotificationCenter.default.publisher(
+            for: UIResponder.keyboardWillHideNotification
+        )) { note in updateKeyboard(from: note, hidden: true) }
+        #endif
+    }
+
+    #if os(iOS)
+    /// Mirror the keyboard's height into `keyboardHeight`, animated with the
+    /// system's own curve/duration so the card glides up and down with it.
+    private func updateKeyboard(from note: Notification, hidden: Bool) {
+        let info = note.userInfo
+        let duration = (info?[UIResponder.keyboardAnimationDurationUserInfoKey]
+            as? Double) ?? 0.25
+        let endHeight = (info?[UIResponder.keyboardFrameEndUserInfoKey]
+            as? NSValue)?.cgRectValue.height ?? 0
+        withAnimation(.easeOut(duration: duration)) {
+            keyboardHeight = hidden ? 0 : endHeight
         }
     }
+    #endif
 
     private var iconButton: some View {
         Button {
@@ -146,9 +189,10 @@ struct ChatOverlay: View {
 
     private func defaultSize(in containerSize: CGSize) -> CGSize {
         let maxW = max(minCardSize.width, containerSize.width - edgePadding * 2)
-        let maxH = max(minCardSize.height, containerSize.height - edgePadding * 2)
+        let maxH = max(0, containerSize.height - edgePadding * 2)
+        let minH = min(minCardSize.height, maxH)
         let w = max(minCardSize.width, min(maxW, containerSize.width * defaultWidthFraction))
-        let h = max(minCardSize.height, min(maxH, containerSize.height * defaultHeightFraction))
+        let h = max(minH, min(maxH, containerSize.height * defaultHeightFraction))
         return CGSize(width: w, height: h)
     }
 
@@ -158,10 +202,14 @@ struct ChatOverlay: View {
 
     private func clamp(_ size: CGSize, in containerSize: CGSize) -> CGSize {
         let maxW = max(minCardSize.width, containerSize.width - edgePadding * 2)
-        let maxH = max(minCardSize.height, containerSize.height - edgePadding * 2)
+        // Floor the height ceiling at 0 (not `minCardSize.height`) so a
+        // keyboard-squeezed container can shrink the card below its usual
+        // 360pt minimum and keep the composer on-screen.
+        let maxH = max(0, containerSize.height - edgePadding * 2)
+        let minH = min(minCardSize.height, maxH)
         return CGSize(
             width: max(minCardSize.width, min(maxW, size.width)),
-            height: max(minCardSize.height, min(maxH, size.height))
+            height: max(minH, min(maxH, size.height))
         )
     }
 

@@ -3,6 +3,24 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.4] — 2026-06-03
+
+### Added
+
+- The chat composer's attachment button now offers "Take Photo" alongside
+  "Photo Library", so you can capture an image with the camera without
+  leaving the chat. (`PupaApp` `0.0.92`)
+
+### Fixed
+
+- The Orchestrator landing page icon now uses the same purple as the menu
+  row and agent picker, instead of system blue. (`PupaApp` `0.0.92`)
+- On iPad (and large iPhones in landscape) the slide-in menu stays a slim
+  fixed width instead of covering most of the screen. (`PupaApp` `0.0.92`)
+- On iPhone in landscape, the chat composer no longer hides behind the
+  keyboard — the floating chat card lifts and shrinks to keep the input
+  visible. (`PupaApp` `0.0.92`)
+
 ## [0.0.3] — 2026-06-02
 
 ### Changed
@@ -17,9 +35,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   form. (`PupaApp` `0.0.91`)
 - The sidebar's Settings button is larger and easier to hit. (`PupaApp`
   `0.0.91`)
-- The Orchestrator is pinned to the bottom of the menu with its own
-  labelled, info-badged header, separated from the MyApps list. (`PupaApp`
-  `0.0.91`)
+- The Orchestrator collapses into a slim footer row pinned to the bottom of
+  the menu (tap the chevron to reveal its memories) instead of a heavy
+  separated section, keeping the menu clean. (`PupaApp` `0.0.91`)
 - On iOS the menu opens on first launch and then remembers its last
   open/closed state across launches. (`PupaApp` `0.0.91`)
 
