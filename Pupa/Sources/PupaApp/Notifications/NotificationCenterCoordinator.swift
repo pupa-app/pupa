@@ -33,6 +33,17 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
         public let deliveryAt: Date
     }
 
+    /// A pending (scheduled-but-not-yet-delivered) notification, flattened to
+    /// the fields the Settings list shows. `deliveryAt` is `nil` only for
+    /// trigger types we don't construct (defensive — every `schedule(_:)`
+    /// trigger resolves a date).
+    public struct PendingNotification: Sendable, Hashable, Identifiable {
+        public let id: String
+        public let title: String
+        public let body: String
+        public let deliveryAt: Date?
+    }
+
     public enum ScheduleError: Error, CustomStringConvertible {
         case notAuthorised
         case unsupportedHost
@@ -158,6 +169,33 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
             center.removePendingNotificationRequests(withIdentifiers: [id])
         }
         return wasPending
+    }
+
+    /// All pending notifications, soonest-first. Drives the Settings →
+    /// Notifications list. Empty on unsupported hosts (unsigned `swift run`
+    /// macOS binary / test process).
+    public func pendingNotifications() async -> [PendingNotification] {
+        guard Self.isHostSupported else { return [] }
+        let requests = await center.pendingNotificationRequests()
+        return requests
+            .map { req in
+                let deliveryAt: Date?
+                switch req.trigger {
+                case let trigger as UNCalendarNotificationTrigger:
+                    deliveryAt = trigger.nextTriggerDate()
+                case let trigger as UNTimeIntervalNotificationTrigger:
+                    deliveryAt = trigger.nextTriggerDate()
+                default:
+                    deliveryAt = nil
+                }
+                return PendingNotification(
+                    id: req.identifier,
+                    title: req.content.title,
+                    body: req.content.body,
+                    deliveryAt: deliveryAt
+                )
+            }
+            .sorted { ($0.deliveryAt ?? .distantFuture) < ($1.deliveryAt ?? .distantFuture) }
     }
 
     // MARK: - UNUserNotificationCenterDelegate

@@ -46,7 +46,7 @@ public struct OrchestratorHomeView: View {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Image(systemName: "square.stack.3d.up.fill")
                     .frame(width: 22)
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(Color.orchestratorColor)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Agent")
                         .font(.subheadline)
@@ -76,7 +76,7 @@ public struct OrchestratorHomeView: View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: "square.stack.3d.up.fill")
                 .font(.title2)
-                .foregroundStyle(.tint)
+                .foregroundStyle(Color.orchestratorColor)
             Text("Orchestrator")
                 .font(.title)
                 .fontWeight(.semibold)

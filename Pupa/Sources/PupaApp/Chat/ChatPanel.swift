@@ -2,6 +2,9 @@ import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
 import MarkdownUI
+#if os(iOS)
+import UIKit
+#endif
 
 public struct AgentPickerEntry: Identifiable {
     public let scope: ChatScope
@@ -19,11 +22,17 @@ public struct AgentPickerEntry: Identifiable {
 
 public struct ChatPanel: View {
     @Bindable var viewModel: ChatViewModel
-    /// Title of the current conversation thread. `nil` when the thread has no
-    /// title yet (no messages sent). Shown in the header next to the agent name.
-    let currentThreadTitle: String?
+    /// All conversation threads for the current scope, oldest-first. Drives the
+    /// header thread-selector dropdown.
+    let threads: [ChatThread]
+    /// The id of the thread currently shown in this panel — checkmarked in the
+    /// dropdown.
+    let currentThreadId: String
     let agents: [AgentPickerEntry]
     let onSwitchAgent: (ChatScope) -> Void
+    /// Called with a thread id when the user picks a different conversation
+    /// from the dropdown.
+    let onSelectThread: (String) -> Void
     /// Called when the user taps the `+` button to start a new conversation.
     let onAddThread: (() -> Void)?
     /// Called when the user deletes the current thread. `nil` when only one
@@ -34,19 +43,29 @@ public struct ChatPanel: View {
     @State private var pickedImage: PickedImage?
     @State private var isLoadingImage: Bool = false
     @State private var isDropTargeted: Bool = false
+    /// Presents the system photo-library picker (driven by the paperclip menu).
+    @State private var showPhotoPicker: Bool = false
+    #if os(iOS)
+    /// Presents the in-app camera capture sheet (paperclip menu → Take Photo).
+    @State private var showCameraSheet: Bool = false
+    #endif
 
     public init(
         viewModel: ChatViewModel,
-        currentThreadTitle: String? = nil,
+        threads: [ChatThread] = [],
+        currentThreadId: String = "",
         agents: [AgentPickerEntry],
         onSwitchAgent: @escaping (ChatScope) -> Void,
+        onSelectThread: @escaping (String) -> Void = { _ in },
         onAddThread: (() -> Void)? = nil,
         onDeleteThread: (() -> Void)? = nil
     ) {
         self.viewModel = viewModel
-        self.currentThreadTitle = currentThreadTitle
+        self.threads = threads
+        self.currentThreadId = currentThreadId
         self.agents = agents
         self.onSwitchAgent = onSwitchAgent
+        self.onSelectThread = onSelectThread
         self.onAddThread = onAddThread
         self.onDeleteThread = onDeleteThread
     }
@@ -122,13 +141,10 @@ public struct ChatPanel: View {
     private var header: some View {
         HStack(spacing: 8) {
             agentDropdown
-            if let title = currentThreadTitle {
-                Text("· \(title)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
+            Text("·")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            threadDropdown
             Spacer()
             if let add = onAddThread {
                 Button(action: add) {
@@ -138,16 +154,6 @@ public struct ChatPanel: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
                 .help("New conversation")
-            }
-            if let icon = AppIcon.swiftUIImage {
-                icon
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: 22, height: 22)
-                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-                    .accessibilityLabel("Pupa")
-            } else {
-                Text("Pupa").font(.subheadline).bold()
             }
         }
         .padding(.horizontal, 14)
@@ -182,6 +188,47 @@ public struct ChatPanel: View {
         .buttonStyle(.plain)
     }
 
+    /// Conversation selector. Replaces the old horizontal swipe-pager: tapping
+    /// opens a `Menu` listing every thread for the scope (newest first, the
+    /// active one checkmarked) plus a destructive "Delete this conversation"
+    /// action. The menu's own list scrolls when there are many threads.
+    @ViewBuilder
+    private var threadDropdown: some View {
+        let currentTitle = threads.first(where: { $0.id == currentThreadId })?.title ?? ""
+        Menu {
+            ForEach(threads.reversed()) { thread in
+                Button {
+                    onSelectThread(thread.id)
+                } label: {
+                    let label = thread.title.isEmpty ? "New chat" : thread.title
+                    if thread.id == currentThreadId {
+                        Label(label, systemImage: "checkmark")
+                    } else {
+                        Text(label)
+                    }
+                }
+            }
+            if let onDeleteThread {
+                Divider()
+                Button(role: .destructive, action: onDeleteThread) {
+                    Label("Delete this conversation", systemImage: "trash")
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(currentTitle.isEmpty ? "New chat" : currentTitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Image(systemName: "chevron.down")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary.opacity(0.7))
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
     private var inputBar: some View {
         VStack(spacing: 0) {
             Divider()
@@ -205,13 +252,30 @@ public struct ChatPanel: View {
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
                 HStack(spacing: 8) {
-                    PhotosPicker(selection: $pickerItem, matching: .images, photoLibrary: .shared()) {
+                    Menu {
+                        Button {
+                            showPhotoPicker = true
+                        } label: {
+                            Label("Photo Library", systemImage: "photo.on.rectangle")
+                        }
+                        #if os(iOS)
+                        if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                            Button {
+                                showCameraSheet = true
+                            } label: {
+                                Label("Take Photo", systemImage: "camera")
+                            }
+                        }
+                        #endif
+                    } label: {
                         Image(systemName: "paperclip")
                             .padding(8)
                     }
+                    .menuStyle(.button)
                     .buttonStyle(.bordered)
+                    .menuIndicator(.hidden)
                     .disabled(viewModel.isStreaming || isLoadingImage)
-                    .help("Attach an image (or drag & drop one onto the chat)")
+                    .help("Attach an image — pick from your library or take a photo (or drag & drop one onto the chat)")
                     TextField(composerPlaceholder, text: $draft, axis: .vertical)
                         .textFieldStyle(.roundedBorder)
                         .lineLimit(1...4)
@@ -247,7 +311,41 @@ public struct ChatPanel: View {
                 }
             }
         }
+        .photosPicker(
+            isPresented: $showPhotoPicker,
+            selection: $pickerItem,
+            matching: .images,
+            photoLibrary: .shared()
+        )
+        #if os(iOS)
+        .sheet(isPresented: $showCameraSheet) {
+            CameraPicker { data in
+                showCameraSheet = false
+                acceptCapturedImage(data)
+            }
+            .ignoresSafeArea()
+        }
+        #endif
     }
+
+    #if os(iOS)
+    /// Funnel a camera capture through the same prepare → `PickedImage` path as
+    /// library picks and drag-and-drop, so the attachment preview / send flow
+    /// is identical regardless of source.
+    private func acceptCapturedImage(_ data: Data?) {
+        guard let data else { return }
+        isLoadingImage = true
+        Task {
+            let prepared = ImagePreparer.prepare(data)
+            await MainActor.run {
+                if let prepared {
+                    self.pickedImage = PickedImage(data: prepared.data, mimeType: prepared.mimeType)
+                }
+                self.isLoadingImage = false
+            }
+        }
+    }
+    #endif
 
     private func handleDroppedProviders(_ providers: [NSItemProvider]) -> Bool {
         guard let provider = providers.first else { return false }

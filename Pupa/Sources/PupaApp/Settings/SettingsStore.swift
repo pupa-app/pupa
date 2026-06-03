@@ -64,6 +64,13 @@ public final class SettingsStore {
     public static let defaultBackendURL = URL(string: "http://localhost:8004/")!
     public static let defaultBackendLabel = "Local backend"
 
+    /// A2A (agent-to-agent) guardrails — see `AgentInvocationGate`.
+    public static let defaultA2AMaxChainDepth = 4
+    public static let defaultA2AMaxTurnsPerPair = 5
+    /// UI bounds for the steppers; also clamp anything read from disk.
+    public static let a2aMaxChainDepthRange = 1...8
+    public static let a2aMaxTurnsPerPairRange = 1...20
+
     public private(set) var disabledBackendTools: Set<String>
     public private(set) var backends: [BackendEntry]
     public private(set) var activeBackendID: UUID
@@ -79,6 +86,12 @@ public final class SettingsStore {
     /// `.memory` scopes from this pair.
     public private(set) var orchestratorLLMProvider: String?
     public private(set) var orchestratorLLMModel: String?
+    /// A2A guardrails surfaced in Settings → Agent-to-agent and fed into
+    /// `AgentInvocationGate`. `a2aMaxTurnsPerPair` is the number of back-and-forth
+    /// rounds one agent may have with another before the gate cuts it off;
+    /// `a2aMaxChainDepth` caps how deep a chain of agents-calling-agents can go.
+    public private(set) var a2aMaxChainDepth: Int
+    public private(set) var a2aMaxTurnsPerPair: Int
 
     /// Where paired-device tokens live. Keychain in production, swapped to
     /// `InMemoryCredentialStore` by tests so unit tests don't touch the real
@@ -124,6 +137,8 @@ public final class SettingsStore {
         self.shellApprovalDisabled = shellApprovalDisabled ?? snapshot.shellApprovalDisabled
         self.orchestratorLLMProvider = snapshot.orchestratorLLMProvider
         self.orchestratorLLMModel = snapshot.orchestratorLLMModel
+        self.a2aMaxChainDepth = snapshot.a2aMaxChainDepth
+        self.a2aMaxTurnsPerPair = snapshot.a2aMaxTurnsPerPair
         self.credentials = credentials ?? KeychainCredentialStore()
 
         // Init override (tests + previews) edits the *active* backend's URL.
@@ -215,6 +230,24 @@ public final class SettingsStore {
         persist()
     }
 
+    // MARK: - A2A guardrails
+
+    /// Clamp to the supported range so a bad write (or migrated value) can't
+    /// disable the gate or push it absurdly high.
+    public func setA2AMaxChainDepth(_ value: Int) {
+        let clamped = min(max(value, Self.a2aMaxChainDepthRange.lowerBound), Self.a2aMaxChainDepthRange.upperBound)
+        guard clamped != a2aMaxChainDepth else { return }
+        a2aMaxChainDepth = clamped
+        persist()
+    }
+
+    public func setA2AMaxTurnsPerPair(_ value: Int) {
+        let clamped = min(max(value, Self.a2aMaxTurnsPerPairRange.lowerBound), Self.a2aMaxTurnsPerPairRange.upperBound)
+        guard clamped != a2aMaxTurnsPerPair else { return }
+        a2aMaxTurnsPerPair = clamped
+        persist()
+    }
+
     // MARK: - Orchestrator LLM
 
     /// Write (or clear) the orchestrator's LLM selection. Pass `nil` for
@@ -295,7 +328,9 @@ public final class SettingsStore {
             activeBackendID: activeBackendID,
             shellApprovalDisabled: shellApprovalDisabled,
             orchestratorLLMProvider: orchestratorLLMProvider,
-            orchestratorLLMModel: orchestratorLLMModel
+            orchestratorLLMModel: orchestratorLLMModel,
+            a2aMaxChainDepth: a2aMaxChainDepth,
+            a2aMaxTurnsPerPair: a2aMaxTurnsPerPair
         )
         guard let data = try? JSONEncoder().encode(snap) else { return }
         UserDefaults.standard.set(data, forKey: Self.storageKey)
@@ -317,6 +352,9 @@ public final class SettingsStore {
         var shellApprovalDisabled: Bool?
         var orchestratorLLMProvider: String?
         var orchestratorLLMModel: String?
+        // Optional so pre-A2A blobs decode; `load()` substitutes the defaults.
+        var a2aMaxChainDepth: Int?
+        var a2aMaxTurnsPerPair: Int?
         // Legacy single-backend field. Decoded for migration; never re-encoded.
         var backendURL: String?
     }
@@ -328,6 +366,8 @@ public final class SettingsStore {
         let shellApprovalDisabled: Bool
         let orchestratorLLMProvider: String?
         let orchestratorLLMModel: String?
+        let a2aMaxChainDepth: Int
+        let a2aMaxTurnsPerPair: Int
     }
 
     private static func load() -> Loaded {
@@ -341,7 +381,9 @@ public final class SettingsStore {
                 activeBackendID: entry.id,
                 shellApprovalDisabled: false,
                 orchestratorLLMProvider: nil,
-                orchestratorLLMModel: nil
+                orchestratorLLMModel: nil,
+                a2aMaxChainDepth: defaultA2AMaxChainDepth,
+                a2aMaxTurnsPerPair: defaultA2AMaxTurnsPerPair
             )
         }
         let (backends, activeID) = resolveBackends(snap)
@@ -351,7 +393,9 @@ public final class SettingsStore {
             activeBackendID: activeID,
             shellApprovalDisabled: snap.shellApprovalDisabled ?? false,
             orchestratorLLMProvider: snap.orchestratorLLMProvider,
-            orchestratorLLMModel: snap.orchestratorLLMModel
+            orchestratorLLMModel: snap.orchestratorLLMModel,
+            a2aMaxChainDepth: snap.a2aMaxChainDepth ?? defaultA2AMaxChainDepth,
+            a2aMaxTurnsPerPair: snap.a2aMaxTurnsPerPair ?? defaultA2AMaxTurnsPerPair
         )
     }
 

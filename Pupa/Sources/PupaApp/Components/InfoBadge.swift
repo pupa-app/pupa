@@ -35,7 +35,10 @@ public struct InfoBadge: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(16)
-            .frame(minWidth: 240, maxWidth: 320, alignment: .leading)
+            // A fixed width (rather than a min/max range) so the popover
+            // measures the wrapped text's height deterministically — the range
+            // let it under-size and clip the last line.
+            .frame(width: 280, alignment: .leading)
             .presentationCompactAdaptation(.popover)
         }
     }

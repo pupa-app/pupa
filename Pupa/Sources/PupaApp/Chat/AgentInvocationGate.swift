@@ -103,15 +103,17 @@ public final class AgentInvocationGate {
     /// Max depth of any single ancestor chain. Reaching it blocks
     /// further nested calls with `.maxDepthExceeded`. 4 is plenty —
     /// most useful chains are 1–2 deep. Loops produce 5+ very
-    /// quickly.
-    public let maxChainDepth: Int
+    /// quickly. Mutable so Settings → Agent-to-agent can retune it live
+    /// (the coordinator syncs it from `SettingsStore` before each decision).
+    public var maxChainDepth: Int
 
     /// Max number of turns a parent may direct at the same child before
     /// the gate returns `.budgetExhausted`. Counted per (parentInvocationId,
     /// childKey) pair; resets when the parent exits and re-enters (i.e.
     /// starts a new tree or a new top-level run). Default 5 — enough for a
     /// short back-and-forth without letting runaway loops exhaust tokens.
-    public let maxTurnsPerPair: Int
+    /// Mutable for the same reason as `maxChainDepth`.
+    public var maxTurnsPerPair: Int
 
     /// Active forest, keyed by `invocationId`. Trees are reconstructed
     /// on demand by walking `parentInvocationId` (`ancestorChain(from:)`

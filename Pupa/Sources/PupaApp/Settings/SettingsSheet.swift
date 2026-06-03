@@ -4,19 +4,22 @@ import SwiftUI
 /// pattern from the New MyApp / Rename MyApp sheets so iOS / macOS gets a
 /// system-shaped layout for free.
 ///
-/// Sections:
+/// Categories (each pushes its own screen):
 ///   - **Backend** — base URL + optional shared API key (sent as
 ///     `Authorization: Bearer <key>` to match the backend's
 ///     `PUPA_API_KEY` env var). Both are persisted via `SettingsStore`
 ///     and take effect on the next message — no app restart needed (see
 ///     `ChatViewModel.rebuildSessionIfSettingsChanged`).
-///   - **Developer — Backend tools** — per-tool toggles fetched live from
-///     `GET /backend-tools`.
+///   - **Tools** — all tool permissions in one place: the global
+///     shell-command approval toggle and per-tool backend toggles fetched
+///     live from `GET /backend-tools`.
+///   - **Agent-to-agent** — A2A guardrails (`AgentInvocationGate`):
+///     conversation rounds per agent pair + max chain depth.
+///   - **Notifications** — lists pending scheduled notifications and lets
+///     the user cancel them (`NotificationCenterCoordinator`).
+///   - **Examples** — add a sample workspace to the sidebar.
 public struct SettingsSheet: View {
     @Bindable var settings: SettingsStore
-    /// When set, enables the per-MyApp override section in Security.
-    @Bindable var store: MyAppStore
-    var activeMyAppId: UUID?
     var onRestoreExample: ((any ExampleMyApp.Type) -> Void)?
     var onClose: () -> Void
 
@@ -68,37 +71,59 @@ public struct SettingsSheet: View {
 
     public init(
         settings: SettingsStore,
-        store: MyAppStore,
-        activeMyAppId: UUID? = nil,
         onRestoreExample: ((any ExampleMyApp.Type) -> Void)? = nil,
         onClose: @escaping () -> Void
     ) {
         self.settings = settings
-        self.store = store
-        self.activeMyAppId = activeMyAppId
         self.onRestoreExample = onRestoreExample
         self.onClose = onClose
     }
 
+    /// Top-level Settings categories. Each pushes a screen with that
+    /// category's real controls (the existing section builders, re-hosted in
+    /// their own `Form`).
+    private enum SettingsCategory: Hashable {
+        case backend, tools, agents, notifications, examples
+    }
+
     public var body: some View {
         NavigationStack {
-            Form {
-                backendSection
-                securitySection
-                if onRestoreExample != nil {
-                    examplesSection
+            List {
+                NavigationLink(value: SettingsCategory.backend) {
+                    categoryRow(icon: "network", title: "Backend",
+                                caption: "Server URL, API key, pairing")
                 }
-                developerSection
+                NavigationLink(value: SettingsCategory.tools) {
+                    categoryRow(icon: "wrench.and.screwdriver", title: "Tools",
+                                caption: "Shell approval & tool permissions")
+                }
+                NavigationLink(value: SettingsCategory.agents) {
+                    categoryRow(icon: "point.3.connected.trianglepath.dotted", title: "Agent-to-agent",
+                                caption: "Conversation rounds & chain depth")
+                }
+                NavigationLink(value: SettingsCategory.notifications) {
+                    categoryRow(icon: "bell.badge", title: "Notifications",
+                                caption: "Pending scheduled notifications")
+                }
+                if onRestoreExample != nil {
+                    NavigationLink(value: SettingsCategory.examples) {
+                        categoryRow(icon: "sparkles", title: "Examples",
+                                    caption: "Add a sample workspace")
+                    }
+                }
             }
             .navigationTitle("Settings")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
+            .navigationDestination(for: SettingsCategory.self) { category in
+                categoryDetail(category)
+            }
             .toolbar {
                 ToolbarItem(placement: .navigation) {
                     InfoBadge(
                         title: "Settings",
-                        message: "Configure Pupa. The Backend section points the app at a remote server; the Developer section controls which backend tools the agent is allowed to call this session."
+                        message: "Configure Pupa. The Backend section points the app at a remote server; the Tools section controls shell-command approval and which tools the agent is allowed to call this session."
                     )
                 }
                 ToolbarItem(placement: .confirmationAction) {
@@ -147,6 +172,49 @@ public struct SettingsSheet: View {
         }
         .task { await loadTools() }
         .task(id: probeKey) { await probeAllBackends() }
+    }
+
+    /// One row in the top-level category list: icon + title + one-line caption.
+    private func categoryRow(icon: String, title: String, caption: String) -> some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                Text(caption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } icon: {
+            Image(systemName: icon)
+        }
+    }
+
+    /// Pushed detail screen for a category — re-hosts the matching section
+    /// builder in its own `Form` so the existing controls/logic are unchanged.
+    @ViewBuilder
+    private func categoryDetail(_ category: SettingsCategory) -> some View {
+        Group {
+            switch category {
+            case .backend:
+                Form { backendSection }.navigationTitle("Backend")
+            case .tools:
+                // All tool permissions in one place: shell-command approval
+                // plus the per-tool backend toggles.
+                Form {
+                    securitySection
+                    developerSection
+                }
+                .navigationTitle("Tools")
+            case .agents:
+                Form { agentsSection }.navigationTitle("Agent-to-agent")
+            case .notifications:
+                PendingNotificationsList().navigationTitle("Notifications")
+            case .examples:
+                Form { examplesSection }.navigationTitle("Examples")
+            }
+        }
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 
     /// Cache key for the per-backend probe task. Re-run whenever the list,
@@ -237,6 +305,48 @@ public struct SettingsSheet: View {
     }
 
     @ViewBuilder
+    private var agentsSection: some View {
+        Section {
+            Stepper(
+                value: Binding(
+                    get: { settings.a2aMaxTurnsPerPair },
+                    set: { settings.setA2AMaxTurnsPerPair($0) }
+                ),
+                in: SettingsStore.a2aMaxTurnsPerPairRange
+            ) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Conversation rounds: \(settings.a2aMaxTurnsPerPair)")
+                    Text("How many back-and-forth turns one agent may have with another before the gate cuts it off.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Stepper(
+                value: Binding(
+                    get: { settings.a2aMaxChainDepth },
+                    set: { settings.setA2AMaxChainDepth($0) }
+                ),
+                in: SettingsStore.a2aMaxChainDepthRange
+            ) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Max chain depth: \(settings.a2aMaxChainDepth)")
+                    Text("How deep a chain of agents-calling-agents can go before further nested calls are blocked.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        } header: {
+            Text("Agent-to-agent limits")
+        } footer: {
+            Text("Guardrails for when one agent delegates to another — the orchestrator fanning out to myApp agents, or a Slack room. Changes take effect on the next agent call.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
     private var securitySection: some View {
         Section {
             Toggle(isOn: Binding(
@@ -251,58 +361,8 @@ public struct SettingsSheet: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            // Per-myApp override — only shown when a myApp is active
-            if let myAppId = activeMyAppId,
-               let myApp = store.myApp(withId: myAppId) {
-                let overrideValue = myApp.settings[ShellApprovalDisabledKey.name]
-                let hasOverride = overrideValue != nil
-                let effectivelyDisabled: Bool = {
-                    if case .bool(let v) = overrideValue { return v }
-                    return settings.shellApprovalDisabled
-                }()
-                Toggle(isOn: Binding(
-                    get: { !effectivelyDisabled },
-                    set: { newVal in
-                        store.setMyAppSetting(
-                            ShellApprovalDisabledKey.self,
-                            value: !newVal,
-                            for: myAppId
-                        )
-                    }
-                )) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack {
-                            Text("Require shell approval (this MyApp)")
-                            if hasOverride {
-                                Text("OVERRIDE")
-                                    .font(.caption2)
-                                    .padding(.horizontal, 4)
-                                    .background(Color.accentColor.opacity(0.15), in: Capsule())
-                                    .foregroundColor(Color.accentColor)
-                            }
-                        }
-                        Text("Overrides the global toggle for \"\(myApp.name)\" only. Tap to set; long-press to clear override.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .contextMenu {
-                    if hasOverride {
-                        Button(role: .destructive) {
-                            store.setMyAppSetting(
-                                ShellApprovalDisabledKey.self,
-                                value: nil,
-                                for: myAppId
-                            )
-                        } label: {
-                            Label("Clear override (use global)", systemImage: "arrow.uturn.left")
-                        }
-                    }
-                }
-            }
         } header: {
-            Text("Security")
+            Text("Shell commands")
         } footer: {
             Text("Only applies when the backend has the shell tool enabled. The setting is per-device and persisted; flipping it takes effect on your next message.")
                 .font(.caption)
@@ -368,7 +428,7 @@ public struct SettingsSheet: View {
                 }
             }
         } header: {
-            Text("Developer — Backend tools")
+            Text("Backend tools")
         } footer: {
             footerView
         }
@@ -488,5 +548,83 @@ public struct SettingsSheet: View {
                 fallback: Self.fallbackTools
             )
         }
+    }
+}
+
+/// Settings → Notifications screen: lists pending scheduled notifications (from
+/// the agent's `sendNotification` tool), soonest-first, with their delivery
+/// time, and lets the user cancel one. Reads the app-wide
+/// `NotificationCenterCoordinator.shared` singleton directly.
+private struct PendingNotificationsList: View {
+    @State private var items: [NotificationCenterCoordinator.PendingNotification] = []
+    @State private var loaded = false
+
+    var body: some View {
+        List {
+            Section {
+                if !loaded {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Loading…").foregroundStyle(.secondary)
+                    }
+                } else if items.isEmpty {
+                    Text("No scheduled notifications.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(items) { item in
+                        row(item)
+                    }
+                }
+            } footer: {
+                Text("Notifications the agent has scheduled via its `sendNotification` tool but that haven't fired yet. Swipe (or use the context menu) to cancel one.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .task { await reload() }
+        #if os(iOS)
+        .refreshable { await reload() }
+        #endif
+    }
+
+    private func row(_ item: NotificationCenterCoordinator.PendingNotification) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(item.title.isEmpty ? "(no title)" : item.title)
+            if !item.body.isEmpty {
+                Text(item.body)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            if let date = item.deliveryAt {
+                Text(date, format: .dateTime.weekday().month().day().hour().minute())
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        #if os(iOS)
+        .swipeActions(edge: .trailing) {
+            Button(role: .destructive) { cancel(item) } label: {
+                Label("Cancel", systemImage: "trash")
+            }
+        }
+        #endif
+        .contextMenu {
+            Button(role: .destructive) { cancel(item) } label: {
+                Label("Cancel notification", systemImage: "trash")
+            }
+        }
+    }
+
+    private func cancel(_ item: NotificationCenterCoordinator.PendingNotification) {
+        Task {
+            _ = await NotificationCenterCoordinator.shared.cancel(id: item.id)
+            await reload()
+        }
+    }
+
+    private func reload() async {
+        items = await NotificationCenterCoordinator.shared.pendingNotifications()
+        loaded = true
     }
 }
