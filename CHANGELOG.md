@@ -20,6 +20,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
 - On iPhone in landscape, the chat composer no longer hides behind the
   keyboard — the floating chat card lifts and shrinks to keep the input
   visible. (`PupaApp` `0.0.92`)
+- The slide-in menu's brand header no longer renders under the status-bar
+  clock: the panel background still bleeds to the screen edge, but its
+  content keeps its safe-area insets. (`PupaApp` `0.0.92`)
 
 ## [0.0.3] — 2026-06-02
 

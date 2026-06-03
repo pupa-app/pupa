@@ -25,11 +25,10 @@ struct ChatOverlay: View {
     /// and lift/shrink the card to keep the input visible. Always 0 on macOS.
     @State private var keyboardHeight: CGFloat = 0
 
-    private let edgePadding: CGFloat = 16
     private let iconSize: CGFloat = 56
-    private let minCardSize = CGSize(width: 320, height: 360)
-    private let defaultWidthFraction: CGFloat = 0.5
-    private let defaultHeightFraction: CGFloat = 0.6
+    /// Pure sizing math (also unit-tested via `ChatCardSizingTests`).
+    private let sizing = ChatCardSizing()
+    private var edgePadding: CGFloat { sizing.edgePadding }
 
     var body: some View {
         GeometryReader { geo in
@@ -117,7 +116,7 @@ struct ChatOverlay: View {
     }
 
     private func card(in containerSize: CGSize) -> some View {
-        let size = resolvedSize(in: containerSize)
+        let size = sizing.resolvedSize(user: userSize, in: containerSize)
 
         return ZStack(alignment: .topLeading) {
             VStack(spacing: 0) {
@@ -171,46 +170,20 @@ struct ChatOverlay: View {
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
                         if dragStartSize == nil {
-                            dragStartSize = resolvedSize(in: containerSize)
+                            dragStartSize = sizing.resolvedSize(user: userSize, in: containerSize)
                         }
-                        let start = dragStartSize ?? resolvedSize(in: containerSize)
+                        let start = dragStartSize ?? sizing.resolvedSize(user: userSize, in: containerSize)
                         let proposed = CGSize(
                             width: start.width - value.translation.width,
                             height: start.height - value.translation.height
                         )
-                        userSize = clamp(proposed, in: containerSize)
+                        userSize = sizing.clamp(proposed, in: containerSize)
                     }
                     .onEnded { _ in
                         dragStartSize = nil
                     }
             )
             .accessibilityLabel("Resize chat panel")
-    }
-
-    private func defaultSize(in containerSize: CGSize) -> CGSize {
-        let maxW = max(minCardSize.width, containerSize.width - edgePadding * 2)
-        let maxH = max(0, containerSize.height - edgePadding * 2)
-        let minH = min(minCardSize.height, maxH)
-        let w = max(minCardSize.width, min(maxW, containerSize.width * defaultWidthFraction))
-        let h = max(minH, min(maxH, containerSize.height * defaultHeightFraction))
-        return CGSize(width: w, height: h)
-    }
-
-    private func resolvedSize(in containerSize: CGSize) -> CGSize {
-        clamp(userSize ?? defaultSize(in: containerSize), in: containerSize)
-    }
-
-    private func clamp(_ size: CGSize, in containerSize: CGSize) -> CGSize {
-        let maxW = max(minCardSize.width, containerSize.width - edgePadding * 2)
-        // Floor the height ceiling at 0 (not `minCardSize.height`) so a
-        // keyboard-squeezed container can shrink the card below its usual
-        // 360pt minimum and keep the composer on-screen.
-        let maxH = max(0, containerSize.height - edgePadding * 2)
-        let minH = min(minCardSize.height, maxH)
-        return CGSize(
-            width: max(minCardSize.width, min(maxW, size.width)),
-            height: max(minH, min(maxH, size.height))
-        )
     }
 
     private func collapse() {

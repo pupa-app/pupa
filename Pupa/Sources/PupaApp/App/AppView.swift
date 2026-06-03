@@ -242,9 +242,11 @@ public struct AppView: View {
                     onDeleteMyApp: deleteMyApp
                 )
                 .frame(width: sidebarWidth)
-                .background(Color(uiColor: .systemBackground))
+                // Bleed only the background behind the status bar / home
+                // indicator; the content keeps its safe-area insets so the
+                // brand header sits below the clock instead of under it.
+                .background(Color(uiColor: .systemBackground).ignoresSafeArea())
                 .shadow(radius: 10)
-                .ignoresSafeArea()
                 .transition(.move(edge: .leading))
             }
         }
