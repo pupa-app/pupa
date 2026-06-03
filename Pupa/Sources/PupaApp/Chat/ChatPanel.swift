@@ -155,16 +155,6 @@ public struct ChatPanel: View {
                 .foregroundStyle(.secondary)
                 .help("New conversation")
             }
-            if let icon = AppIcon.swiftUIImage {
-                icon
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: 22, height: 22)
-                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-                    .accessibilityLabel("Pupa")
-            } else {
-                Text("Pupa").font(.subheadline).bold()
-            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)

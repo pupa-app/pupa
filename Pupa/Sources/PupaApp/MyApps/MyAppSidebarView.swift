@@ -126,8 +126,6 @@ public struct MyAppSidebarView: View {
         .sheet(isPresented: $settingsSheetPresented) {
             SettingsSheet(
                 settings: settings,
-                store: store,
-                activeMyAppId: store.activeMyAppId,
                 onRestoreExample: { example in
                     let id = store.restoreExample(example)
                     // Refresh the example's AGENTS.md files so the

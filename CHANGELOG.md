@@ -27,6 +27,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
 - MyApp rows in the menu start collapsed and only expand when you tap the
   chevron — they no longer auto-open (and no longer re-open when you return from
   a pushed section). (`PupaApp` `0.0.92`)
+- Settings → Tools now shows only the global shell-approval toggle; the
+  per-MyApp override control was removed from the UI (the underlying per-MyApp
+  setting still applies when present). (`PupaApp` `0.0.92`)
+- Removed the small Pupa brand icon from the chat panel header to declutter it.
+  (`PupaApp` `0.0.92`)
 
 ### Fixed
 

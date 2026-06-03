@@ -10,9 +10,9 @@ import SwiftUI
 ///     `PUPA_API_KEY` env var). Both are persisted via `SettingsStore`
 ///     and take effect on the next message — no app restart needed (see
 ///     `ChatViewModel.rebuildSessionIfSettingsChanged`).
-///   - **Tools** — all tool permissions in one place: shell-command
-///     approval (global + per-MyApp override) and per-tool backend toggles
-///     fetched live from `GET /backend-tools`.
+///   - **Tools** — all tool permissions in one place: the global
+///     shell-command approval toggle and per-tool backend toggles fetched
+///     live from `GET /backend-tools`.
 ///   - **Agent-to-agent** — A2A guardrails (`AgentInvocationGate`):
 ///     conversation rounds per agent pair + max chain depth.
 ///   - **Notifications** — lists pending scheduled notifications and lets
@@ -20,9 +20,6 @@ import SwiftUI
 ///   - **Examples** — add a sample workspace to the sidebar.
 public struct SettingsSheet: View {
     @Bindable var settings: SettingsStore
-    /// When set, enables the per-MyApp override section in Security.
-    @Bindable var store: MyAppStore
-    var activeMyAppId: UUID?
     var onRestoreExample: ((any ExampleMyApp.Type) -> Void)?
     var onClose: () -> Void
 
@@ -74,14 +71,10 @@ public struct SettingsSheet: View {
 
     public init(
         settings: SettingsStore,
-        store: MyAppStore,
-        activeMyAppId: UUID? = nil,
         onRestoreExample: ((any ExampleMyApp.Type) -> Void)? = nil,
         onClose: @escaping () -> Void
     ) {
         self.settings = settings
-        self.store = store
-        self.activeMyAppId = activeMyAppId
         self.onRestoreExample = onRestoreExample
         self.onClose = onClose
     }
@@ -366,56 +359,6 @@ public struct SettingsSheet: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            // Per-myApp override — only shown when a myApp is active
-            if let myAppId = activeMyAppId,
-               let myApp = store.myApp(withId: myAppId) {
-                let overrideValue = myApp.settings[ShellApprovalDisabledKey.name]
-                let hasOverride = overrideValue != nil
-                let effectivelyDisabled: Bool = {
-                    if case .bool(let v) = overrideValue { return v }
-                    return settings.shellApprovalDisabled
-                }()
-                Toggle(isOn: Binding(
-                    get: { !effectivelyDisabled },
-                    set: { newVal in
-                        store.setMyAppSetting(
-                            ShellApprovalDisabledKey.self,
-                            value: !newVal,
-                            for: myAppId
-                        )
-                    }
-                )) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack {
-                            Text("Require shell approval (this MyApp)")
-                            if hasOverride {
-                                Text("OVERRIDE")
-                                    .font(.caption2)
-                                    .padding(.horizontal, 4)
-                                    .background(Color.accentColor.opacity(0.15), in: Capsule())
-                                    .foregroundColor(Color.accentColor)
-                            }
-                        }
-                        Text("Overrides the global toggle for \"\(myApp.name)\" only. Tap to set; long-press to clear override.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .contextMenu {
-                    if hasOverride {
-                        Button(role: .destructive) {
-                            store.setMyAppSetting(
-                                ShellApprovalDisabledKey.self,
-                                value: nil,
-                                for: myAppId
-                            )
-                        } label: {
-                            Label("Clear override (use global)", systemImage: "arrow.uturn.left")
-                        }
-                    }
                 }
             }
         } header: {
