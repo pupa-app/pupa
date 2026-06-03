@@ -86,11 +86,14 @@ public struct MyAppSidebarView: View {
             .listStyle(.sidebar)
             #else
             .listStyle(.plain)
+            // Blend with the footer instead of reading as a raised white card
+            // on the grouped MyApps background — a single hairline divider above
+            // is the only separator, matching the Settings section delimiters.
+            .scrollContentBackground(.hidden)
             #endif
             .scrollDisabled(!orchestratorExpanded)
             .frame(maxHeight: orchestratorExpanded ? 240 : 52)
 
-            Divider()
             HStack(spacing: 8) {
                 Button {
                     selection = .screenShare
@@ -397,11 +400,10 @@ public struct MyAppSidebarView: View {
                 .buttonStyle(.borderless)
             }
         }
-        .onAppear {
-            // Reveal the active MyApp on first render so the user lands on a
-            // sidebar that already shows their current component.
-            expandedMyApps.insert(store.activeMyAppId)
-        }
+        // MyApp rows start collapsed and only expand when the user taps the
+        // chevron. (Previously we auto-expanded the active myApp on appear,
+        // which also re-opened it every time the menu was reopened — e.g. on
+        // returning from a pushed section.)
     }
 
     @ViewBuilder

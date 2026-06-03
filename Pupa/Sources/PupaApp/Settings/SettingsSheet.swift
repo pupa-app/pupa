@@ -4,14 +4,16 @@ import SwiftUI
 /// pattern from the New MyApp / Rename MyApp sheets so iOS / macOS gets a
 /// system-shaped layout for free.
 ///
-/// Sections:
+/// Categories (each pushes its own screen):
 ///   - **Backend** — base URL + optional shared API key (sent as
 ///     `Authorization: Bearer <key>` to match the backend's
 ///     `PUPA_API_KEY` env var). Both are persisted via `SettingsStore`
 ///     and take effect on the next message — no app restart needed (see
 ///     `ChatViewModel.rebuildSessionIfSettingsChanged`).
-///   - **Developer — Backend tools** — per-tool toggles fetched live from
-///     `GET /backend-tools`.
+///   - **Tools** — all tool permissions in one place: shell-command
+///     approval (global + per-MyApp override) and per-tool backend toggles
+///     fetched live from `GET /backend-tools`.
+///   - **Examples** — add a sample workspace to the sidebar.
 public struct SettingsSheet: View {
     @Bindable var settings: SettingsStore
     /// When set, enables the per-MyApp override section in Security.
@@ -84,7 +86,7 @@ public struct SettingsSheet: View {
     /// category's real controls (the existing section builders, re-hosted in
     /// their own `Form`).
     private enum SettingsCategory: Hashable {
-        case backend, security, examples, developer
+        case backend, tools, examples
     }
 
     public var body: some View {
@@ -94,19 +96,15 @@ public struct SettingsSheet: View {
                     categoryRow(icon: "network", title: "Backend",
                                 caption: "Server URL, API key, pairing")
                 }
-                NavigationLink(value: SettingsCategory.security) {
-                    categoryRow(icon: "lock.shield", title: "Security",
-                                caption: "Shell-command approval")
+                NavigationLink(value: SettingsCategory.tools) {
+                    categoryRow(icon: "wrench.and.screwdriver", title: "Tools",
+                                caption: "Shell approval & tool permissions")
                 }
                 if onRestoreExample != nil {
                     NavigationLink(value: SettingsCategory.examples) {
                         categoryRow(icon: "sparkles", title: "Examples",
                                     caption: "Add a sample workspace")
                     }
-                }
-                NavigationLink(value: SettingsCategory.developer) {
-                    categoryRow(icon: "hammer", title: "Developer",
-                                caption: "Backend tool toggles")
                 }
             }
             .navigationTitle("Settings")
@@ -120,7 +118,7 @@ public struct SettingsSheet: View {
                 ToolbarItem(placement: .navigation) {
                     InfoBadge(
                         title: "Settings",
-                        message: "Configure Pupa. The Backend section points the app at a remote server; the Developer section controls which backend tools the agent is allowed to call this session."
+                        message: "Configure Pupa. The Backend section points the app at a remote server; the Tools section controls shell-command approval and which tools the agent is allowed to call this session."
                     )
                 }
                 ToolbarItem(placement: .confirmationAction) {
@@ -193,12 +191,16 @@ public struct SettingsSheet: View {
             switch category {
             case .backend:
                 Form { backendSection }.navigationTitle("Backend")
-            case .security:
-                Form { securitySection }.navigationTitle("Security")
+            case .tools:
+                // All tool permissions in one place: shell-command approval
+                // plus the per-tool backend toggles.
+                Form {
+                    securitySection
+                    developerSection
+                }
+                .navigationTitle("Tools")
             case .examples:
                 Form { examplesSection }.navigationTitle("Examples")
-            case .developer:
-                Form { developerSection }.navigationTitle("Developer")
             }
         }
         #if os(iOS)
@@ -359,7 +361,7 @@ public struct SettingsSheet: View {
                 }
             }
         } header: {
-            Text("Security")
+            Text("Shell commands")
         } footer: {
             Text("Only applies when the backend has the shell tool enabled. The setting is per-device and persisted; flipping it takes effect on your next message.")
                 .font(.caption)
@@ -425,7 +427,7 @@ public struct SettingsSheet: View {
                 }
             }
         } header: {
-            Text("Developer — Backend tools")
+            Text("Backend tools")
         } footer: {
             footerView
         }

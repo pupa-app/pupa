@@ -11,10 +11,26 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   "Photo Library", so you can capture an image with the camera without
   leaving the chat. (`PupaApp` `0.0.92`)
 
+### Changed
+
+- Settings now keeps all tool permissions in one "Tools" submenu (shell-command
+  approval + per-tool backend toggles) instead of splitting them across
+  separate "Security" and "Developer" sections. (`PupaApp` `0.0.92`)
+- The default first-launch example is now the Wellbeing Coach workspace instead
+  of Job Search. (`PupaApp` `0.0.92`)
+- MyApp rows in the menu start collapsed and only expand when you tap the
+  chevron — they no longer auto-open (and no longer re-open when you return from
+  a pushed section). (`PupaApp` `0.0.92`)
+
 ### Fixed
 
 - The Orchestrator landing page icon now uses the same purple as the menu
   row and agent picker, instead of system blue. (`PupaApp` `0.0.92`)
+- The Orchestrator footer row blends with the menu's bottom bar (a single
+  hairline divider) instead of reading as a raised white card. (`PupaApp`
+  `0.0.92`)
+- The sidebar info popovers no longer clip their last line of text. (`PupaApp`
+  `0.0.92`)
 - On iPad (and large iPhones in landscape) the slide-in menu stays a slim
   fixed width instead of covering most of the screen. (`PupaApp` `0.0.92`)
 - On iPhone in landscape, the chat composer no longer hides behind the
