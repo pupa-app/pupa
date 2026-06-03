@@ -10,6 +10,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
 - The chat composer's attachment button now offers "Take Photo" alongside
   "Photo Library", so you can capture an image with the camera without
   leaving the chat. (`PupaApp` `0.0.92`)
+- Settings → Agent-to-agent: tune the A2A guardrails — how many conversation
+  rounds one agent may have with another, and the maximum agent-call chain
+  depth. Changes take effect on the next agent call. (`PupaApp` `0.0.92`)
+- Settings → Notifications: lists pending scheduled notifications (from the
+  agent's `sendNotification` tool) with their delivery time, and lets you
+  cancel one. (`PupaApp` `0.0.92`)
 
 ### Changed
 

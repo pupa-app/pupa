@@ -126,7 +126,11 @@ in `RunAgentInput.forwardedProps["llm"]`.
 
 - **Canvas + MyApps state** → `UserDefaults` blob `pupa.myapps.v1`.
 - **Settings** → `UserDefaults` blob `pupa.settings.v1` (backend URL,
-  optional API key, disabled backend tools).
+  optional API key, disabled backend tools, A2A guardrails). The Settings
+  sheet groups these into drill-down categories: Backend, Tools (shell
+  approval + backend tool toggles), Agent-to-agent (the `AgentInvocationGate`
+  conversation-rounds + chain-depth limits), Notifications (lists/cancels
+  pending scheduled notifications), and Examples.
 - **Memories** → markdown files under
   `~/Library/Application Support/pupa/memories/` (per-agent namespaces
   under `agents/<agentId>/`). Survive "New session".

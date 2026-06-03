@@ -13,6 +13,10 @@ import SwiftUI
 ///   - **Tools** — all tool permissions in one place: shell-command
 ///     approval (global + per-MyApp override) and per-tool backend toggles
 ///     fetched live from `GET /backend-tools`.
+///   - **Agent-to-agent** — A2A guardrails (`AgentInvocationGate`):
+///     conversation rounds per agent pair + max chain depth.
+///   - **Notifications** — lists pending scheduled notifications and lets
+///     the user cancel them (`NotificationCenterCoordinator`).
 ///   - **Examples** — add a sample workspace to the sidebar.
 public struct SettingsSheet: View {
     @Bindable var settings: SettingsStore
@@ -86,7 +90,7 @@ public struct SettingsSheet: View {
     /// category's real controls (the existing section builders, re-hosted in
     /// their own `Form`).
     private enum SettingsCategory: Hashable {
-        case backend, tools, examples
+        case backend, tools, agents, notifications, examples
     }
 
     public var body: some View {
@@ -99,6 +103,14 @@ public struct SettingsSheet: View {
                 NavigationLink(value: SettingsCategory.tools) {
                     categoryRow(icon: "wrench.and.screwdriver", title: "Tools",
                                 caption: "Shell approval & tool permissions")
+                }
+                NavigationLink(value: SettingsCategory.agents) {
+                    categoryRow(icon: "point.3.connected.trianglepath.dotted", title: "Agent-to-agent",
+                                caption: "Conversation rounds & chain depth")
+                }
+                NavigationLink(value: SettingsCategory.notifications) {
+                    categoryRow(icon: "bell.badge", title: "Notifications",
+                                caption: "Pending scheduled notifications")
                 }
                 if onRestoreExample != nil {
                     NavigationLink(value: SettingsCategory.examples) {
@@ -199,6 +211,10 @@ public struct SettingsSheet: View {
                     developerSection
                 }
                 .navigationTitle("Tools")
+            case .agents:
+                Form { agentsSection }.navigationTitle("Agent-to-agent")
+            case .notifications:
+                PendingNotificationsList().navigationTitle("Notifications")
             case .examples:
                 Form { examplesSection }.navigationTitle("Examples")
             }
@@ -290,6 +306,48 @@ public struct SettingsSheet: View {
             Text("Backend")
         } footer: {
             Text("Tap a backend to activate it; tap the active one again (or use the context menu) to edit. Each backend keeps its own URL + optional API key. Stored in UserDefaults — fine for personal testing, not for shared secrets.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var agentsSection: some View {
+        Section {
+            Stepper(
+                value: Binding(
+                    get: { settings.a2aMaxTurnsPerPair },
+                    set: { settings.setA2AMaxTurnsPerPair($0) }
+                ),
+                in: SettingsStore.a2aMaxTurnsPerPairRange
+            ) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Conversation rounds: \(settings.a2aMaxTurnsPerPair)")
+                    Text("How many back-and-forth turns one agent may have with another before the gate cuts it off.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Stepper(
+                value: Binding(
+                    get: { settings.a2aMaxChainDepth },
+                    set: { settings.setA2AMaxChainDepth($0) }
+                ),
+                in: SettingsStore.a2aMaxChainDepthRange
+            ) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Max chain depth: \(settings.a2aMaxChainDepth)")
+                    Text("How deep a chain of agents-calling-agents can go before further nested calls are blocked.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        } header: {
+            Text("Agent-to-agent limits")
+        } footer: {
+            Text("Guardrails for when one agent delegates to another — the orchestrator fanning out to myApp agents, or a Slack room. Changes take effect on the next agent call.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -547,5 +605,83 @@ public struct SettingsSheet: View {
                 fallback: Self.fallbackTools
             )
         }
+    }
+}
+
+/// Settings → Notifications screen: lists pending scheduled notifications (from
+/// the agent's `sendNotification` tool), soonest-first, with their delivery
+/// time, and lets the user cancel one. Reads the app-wide
+/// `NotificationCenterCoordinator.shared` singleton directly.
+private struct PendingNotificationsList: View {
+    @State private var items: [NotificationCenterCoordinator.PendingNotification] = []
+    @State private var loaded = false
+
+    var body: some View {
+        List {
+            Section {
+                if !loaded {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Loading…").foregroundStyle(.secondary)
+                    }
+                } else if items.isEmpty {
+                    Text("No scheduled notifications.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(items) { item in
+                        row(item)
+                    }
+                }
+            } footer: {
+                Text("Notifications the agent has scheduled via its `sendNotification` tool but that haven't fired yet. Swipe (or use the context menu) to cancel one.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .task { await reload() }
+        #if os(iOS)
+        .refreshable { await reload() }
+        #endif
+    }
+
+    private func row(_ item: NotificationCenterCoordinator.PendingNotification) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(item.title.isEmpty ? "(no title)" : item.title)
+            if !item.body.isEmpty {
+                Text(item.body)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            if let date = item.deliveryAt {
+                Text(date, format: .dateTime.weekday().month().day().hour().minute())
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        #if os(iOS)
+        .swipeActions(edge: .trailing) {
+            Button(role: .destructive) { cancel(item) } label: {
+                Label("Cancel", systemImage: "trash")
+            }
+        }
+        #endif
+        .contextMenu {
+            Button(role: .destructive) { cancel(item) } label: {
+                Label("Cancel notification", systemImage: "trash")
+            }
+        }
+    }
+
+    private func cancel(_ item: NotificationCenterCoordinator.PendingNotification) {
+        Task {
+            _ = await NotificationCenterCoordinator.shared.cancel(id: item.id)
+            await reload()
+        }
+    }
+
+    private func reload() async {
+        items = await NotificationCenterCoordinator.shared.pendingNotifications()
+        loaded = true
     }
 }
