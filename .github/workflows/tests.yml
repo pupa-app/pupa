@@ -1,0 +1,44 @@
+name: Tests
+
+# Build + test both Swift packages (AGUIKit and the Pupa app) on macOS,
+# matching the local `make test` flow documented in CONTRIBUTING.md.
+#
+# Runs only when it matters:
+#   - pull_request: while a PR into dev/main is open (on open + each new commit).
+#   - push:         when commits actually land on dev or main.
+# A push to a feature branch with no open PR matches neither, so it won't run.
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    branches: [dev, main]
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: swift test (macOS)
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: swift --version
+
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: |
+            AGUIKit/.build
+            Pupa/.build
+            ~/Library/Caches/org.swift.swiftpm
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved', '**/Package.swift') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Run tests
+        run: make test
