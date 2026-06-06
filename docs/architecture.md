@@ -139,11 +139,17 @@ tools. Every mutation records a typed inverse in `ItemEventLog` so
 A "shape" (canvas component kind) is a SwiftUI view backed by a typed
 data model, plus render + mutator frontend tools, registered on
 `MyAppType.supportedComponentKinds`. Built-ins: `tracker`, `calendar`,
-`checklist`, `kanban`, `slack`. The agent's `addComponent` tool derives
-its JSON-Schema `kind` enum from `supportedComponentKinds` at
+`checklist`, `kanban`, `slack`, `calculator`. The agent's `addComponent`
+tool derives its JSON-Schema `kind` enum from `supportedComponentKinds` at
 registration time — a new kind not added there is silently rejected.
 Full recipe in
 [docs/adding-a-component.md](adding-a-component.md).
+
+The **calculator** shape is a live numeric model: tunable variable rows,
+tracker-aggregate rows (sum/avg/min/max/count with a category filter), and
+formula rows over other rows' stable keys. Results recompute every render
+via three pure engines (expression evaluator, tracker reducer, resolver) —
+see [docs/components/calculator.md](components/calculator.md).
 
 ## Frontend tools — the agent's mutation channel
 
