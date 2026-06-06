@@ -47,6 +47,16 @@ public struct AppView: View {
     @AppStorage(OnboardingKeys.backendSkipped) private var backendSkipped = false
     /// Presents the pairing sheet from the reminder banner.
     @State private var showBackendSheet = false
+    /// Onboarding + tour completion flags. Together they gate the one-time
+    /// auto-start of the interactive guided tour: it runs after onboarding
+    /// finishes (`onboardingCompleted` flips true) and never again once the
+    /// tour is completed or skipped.
+    @AppStorage(OnboardingKeys.completed) private var onboardingCompleted = false
+    @AppStorage(OnboardingKeys.tourCompleted) private var tourCompleted = false
+    /// Shared interactive-tour store. Host views reconcile to its intent flags
+    /// (`wantSettingsOpen` / `wantChatOpen` / `chatPrefill`) and `applyTourStep`
+    /// drives `selection` for `.navigate` steps.
+    @State private var tour = GuidedTourStore.shared
 
     /// `settings` is optional so `RootView` can hand in the shared
     /// `SettingsStore` it also gives to onboarding — pairing done during
@@ -88,6 +98,60 @@ public struct AppView: View {
                 selection = sel
                 dispatchSelection(sel)
             }
+            // One-time guided tour: evaluate on appear (covers a relaunch where
+            // a previous run was abandoned mid-tour) and whenever onboarding
+            // completes (the first-install hand-off from `OnboardingFlowView`).
+            .task { maybeStartTour() }
+            .onChange(of: onboardingCompleted) { _, _ in maybeStartTour() }
+            // Reconcile the app to the active step. `isActive` becoming true
+            // applies the first step on start; `index` covers Next / Back.
+            .onChange(of: tour.isActive) { _, active in
+                if active { applyTourStep() }
+            }
+            .onChange(of: tour.index) { _, _ in applyTourStep() }
+    }
+
+    /// Auto-start the interactive tour exactly once: after onboarding finishes
+    /// and only while it hasn't already been completed / skipped. Builds the
+    /// step list against the live active myApp and the current pairing state so
+    /// the route targets resolve and the chat copy adapts.
+    private func maybeStartTour() {
+        guard onboardingCompleted, !tourCompleted, !tour.isActive else { return }
+        tour.start(
+            activeMyAppId: store.activeMyAppId,
+            isPaired: settings.isPaired(settings.activeBackend.id)
+        )
+    }
+
+    /// Reconcile the whole app to the active tour step. Each step fully defines
+    /// the intended UI state: `.navigate` routes `selection` (via
+    /// `dispatchSelection`, so the chat scope follows) and resets `detailPath`;
+    /// the sheet / chat steps raise the matching intent flag. Every case clears
+    /// the flags it doesn't use, so transitions are deterministic regardless of
+    /// the previous step.
+    private func applyTourStep() {
+        guard tour.isActive, let step = tour.currentStep else { return }
+        switch step.effect {
+        case .none:
+            tour.wantSettingsOpen = false
+            tour.wantChatOpen = false
+            tour.chatPrefill = nil
+        case .openSettings:
+            tour.wantSettingsOpen = true
+            tour.wantChatOpen = false
+            tour.chatPrefill = nil
+        case .navigate(let sel):
+            tour.wantSettingsOpen = false
+            tour.wantChatOpen = false
+            tour.chatPrefill = nil
+            detailPath = []
+            selection = sel
+            dispatchSelection(sel)
+        case .openChat(let prefill):
+            tour.wantSettingsOpen = false
+            tour.wantChatOpen = true
+            tour.chatPrefill = prefill
+        }
     }
 
     @ViewBuilder
@@ -228,6 +292,9 @@ public struct AppView: View {
                     agents: agentPickerEntries,
                     onSwitchAgent: switchAgent
                 )
+                if tour.isActive {
+                    GuidedTourView(tour: tour)
+                }
             }
 
             if showSidebar {
@@ -281,6 +348,9 @@ public struct AppView: View {
                 agents: agentPickerEntries,
                 onSwitchAgent: switchAgent
             )
+            if tour.isActive {
+                GuidedTourView(tour: tour)
+            }
         }
         // Sidebar tap replaces the stack root, so any drilled-in landing-page
         // pushes are stale — reset the path so we don't leave a phantom Back

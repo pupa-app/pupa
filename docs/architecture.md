@@ -90,6 +90,30 @@ sets a flag that surfaces a dismissible "connect your backend" banner in
 `AppView`; finishing while paired parks a suggested first message
 (`OnboardingHandoff`) that the first `ChatPanel` consumes.
 
+### Guided tour
+
+Once onboarding finishes, an **interactive guided tour** runs once
+(`App/GuidedTour.swift` + `App/GuidedTourOverlay.swift`). A floating *coach
+card* explains each step while the tour programmatically navigates the **real**
+app to that surface — welcome, Settings, a MyApp, chat, the orchestrator, agent
+settings, and slash commands. It is **route-driven, not pixel-anchored**, so it
+survives UI redesigns: a shared `@Observable GuidedTourStore.shared` (mirroring
+`OnboardingHandoff.shared`) holds the step list (`TourContent`, pure data) +
+current index and exposes the *desired UI state* — `TourEffect` cases target the
+stable `SidebarSelection` enum plus three intent flags (`wantSettingsOpen`,
+`wantChatOpen`, `chatPrefill`). Host views reconcile declaratively:
+`AppView.applyTourStep()` drives `selection`/`detailPath` for `.navigate`;
+`MyAppSidebarView` mirrors `wantSettingsOpen` onto the Settings sheet;
+`ChatOverlay` expands on `wantChatOpen`; `ChatPanel` adopts `chatPrefill`
+(including "/" to surface the `SlashCommandPalette`). The card is gated on
+`tour.isActive` and rendered in the detail `ZStack`; because an iOS `.sheet`
+covers that ZStack, `SettingsSheet` re-renders the same card as its own overlay
+during the Settings step. The tour auto-starts when
+`completed && !tourCompleted`, persists `pupa.tour.completed` on finish/skip so
+it never replays, and is re-launchable from Settings → "Getting started tour".
+`RootView`'s migration back-fills `tourCompleted = true` for pre-existing users
+so an update never replays it.
+
 ## Canvas mutations
 
 All canvas / item mutation goes through **`MyAppStore`**

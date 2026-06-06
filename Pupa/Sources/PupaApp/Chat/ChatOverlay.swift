@@ -16,6 +16,10 @@ struct ChatOverlay: View {
 
     @State private var isExpanded: Bool = false
     @State private var isFullscreen: Bool = false
+    /// Shared guided-tour store. The chat / slash-command steps raise
+    /// `wantChatOpen` to expand this overlay so the coach card has the live
+    /// composer to point at.
+    @State private var tour = GuidedTourStore.shared
     @State private var userSize: CGSize? = nil
     @State private var dragStartSize: CGSize? = nil
     /// Height of the on-screen keyboard (0 when hidden). Drives manual
@@ -60,6 +64,16 @@ struct ChatOverlay: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             // Lift the bottom-anchored card above the keyboard.
             .padding(.bottom, overlap)
+        }
+        // Guided tour: expand the overlay when a chat / slash step asks for it,
+        // so the coach card has a live composer to point at. Only opens — it
+        // never force-collapses, so a user mid-message isn't interrupted.
+        .onChange(of: tour.wantChatOpen) { _, want in
+            if want {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    isExpanded = true
+                }
+            }
         }
         #if os(iOS)
         // Keep the GeometryReader at full height (don't let the system shrink

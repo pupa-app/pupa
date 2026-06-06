@@ -34,15 +34,12 @@ public struct RootView: View {
     @AppStorage(OnboardingKeys.completed) private var onboardingCompleted = false
 
     public init() {
-        // Migration: users who already configured the app before this feature
-        // shipped shouldn't have onboarding replayed on update. A fresh install
-        // has no persisted settings snapshot yet (SettingsStore only writes on
-        // first mutation), so its absence is a reliable "new user" signal.
-        let defaults = UserDefaults.standard
-        if defaults.object(forKey: OnboardingKeys.completed) == nil {
-            let isExistingUser = defaults.data(forKey: SettingsStore.storageKey) != nil
-            defaults.set(isExistingUser, forKey: OnboardingKeys.completed)
-        }
+        // Migration: users who already configured the app before onboarding +
+        // the guided tour shipped shouldn't have either replayed on update. A
+        // fresh install has no persisted settings snapshot yet (SettingsStore
+        // only writes on first mutation), so its absence is a reliable "new
+        // user" signal. See `OnboardingMigration` for the back-fill rules.
+        OnboardingMigration.migrate(defaults: .standard)
     }
 
     public var body: some View {

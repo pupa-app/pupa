@@ -21,7 +21,17 @@ import SwiftUI
 public struct SettingsSheet: View {
     @Bindable var settings: SettingsStore
     var onRestoreExample: ((any ExampleMyApp.Type) -> Void)?
+    /// Replay entry point for the interactive guided tour. Provided by the
+    /// caller (which has the active myApp + pairing state); tapping the
+    /// "Getting started tour" row dismisses the sheet and (re)starts the tour.
+    /// `nil` hides the row (e.g. previews).
+    var onStartTour: (() -> Void)?
     var onClose: () -> Void
+    /// Shared guided-tour store. On iOS a `.sheet` renders above the AppView
+    /// ZStack, so the coach card hosted there is hidden during the Settings
+    /// step — we re-render `GuidedTourView` as this sheet's own overlay for
+    /// that one step. Both render sites read this one shared store.
+    @State private var tour = GuidedTourStore.shared
 
     @State private var selectedExampleName: String = ExampleRegistry.all.first?.name ?? ""
     @State private var toolsLoad: ToolsLoadState = .loading
@@ -72,10 +82,12 @@ public struct SettingsSheet: View {
     public init(
         settings: SettingsStore,
         onRestoreExample: ((any ExampleMyApp.Type) -> Void)? = nil,
+        onStartTour: (() -> Void)? = nil,
         onClose: @escaping () -> Void
     ) {
         self.settings = settings
         self.onRestoreExample = onRestoreExample
+        self.onStartTour = onStartTour
         self.onClose = onClose
     }
 
@@ -111,6 +123,17 @@ public struct SettingsSheet: View {
                                     caption: "Add a sample workspace")
                     }
                 }
+                if let onStartTour {
+                    Section {
+                        Button {
+                            onStartTour()
+                        } label: {
+                            categoryRow(icon: "figure.walk.motion", title: "Getting started tour",
+                                        caption: "Replay the interactive walkthrough")
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
             }
             .navigationTitle("Settings")
             #if os(iOS)
@@ -133,6 +156,14 @@ public struct SettingsSheet: View {
             #if os(macOS)
             .frame(minWidth: 320, idealWidth: 380, minHeight: 360, idealHeight: 480)
             #endif
+        }
+        // The Settings tour step's coach card lives in AppView, but on iOS this
+        // `.sheet` renders above that ZStack and would hide it — so re-render
+        // the same card here for that one step. Both sites read the one store.
+        .overlay {
+            if tour.isActive, tour.currentStep?.effect == .openSettings {
+                GuidedTourView(tour: tour)
+            }
         }
         .sheet(item: $editingBackend) { entry in
             BackendEditSheet(
