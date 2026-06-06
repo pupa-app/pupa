@@ -61,6 +61,13 @@ public struct CalculatorView: View {
                 .background(Color.gray.opacity(0.06))
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
+
+            // Embedded chart (Phase 2, #22) — same store-free ChartView a
+            // standalone chart component uses, resolved live against siblings.
+            if let chart = data.inlineChart {
+                ChartContainerView(store: store, data: chart, myAppId: myAppId)
+                    .padding(.top, 4)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -153,6 +160,17 @@ private struct CalcRowView: View {
             return s
         case .formula(let expression):
             return expression
+        case .list(let spec):
+            switch spec {
+            case .sweep(let variableKey, let from, let to, let step, let targetKey):
+                return "sweep \(variableKey) \(CalcFormat.defaultNumber(from))→\(CalcFormat.defaultNumber(to)) ×\(CalcFormat.defaultNumber(step)) · \(targetKey)"
+            case .trackerColumn(_, let valueField, _, let filter):
+                var s = "column \(valueField)"
+                if !filter.isEmpty {
+                    s += " where " + filter.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: ", ")
+                }
+                return s
+            }
         }
     }
 
@@ -176,6 +194,41 @@ private struct CalcRowView: View {
             )
         case .aggregate, .formula:
             ComputedValueLabel(result: result, unit: row.unit, format: row.format)
+        case .list:
+            ListSparkline(points: result?.list ?? [], status: result?.status)
+        }
+    }
+}
+
+// MARK: - List sparkline
+
+/// Compact inline preview for a `list` row — a tiny line of the resolved
+/// points plus a count, or a short status note when it couldn't resolve.
+private struct ListSparkline: View {
+    let points: [ChartPoint]
+    let status: CalculatorResolver.RowStatus?
+
+    var body: some View {
+        if points.isEmpty {
+            Text(note)
+                .font(.caption)
+                .foregroundStyle(.orange)
+        } else {
+            HStack(spacing: 8) {
+                ChartView(series: [ChartSeries(name: "", points: points)], kind: .line)
+                    .frame(width: 120, height: 36)
+                Text("\(points.count) pts")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var note: String {
+        switch status {
+        case .brokenRef: return "(unknown rows)"
+        case .nonNumeric: return "(bad range)"
+        default: return "(no data)"
         }
     }
 }

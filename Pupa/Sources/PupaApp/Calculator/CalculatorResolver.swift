@@ -36,10 +36,16 @@ public enum CalculatorResolver {
     public struct RowResult: Sendable, Equatable {
         public var value: Double?
         public var status: RowStatus
+        /// Resolved points for a `list` row (sweep / tracker column). `nil`
+        /// for scalar rows. A list row carries `value == nil` (it's a terminal
+        /// array output), so scalar formulas that reference a list key resolve
+        /// to `brokenRef` via the normal nil-dependency path.
+        public var list: [ChartPoint]?
 
-        public init(value: Double?, status: RowStatus) {
+        public init(value: Double?, status: RowStatus, list: [ChartPoint]? = nil) {
             self.value = value
             self.status = status
+            self.list = list
         }
     }
 
@@ -59,7 +65,15 @@ public enum CalculatorResolver {
     /// (the sibling components of the same MyApp). Tracker lookups use the
     /// passed components only — store-free so this is unit-testable with a
     /// hand-built component list.
-    public static func resolve(_ data: CalculatorData, components: [Component]) -> Resolved {
+    /// - `computeLists`: when false, `list` rows are skipped (left `nil`).
+    ///   The sweep resolution re-resolves the whole calculator with one
+    ///   variable overridden — it passes `false` so a sweep never re-enters
+    ///   list computation (no recursion, no exponential blow-up).
+    public static func resolve(
+        _ data: CalculatorData,
+        components: [Component],
+        computeLists: Bool = true
+    ) -> Resolved {
         var byKey: [String: RowResult] = [:]
         // A row key may appear more than once if the agent mis-keys; the
         // last write wins, mirroring how a dictionary env would resolve it.
@@ -72,14 +86,19 @@ public enum CalculatorResolver {
                 byKey[row.key] = RowResult(value: value, status: .ok)
             case .aggregate(let spec):
                 byKey[row.key] = resolveAggregate(spec, components: components)
-            case .formula:
-                break  // computed in pass 2
+            case .formula, .list:
+                break  // formulas in pass 2, lists in pass 3
             }
         }
 
-        // Pass 2 — formulas, in dependency order.
+        // Pass 2 — formulas, in dependency order. Skipped when there are no
+        // formula rows, but we must still fall through to the list pass (a
+        // calculator can have list rows and no formulas at all).
         let formulaRows = data.rows.filter { if case .formula = $0.kind { return true } else { return false } }
-        guard !formulaRows.isEmpty else { return Resolved(byKey: byKey) }
+        guard !formulaRows.isEmpty else {
+            Self.computeLists(computeLists, data: data, components: components, into: &byKey)
+            return Resolved(byKey: byKey)
+        }
 
         // Parse each formula once; a parse failure is a syntax error we
         // surface as unknownIdentifier (the closest agent-actionable status).
@@ -167,7 +186,86 @@ public enum CalculatorResolver {
             }
         }
 
+        // Pass 3 — list rows (sweep / tracker column).
+        Self.computeLists(computeLists, data: data, components: components, into: &byKey)
+
         return Resolved(byKey: byKey)
+    }
+
+    // MARK: - List resolution
+
+    /// Resolve every `list` row (terminal arrays — they run last and feed off
+    /// the already-resolved scalars). No-op when `enabled` is false (i.e.
+    /// inside a sweep's re-resolve, so a sweep never re-enters list work).
+    private static func computeLists(
+        _ enabled: Bool,
+        data: CalculatorData,
+        components: [Component],
+        into byKey: inout [String: RowResult]
+    ) {
+        guard enabled else { return }
+        for row in data.rows {
+            guard case .list(let spec) = row.kind else { continue }
+            byKey[row.key] = resolveList(spec, data: data, components: components)
+        }
+    }
+
+    /// Resolve a `list` row to its point array. Terminal: `value` stays nil.
+    private static func resolveList(
+        _ spec: CalcListSpec,
+        data: CalculatorData,
+        components: [Component]
+    ) -> RowResult {
+        switch spec {
+        case .sweep(let variableKey, let from, let to, let step, let targetKey):
+            guard step > 0, from <= to else {
+                return RowResult(value: nil, status: .nonNumeric)
+            }
+            guard let varIdx = data.rows.firstIndex(where: { $0.key == variableKey }),
+                  case .variable(_, let control) = data.rows[varIdx].kind,
+                  data.rows.contains(where: { $0.key == targetKey }) else {
+                return RowResult(value: nil, status: .brokenRef)
+            }
+            var points: [ChartPoint] = []
+            // Cap iterations so a tiny step over a wide range can't hang.
+            let maxSteps = 1000
+            var v = from
+            var i = 0
+            while v <= to + step * 1e-9 && i < maxSteps {
+                var swept = data
+                swept.rows[varIdx].kind = .variable(value: v, control: control)
+                let r = resolve(swept, components: components, computeLists: false)
+                if let y = r.result(forKey: targetKey)?.value, y.isFinite {
+                    points.append(ChartPoint(label: numberLabel(v), x: v, y: y))
+                }
+                v += step
+                i += 1
+            }
+            return RowResult(value: nil, status: .ok, list: points)
+
+        case .trackerColumn(let sourceComponentId, let valueField, let labelField, let filter):
+            guard let component = components.first(where: { $0.id == sourceComponentId }),
+                  case .tracker(let tracker) = component.body else {
+                return RowResult(value: nil, status: .brokenRef)
+            }
+            let matched = tracker.items.filter { TrackerAggregator.matches($0, filter: filter) }
+            var points: [ChartPoint] = []
+            for (idx, item) in matched.enumerated() {
+                guard let y = TrackerAggregator.parseNumber(item.values[valueField]) else { continue }
+                let label = labelField.flatMap { item.values[$0]?.nonEmpty } ?? "\(idx + 1)"
+                points.append(ChartPoint(label: label, x: TrackerAggregator.parseXAxis(label), y: y))
+            }
+            return RowResult(value: nil, status: .ok, list: points)
+        }
+    }
+
+    /// Compact label for a swept numeric value (trailing zeros trimmed).
+    private static func numberLabel(_ v: Double) -> String {
+        if v == v.rounded() && abs(v) < 1e15 { return String(format: "%.0f", v) }
+        var s = String(format: "%.4f", v)
+        while s.hasSuffix("0") { s.removeLast() }
+        if s.hasSuffix(".") { s.removeLast() }
+        return s
     }
 
     // MARK: - Aggregate resolution

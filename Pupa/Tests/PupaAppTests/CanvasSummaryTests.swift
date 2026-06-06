@@ -82,12 +82,26 @@ struct CanvasSummaryTests {
                     ChecklistItem(text: "row \(i)")
                 }))
             ),
+            // Chart itemCount = literal inline points (resolved series for
+            // tracker/calculator sources live elsewhere, so they report 0).
+            Component(
+                id: "chart-1", name: "CH", iconSystemName: "chart.pie",
+                body: .chart(ChartData(title: "CH", kind: .bar, source: .inline(points: [
+                    ChartPoint(label: "a", y: 1), ChartPoint(label: "b", y: 2),
+                ])))
+            ),
+            Component(
+                id: "chart-2", name: "CH2", iconSystemName: "chart.pie",
+                body: .chart(ChartData(title: "CH2", kind: .pie, source: .tracker(componentId: "tracker-1", groupBy: "x", valueField: "y", reduce: .sum, filter: [:], xIsNumericOrDate: false)))
+            ),
         ]
         let summary = CanvasSummary.build(myApp: myApp)
         let byId = Dictionary(uniqueKeysWithValues: summary.components.map { ($0.id, $0) })
         #expect(byId["tracker-1"]?.itemCount == 3)
         #expect(byId["calendar-1"]?.itemCount == 2)
         #expect(byId["checklist-1"]?.itemCount == 4)
+        #expect(byId["chart-1"]?.itemCount == 2)   // inline points
+        #expect(byId["chart-2"]?.itemCount == 0)   // tracker-sourced → 0
     }
 
     @Test("Component JSON without a summary field decodes with summary = nil — pre-0.0.41 blob compat")

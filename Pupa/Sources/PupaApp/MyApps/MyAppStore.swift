@@ -1537,6 +1537,127 @@ public final class MyAppStore {
         })?.id
     }
 
+    // MARK: - Chart mutators
+    //
+    // Mirror the calculator mutators: kind-routed via `mutate(_:kind:"chart")`,
+    // `@discardableResult`, persist only on change. A chart is non-linkable
+    // and single-spec (title + kind + source), so there's no per-item event —
+    // a render / patch is a single component-level edit.
+
+    /// Patch payload for `patchChart`. Each field nil = unchanged. `series`
+    /// replaces the whole series list.
+    public struct ChartPatch: Sendable {
+        public var title: String?
+        public var kind: ChartKind?
+        public var series: [ChartSeriesSpec]?
+
+        public init(title: String? = nil, kind: ChartKind? = nil, series: [ChartSeriesSpec]? = nil) {
+            self.title = title
+            self.kind = kind
+            self.series = series
+        }
+    }
+
+    /// Replace the chart body of the first chart component in `myAppId`
+    /// (preferring the active component when it's a chart). Destructive —
+    /// overwrites title / kind / series.
+    public func setChart(title: String, kind: ChartKind, series: [ChartSeriesSpec], myAppId: UUID? = nil) {
+        mutate(myAppId, kind: "chart") { canvas in
+            canvas = .chart(ChartData(title: title, kind: kind, series: series))
+            return true
+        }
+    }
+
+    /// Patch a chart in place — only fields present in `patch` change.
+    /// Returns true if a chart component was found and edited.
+    @discardableResult
+    public func patchChart(patch: ChartPatch, myAppId: UUID? = nil) -> Bool {
+        var ok = false
+        mutate(myAppId, kind: "chart") { canvas in
+            guard case .chart(var c) = canvas else { return false }
+            if let v = patch.title { c.title = v }
+            if let v = patch.kind { c.kind = v }
+            if let v = patch.series { c.series = v }
+            canvas = .chart(c)
+            ok = true
+            return true
+        }
+        return ok
+    }
+
+    /// Append series specs to the chart. Returns the new series count, or nil
+    /// if no chart component exists.
+    @discardableResult
+    public func addChartSeries(_ specs: [ChartSeriesSpec], myAppId: UUID? = nil) -> Int? {
+        var count: Int?
+        mutate(myAppId, kind: "chart") { canvas in
+            guard case .chart(var c) = canvas, !specs.isEmpty else { return false }
+            c.series.append(contentsOf: specs)
+            canvas = .chart(c)
+            count = c.series.count
+            return true
+        }
+        return count
+    }
+
+    /// Remove the series at `index` (0-based). Returns true on removal.
+    @discardableResult
+    public func removeChartSeries(index: Int, myAppId: UUID? = nil) -> Bool {
+        var ok = false
+        mutate(myAppId, kind: "chart") { canvas in
+            guard case .chart(var c) = canvas, c.series.indices.contains(index) else { return false }
+            c.series.remove(at: index)
+            canvas = .chart(c)
+            ok = true
+            return true
+        }
+        return ok
+    }
+
+    /// Set just a chart's `kind` (pie ⇄ bar ⇄ line). Returns true on change.
+    @discardableResult
+    public func setChartKind(_ kind: ChartKind, myAppId: UUID? = nil) -> Bool {
+        var ok = false
+        mutate(myAppId, kind: "chart") { canvas in
+            guard case .chart(var c) = canvas, c.kind != kind else { return false }
+            c.kind = kind
+            canvas = .chart(c)
+            ok = true
+            return true
+        }
+        return ok
+    }
+
+    /// Id of the first chart component in `myAppId` (or the active component
+    /// if it's a chart). Mirrors `calculatorComponentId`.
+    public func chartComponentId(myAppId: UUID? = nil) -> String? {
+        let target = myAppId ?? activeMyAppId
+        guard let myApp = myApps.first(where: { $0.id == target }) else { return nil }
+        if let activeId = myApp.activeComponentId,
+           let comp = myApp.components.first(where: { $0.id == activeId }),
+           case .chart = comp.body { return comp.id }
+        return myApp.components.first(where: {
+            if case .chart = $0.body { return true }
+            return false
+        })?.id
+    }
+
+    /// Set (or clear, with `nil`) the chart embedded inside the first
+    /// calculator component in `myAppId`. Returns true on change — lets a
+    /// chart live inside a calculator without a separate chart component.
+    @discardableResult
+    public func setCalculatorInlineChart(_ chart: ChartData?, myAppId: UUID? = nil) -> Bool {
+        var ok = false
+        mutate(myAppId, kind: "calculator") { canvas in
+            guard case .calculator(var c) = canvas, c.inlineChart != chart else { return false }
+            c.inlineChart = chart
+            canvas = .calculator(c)
+            ok = true
+            return true
+        }
+        return ok
+    }
+
     /// Slugify `s` into a valid expression identifier (lowercase, words
     /// joined by `_`, leading digits kept but the result is never empty).
     /// Calc-row keys must be valid `ExpressionEngine` identifiers because
@@ -1918,7 +2039,7 @@ public final class MyAppStore {
             cl.items[iIdx].linkedItems.append(ref)
             bodyVal = .checklist(cl)
             result = .success(cl.items[iIdx].linkedItems.count)
-        case .slack, .empty, .calculator:
+        case .slack, .empty, .calculator, .chart:
             return .failure(.unknownSource)
         }
         myApps[mIdx].components[cIdx].body = bodyVal
@@ -1987,7 +2108,7 @@ public final class MyAppStore {
             changed = before != cl.items[iIdx].linkedItems.count
             if changed { bodyVal = .checklist(cl) }
             result = .success(cl.items[iIdx].linkedItems.count)
-        case .slack, .empty, .calculator:
+        case .slack, .empty, .calculator, .chart:
             return .failure(.unknownSource)
         }
         if changed {
@@ -2012,7 +2133,7 @@ public final class MyAppStore {
         case .tracker(let t): return t.items.contains(where: { $0.id == itemId })
         case .calendar(let cal): return cal.events.contains(where: { $0.id == itemId })
         case .checklist(let cl): return cl.items.contains(where: { $0.id == itemId })
-        case .slack, .empty, .calculator: return false
+        case .slack, .empty, .calculator, .chart: return false
         }
     }
 
@@ -2068,7 +2189,7 @@ public final class MyAppStore {
             return displayNameForCalendarEvent(componentId: componentId, eventId: itemId, myAppId: myAppId)
         case .checklist:
             return displayNameForChecklistItem(componentId: componentId, itemId: itemId, myAppId: myAppId)
-        case .slack, .empty, .calculator:
+        case .slack, .empty, .calculator, .chart:
             return nil
         }
     }

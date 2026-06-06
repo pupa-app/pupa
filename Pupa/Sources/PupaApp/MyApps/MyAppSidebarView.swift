@@ -784,7 +784,7 @@ private struct NewMyAppSheet: View {
     /// Filtered against `appType.supportedComponentKinds` so a future
     /// type that drops a kind never offers it here.
     private var availableKinds: [String] {
-        ["tracker", "calendar", "checklist", "slack", "calculator"]
+        ["tracker", "calendar", "checklist", "slack", "calculator", "chart"]
             .filter { appType.supportedComponentKinds.contains($0) }
     }
 
@@ -844,6 +844,7 @@ private struct NewMyAppSheet: View {
         case "checklist": return "checklist"
         case "slack": return "bubble.left.and.bubble.right"
         case "calculator": return "function"
+        case "chart": return "chart.pie"
         default: return "square.dashed"
         }
     }

@@ -3,6 +3,35 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.9] — 2026-06-06
+
+### Added
+
+- **Multi-series charts + calculator arrays** (extends #22): a chart now holds
+  an ordered list of `series`, overlaid in one plot with a distinct colour +
+  legend each (optional `#RRGGBB` override) — multiple lines/bars over a shared
+  axis. New series source `calculatorList` plots a calculator **list** row, and
+  a new calculator row kind `list` outputs an array: a **sweep** (vary one
+  variable across a range holding the others fixed, reading a target each step —
+  the payment-vs-rate curve) or a raw tracker column. Tools: `renderChart` /
+  `patchChart` take `series:[…]`; `addChartSeries` / `removeChartSeries` edit
+  incrementally; `addCalcRows` gains the `list` kind. See
+  [docs/components/chart.md](docs/components/chart.md) +
+  [docs/components/calculator.md](docs/components/calculator.md). (`PupaApp` `0.0.97`)
+
+## [0.0.8] — 2026-06-06
+
+### Added
+
+- **Chart canvas component** (Phase 2 of #20, via #22): a pie / bar / line
+  plot driven by Swift Charts. Its `source` is one of a **tracker** field
+  grouped + reduced (sum/avg/min/max/count, with a category filter and an
+  optional numeric/date x axis), a list of **calculator rows**, or **inline**
+  points. Series resolve live every render via `ChartResolver` (reusing the
+  Phase-1 `TrackerAggregator`); the store-free `ChartView(series:kind:)`
+  embeds inside a calculator (`inlineChart`) or stands alone. See
+  [docs/components/chart.md](docs/components/chart.md). (`PupaApp` `0.0.96`)
+
 ## [0.0.7] — 2026-06-06
 
 ### Added

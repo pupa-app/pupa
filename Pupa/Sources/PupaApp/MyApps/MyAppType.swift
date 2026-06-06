@@ -229,6 +229,13 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
                 "listCalcRows",
                 "getCalcRow",
             ],
+            "chart": [
+                "renderChart",
+                "patchChart",
+                "setChartKind",
+                "addChartSeries",
+                "removeChartSeries",
+            ],
         ],
         promptFragmentsByKind: [
             "tracker": """
@@ -264,9 +271,27 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
             isolate a category), FORMULA (arithmetic over other rows by their \
             stable `key`: `+ - * / % ^`, fns min/max/abs/round/sqrt/log/exp/pow). \
             Formulas reference rows by `key`, never by name, so renames never \
-            break them; results recompute live. Build the mortgage / \
+            break them; results recompute live. A fourth kind, LIST, outputs \
+            an ARRAY for charts: SWEEP varies one variable across from/to/step \
+            holding others fixed and reads a target row each step (payment vs \
+            rate curve), or a tracker COLUMN. Build the mortgage / \
             expense-share scenarios this way. Explore via list/getCalcRow; \
             `summary` slot — set via renderCalculator(summary:).
+            """,
+            "chart": """
+            CHART — pie/bar/line plot with one or MORE overlaid series (each a \
+            distinct colour + legend; line/bar overlay, pie uses series 1 \
+            only). renderChart sets {title, kind, series:[{name?, colorHex?, \
+            source}]}. Each source is one of: TRACKER (reduce a numeric \
+            `valueField` grouped by `groupBy` over a tracker, equality `filter` \
+            to isolate a category; `xIsNumericOrDate` plots a numeric/date \
+            group key as an ascending x axis), CALCULATOR_ROWS (plot calculator \
+            row `keys`), CALCULATOR_LIST (plot one calculator `.list` row — a \
+            sweep / column array), or INLINE (literal points). addChartSeries \
+            appends; removeChartSeries(index) drops one; patchChart edits in \
+            place; setChartKind flips pie⇄bar⇄line. Results echo the resolved \
+            point count. Multi-line over time = several CALCULATOR_LIST / \
+            TRACKER series sharing an x axis.
             """,
         ],
         // No cross-kind gates as of project `0.0.41`. The generic
@@ -276,6 +301,6 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
         // requirements. Per-kind tools that don't depend on another
         // kind sit in `toolNamesByKind[kind]` alone.
         coPresenceGates: [:],
-        supportedComponentKinds: ["tracker", "calendar", "checklist", "slack", "calculator"]
+        supportedComponentKinds: ["tracker", "calendar", "checklist", "slack", "calculator", "chart"]
     )
 }

@@ -104,6 +104,10 @@ public struct ComponentSummary: Encodable, Sendable {
         case .checklist(let cl): return cl.items.count
         case .slack(let s): return s.messagesByChannel.values.reduce(0) { $0 + $1.count }
         case .calculator(let c): return c.rows.count
+        // Resolved series live elsewhere (tracker / calculator), so a chart's
+        // own item count is just its literal inline points (0 for the other
+        // source arms).
+        case .chart(let c): return c.inlinePointCount
         }
     }
 }
