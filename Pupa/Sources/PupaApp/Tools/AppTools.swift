@@ -783,6 +783,7 @@ public enum AppTools {
         registerChecklistTools(on: registry, store: store, myAppId: myAppId)
         registerCalculatorTools(on: registry, store: store, myAppId: myAppId)
         registerChartTools(on: registry, store: store, myAppId: myAppId)
+        registerEmbedTools(on: registry, store: store, myAppId: myAppId)
         registerLinkTools(on: registry, store: store, myAppId: myAppId)
         registerHistoryTools(on: registry, store: store, myAppId: myAppId)
         if let slack {
@@ -2664,6 +2665,94 @@ public enum AppTools {
                     }
                     store.setChartKind(kind, myAppId: myAppId)
                     return chartEcho(store: store, myAppId: myAppId)
+                }
+            }
+        ))
+    }
+
+    // MARK: - Embed tools
+
+    /// Register `embedComponent` / `clearEmbeddedComponent`. Gated by the
+    /// host component kind (calculator for now); future hosts add their own
+    /// kind entry in `MyAppType.toolNamesByKind` and handle their guest in
+    /// the switch below.
+    @MainActor
+    private static func registerEmbedTools(
+        on registry: ToolRegistry,
+        store: MyAppStore,
+        myAppId: UUID
+    ) {
+        registry.register(ClientTool(
+            descriptor: ToolDescriptor(
+                name: "embedComponent",
+                description: """
+                Embed a guest component inline inside a host component. \
+                Currently supported: hostKind "calculator" + guestKind \
+                "chart" — renders a chart below the calculator rows using the \
+                same `ChartData` shape as renderChart (title, kind, series). \
+                The chart resolves live against the same sibling pool so \
+                calculator list rows feed it directly. Pass `chart` \
+                ({title, kind, series}) to set or replace the embed; omit \
+                `chart` (or pass null) to clear it. Result echoes {ok, \
+                hostComponentId, guestKind, embedded}.
+                """,
+                parameters: [
+                    "type": "object",
+                    "properties": [
+                        "hostKind": ["type": "string", "enum": ["calculator"], "description": "Kind of the host component."],
+                        "guestKind": ["type": "string", "enum": ["chart"], "description": "Kind of the component to embed."],
+                        "chart": [
+                            "type": "object",
+                            "description": "ChartData when guestKind is \"chart\". Omit or null to clear.",
+                            "properties": [
+                                "title": ["type": "string"],
+                                "kind": ["type": "string", "enum": ["pie", "bar", "line"]],
+                                "series": ["type": "array", "items": chartSeriesSchema()],
+                            ],
+                            "required": ["title", "kind", "series"],
+                        ],
+                    ],
+                    "required": ["hostKind", "guestKind"],
+                ]
+            ),
+            handler: { args in
+                guard let hostKind = args["hostKind"]?.stringValue,
+                      let guestKind = args["guestKind"]?.stringValue else {
+                    return .object(["ok": .bool(false), "error": "embedComponent needs hostKind and guestKind."])
+                }
+                return await MainActor.run {
+                    switch (hostKind, guestKind) {
+                    case ("calculator", "chart"):
+                        let chart: ChartData?
+                        if let chartArg = args["chart"],
+                           case .object = chartArg,
+                           let title = chartArg["title"]?.stringValue,
+                           let kindRaw = chartArg["kind"]?.stringValue,
+                           let kind = ChartKind(rawValue: kindRaw) {
+                            let series = parseChartSeries(from: chartArg["series"])
+                            chart = ChartData(title: title, kind: kind, series: series)
+                        } else {
+                            chart = nil
+                        }
+                        guard let id = store.calculatorComponentId(myAppId: myAppId) else {
+                            return .object([
+                                "ok": .bool(false),
+                                "error": "no calculator component — call addComponent(kind:\"calculator\", …) or renderCalculator first",
+                            ])
+                        }
+                        store.setCalculatorInlineChart(chart, myAppId: myAppId)
+                        return .object([
+                            "ok": .bool(true),
+                            "hostComponentId": .string(id),
+                            "guestKind": .string("chart"),
+                            "embedded": .bool(chart != nil),
+                        ])
+                    default:
+                        return .object([
+                            "ok": .bool(false),
+                            "error": .string("unsupported embed: hostKind \"\(hostKind)\" + guestKind \"\(guestKind)\""),
+                        ])
+                    }
                 }
             }
         ))

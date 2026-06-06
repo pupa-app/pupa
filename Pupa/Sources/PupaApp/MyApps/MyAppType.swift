@@ -228,6 +228,7 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
                 "removeCalcRows",
                 "listCalcRows",
                 "getCalcRow",
+                "embedComponent",
             ],
             "chart": [
                 "renderChart",
@@ -276,7 +277,11 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
             holding others fixed and reads a target row each step (payment vs \
             rate curve), or a tracker COLUMN. Build the mortgage / \
             expense-share scenarios this way. Explore via list/getCalcRow; \
-            `summary` slot — set via renderCalculator(summary:).
+            `summary` slot — set via renderCalculator(summary:). \
+            embedComponent(hostKind:"calculator", guestKind:"chart", \
+            chart:{title, kind, series}) pins a live chart below the rows \
+            (same series shapes as renderChart; list rows feed it directly). \
+            Pass no `chart` / null to clear the embed.
             """,
             "chart": """
             CHART — pie/bar/line plot with one or MORE overlaid series (each a \
