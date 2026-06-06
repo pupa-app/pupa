@@ -35,10 +35,13 @@ struct GuidedTourStoreTests {
         let store = startedStore(defaults: freshDefaults())
         #expect(store.isActive)
         #expect(store.index == 0)
-        #expect(store.steps.count == 7)
+        #expect(store.steps.count == 9)
         #expect(store.isFirstStep)
         #expect(!store.isLastStep)
         #expect(store.currentStep?.id == "welcome")
+        // The welcome step opens the sidebar menu rather than navigating.
+        #expect(store.currentStep?.opensSidebar == true)
+        #expect(store.currentStep?.selection == nil)
     }
 
     @Test("start clears any stale intent flags")
@@ -147,7 +150,40 @@ struct GuidedTourStoreTests {
         let unpairedChat = unpairedSteps.first { $0.id == "chat" }!
         #expect(pairedChat.body != unpairedChat.body)
         // The slash step always parks "/" to surface the palette.
-        #expect(pairedSteps.first { $0.id == "slash-commands" }?.effect == .openChat(prefill: "/"))
+        let slash = pairedSteps.first { $0.id == "slash-commands" }!
+        #expect(slash.opensChat)
+        #expect(slash.chatPrefill == "/")
+    }
+
+    @Test("composable steps combine navigation, chat, and prefill")
+    func composableEffects() {
+        let id = UUID()
+        let steps = TourContent.steps(activeMyAppId: id, isPaired: true)
+        // Settings is two steps: an overview on the category list, then a
+        // deep-link to the Backend page.
+        let overview = steps.first { $0.id == "settings-overview" }!
+        #expect(overview.settingsPage == .root)
+        let backend = steps.first { $0.id == "settings-backend" }!
+        #expect(backend.settingsPage == .backend)
+        #expect(backend.selection == nil)
+        #expect(!backend.opensChat)
+        // The overview comes before the backend deep-link.
+        let overviewIndex = steps.firstIndex { $0.id == "settings-overview" }!
+        let backendIndex = steps.firstIndex { $0.id == "settings-backend" }!
+        #expect(overviewIndex < backendIndex)
+        // The new agents/threads step keeps the chat open without a prefill.
+        let agentsThreads = steps.first { $0.id == "agents-threads" }!
+        #expect(agentsThreads.opensChat)
+        #expect(agentsThreads.chatPrefill == nil)
+        // Orchestrator step navigates AND opens the chat with a prefill.
+        let orchestrator = steps.first { $0.id == "orchestrator" }!
+        #expect(orchestrator.selection == .orchestrator)
+        #expect(orchestrator.opensChat)
+        #expect(orchestrator.chatPrefill == "Create a new myapp to organise my books")
+        // MyApp + agent-settings cards sit at the bottom so they don't cover
+        // the surface they describe.
+        #expect(steps.first { $0.id == "myapp" }?.placement == .bottom)
+        #expect(steps.first { $0.id == "agent-settings" }?.placement == .bottom)
     }
 }
 

@@ -8,13 +8,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
 ### Added
 
 - Interactive **Getting started tour**: after first-install onboarding finishes,
-  a floating coach card walks you through the live app — Settings, a MyApp,
-  chatting with your agent, the orchestrator, agent settings, and slash
-  commands — programmatically navigating the real surfaces as it goes (no
-  pixel-anchored spotlights, so it survives UI redesigns). Back / Next / Skip
-  controls; it runs once and never replays after that. Replay any time from
-  Settings → "Getting started tour". Existing users who update are not shown
-  the tour. (`PupaApp` `0.0.94`)
+  a floating coach card walks you through the live app in nine steps — your
+  menu, a Settings overview, Settings · Backend, a MyApp, chatting with your
+  agent, switching agents & threads, the orchestrator (with an example "create a
+  new myapp" message parked for you), agent settings, and slash commands. It
+  programmatically navigates the real surfaces as it goes (no pixel-anchored
+  spotlights, so it survives UI redesigns). Back / Next / Skip controls, and the
+  card has a grab handle so you can drag it out of the way. It runs once and
+  never replays after that. Replay any time from Settings → "Getting started
+  tour". Existing users who update are not shown the tour. (`PupaApp` `0.0.94`)
 
 ## [0.0.5] — 2026-06-06
 

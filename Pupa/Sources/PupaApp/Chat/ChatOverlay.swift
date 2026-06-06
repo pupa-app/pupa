@@ -65,14 +65,15 @@ struct ChatOverlay: View {
             // Lift the bottom-anchored card above the keyboard.
             .padding(.bottom, overlap)
         }
-        // Guided tour: expand the overlay when a chat / slash step asks for it,
-        // so the coach card has a live composer to point at. Only opens — it
-        // never force-collapses, so a user mid-message isn't interrupted.
+        // Guided tour: mirror its chat intent so each step deterministically
+        // expands (chat / slash steps) or collapses (navigate steps) the
+        // overlay — that keeps a bottom-placed coach card from colliding with
+        // an open chat. `wantChatOpen` only changes during the tour, so this
+        // never fights normal use.
         .onChange(of: tour.wantChatOpen) { _, want in
-            if want {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                    isExpanded = true
-                }
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                isExpanded = want
+                if !want { isFullscreen = false }
             }
         }
         #if os(iOS)

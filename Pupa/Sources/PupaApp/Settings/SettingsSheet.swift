@@ -34,6 +34,9 @@ public struct SettingsSheet: View {
     @State private var tour = GuidedTourStore.shared
 
     @State private var selectedExampleName: String = ExampleRegistry.all.first?.name ?? ""
+    /// Navigation path for the category list. Bound so the guided tour can
+    /// deep-link straight to a page (its Settings step lands on Backend).
+    @State private var path: [SettingsCategory] = []
     @State private var toolsLoad: ToolsLoadState = .loading
     @State private var loadErrorMessage: String?
     @State private var editingBackend: BackendEntry?
@@ -99,7 +102,7 @@ public struct SettingsSheet: View {
     }
 
     public var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             List {
                 NavigationLink(value: SettingsCategory.backend) {
                     categoryRow(icon: "network", title: "Backend",
@@ -157,11 +160,16 @@ public struct SettingsSheet: View {
             .frame(minWidth: 320, idealWidth: 380, minHeight: 360, idealHeight: 480)
             #endif
         }
+        // Guided tour deep-links: land directly on the requested page (its
+        // Settings step opens Backend) when the sheet appears and if the tour
+        // moves between settings pages while open.
+        .onAppear { applyTourPage(tour.wantSettingsPage) }
+        .onChange(of: tour.wantSettingsPage) { _, page in applyTourPage(page) }
         // The Settings tour step's coach card lives in AppView, but on iOS this
         // `.sheet` renders above that ZStack and would hide it — so re-render
         // the same card here for that one step. Both sites read the one store.
         .overlay {
-            if tour.isActive, tour.currentStep?.effect == .openSettings {
+            if tour.isActive, tour.wantSettingsOpen {
                 GuidedTourView(tour: tour)
             }
         }
@@ -563,6 +571,16 @@ public struct SettingsSheet: View {
         // Drop probes for backends the user removed mid-task.
         let liveIDs = Set(settings.backends.map(\.id))
         backendProbes = backendProbes.filter { liveIDs.contains($0.key) }
+    }
+
+    /// Push the navigation path to the tour's requested page. `nil` leaves the
+    /// user's own navigation untouched (e.g. when Settings was opened by hand).
+    private func applyTourPage(_ page: TourSettingsPage?) {
+        switch page {
+        case .root: path = []
+        case .backend: path = [.backend]
+        case nil: break
+        }
     }
 
     private func loadTools() async {

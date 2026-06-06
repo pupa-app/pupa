@@ -8,32 +8,66 @@ enum CardPlacement {
     case top, bottom
 }
 
-/// The UI mutation a tour step asks the host views to perform when it becomes
-/// active. Pure *intent*: every case targets the app's stable routing enums
-/// (`SidebarSelection`) or a couple of boolean flags — never view geometry —
-/// so a future redesign still lands the tour on the right surface.
-/// `AppView.applyTourStep()` translates each case into concrete `selection` /
-/// sheet / chat state.
-enum TourEffect: Equatable {
-    /// No navigation — the card just narrates (the welcome step).
-    case none
-    /// Open the Settings sheet.
-    case openSettings
-    /// Route the sidebar selection (and chat scope, via `dispatchSelection`).
-    case navigate(SidebarSelection)
-    /// Expand the chat overlay, optionally pre-filling the composer.
-    case openChat(prefill: String?)
+/// Which page inside the Settings sheet a tour step lands on. `.root` shows the
+/// category list (so the step can describe the entries); `.backend` deep-links
+/// straight to the Backend screen. Mirrors a subset of `SettingsSheet`'s
+/// internal navigation.
+enum TourSettingsPage: Equatable {
+    case root
+    case backend
 }
 
 /// One stop on the guided tour. Pure data — reorder / add / remove entries in
 /// `TourContent` without touching any view. The stable string `id` lets
 /// persistence or telemetry survive a reordering of the step list.
+///
+/// Effects are **composable, independent intents** (a step may navigate *and*
+/// open the chat with a prefill) rather than a single mutually-exclusive case —
+/// every field targets the app's stable routing layer (`SidebarSelection`, a
+/// settings page, a couple of booleans), never view geometry, so a redesign
+/// still lands the tour on the right surface. `AppView.applyTourStep()`
+/// translates them into concrete `selection` / sidebar / sheet / chat state.
 struct TourStep: Identifiable, Equatable {
     let id: String
     let title: String
     let body: String
     let placement: CardPlacement
-    let effect: TourEffect
+    /// Sidebar route to select when this step activates (drives `selection`
+    /// and, via `dispatchSelection`, the chat scope). `nil` leaves the current
+    /// selection in place.
+    var selection: SidebarSelection?
+    /// Open the slide-in sidebar menu (iOS) so the user sees the app's
+    /// navigation. No-op on macOS, where the sidebar is always visible.
+    var opensSidebar: Bool
+    /// Open the Settings sheet at this page. `nil` keeps it closed.
+    var settingsPage: TourSettingsPage?
+    /// Expand the chat overlay for this step.
+    var opensChat: Bool
+    /// Pre-fill the chat composer (only meaningful with `opensChat`). "/"
+    /// surfaces the live `SlashCommandPalette`.
+    var chatPrefill: String?
+
+    init(
+        id: String,
+        title: String,
+        body: String,
+        placement: CardPlacement,
+        selection: SidebarSelection? = nil,
+        opensSidebar: Bool = false,
+        settingsPage: TourSettingsPage? = nil,
+        opensChat: Bool = false,
+        chatPrefill: String? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.body = body
+        self.placement = placement
+        self.selection = selection
+        self.opensSidebar = opensSidebar
+        self.settingsPage = settingsPage
+        self.opensChat = opensChat
+        self.chatPrefill = chatPrefill
+    }
 }
 
 /// All step copy + effects in one place so the tour is easy to edit, reorder,
@@ -47,20 +81,29 @@ enum TourContent {
             TourStep(
                 id: "welcome",
                 title: "Welcome to Pupa",
-                body: "Pupa is a workspace your agent can see and edit alongside you. "
-                    + "This quick tour walks through the main surfaces — about a minute. "
-                    + "Tap Next to begin.",
+                body: "Pupa is a workspace your agent can see and edit alongside you. This "
+                    + "is your menu — your MyApps, the orchestrator, and Settings all live "
+                    + "here. The tour takes about a minute; tap Next to begin.",
                 placement: .bottom,
-                effect: .none
+                opensSidebar: true
             ),
             TourStep(
-                id: "settings",
+                id: "settings-overview",
                 title: "Settings",
-                body: "Point Pupa at your backend, choose which tools the agent may call, "
-                    + "and tune the agent-to-agent guardrails. Everything here takes effect "
-                    + "on your next message.",
+                body: "Settings is where you wire Pupa up — Backend (server + pairing), Tools "
+                    + "(which tools the agent may call), Agent-to-agent guardrails, "
+                    + "Notifications, and Examples. Let's start with Backend.",
                 placement: .bottom,
-                effect: .openSettings
+                settingsPage: .root
+            ),
+            TourStep(
+                id: "settings-backend",
+                title: "Settings · Backend",
+                body: "Point Pupa at your backend and pair it here. Until you do, the agent "
+                    + "can't run — everything else just shapes how it behaves once connected. "
+                    + "Changes take effect on your next message.",
+                placement: .bottom,
+                settingsPage: .backend
             ),
             TourStep(
                 id: "myapp",
@@ -68,8 +111,8 @@ enum TourContent {
                 body: "Each MyApp is a canvas of components — trackers, calendars, "
                     + "checklists — that the agent reads and edits as you chat. This is one "
                     + "of your example apps.",
-                placement: .top,
-                effect: .navigate(.myAppHome(activeMyAppId))
+                placement: .bottom,
+                selection: .myAppHome(activeMyAppId)
             ),
             TourStep(
                 id: "chat",
@@ -81,23 +124,36 @@ enum TourContent {
                         + "explain anything on the canvas. We've parked an example message in "
                         + "the composer to show the idea.",
                 placement: .top,
-                effect: .openChat(prefill: "Add a prep task for my Friday interview")
+                opensChat: true,
+                chatPrefill: "Add a prep task for my Friday interview"
+            ),
+            TourStep(
+                id: "agents-threads",
+                title: "Agents & threads",
+                body: "Along the top of the chat you can switch which agent you're talking "
+                    + "to and pick — or start — a conversation thread. Every MyApp and the "
+                    + "orchestrator keeps its own history.",
+                placement: .top,
+                opensChat: true
             ),
             TourStep(
                 id: "orchestrator",
                 title: "Orchestrator",
-                body: "The orchestrator is a meta-agent that spans every MyApp. Use it for "
-                    + "cross-app tasks and shared notes that don't belong to a single canvas.",
+                body: "The orchestrator is a meta-agent that spans every MyApp. Ask it for "
+                    + "cross-app work — even spinning up a whole new MyApp. We've parked an "
+                    + "example you can send.",
                 placement: .top,
-                effect: .navigate(.orchestrator)
+                selection: .orchestrator,
+                opensChat: true,
+                chatPrefill: "Create a new myapp to organise my books"
             ),
             TourStep(
                 id: "agent-settings",
                 title: "Agent settings",
                 body: "Every MyApp has its own agent. Here you can see the tools it can call, "
                     + "open its AGENTS.md persona file, and review the components it manages.",
-                placement: .top,
-                effect: .navigate(.myAppAgentDetail(activeMyAppId, agentId: AgentRegistry.mainAgentId))
+                placement: .bottom,
+                selection: .myAppAgentDetail(activeMyAppId, agentId: AgentRegistry.mainAgentId)
             ),
             TourStep(
                 id: "slash-commands",
@@ -106,7 +162,8 @@ enum TourContent {
                     + "/tools shows what the agent can do, and /reset starts a fresh "
                     + "conversation.",
                 placement: .top,
-                effect: .openChat(prefill: "/")
+                opensChat: true,
+                chatPrefill: "/"
             ),
         ]
     }
@@ -116,9 +173,9 @@ enum TourContent {
 /// `OnboardingHandoff.shared` / `OtherInteractionStore.shared` singleton
 /// pattern: a single `@Observable` instance holds the step list + current
 /// index and exposes the *desired UI state* for the active step. Host views
-/// reconcile to it declaratively (`AppView.applyTourStep()` for navigation;
-/// `.onChange` on the intent flags in `MyAppSidebarView` / `ChatOverlay` /
-/// `ChatPanel` for the sheet + chat surfaces).
+/// reconcile to it declaratively (`AppView.applyTourStep()` for navigation +
+/// the sidebar; `.onChange` on the intent flags in `MyAppSidebarView` /
+/// `SettingsSheet` / `ChatOverlay` / `ChatPanel` for the sheet + chat surfaces).
 ///
 /// The tour drives the app through its stable routing layer, never view
 /// geometry, so it keeps working through future UI redesigns.
@@ -141,6 +198,7 @@ final class GuidedTourStore {
     /// each step fully defines the intended UI state and transitions stay
     /// deterministic.
     var wantSettingsOpen: Bool = false
+    var wantSettingsPage: TourSettingsPage?
     var wantChatOpen: Bool = false
     var chatPrefill: String?
 
@@ -162,13 +220,10 @@ final class GuidedTourStore {
     var isFirstStep: Bool { index == 0 }
     var isLastStep: Bool { index >= steps.count - 1 }
 
-    /// The selection a `.navigate` step targets, or `nil` for other effects.
-    /// Exposed for host views / tests that want the desired route without
-    /// re-matching the effect enum.
-    var desiredSelection: SidebarSelection? {
-        if case .navigate(let sel) = currentStep?.effect { return sel }
-        return nil
-    }
+    /// The selection the active step targets, or `nil` when it doesn't
+    /// navigate. Exposed for host views / tests that want the desired route
+    /// without re-reading the step.
+    var desiredSelection: SidebarSelection? { currentStep?.selection }
 
     /// Begin the tour from the first step. Rebuilds the step list against the
     /// current active myApp + pairing state so the copy and route targets are
@@ -219,6 +274,7 @@ final class GuidedTourStore {
 
     private func clearFlags() {
         wantSettingsOpen = false
+        wantSettingsPage = nil
         wantChatOpen = false
         chatPrefill = nil
     }

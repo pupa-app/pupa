@@ -123,34 +123,30 @@ public struct AppView: View {
         )
     }
 
-    /// Reconcile the whole app to the active tour step. Each step fully defines
-    /// the intended UI state: `.navigate` routes `selection` (via
-    /// `dispatchSelection`, so the chat scope follows) and resets `detailPath`;
-    /// the sheet / chat steps raise the matching intent flag. Every case clears
-    /// the flags it doesn't use, so transitions are deterministic regardless of
-    /// the previous step.
+    /// Reconcile the whole app to the active tour step. Each step's composable
+    /// intents fully define the intended UI state — every host-facing flag is
+    /// written here (set or cleared) so transitions are deterministic
+    /// regardless of the previous step: the sidebar menu, the Settings sheet +
+    /// page, the chat overlay + prefill, and the sidebar `selection` (routed
+    /// via `dispatchSelection` so the chat scope follows).
     private func applyTourStep() {
         guard tour.isActive, let step = tour.currentStep else { return }
-        switch step.effect {
-        case .none:
-            tour.wantSettingsOpen = false
-            tour.wantChatOpen = false
-            tour.chatPrefill = nil
-        case .openSettings:
-            tour.wantSettingsOpen = true
-            tour.wantChatOpen = false
-            tour.chatPrefill = nil
-        case .navigate(let sel):
-            tour.wantSettingsOpen = false
-            tour.wantChatOpen = false
-            tour.chatPrefill = nil
+        #if os(iOS)
+        // The Settings sheet is hosted by the (conditionally-mounted) sidebar,
+        // so keep the sidebar mounted whenever a step opens Settings — even
+        // though the sheet then covers it — otherwise the sheet can't present.
+        withAnimation(.spring(duration: 0.3)) {
+            showSidebar = step.opensSidebar || step.settingsPage != nil
+        }
+        #endif
+        tour.wantSettingsPage = step.settingsPage
+        tour.wantSettingsOpen = step.settingsPage != nil
+        tour.wantChatOpen = step.opensChat
+        tour.chatPrefill = step.chatPrefill
+        if let sel = step.selection {
             detailPath = []
             selection = sel
             dispatchSelection(sel)
-        case .openChat(let prefill):
-            tour.wantSettingsOpen = false
-            tour.wantChatOpen = true
-            tour.chatPrefill = prefill
         }
     }
 
@@ -292,9 +288,6 @@ public struct AppView: View {
                     agents: agentPickerEntries,
                     onSwitchAgent: switchAgent
                 )
-                if tour.isActive {
-                    GuidedTourView(tour: tour)
-                }
             }
 
             if showSidebar {
@@ -321,6 +314,12 @@ public struct AppView: View {
                 .background(Color(uiColor: .systemBackground).ignoresSafeArea())
                 .shadow(radius: 10)
                 .transition(.move(edge: .leading))
+            }
+
+            // Coach card sits above the sidebar drawer + chat so the welcome
+            // step (which opens the menu) keeps the card visible on top.
+            if tour.isActive {
+                GuidedTourView(tour: tour)
             }
         }
         .animation(.spring(duration: 0.3), value: showSidebar)
