@@ -146,10 +146,12 @@ Full recipe in
 [docs/adding-a-component.md](adding-a-component.md).
 
 The **calculator** shape is a live numeric model: tunable variable rows,
-tracker-aggregate rows (sum/avg/min/max/count with a category filter), and
-formula rows over other rows' stable keys. Results recompute every render
-via three pure engines (expression evaluator, tracker reducer, resolver) —
-see [docs/components/calculator.md](components/calculator.md).
+tracker-aggregate rows (sum/avg/min/max/count with a category filter),
+`linkedField` rows (one field off a single linked tracker item — swap the
+item to re-run the model), and formula rows over other rows' stable keys.
+Results recompute every render via three pure engines (expression evaluator,
+tracker reducer, resolver) — see
+[docs/components/calculator.md](components/calculator.md).
 
 The **chart** shape plots pie/bar/line with one or more overlaid `series`
 (each a `ChartSeriesSource`: a tracker field grouped + reduced via

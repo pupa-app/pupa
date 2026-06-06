@@ -21,7 +21,9 @@ extension Color {
 
     // MARK: - Agent color coding
 
-    static let orchestratorColor: Color = .purple
+    // Deliberately understated — a dark neutral grey so the orchestrator
+    // reads as the "meta" agent without competing with the per-MyApp colors.
+    static let orchestratorColor: Color = Color(white: 0.32)
 
     /// Palette chosen for maximum visual distinction (no two look alike in
     /// light or dark mode). Assigned by creation order, not UUID hash, so

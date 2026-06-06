@@ -2378,6 +2378,56 @@ public enum AppTools {
 
         registry.register(ClientTool(
             descriptor: ToolDescriptor(
+                name: "setCalcRowLink",
+                description: """
+                Point a `linkedField` row at a tracker item (the "pick a \
+                house" swap) — every formula above re-runs against the new \
+                item's fields. `key` is the linkedField row. `ref` is \
+                {componentId, itemId}; pass null to clear the link. Result \
+                echoes {ok, key, results}.
+                """,
+                parameters: [
+                    "type": "object",
+                    "properties": [
+                        "key": ["type": "string"],
+                        "ref": [
+                            "type": "object",
+                            "properties": [
+                                "componentId": ["type": "string"],
+                                "itemId": ["type": "string"],
+                            ],
+                            "required": ["componentId", "itemId"],
+                        ],
+                        "componentId": ["type": "string", "description": "Optional calculator id; defaults to the active / first calculator."],
+                    ],
+                    "required": ["key"],
+                ]
+            ),
+            handler: { args in
+                guard let key = args["key"]?.stringValue else {
+                    return .object(["ok": .bool(false), "error": "missing 'key'"])
+                }
+                let ref = parseRef(from: args["ref"])
+                let componentId = args["componentId"]?.stringValue
+                return await MainActor.run {
+                    let ok = store.setCalcRowLinkedRef(
+                        key: key,
+                        ref: ref,
+                        myAppId: myAppId,
+                        componentId: componentId,
+                        actor: .agent(toolName: "setCalcRowLink")
+                    )
+                    var result: [String: AnyJSON] = ["ok": .bool(ok), "key": .string(key)]
+                    if let data = calculator(store, myAppId: myAppId) {
+                        result["results"] = calcResults(store: store, myAppId: myAppId, data: data)
+                    }
+                    return .object(result)
+                }
+            }
+        ))
+
+        registry.register(ClientTool(
+            descriptor: ToolDescriptor(
                 name: "listCalcRows",
                 description: """
                 Read a calculator's rows with their live-resolved values. \
@@ -4658,7 +4708,7 @@ public enum AppTools {
                 "name": ["type": "string"],
                 "unit": ["type": "string", "description": "Display unit, e.g. \"$\", \"%\", \"yr\"."],
                 "format": ["type": "string", "description": "Optional printf hint, e.g. \"%.2f\"."],
-                "kind": ["type": "string", "enum": ["variable", "aggregate", "formula", "list", "header"], "description": "header: section label — rows below collapse/expand as a group until the next header; `name` is the heading text."],
+                "kind": ["type": "string", "enum": ["variable", "aggregate", "formula", "list", "linkedField", "header"], "description": "linkedField: one numeric field off a single linked tracker item (swap the link to re-run the model). header: section label — rows below collapse/expand as a group until the next header; `name` is the heading text."],
                 "value": ["type": "number", "description": "variable: the input value."],
                 "control": [
                     "type": "object",
@@ -4672,18 +4722,28 @@ public enum AppTools {
                 ],
                 "list": [
                     "type": "object",
-                    "description": "list: an ARRAY output for charts (a sweep or tracker column).",
+                    "description": "list: an ARRAY output for charts (a sweep, a tracker column, or a linkedCompare).",
                     "properties": [
-                        "type": ["type": "string", "enum": ["sweep", "trackerColumn"]],
+                        "type": ["type": "string", "enum": ["sweep", "trackerColumn", "linkedCompare"]],
                         "variableKey": ["type": "string", "description": "sweep: the variable row key to vary."],
                         "from": ["type": "number", "description": "sweep: range start."],
                         "to": ["type": "number", "description": "sweep: range end (inclusive)."],
                         "step": ["type": "number", "description": "sweep: increment (> 0)."],
-                        "targetKey": ["type": "string", "description": "sweep: the row key read at each step (y)."],
+                        "targetKey": ["type": "string", "description": "sweep / linkedCompare: the row key read for each point (y)."],
                         "sourceComponentId": ["type": "string", "description": "trackerColumn: source tracker id."],
                         "valueField": ["type": "string", "description": "trackerColumn: numeric field → y."],
                         "labelField": ["type": "string", "description": "trackerColumn: optional field → point label."],
                         "filter": ["type": "object", "description": "trackerColumn: equality filter."],
+                        "refs": ["type": "array", "description": "linkedCompare: tracker items to compare, one point each.", "items": ["type": "object", "properties": ["componentId": ["type": "string"], "itemId": ["type": "string"]], "required": ["componentId", "itemId"]]],
+                        "linkedRowKey": ["type": "string", "description": "linkedCompare: anchor linkedField row key; every linkedField row sharing its ref is swapped to each compared item before reading targetKey."],
+                    ],
+                ],
+                "linkedField": [
+                    "type": "object",
+                    "description": "linkedField: pull one numeric field off a single linked tracker item.",
+                    "properties": [
+                        "ref": ["type": "object", "description": "The linked tracker item. Omit to leave unlinked.", "properties": ["componentId": ["type": "string"], "itemId": ["type": "string"]], "required": ["componentId", "itemId"]],
+                        "field": ["type": "string", "description": "Field name on the linked item to read and parse as a number."],
                     ],
                 ],
                 "aggregate": [
@@ -4709,12 +4769,13 @@ public enum AppTools {
                 "name": ["type": "string"],
                 "unit": ["type": "string"],
                 "format": ["type": "string"],
-                "kind": ["type": "string", "enum": ["variable", "aggregate", "formula", "list", "header"]],
+                "kind": ["type": "string", "enum": ["variable", "aggregate", "formula", "list", "linkedField", "header"]],
                 "value": ["type": "number"],
                 "control": ["type": "object"],
                 "aggregate": ["type": "object"],
                 "expression": ["type": "string"],
                 "list": ["type": "object"],
+                "linkedField": ["type": "object"],
             ],
         ]
     }
@@ -4756,11 +4817,24 @@ public enum AppTools {
         case "list":
             guard let spec = parseCalcListSpec(from: entry["list"] ?? entry) else { return nil }
             return .list(spec)
+        case "linkedField":
+            let lf: AnyJSON = entry["linkedField"] ?? entry
+            let field = lf["field"]?.stringValue ?? lf["fieldName"]?.stringValue ?? ""
+            return .linkedField(LinkedFieldSpec(ref: parseRef(from: lf["ref"]), fieldName: field))
         case "header":
             return .header
         default:
             return nil
         }
+    }
+
+    /// Parse a single `{componentId, itemId}` ref. Returns nil when absent or
+    /// malformed (so a linkedField can decode as "unlinked").
+    private static func parseRef(from json: AnyJSON?) -> ComponentItemRef? {
+        guard let componentId = json?["componentId"]?.stringValue,
+              let idString = json?["itemId"]?.stringValue,
+              let uuid = UUID(uuidString: idString) else { return nil }
+        return ComponentItemRef(componentId: componentId, itemId: uuid)
     }
 
     /// Parse a `list` row's spec — a sweep or a tracker column.
@@ -4775,6 +4849,12 @@ public enum AppTools {
                 valueField: obj["valueField"]?.stringValue ?? "",
                 labelField: obj["labelField"]?.stringValue,
                 filter: filter
+            )
+        case "linkedCompare":
+            return .linkedCompare(
+                refs: parseLinkedItems(from: obj["refs"]),
+                targetKey: obj["targetKey"]?.stringValue ?? "",
+                linkedRowKey: obj["linkedRowKey"]?.stringValue ?? ""
             )
         default: // "sweep"
             return .sweep(
@@ -4882,6 +4962,13 @@ public enum AppTools {
         case .list(let spec):
             obj["kind"] = .string("list")
             if full { obj["list"] = calcListSpecAsAnyJSON(spec) }
+        case .linkedField(let spec):
+            obj["kind"] = .string("linkedField")
+            if full {
+                var lf: [String: AnyJSON] = ["field": .string(spec.fieldName)]
+                if let ref = spec.ref { lf["ref"] = refAsAnyJSON(ref) }
+                obj["linkedField"] = .object(lf)
+            }
         case .header:
             obj["kind"] = .string("header")
         }
@@ -4914,7 +5001,19 @@ public enum AppTools {
             if let labelField { obj["labelField"] = .string(labelField) }
             if !filter.isEmpty { obj["filter"] = .object(filter.mapValues { .string($0) }) }
             return .object(obj)
+        case .linkedCompare(let refs, let targetKey, let linkedRowKey):
+            return .object([
+                "type": .string("linkedCompare"),
+                "refs": .array(refs.map { refAsAnyJSON($0) }),
+                "targetKey": .string(targetKey),
+                "linkedRowKey": .string(linkedRowKey),
+            ])
         }
+    }
+
+    /// Serialise one `{componentId, itemId}` ref.
+    private static func refAsAnyJSON(_ ref: ComponentItemRef) -> AnyJSON {
+        .object(["componentId": .string(ref.componentId), "itemId": .string(ref.itemId.uuidString)])
     }
 
     // MARK: - Chart helpers

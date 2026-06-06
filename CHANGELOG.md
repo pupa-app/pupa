@@ -3,6 +3,26 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.11] — 2026-06-07
+
+### Added
+
+- **Linked-field calculator rows + Home Buying example** (#35): a new calculator
+  row kind `linkedField` pulls one numeric field off a single linked tracker
+  item — swap the linked item (the row's link pill, or the new `setCalcRowLink`
+  tool) to re-run the whole model against a different row. A new `list`
+  sub-type `linkedCompare` compares a *set* of linked items on a target row
+  (swapping every linkedField row that shares the anchor ref per item) and
+  plots one point each — the seam for the new **Example: Home Buying**
+  workspace: a kanban of candidate houses driving a live mortgage model with an
+  embedded bar chart comparing total monthly cost across houses. Deleting a
+  house clears its ref from the calculator (cascade). (`PupaApp` `0.0.99`)
+
+### Changed
+
+- The orchestrator's accent color is now a dark neutral grey (was purple) so it
+  reads as the "meta" agent without competing with per-MyApp colors.
+
 ## [0.0.10] — 2026-06-06
 
 ### Added

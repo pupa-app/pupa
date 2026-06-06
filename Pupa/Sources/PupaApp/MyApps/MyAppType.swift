@@ -226,6 +226,7 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
                 "addCalcRows",
                 "patchCalcRows",
                 "removeCalcRows",
+                "setCalcRowLink",
                 "listCalcRows",
                 "getCalcRow",
                 "embedComponent",
@@ -268,10 +269,12 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
             "calculator": """
             CALCULATOR — live numeric model. Rows: tunable inputs (VARIABLE), \
             formulas over other rows by key (FORMULA), tracker aggregates \
-            (AGGREGATE), array output for charts (LIST), section labels \
-            (HEADER). Use when user wants a model to tune in real time. \
-            Explore via list/getCalcRow; `summary` slot — set via \
-            renderCalculator(summary:).
+            (AGGREGATE), one field off a linked tracker item (LINKED_FIELD — \
+            swap the item with setCalcRowLink to re-run the model), array \
+            output for charts (LIST, incl. linkedCompare to compare a set of \
+            linked items on a target row), section labels (HEADER). Use when \
+            user wants a model to tune in real time. Explore via \
+            list/getCalcRow; `summary` slot — set via renderCalculator(summary:).
             """,
             "chart": """
             CHART — pie/bar/line with overlaid series. Sources: tracker (group \

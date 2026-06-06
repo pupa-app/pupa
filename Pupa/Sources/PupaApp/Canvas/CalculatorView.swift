@@ -287,10 +287,91 @@ private struct CalcRowView: View {
             )
         case .aggregate, .formula:
             ComputedValueLabel(result: result, unit: row.unit, format: row.format)
+        case .linkedField(let spec):
+            LinkedFieldControl(
+                store: store,
+                myAppId: myAppId,
+                componentId: componentId,
+                rowKey: row.key,
+                spec: spec,
+                result: result,
+                unit: row.unit,
+                format: row.format
+            )
         case .list:
             ListSparkline(points: result?.list ?? [], status: result?.status)
         case .header:
             EmptyView()
+        }
+    }
+}
+
+// MARK: - Linked-field control
+
+/// Trailing control for a `linkedField` row: a tappable chain-link pill
+/// naming the linked tracker item (or "Link…" when unset) plus the extracted
+/// value. Tapping opens the shared `ComponentItemPickerSheet`; the first
+/// picked ref replaces the row's link (swap the item → the model re-runs).
+private struct LinkedFieldControl: View {
+    @Bindable var store: MyAppStore
+    let myAppId: UUID
+    let componentId: String
+    let rowKey: String
+    let spec: LinkedFieldSpec
+    let result: CalculatorResolver.RowResult?
+    let unit: String?
+    let format: String?
+
+    @State private var pickerPresented = false
+
+    private var linkedName: String? {
+        guard let ref = spec.ref else { return nil }
+        return store.displayNameForRefTarget(
+            componentId: ref.componentId,
+            itemId: ref.itemId,
+            myAppId: myAppId
+        )
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button { pickerPresented = true } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "link")
+                        .font(.caption2)
+                    Text(linkedName ?? "Link…")
+                        .font(.caption.weight(.medium))
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.accentColor.opacity(0.15))
+                .foregroundStyle(Color.accentColor)
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+
+            ComputedValueLabel(result: result, unit: unit, format: format)
+        }
+        .sheet(isPresented: $pickerPresented) {
+            ComponentItemPickerSheet(
+                store: store,
+                myAppId: myAppId,
+                excludeRef: nil,
+                alreadyLinked: [],
+                onPick: { refs in
+                    if let ref = refs.first {
+                        _ = store.setCalcRowLinkedRef(
+                            key: rowKey,
+                            ref: ref,
+                            myAppId: myAppId,
+                            componentId: componentId
+                        )
+                    }
+                    pickerPresented = false
+                },
+                onClose: { pickerPresented = false }
+            )
         }
     }
 }
