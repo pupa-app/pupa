@@ -174,7 +174,7 @@ struct ChatOverlay: View {
     }
 
     private func resizeGrip(in containerSize: CGSize) -> some View {
-        Image(systemName: "arrow.up.left.and.arrow.down.right")
+        Image(systemName: "square.resize")
             .font(.system(size: 10, weight: .bold))
             .foregroundStyle(.secondary)
             .padding(6)
