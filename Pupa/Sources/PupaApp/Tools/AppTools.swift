@@ -782,6 +782,7 @@ public enum AppTools {
         registerCalendarTools(on: registry, store: store, myAppId: myAppId)
         registerChecklistTools(on: registry, store: store, myAppId: myAppId)
         registerCalculatorTools(on: registry, store: store, myAppId: myAppId)
+        registerChartTools(on: registry, store: store, myAppId: myAppId)
         registerLinkTools(on: registry, store: store, myAppId: myAppId)
         registerHistoryTools(on: registry, store: store, myAppId: myAppId)
         if let slack {
@@ -2479,6 +2480,131 @@ public enum AppTools {
                         "componentId": .string(resolvedId),
                         "row": calcRowAsAnyJSON(row, result: results.result(forKey: key), full: true),
                     ])
+                }
+            }
+        ))
+    }
+
+    // MARK: - Chart tools
+
+    @MainActor
+    private static func registerChartTools(
+        on registry: ToolRegistry,
+        store: MyAppStore,
+        myAppId: UUID
+    ) {
+        registry.register(ClientTool(
+            descriptor: ToolDescriptor(
+                name: "renderChart",
+                description: """
+                Render a chart on the first chart component in this MyApp (or \
+                the active component if it's a chart). DESTRUCTIVE — overwrites \
+                title / kind / source. `kind` is one of pie | bar | line. \
+                `source` is one of: \
+                {type:"tracker", componentId, groupBy, valueField, \
+                reduce:"sum|avg|min|max|count", filter?, xIsNumericOrDate?} — \
+                reduce `valueField` grouped by `groupBy` over a tracker \
+                (`filter` is a case-insensitive equality map to isolate a \
+                category; `xIsNumericOrDate` plots a numeric/date group key as \
+                an ascending x axis for bar/line); \
+                {type:"calculatorRows", componentId, keys:[...]} — plot those \
+                calculator rows' resolved values; or \
+                {type:"inline", points:[{label, x?, y}]} — literal points. \
+                If no chart component exists yet, call \
+                addComponent(kind:"chart", name:…) first. Result echoes \
+                {ok, componentId, title, kind, pointCount}.
+                """,
+                parameters: [
+                    "type": "object",
+                    "properties": [
+                        "title": ["type": "string"],
+                        "kind": ["type": "string", "enum": ["pie", "bar", "line"]],
+                        "source": chartSourceSchema(),
+                    ],
+                    "required": ["title", "kind", "source"],
+                ]
+            ),
+            handler: { args in
+                guard let title = args["title"]?.stringValue,
+                      let kindRaw = args["kind"]?.stringValue,
+                      let kind = ChartKind(rawValue: kindRaw) else {
+                    return .object(["ok": .bool(false), "error": "renderChart needs `title`, `kind` (pie|bar|line), and `source`."])
+                }
+                let source = parseChartSource(from: args["source"])
+                return await MainActor.run {
+                    guard store.chartComponentId(myAppId: myAppId) != nil else {
+                        return .object([
+                            "ok": .bool(false),
+                            "error": "no chart component in this MyApp — call addComponent(kind:\"chart\", …) first",
+                        ])
+                    }
+                    store.setChart(title: title, kind: kind, source: source, myAppId: myAppId)
+                    return chartEcho(store: store, myAppId: myAppId)
+                }
+            }
+        ))
+
+        registry.register(ClientTool(
+            descriptor: ToolDescriptor(
+                name: "patchChart",
+                description: """
+                Edit the chart in place — only the fields you pass change. \
+                `patch` may contain {title?, kind?, source?} (same shapes as \
+                renderChart). Result echoes {ok, componentId, title, kind, \
+                pointCount}.
+                """,
+                parameters: [
+                    "type": "object",
+                    "properties": [
+                        "title": ["type": "string"],
+                        "kind": ["type": "string", "enum": ["pie", "bar", "line"]],
+                        "source": chartSourceSchema(),
+                    ],
+                ]
+            ),
+            handler: { args in
+                var patch = MyAppStore.ChartPatch()
+                if let t = args["title"]?.stringValue { patch.title = t }
+                if let k = args["kind"]?.stringValue, let kind = ChartKind(rawValue: k) { patch.kind = kind }
+                if args["source"] != nil { patch.source = parseChartSource(from: args["source"]) }
+                return await MainActor.run {
+                    guard store.patchChart(patch: patch, myAppId: myAppId) else {
+                        return .object([
+                            "ok": .bool(false),
+                            "error": "no chart component in this MyApp — call addComponent(kind:\"chart\", …) or renderChart first",
+                        ])
+                    }
+                    return chartEcho(store: store, myAppId: myAppId)
+                }
+            }
+        ))
+
+        registry.register(ClientTool(
+            descriptor: ToolDescriptor(
+                name: "setChartKind",
+                description: """
+                Flip the chart's kind (pie | bar | line) without touching its \
+                source. Result echoes {ok, componentId, title, kind, pointCount}.
+                """,
+                parameters: [
+                    "type": "object",
+                    "properties": ["kind": ["type": "string", "enum": ["pie", "bar", "line"]]],
+                    "required": ["kind"],
+                ]
+            ),
+            handler: { args in
+                guard let k = args["kind"]?.stringValue, let kind = ChartKind(rawValue: k) else {
+                    return .object(["ok": .bool(false), "error": "setChartKind needs `kind` (pie|bar|line)."])
+                }
+                return await MainActor.run {
+                    guard store.chartComponentId(myAppId: myAppId) != nil else {
+                        return .object([
+                            "ok": .bool(false),
+                            "error": "no chart component in this MyApp — call addComponent(kind:\"chart\", …) or renderChart first",
+                        ])
+                    }
+                    store.setChartKind(kind, myAppId: myAppId)
+                    return chartEcho(store: store, myAppId: myAppId)
                 }
             }
         ))
@@ -4252,6 +4378,7 @@ public enum AppTools {
         case "calendar": return "calendar"
         case "checklist": return "checklist"
         case "calculator": return "function"
+        case "chart": return "chart.pie"
         default: return "square.dashed"
         }
     }
@@ -4568,6 +4695,97 @@ public enum AppTools {
             if let v = result.value { obj["value"] = .double(v) }
         }
         return .object(obj)
+    }
+
+    // MARK: - Chart helpers
+
+    @MainActor
+    private static func chartData(_ store: MyAppStore, myAppId: UUID) -> (ChartData, String)? {
+        guard let myApp = store.myApps.first(where: { $0.id == myAppId }) else { return nil }
+        if let active = myApp.activeComponent, case .chart(let c) = active.body { return (c, active.id) }
+        for c in myApp.components {
+            if case .chart(let cd) = c.body { return (cd, c.id) }
+        }
+        return nil
+    }
+
+    /// `{ok, componentId, title, kind, pointCount}` for the resolved chart.
+    /// Shared by renderChart / patchChart / setChartKind.
+    @MainActor
+    private static func chartEcho(store: MyAppStore, myAppId: UUID) -> AnyJSON {
+        guard let (data, id) = chartData(store, myAppId: myAppId) else {
+            return .object(["ok": .bool(false), "error": "no chart component"])
+        }
+        let count = ChartResolver.pointCount(data.source, components: siblingComponents(store: store, myAppId: myAppId))
+        return .object([
+            "ok": .bool(true),
+            "componentId": .string(id),
+            "title": .string(data.title),
+            "kind": .string(data.kind.rawValue),
+            "pointCount": .int(count),
+        ])
+    }
+
+    private static func chartSourceSchema() -> AnyJSON {
+        [
+            "type": "object",
+            "description": "One of tracker | calculatorRows | inline (see `type`).",
+            "properties": [
+                "type": ["type": "string", "enum": ["tracker", "calculatorRows", "inline"]],
+                "componentId": ["type": "string", "description": "tracker / calculatorRows: source component id."],
+                "groupBy": ["type": "string", "description": "tracker: field whose value buckets the points (sector / x tick)."],
+                "valueField": ["type": "string", "description": "tracker: numeric field reduced per bucket."],
+                "reduce": ["type": "string", "enum": ["sum", "avg", "min", "max", "count"]],
+                "filter": ["type": "object", "description": "tracker: case-insensitive AND equality filter, e.g. {\"cuisine\":\"African\"}."],
+                "xIsNumericOrDate": ["type": "boolean", "description": "tracker: treat the group value as a numeric/date x axis (ascending) for bar/line."],
+                "keys": ["type": "array", "items": ["type": "string"], "description": "calculatorRows: calculator row keys to plot."],
+                "points": [
+                    "type": "array",
+                    "description": "inline: literal points.",
+                    "items": [
+                        "type": "object",
+                        "properties": [
+                            "label": ["type": "string"],
+                            "x": ["type": "number"],
+                            "y": ["type": "number"],
+                        ],
+                        "required": ["label", "y"],
+                    ],
+                ],
+            ],
+            "required": ["type"],
+        ]
+    }
+
+    /// Parse a chart `source` JSON object into a `ChartSource`. Unknown /
+    /// missing `type` degrades to an empty inline source so the chart renders
+    /// a placeholder rather than failing the tool call.
+    private static func parseChartSource(from json: AnyJSON?) -> ChartSource {
+        guard let obj = json?.objectValue, let type = obj["type"]?.stringValue else {
+            return .inline(points: [])
+        }
+        switch type {
+        case "tracker":
+            var filter: [String: String] = [:]
+            if let f = obj["filter"]?.objectValue { filter = f.compactMapValues(\.stringValue) }
+            return .tracker(
+                componentId: obj["componentId"]?.stringValue ?? "",
+                groupBy: obj["groupBy"]?.stringValue ?? "",
+                valueField: obj["valueField"]?.stringValue ?? obj["field"]?.stringValue ?? "",
+                reduce: CalcReduce(rawValue: obj["reduce"]?.stringValue ?? "sum") ?? .sum,
+                filter: filter,
+                xIsNumericOrDate: obj["xIsNumericOrDate"]?.boolValue ?? false
+            )
+        case "calculatorRows":
+            let keys = obj["keys"]?.arrayValue?.compactMap(\.stringValue) ?? []
+            return .calculatorRows(componentId: obj["componentId"]?.stringValue ?? "", keys: keys)
+        default: // "inline"
+            let points: [ChartPoint] = (obj["points"]?.arrayValue ?? []).compactMap { p in
+                guard let y = p["y"]?.doubleValue else { return nil }
+                return ChartPoint(label: p["label"]?.stringValue ?? "", x: p["x"]?.doubleValue, y: y)
+            }
+            return .inline(points: points)
+        }
     }
 
     private static func valuesAsAnyJSON(_ values: [String: String]) -> AnyJSON {

@@ -778,20 +778,188 @@ public struct CalcRow: Codable, Hashable, Sendable, Identifiable {
 public struct CalculatorData: Codable, Hashable, Sendable {
     public var title: String
     public var rows: [CalcRow]
+    /// Optional chart embedded below the rows (Phase 2, #22). When set, the
+    /// calculator view renders a `ChartContainerView` after the row list —
+    /// the same store-free `ChartView` a standalone `chart` component uses,
+    /// so a chart can live inside the calculator or on its own. `nil` =
+    /// no embedded chart; `decodeIfPresent` means Phase-1 blobs decode
+    /// untouched.
+    public var inlineChart: ChartData?
 
-    public init(title: String, rows: [CalcRow] = []) {
+    public init(title: String, rows: [CalcRow] = [], inlineChart: ChartData? = nil) {
         self.title = title
         self.rows = rows
+        self.inlineChart = inlineChart
     }
 
-    enum CodingKeys: String, CodingKey { case title, rows }
+    enum CodingKeys: String, CodingKey { case title, rows, inlineChart }
 
-    /// Backward-compatible decoder — `rows` defaults to `[]` so a
-    /// freshly-seeded empty body decodes cleanly.
+    /// Backward-compatible decoder — `rows` defaults to `[]` and
+    /// `inlineChart` to `nil` so a freshly-seeded (or Phase-1) body decodes
+    /// cleanly.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.title = try c.decode(String.self, forKey: .title)
         self.rows = try c.decodeIfPresent([CalcRow].self, forKey: .rows) ?? []
+        self.inlineChart = try c.decodeIfPresent(ChartData.self, forKey: .inlineChart)
+    }
+}
+
+// MARK: - Chart component
+
+/// How a chart plots its series. `pie` is a single-series sector breakdown;
+/// `bar` / `line` plot over an x axis (categorical, or numeric/date when the
+/// source sets `xIsNumericOrDate`).
+public enum ChartKind: String, Codable, Hashable, Sendable, CaseIterable {
+    case pie
+    case bar
+    case line
+}
+
+/// One plotted point. `label` is the categorical key (sector name, x-axis
+/// tick); `x` is the numeric/date position for `bar` / `line` over a
+/// continuous axis (nil = categorical, plotted by `label`); `y` is the
+/// value. Store-decoupled (no store, no MainActor) so Phase 3 (#23) can
+/// snapshot a point list straight into a chat attachment.
+public struct ChartPoint: Codable, Hashable, Sendable, Identifiable {
+    public let id: UUID
+    public var label: String
+    public var x: Double?
+    public var y: Double
+
+    public init(id: UUID = UUID(), label: String, x: Double? = nil, y: Double) {
+        self.id = id
+        self.label = label
+        self.x = x
+        self.y = y
+    }
+
+    enum CodingKeys: String, CodingKey { case id, label, x, y }
+
+    /// Backward-compatible decoder — `id` regenerates if absent, `x` stays
+    /// optional, `label` / `y` default so a partial blob still decodes.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        self.label = try c.decodeIfPresent(String.self, forKey: .label) ?? ""
+        self.x = try c.decodeIfPresent(Double.self, forKey: .x)
+        self.y = try c.decodeIfPresent(Double.self, forKey: .y) ?? 0
+    }
+}
+
+/// A named run of points. A pie / single-metric chart is one series; the
+/// model keeps the array shape so multi-series line/bar charts are a pure
+/// data extension later. Store-decoupled like `ChartPoint`.
+public struct ChartSeries: Codable, Hashable, Sendable, Identifiable {
+    public let id: String
+    public var name: String
+    public var points: [ChartPoint]
+
+    public init(id: String = UUID().uuidString, name: String, points: [ChartPoint]) {
+        self.id = id
+        self.name = name
+        self.points = points
+    }
+}
+
+/// Where a chart's series come from. Three arms, tagged-codec like
+/// `CalcRowKind`:
+/// - `tracker` reduces a numeric field grouped by another field on a tracker
+///   (reusing `TrackerAggregator.series`); `xIsNumericOrDate` makes the
+///   group key the continuous, ascending x axis for line/bar.
+/// - `calculatorRows` plots a fixed list of calculator row `keys` (each row's
+///   resolved scalar becomes one point).
+/// - `inline` carries literal points (the seam for Phase 3 chat embedding).
+public enum ChartSource: Codable, Hashable, Sendable {
+    case tracker(componentId: String, groupBy: String, valueField: String, reduce: CalcReduce, filter: [String: String], xIsNumericOrDate: Bool)
+    case calculatorRows(componentId: String, keys: [String])
+    case inline(points: [ChartPoint])
+
+    enum CodingKeys: String, CodingKey {
+        case type, componentId, groupBy, valueField, reduce, filter, xIsNumericOrDate, keys, points
+    }
+    enum Kind: String, Codable { case tracker, calculatorRows, inline }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        // A missing/unknown discriminator decodes as an empty `inline` source
+        // so a partial or future blob degrades to "no data" rather than
+        // failing the whole chart decode.
+        let kind = (try? c.decodeIfPresent(Kind.self, forKey: .type)) ?? .inline
+        switch kind {
+        case .tracker:
+            self = .tracker(
+                componentId: try c.decodeIfPresent(String.self, forKey: .componentId) ?? "",
+                groupBy: try c.decodeIfPresent(String.self, forKey: .groupBy) ?? "",
+                valueField: try c.decodeIfPresent(String.self, forKey: .valueField) ?? "",
+                reduce: try c.decodeIfPresent(CalcReduce.self, forKey: .reduce) ?? .sum,
+                filter: try c.decodeIfPresent([String: String].self, forKey: .filter) ?? [:],
+                xIsNumericOrDate: try c.decodeIfPresent(Bool.self, forKey: .xIsNumericOrDate) ?? false
+            )
+        case .calculatorRows:
+            self = .calculatorRows(
+                componentId: try c.decodeIfPresent(String.self, forKey: .componentId) ?? "",
+                keys: try c.decodeIfPresent([String].self, forKey: .keys) ?? []
+            )
+        case .inline:
+            self = .inline(points: try c.decodeIfPresent([ChartPoint].self, forKey: .points) ?? [])
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .tracker(let componentId, let groupBy, let valueField, let reduce, let filter, let xIsNumericOrDate):
+            try c.encode(Kind.tracker, forKey: .type)
+            try c.encode(componentId, forKey: .componentId)
+            try c.encode(groupBy, forKey: .groupBy)
+            try c.encode(valueField, forKey: .valueField)
+            try c.encode(reduce, forKey: .reduce)
+            try c.encode(filter, forKey: .filter)
+            try c.encode(xIsNumericOrDate, forKey: .xIsNumericOrDate)
+        case .calculatorRows(let componentId, let keys):
+            try c.encode(Kind.calculatorRows, forKey: .type)
+            try c.encode(componentId, forKey: .componentId)
+            try c.encode(keys, forKey: .keys)
+        case .inline(let points):
+            try c.encode(Kind.inline, forKey: .type)
+            try c.encode(points, forKey: .points)
+        }
+    }
+
+    /// Points carried literally by an `inline` source — used by the canvas
+    /// summary's `itemCount` (resolved series live elsewhere for the other
+    /// arms, so they report 0).
+    public var inlinePointCount: Int {
+        if case .inline(let points) = self { return points.count }
+        return 0
+    }
+}
+
+/// Body of a chart canvas component. Non-linkable, single-spec: a `title`,
+/// a `kind` (pie/bar/line), and a `source`. Results are NEVER persisted —
+/// `ChartResolver` resolves `source` to `[ChartSeries]` live every render
+/// so an edited source tracker / tuned calculator reflects immediately.
+public struct ChartData: Codable, Hashable, Sendable {
+    public var title: String
+    public var kind: ChartKind
+    public var source: ChartSource
+
+    public init(title: String, kind: ChartKind = .bar, source: ChartSource = .inline(points: [])) {
+        self.title = title
+        self.kind = kind
+        self.source = source
+    }
+
+    enum CodingKeys: String, CodingKey { case title, kind, source }
+
+    /// Backward-compatible decoder — `kind` defaults to `.bar` and `source`
+    /// to an empty inline source so a partial blob decodes.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.title = try c.decode(String.self, forKey: .title)
+        self.kind = try c.decodeIfPresent(ChartKind.self, forKey: .kind) ?? .bar
+        self.source = try c.decodeIfPresent(ChartSource.self, forKey: .source) ?? .inline(points: [])
     }
 }
 
@@ -802,9 +970,10 @@ public enum CanvasApp: Codable, Hashable, Sendable {
     case checklist(ChecklistData)
     case slack(SlackData)
     case calculator(CalculatorData)
+    case chart(ChartData)
 
     enum CodingKeys: String, CodingKey { case kind, data }
-    enum Kind: String, Codable { case empty, tracker, calendar, checklist, slack, calculator }
+    enum Kind: String, Codable { case empty, tracker, calendar, checklist, slack, calculator, chart }
 
     /// Stable string used by tool dispatch and component-kind routing.
     /// Matches the `Kind.rawValue` written by the encoder.
@@ -816,6 +985,7 @@ public enum CanvasApp: Codable, Hashable, Sendable {
         case .checklist: return "checklist"
         case .slack: return "slack"
         case .calculator: return "calculator"
+        case .chart: return "chart"
         }
     }
 
@@ -839,6 +1009,9 @@ public enum CanvasApp: Codable, Hashable, Sendable {
         case .calculator:
             let data = try c.decode(CalculatorData.self, forKey: .data)
             self = .calculator(data)
+        case .chart:
+            let data = try c.decode(ChartData.self, forKey: .data)
+            self = .chart(data)
         }
     }
     public func encode(to encoder: Encoder) throws {
@@ -861,6 +1034,9 @@ public enum CanvasApp: Codable, Hashable, Sendable {
         case .calculator(let d):
             try c.encode(Kind.calculator, forKey: .kind)
             try c.encode(d, forKey: .data)
+        case .chart(let d):
+            try c.encode(Kind.chart, forKey: .kind)
+            try c.encode(d, forKey: .data)
         }
     }
 
@@ -877,6 +1053,7 @@ public enum CanvasApp: Codable, Hashable, Sendable {
         case "checklist": return .checklist(ChecklistData(title: "", items: []))
         case "slack": return .slack(SlackData())
         case "calculator": return .calculator(CalculatorData(title: "", rows: []))
+        case "chart": return .chart(ChartData(title: ""))
         default: return .empty
         }
     }
@@ -895,10 +1072,10 @@ public enum CanvasApp: Codable, Hashable, Sendable {
         case .checklist(var cl):
             for i in cl.items.indices { transform(&cl.items[i].linkedItems) }
             self = .checklist(cl)
-        case .slack, .empty, .calculator:
-            // Calculator rows hold no `linkedItems` — they reference
-            // tracker fields via `AggregateSpec`, not via the universal
-            // item-ref graph — so there is nothing to sweep here.
+        case .slack, .empty, .calculator, .chart:
+            // Calculator rows and charts hold no `linkedItems` — they
+            // reference tracker fields / rows via specs, not via the
+            // universal item-ref graph — so there is nothing to sweep here.
             break
         }
     }

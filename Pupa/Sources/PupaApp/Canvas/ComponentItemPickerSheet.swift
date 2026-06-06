@@ -108,7 +108,7 @@ struct ComponentItemPickerSheet: View {
         return myApp.components.filter {
             switch $0.body {
             case .tracker, .calendar, .checklist: return true
-            case .empty, .slack, .calculator: return false
+            case .empty, .slack, .calculator, .chart: return false
             }
         }
     }
@@ -120,6 +120,7 @@ struct ComponentItemPickerSheet: View {
         case .checklist: return "\(comp.name) (checklist)"
         case .slack: return "\(comp.name) (slack)"
         case .calculator: return "\(comp.name) (calculator)"
+        case .chart: return "\(comp.name) (chart)"
         case .empty: return comp.name
         }
     }
@@ -131,6 +132,7 @@ struct ComponentItemPickerSheet: View {
         case .checklist: return "No rows on this checklist yet"
         case .slack: return "Nothing to link here"
         case .calculator: return "Nothing to link here"
+        case .chart: return "Nothing to link here"
         case .empty: return "Nothing to link here yet"
         }
     }
@@ -156,7 +158,7 @@ struct ComponentItemPickerSheet: View {
                 let name = item.text.isEmpty ? "(empty item)" : item.text
                 return (item.id, name)
             }
-        case .slack, .empty, .calculator:
+        case .slack, .empty, .calculator, .chart:
             return []
         }
     }

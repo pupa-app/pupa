@@ -147,6 +147,24 @@ struct ToolGatingTests {
         #expect(!unlocked.contains("renderChecklist"))
     }
 
+    @Test("Chart component present: gate then unlock exposes all chart tools")
+    func chartComponentShowsGateThenTools() {
+        let (store, myApp) = freshStore()
+        store.addComponent(kind: "chart", name: "Chart", iconSystemName: "chart.pie", myAppId: myApp.id)
+
+        let skillState = SkillState()
+        let gated = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: skillState)
+        #expect(gated.contains("get_skill_chart"))
+        #expect(!gated.contains("renderChart"))
+
+        skillState.activate(kind: "chart")
+        let unlocked = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: skillState)
+        #expect(unlocked.contains("renderChart"))
+        #expect(unlocked.contains("patchChart"))
+        #expect(unlocked.contains("setChartKind"))
+        #expect(!unlocked.contains("renderCalculator"))
+    }
+
     @Test("addComponent supports the calculator kind and seeds a typed-empty body")
     func addComponentCalculator() {
         let (store, myApp) = freshStore()

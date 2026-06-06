@@ -67,6 +67,69 @@ public enum TrackerAggregator {
         reduce(spec.reduce, field: spec.fieldName, items: tracker.items, filter: spec.filter)
     }
 
+    /// Group `items` (after `filter`) by their `groupBy` value, reduce
+    /// `valueField` within each group, and emit one `ChartPoint` per group.
+    /// Phase 2 (#22) calls this for `tracker`-sourced charts.
+    ///
+    /// - `label` is the group value; `y` the per-group reduced scalar.
+    /// - When `xIsNumericOrDate` is true the group value is parsed to a
+    ///   continuous `x` (a number, or an ISO-8601 / `yyyy-MM-dd` date as a
+    ///   Unix timestamp) and the points are sorted ascending by `x` — the
+    ///   "unidirectional x axis" for line / bar over a date or numeric field.
+    ///   Groups whose value doesn't parse sort to the front (`x == nil`
+    ///   treated as `-inf`). When false, points keep first-seen group order
+    ///   and `x` stays nil (categorical axis / pie sectors).
+    public static func series(
+        valueField: String,
+        groupBy: String,
+        reduce reduceOp: CalcReduce,
+        items: [TrackerItem],
+        filter: [String: String] = [:],
+        xIsNumericOrDate: Bool = false
+    ) -> [ChartPoint] {
+        let matched = items.filter { matches($0, filter: filter) }
+
+        // Group preserving first-seen order so a categorical axis stays stable.
+        var groups: [String: [TrackerItem]] = [:]
+        var order: [String] = []
+        for item in matched {
+            let key = item.values[groupBy]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if groups[key] == nil { order.append(key) }
+            groups[key, default: []].append(item)
+        }
+
+        var points: [ChartPoint] = order.map { label in
+            let outcome = reduce(reduceOp, field: valueField, items: groups[label] ?? [])
+            let x: Double? = xIsNumericOrDate ? parseXAxis(label) : nil
+            return ChartPoint(label: label, x: x, y: outcome.value)
+        }
+
+        if xIsNumericOrDate {
+            points.sort { ($0.x ?? -.infinity) < ($1.x ?? -.infinity) }
+        }
+        return points
+    }
+
+    /// Parse a group-by value into a continuous x position: a plain number
+    /// (via `parseNumber`), or a date (ISO-8601 instant, or `yyyy-MM-dd`) as a
+    /// Unix timestamp. Returns nil when neither parses, so the caller can sort
+    /// unparseable buckets to the front rather than crashing.
+    static func parseXAxis(_ raw: String) -> Double? {
+        if let n = parseNumber(raw) { return n }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Formatters built locally — `ISO8601DateFormatter` / `DateFormatter`
+        // aren't `Sendable`, so a shared static would be a data race. Chart
+        // series are small, so the per-call cost is negligible.
+        if let date = ISO8601DateFormatter().date(from: trimmed) { return date.timeIntervalSince1970 }
+        let day = DateFormatter()
+        day.calendar = Calendar(identifier: .gregorian)
+        day.locale = Locale(identifier: "en_US_POSIX")
+        day.timeZone = TimeZone(identifier: "UTC")
+        day.dateFormat = "yyyy-MM-dd"
+        if let date = day.date(from: trimmed) { return date.timeIntervalSince1970 }
+        return nil
+    }
+
     /// Case-insensitive AND equality match: every `(key, value)` in `filter`
     /// must equal the item's value for `key` (both trimmed, compared
     /// case-insensitively). A missing key on the item fails the match.

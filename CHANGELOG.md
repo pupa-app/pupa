@@ -3,6 +3,19 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.8] — 2026-06-06
+
+### Added
+
+- **Chart canvas component** (Phase 2 of #20, via #22): a pie / bar / line
+  plot driven by Swift Charts. Its `source` is one of a **tracker** field
+  grouped + reduced (sum/avg/min/max/count, with a category filter and an
+  optional numeric/date x axis), a list of **calculator rows**, or **inline**
+  points. Series resolve live every render via `ChartResolver` (reusing the
+  Phase-1 `TrackerAggregator`); the store-free `ChartView(series:kind:)`
+  embeds inside a calculator (`inlineChart`) or stands alone. See
+  [docs/components/chart.md](docs/components/chart.md). (`PupaApp` `0.0.96`)
+
 ## [0.0.7] — 2026-06-06
 
 ### Added

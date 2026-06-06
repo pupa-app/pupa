@@ -61,6 +61,13 @@ public struct CalculatorView: View {
                 .background(Color.gray.opacity(0.06))
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
+
+            // Embedded chart (Phase 2, #22) — same store-free ChartView a
+            // standalone chart component uses, resolved live against siblings.
+            if let chart = data.inlineChart {
+                ChartContainerView(store: store, data: chart, myAppId: myAppId)
+                    .padding(.top, 4)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

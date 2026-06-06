@@ -229,6 +229,11 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
                 "listCalcRows",
                 "getCalcRow",
             ],
+            "chart": [
+                "renderChart",
+                "patchChart",
+                "setChartKind",
+            ],
         ],
         promptFragmentsByKind: [
             "tracker": """
@@ -268,6 +273,17 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
             expense-share scenarios this way. Explore via list/getCalcRow; \
             `summary` slot — set via renderCalculator(summary:).
             """,
+            "chart": """
+            CHART — pie/bar/line plot. renderChart sets {title, kind, source}; \
+            source is one of: TRACKER (reduce a numeric `valueField` grouped by \
+            `groupBy` over a tracker, with an equality `filter` to isolate a \
+            category; set `xIsNumericOrDate` to plot a numeric/date group key \
+            as an ascending continuous x axis for bar/line), CALCULATOR_ROWS \
+            (plot a list of calculator row `keys`), or INLINE (literal points). \
+            patchChart edits in place; setChartKind flips pie⇄bar⇄line. Tool \
+            results echo the resolved point count. Pie = spend by category; \
+            bar/line = a metric over a date field.
+            """,
         ],
         // No cross-kind gates as of project `0.0.41`. The generic
         // `linkItem` / `unlinkItem` pair lives in `baseToolNames` and
@@ -276,6 +292,6 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
         // requirements. Per-kind tools that don't depend on another
         // kind sit in `toolNamesByKind[kind]` alone.
         coPresenceGates: [:],
-        supportedComponentKinds: ["tracker", "calendar", "checklist", "slack", "calculator"]
+        supportedComponentKinds: ["tracker", "calendar", "checklist", "slack", "calculator", "chart"]
     )
 }
