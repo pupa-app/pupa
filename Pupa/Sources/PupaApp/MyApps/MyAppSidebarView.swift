@@ -11,6 +11,10 @@ public struct MyAppSidebarView: View {
 
     @State private var newSheetPresented = false
     @State private var settingsSheetPresented = false
+    /// Shared guided-tour store. The Settings tour step raises
+    /// `wantSettingsOpen`; we mirror it onto `settingsSheetPresented` so the
+    /// sheet opens (and closes) in lock-step with the tour.
+    @State private var tour = GuidedTourStore.shared
     @State private var renamingMyAppId: UUID?
     @State private var renameDraft: String = ""
     @State private var expanded: Set<String> = []
@@ -120,6 +124,11 @@ public struct MyAppSidebarView: View {
         .onChange(of: selection) { _, new in
             if let new { onSelectionChange(new) }
         }
+        // Guided tour drives the Settings sheet through its intent flag so the
+        // step's coach card and the sheet stay in sync.
+        .onChange(of: tour.wantSettingsOpen) { _, want in
+            settingsSheetPresented = want
+        }
         .sheet(isPresented: $newSheetPresented) {
             NewMyAppSheet(store: store) { newSheetPresented = false }
         }
@@ -135,6 +144,16 @@ public struct MyAppSidebarView: View {
                     selection = .myApp(id)
                     onSelectionChange(.myApp(id))
                     settingsSheetPresented = false
+                },
+                onStartTour: {
+                    // Dismiss the sheet, then restart the tour from the top.
+                    // Uses the live active myApp + pairing state so route
+                    // targets resolve and the chat copy adapts.
+                    settingsSheetPresented = false
+                    tour.start(
+                        activeMyAppId: store.activeMyAppId,
+                        isPaired: settings.isPaired(settings.activeBackend.id)
+                    )
                 }
             ) {
                 settingsSheetPresented = false

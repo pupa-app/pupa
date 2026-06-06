@@ -39,6 +39,10 @@ public struct ChatPanel: View {
     /// when only one thread exists (delete is not offered).
     let onDeleteThread: ((String) -> Void)?
     @State private var showThreadList: Bool = false
+    /// Shared guided-tour store. The chat / slash steps park a prefill in
+    /// `chatPrefill`; we drop it into the composer so the coach card can point
+    /// at a ready-to-send message (or surface the `SlashCommandPalette` on "/").
+    @State private var tour = GuidedTourStore.shared
     @State private var draft: String = ""
     @State private var pickerItem: PhotosPickerItem?
     @State private var pickedImage: PickedImage?
@@ -135,6 +139,19 @@ public struct ChatPanel: View {
             if draft.isEmpty, !viewModel.isStreaming,
                let suggested = OnboardingHandoff.shared.consumeSuggestedPrompt() {
                 draft = suggested
+            }
+            // Guided tour: the chat step opens this overlay, so the prefill is
+            // already parked before the panel mounts — adopt it on appear.
+            if let prefill = tour.chatPrefill, !prefill.isEmpty {
+                draft = prefill
+            }
+        }
+        // Guided tour with the overlay already open (the slash-commands step
+        // toggling "/" while chat is up): adopt the prefill reactively so the
+        // SlashCommandPalette surfaces without re-mounting the panel.
+        .onChange(of: tour.chatPrefill) { _, prefill in
+            if let prefill, !prefill.isEmpty {
+                draft = prefill
             }
         }
     }

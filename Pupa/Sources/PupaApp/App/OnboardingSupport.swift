@@ -15,6 +15,38 @@ enum OnboardingKeys {
     /// pairing. Drives the dismissible "connect your backend" reminder banner
     /// in `AppView` until a backend is paired (or the banner is dismissed).
     static let backendSkipped = "pupa.onboarding.backendSkipped"
+    /// Set once the user finishes or skips the interactive guided tour
+    /// (`GuidedTourStore`). Gates the auto-start in `AppView` so the tour runs
+    /// exactly once. Absent on a fresh install; `OnboardingMigration` back-fills
+    /// it `true` for pre-existing users so an app update never replays the tour.
+    static let tourCompleted = "pupa.tour.completed"
+}
+
+/// One-time back-fill of the onboarding / tour flags for users who installed
+/// before these features shipped. Extracted from `RootView.init` so it can be
+/// unit-tested against an isolated `UserDefaults` suite.
+enum OnboardingMigration {
+    /// Migrate `defaults` in place. Runs only when `completed` is absent — a
+    /// true fresh install or a pre-feature user's first launch. A pre-existing
+    /// user (detected by a persisted `SettingsStore` snapshot) is marked as
+    /// having completed *both* onboarding and the tour, so neither replays on
+    /// update. A genuine fresh install leaves both flags `false` so onboarding
+    /// runs and then hands off to the tour. Idempotent.
+    @MainActor
+    static func migrate(
+        defaults: UserDefaults,
+        settingsKey: String = SettingsStore.storageKey
+    ) {
+        guard defaults.object(forKey: OnboardingKeys.completed) == nil else { return }
+        let isExistingUser = defaults.data(forKey: settingsKey) != nil
+        defaults.set(isExistingUser, forKey: OnboardingKeys.completed)
+        // Existing users have already configured the app; don't drop them into
+        // the tour on their next launch. New installs leave this false so the
+        // onboarding → tour sequence runs once.
+        if isExistingUser {
+            defaults.set(true, forKey: OnboardingKeys.tourCompleted)
+        }
+    }
 }
 
 /// One-shot channel from onboarding to the chat composer. When onboarding
