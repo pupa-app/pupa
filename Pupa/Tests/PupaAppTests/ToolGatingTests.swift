@@ -179,15 +179,21 @@ struct ToolGatingTests {
         }
     }
 
-    @Test("embedComponent hidden when no calculator component present")
-    func embedComponentHiddenWithoutCalculator() {
+    @Test("embedComponent advertised under chart kind (chat embedding) — hidden with no chart/calculator")
+    func embedComponentGating() {
         let (store, myApp) = freshStore()
-        store.addComponent(kind: "chart", name: "Chart", iconSystemName: "chart.pie", myAppId: myApp.id)
 
+        // No chart / calculator present → embedComponent not advertised.
+        let bare = SkillState()
+        #expect(!ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: bare).contains("embedComponent"))
+
+        // Chart present + chart skill active → embedComponent shows (it can
+        // snapshot the chart into chat via hostKind "chat").
+        store.addComponent(kind: "chart", name: "Chart", iconSystemName: "chart.pie", myAppId: myApp.id)
         let skillState = SkillState()
         skillState.activate(kind: "chart")
         let allowed = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: skillState)
-        #expect(!allowed.contains("embedComponent"))
+        #expect(allowed.contains("embedComponent"))
     }
 
     @Test("Chart component present: gate then unlock exposes all chart tools")

@@ -37,6 +37,11 @@ public struct ChatBubble: Identifiable, Hashable {
     /// own optional suggested-answer buttons. Empty for every other bubble
     /// role.
     public var humanQuestions: [HumanQuestionRow]
+    /// A frozen chart pinned into this assistant bubble by the
+    /// `embedComponent` tool (hostKind "chat"). Holds resolved series,
+    /// not a live store reference, so it stays reproducible. nil for every
+    /// other bubble.
+    public var chartSnapshot: ChatChartSnapshot?
 
     public init(
         id: String = UUID().uuidString,
@@ -44,7 +49,8 @@ public struct ChatBubble: Identifiable, Hashable {
         text: String = "",
         imageData: Data? = nil,
         toolEntries: [ToolCallEntry] = [],
-        humanQuestions: [HumanQuestionRow] = []
+        humanQuestions: [HumanQuestionRow] = [],
+        chartSnapshot: ChatChartSnapshot? = nil
     ) {
         self.id = id
         self.role = role
@@ -52,6 +58,23 @@ public struct ChatBubble: Identifiable, Hashable {
         self.imageData = imageData
         self.toolEntries = toolEntries
         self.humanQuestions = humanQuestions
+        self.chartSnapshot = chartSnapshot
+    }
+}
+
+/// A frozen chart embedded in a chat bubble — resolved `[ChartSeries]` plus
+/// the `kind` + `title` needed to draw a store-free `ChartView`. Snapshotted
+/// at embed time by `embedComponent` (hostKind "chat") so the chart is
+/// reproducible / shareable and never re-resolves against a mutated canvas.
+public struct ChatChartSnapshot: Codable, Hashable, Sendable {
+    public var title: String
+    public var kind: ChartKind
+    public var series: [ChartSeries]
+
+    public init(title: String, kind: ChartKind, series: [ChartSeries]) {
+        self.title = title
+        self.kind = kind
+        self.series = series
     }
 }
 
@@ -1025,6 +1048,20 @@ public final class ChatViewModel {
             bubble.toolEntries[idx].resultText = resultText
             bubble.toolEntries[idx].state = entryState
         }
+        // `embedComponent` (hostKind "chat") snapshots a resolved chart into
+        // its result; drop it in as its own assistant bubble so it renders
+        // inline in the transcript.
+        if name == "embedComponent", let snapshot = Self.chartSnapshot(from: result) {
+            appendBubble(ChatBubble(role: .assistant, chartSnapshot: snapshot))
+        }
+    }
+
+    /// Pull a `ChatChartSnapshot` out of an `embedComponent` result's
+    /// `chartSnapshot` field, or nil when the call wasn't a chat-host embed.
+    private static func chartSnapshot(from result: AnyJSON?) -> ChatChartSnapshot? {
+        guard case .object(let fields) = result, let snap = fields["chartSnapshot"],
+              let data = try? JSONEncoder().encode(snap) else { return nil }
+        return try? JSONDecoder().decode(ChatChartSnapshot.self, from: data)
     }
 
     /// Classify a finished tool result as `.done` or `.failed`. Matches the

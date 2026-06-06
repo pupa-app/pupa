@@ -33,6 +33,7 @@ enum TranscriptMapper {
             case "ai" where !msg.toolCalls.isEmpty:
                 // Collect the matching tool result messages that follow.
                 var entries: [ToolCallEntry] = []
+                var chartSnapshots: [ChatChartSnapshot] = []
                 let callsById = Dictionary(uniqueKeysWithValues: msg.toolCalls.map { ($0.id, $0) })
                 var toolIndex = index + 1
                 var consumed = Set<String>()
@@ -49,6 +50,12 @@ enum TranscriptMapper {
                             resultText: toolMsg.content,
                             state: .done
                         ))
+                        // Rebuild any chat-embedded chart from its result so
+                        // the snapshot survives a transcript reload.
+                        if call.name == "embedComponent",
+                           let snap = chartSnapshot(fromResult: toolMsg.content) {
+                            chartSnapshots.append(snap)
+                        }
                     }
                     toolIndex += 1
                 }
@@ -68,6 +75,9 @@ enum TranscriptMapper {
                     text: "",
                     toolEntries: entries
                 ))
+                for snap in chartSnapshots {
+                    result.append(ChatBubble(role: .assistant, chartSnapshot: snap))
+                }
                 index = toolIndex
 
             case "ai":
@@ -85,6 +95,16 @@ enum TranscriptMapper {
         }
 
         return result
+    }
+
+    /// Decode an `embedComponent` result string and pull out its
+    /// `chartSnapshot` (present only for hostKind "chat").
+    private static func chartSnapshot(fromResult content: String) -> ChatChartSnapshot? {
+        guard let data = content.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let snap = obj["chartSnapshot"],
+              let snapData = try? JSONSerialization.data(withJSONObject: snap) else { return nil }
+        return try? JSONDecoder().decode(ChatChartSnapshot.self, from: snapData)
     }
 
     private static func prettyArgs(_ args: [String: AnyCodable]) -> String {

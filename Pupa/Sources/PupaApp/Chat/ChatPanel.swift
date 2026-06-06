@@ -581,7 +581,10 @@ private struct MessageBubbleView: View {
                             .frame(maxWidth: 240, maxHeight: 240)
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                     }
-                    if !bubble.text.isEmpty || bubble.imageData == nil {
+                    if let snapshot = bubble.chartSnapshot {
+                        ChatChartBubble(snapshot: snapshot)
+                    }
+                    if (!bubble.text.isEmpty || bubble.imageData == nil) && bubble.chartSnapshot == nil {
                         if bubble.role == .assistant {
                             Markdown(bubble.text.isEmpty ? "…" : bubble.text)
                                 .markdownTheme(
@@ -1129,6 +1132,24 @@ private struct SlashCommandPalette: View {
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(Color.secondary.opacity(0.2), lineWidth: 0.5)
             )
+        }
+    }
+}
+
+/// Renders a frozen `ChatChartSnapshot` inside an assistant bubble: a title
+/// row + the store-free `ChartView`. No resolver / store — the series are
+/// already resolved (snapshotted at embed time by `embedComponent`).
+private struct ChatChartBubble: View {
+    let snapshot: ChatChartSnapshot
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !snapshot.title.isEmpty {
+                Text(snapshot.title)
+                    .font(.headline)
+            }
+            ChartView(series: snapshot.series, kind: snapshot.kind)
+                .frame(width: 280, height: 200)
         }
     }
 }

@@ -2675,20 +2675,21 @@ public enum AppTools {
             descriptor: ToolDescriptor(
                 name: "embedComponent",
                 description: """
-                Embed a guest component inline inside a host component. \
-                Currently supported: hostKind "calculator" + guestKind \
-                "chart" — renders a chart below the calculator rows using the \
-                same `ChartData` shape as renderChart (title, kind, series). \
-                The chart resolves live against the same sibling pool so \
-                calculator list rows feed it directly. Pass `chart` \
-                ({title, kind, series}) to set or replace the embed; omit \
-                `chart` (or pass null) to clear it. Result echoes {ok, \
-                hostComponentId, guestKind, embedded}.
+                Embed a guest component inside a host. Supported: \
+                hostKind "calculator" + guestKind "chart" — pins a live chart \
+                below the calculator rows (resolves against the sibling pool; \
+                pass `chart`={title,kind,series} to set/replace, omit/null to \
+                clear). hostKind "chat" + guestKind "chart" — resolves `chart` \
+                NOW and drops a frozen snapshot into the conversation as its \
+                own assistant message (reproducible; never re-resolves). Use \
+                "chat" to show the user a chart inline without a canvas \
+                component. `chart` shape matches renderChart (title, kind, \
+                series). Result echoes {ok, guestKind, embedded, pointCount?}.
                 """,
                 parameters: [
                     "type": "object",
                     "properties": [
-                        "hostKind": ["type": "string", "enum": ["calculator"], "description": "Kind of the host component."],
+                        "hostKind": ["type": "string", "enum": ["calculator", "chat"], "description": "Kind of the host: \"calculator\" pins a live embed; \"chat\" posts a frozen snapshot into the conversation."],
                         "guestKind": ["type": "string", "enum": ["chart"], "description": "Kind of the component to embed."],
                         "chart": [
                             "type": "object",
@@ -2711,18 +2712,24 @@ public enum AppTools {
                 }
                 return await MainActor.run {
                     switch (hostKind, guestKind) {
-                    case ("calculator", "chart"):
-                        let chart: ChartData?
-                        if let chartArg = args["chart"],
-                           case .object = chartArg,
-                           let title = chartArg["title"]?.stringValue,
-                           let kindRaw = chartArg["kind"]?.stringValue,
-                           let kind = ChartKind(rawValue: kindRaw) {
-                            let series = parseChartSeries(from: chartArg["series"])
-                            chart = ChartData(title: title, kind: kind, series: series)
-                        } else {
-                            chart = nil
+                    case ("chat", "chart"):
+                        guard let chart = parseChartData(from: args["chart"]) else {
+                            return .object(["ok": .bool(false), "error": "embedComponent hostKind \"chat\" needs a `chart` ({title, kind, series})."])
                         }
+                        let series = ChartResolver.resolve(chart, components: siblingComponents(store: store, myAppId: myAppId))
+                        guard !series.isEmpty else {
+                            return .object(["ok": .bool(false), "error": "chart resolved to no points — check the series sources before embedding in chat."])
+                        }
+                        let snapshot = ChatChartSnapshot(title: chart.title, kind: chart.kind, series: series)
+                        return .object([
+                            "ok": .bool(true),
+                            "guestKind": .string("chart"),
+                            "embedded": .bool(true),
+                            "pointCount": .int(series.reduce(0) { $0 + $1.points.count }),
+                            "chartSnapshot": encodableAsAnyJSON(snapshot),
+                        ])
+                    case ("calculator", "chart"):
+                        let chart = parseChartData(from: args["chart"])
                         guard let id = store.calculatorComponentId(myAppId: myAppId) else {
                             return .object([
                                 "ok": .bool(false),
@@ -4983,6 +4990,25 @@ public enum AppTools {
             ],
             "required": ["type"],
         ]
+    }
+
+    /// Parse a `chart` argument ({title, kind, series}) into `ChartData`, or
+    /// nil when it's absent / missing a title or a known kind. Shared by both
+    /// embedComponent host branches.
+    private static func parseChartData(from json: AnyJSON?) -> ChartData? {
+        guard let json, case .object = json,
+              let title = json["title"]?.stringValue,
+              let kindRaw = json["kind"]?.stringValue,
+              let kind = ChartKind(rawValue: kindRaw) else { return nil }
+        return ChartData(title: title, kind: kind, series: parseChartSeries(from: json["series"]))
+    }
+
+    /// Round-trip any `Encodable` through JSON into an `AnyJSON` for tool
+    /// results. Returns `.null` if encoding fails (never throws into a handler).
+    private static func encodableAsAnyJSON(_ value: some Encodable) -> AnyJSON {
+        guard let data = try? JSONEncoder().encode(value),
+              let json = try? JSONDecoder().decode(AnyJSON.self, from: data) else { return .null }
+        return json
     }
 
     /// Parse a `series` array into `[ChartSeriesSpec]`. Entries without a
