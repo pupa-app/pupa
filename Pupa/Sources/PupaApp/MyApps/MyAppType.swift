@@ -221,6 +221,14 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
                 "slackCreateChannels",
                 "slackAddAgentsToChannel",
             ],
+            "calculator": [
+                "renderCalculator",
+                "addCalcRows",
+                "patchCalcRows",
+                "removeCalcRows",
+                "listCalcRows",
+                "getCalcRow",
+            ],
         ],
         promptFragmentsByKind: [
             "tracker": """
@@ -248,6 +256,18 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
             return `{outcome: 'reentrant' | 'max_depth_exceeded'}` in `fanOut`). \
             Admin tools (create / add) refuse for sub-agents.
             """,
+            "calculator": """
+            CALCULATOR — live numeric model. Three row kinds: VARIABLE \
+            (tunable input + slider/stepper/field control), AGGREGATE (a \
+            scalar reduce — sum/avg/min/max/count — of a numeric field on \
+            another tracker, with a case-insensitive equality filter to \
+            isolate a category), FORMULA (arithmetic over other rows by their \
+            stable `key`: `+ - * / % ^`, fns min/max/abs/round/sqrt/log/exp/pow). \
+            Formulas reference rows by `key`, never by name, so renames never \
+            break them; results recompute live. Build the mortgage / \
+            expense-share scenarios this way. Explore via list/getCalcRow; \
+            `summary` slot — set via renderCalculator(summary:).
+            """,
         ],
         // No cross-kind gates as of project `0.0.41`. The generic
         // `linkItem` / `unlinkItem` pair lives in `baseToolNames` and
@@ -256,6 +276,6 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
         // requirements. Per-kind tools that don't depend on another
         // kind sit in `toolNamesByKind[kind]` alone.
         coPresenceGates: [:],
-        supportedComponentKinds: ["tracker", "calendar", "checklist", "slack"]
+        supportedComponentKinds: ["tracker", "calendar", "checklist", "slack", "calculator"]
     )
 }

@@ -3,6 +3,19 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.7] — 2026-06-06
+
+### Added
+
+- **Calculator canvas component** (Phase 1 of #20, via #21): a live numeric
+  shape with three row kinds — tunable **variables** (slider / stepper /
+  field), tracker **aggregates** (sum/avg/min/max/count of a numeric field
+  with a case-insensitive category filter), and **formulas** over other rows
+  by stable `key` (`+ - * / % ^`, fns min/max/abs/round/sqrt/log/exp/pow).
+  Results recompute live; cycles and deleted sources degrade gracefully.
+  Drives the mortgage-estimate and expense-share scenarios. See
+  [docs/components/calculator.md](docs/components/calculator.md). (`PupaApp` `0.0.95`)
+
 ## [0.0.6] — 2026-06-06
 
 ### Added

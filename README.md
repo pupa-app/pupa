@@ -9,7 +9,7 @@
 
 Native iOS / macOS client for the Pupa agent: a SwiftUI canvas that
 moulds into the shape you ask for (tracker, calendar, checklist, slack
-rooms…), a side-panel chat that drives it, and a long-lived Memories
+rooms, calculator…), a side-panel chat that drives it, and a long-lived Memories
 filesystem that survives sessions. Talks plain
 [AG-UI](https://github.com/copilotkit/copilotkit) to the
 [Pupa backend](https://github.com/pupa-app/pupa-backend) over a single

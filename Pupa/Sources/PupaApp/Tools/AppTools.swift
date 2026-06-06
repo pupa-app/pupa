@@ -781,6 +781,7 @@ public enum AppTools {
         registerComponentLifecycleTools(on: registry, store: store, myAppId: myAppId)
         registerCalendarTools(on: registry, store: store, myAppId: myAppId)
         registerChecklistTools(on: registry, store: store, myAppId: myAppId)
+        registerCalculatorTools(on: registry, store: store, myAppId: myAppId)
         registerLinkTools(on: registry, store: store, myAppId: myAppId)
         registerHistoryTools(on: registry, store: store, myAppId: myAppId)
         if let slack {
@@ -2153,6 +2154,330 @@ public enum AppTools {
                         "ok": .bool(true),
                         "componentId": .string(resolvedId),
                         "item": checklistItemAsAnyJSON(item),
+                    ])
+                }
+            }
+        ))
+    }
+
+    // MARK: - Calculator tools
+
+    @MainActor
+    private static func registerCalculatorTools(
+        on registry: ToolRegistry,
+        store: MyAppStore,
+        myAppId: UUID
+    ) {
+        registry.register(ClientTool(
+            descriptor: ToolDescriptor(
+                name: "renderCalculator",
+                description: """
+                Render a calculator on the first calculator component in this \
+                MyApp (or the active component if it's a calculator) and/or \
+                set its LLM-authored content `summary`. Passing `title` is a \
+                DESTRUCTIVE full render — replaces every row. For incremental \
+                changes use addCalcRows / patchCalcRows / removeCalcRows. \
+                `rows` is optional; pass [] to start empty. Each row is \
+                {key?, name, unit?, format?, kind} where kind is one of: \
+                {kind:"variable", value, control?}, {kind:"aggregate", \
+                aggregate:{sourceComponentId, field, reduce, filter?}}, or \
+                {kind:"formula", expression}. Formulas reference other rows by \
+                their stable `key`. If no calculator component exists yet, \
+                call addComponent(kind:"calculator", name:…) first. Pass \
+                `summary` alone (no `title`) to update your content summary \
+                without re-rendering. Result echoes {title, rowCount, \
+                results, summarySet?} — `results` lists each row's resolved \
+                {key, value, status}.
+                """,
+                parameters: [
+                    "type": "object",
+                    "properties": [
+                        "title": ["type": "string"],
+                        "rows": ["type": "array", "items": calcRowSchema()],
+                        "summary": [
+                            "type": "string",
+                            "description": "Your content summary for this calculator — what it models, which rows are the tunable inputs, what the key outputs mean. Pass alone (without `title`) to update without re-rendering. Round-trips back in canvas state every turn.",
+                        ],
+                    ],
+                ]
+            ),
+            handler: { args in
+                let titleArg = args["title"]?.stringValue
+                let summaryArg = args["summary"]
+                let hasSummary = summaryArg != nil
+                let hasBodyArgs = titleArg != nil
+                return await MainActor.run {
+                    if let title = titleArg {
+                        let rows = parseCalcRows(from: args["rows"])
+                        store.setCalculator(title: title, rows: rows, myAppId: myAppId)
+                    }
+                    var summarySet = false
+                    if hasSummary {
+                        summarySet = store.setComponentSummary(
+                            forKind: "calculator",
+                            summary: summaryArg?.stringValue,
+                            myAppId: myAppId
+                        )
+                    }
+                    guard hasBodyArgs || hasSummary else {
+                        return .object([
+                            "ok": .bool(false),
+                            "error": "renderCalculator called with no arguments. Pass `title` (with optional `rows`) for a full render and/or `summary` to update your content summary.",
+                        ])
+                    }
+                    guard let resolved = resolveCalculator(store: store, myAppId: myAppId, componentId: nil) else {
+                        return .object([
+                            "ok": .bool(false),
+                            "error": "no calculator component in this MyApp — call addComponent(kind:\"calculator\", …) first",
+                        ])
+                    }
+                    let (data, resolvedId) = resolved
+                    var result: [String: AnyJSON] = ["ok": .bool(true), "componentId": .string(resolvedId)]
+                    if let title = titleArg { result["title"] = .string(title) }
+                    result["rowCount"] = .int(data.rows.count)
+                    result["results"] = calcResults(store: store, myAppId: myAppId, data: data)
+                    if hasSummary { result["summarySet"] = .bool(summarySet) }
+                    return .object(result)
+                }
+            }
+        ))
+
+        registry.register(ClientTool(
+            descriptor: ToolDescriptor(
+                name: "addCalcRows",
+                description: """
+                Append one or more rows to the calculator. Always pass a \
+                `rows` array — wrap a single row as `[{ ... }]`. Each row is \
+                {key?, name, unit?, format?, kind} (see renderCalculator for \
+                the kind shapes). `key` is the stable slug formulas reference; \
+                omit it to derive one from `name`. Duplicate keys are \
+                de-duplicated (`spend`, `spend_2`, …) — the resolved keys are \
+                returned. Result echoes {added:[{key,name}], rowCount, \
+                results}.
+                """,
+                parameters: [
+                    "type": "object",
+                    "properties": ["rows": ["type": "array", "items": calcRowSchema()]],
+                    "required": ["rows"],
+                ]
+            ),
+            handler: { args in
+                guard let entries = args["rows"]?.arrayValue, !entries.isEmpty else {
+                    return .object(["ok": .bool(false), "error": "missing 'rows' array"])
+                }
+                return await MainActor.run {
+                    guard store.calculatorComponentId(myAppId: myAppId) != nil else {
+                        return .object([
+                            "ok": .bool(false),
+                            "error": "no calculator component in this MyApp — call addComponent(kind:\"calculator\", …) or renderCalculator first",
+                        ])
+                    }
+                    var added: [AnyJSON] = []
+                    for entry in entries {
+                        guard let (key, name, unit, format, kind) = parseCalcRowParts(from: entry) else { continue }
+                        if let resolvedKey = store.addCalcRow(
+                            key: key, name: name, unit: unit, format: format, kind: kind,
+                            myAppId: myAppId, actor: .agent(toolName: "addCalcRows")
+                        ) {
+                            added.append(.object(["key": .string(resolvedKey), "name": .string(name)]))
+                        }
+                    }
+                    let data = calculator(store, myAppId: myAppId)
+                    var result: [String: AnyJSON] = [
+                        "ok": .bool(true),
+                        "added": .array(added),
+                        "rowCount": .int(data?.rows.count ?? 0),
+                    ]
+                    if let data { result["results"] = calcResults(store: store, myAppId: myAppId, data: data) }
+                    return .object(result)
+                }
+            }
+        ))
+
+        registry.register(ClientTool(
+            descriptor: ToolDescriptor(
+                name: "patchCalcRows",
+                description: """
+                Edit one or more rows by `key`. Always pass a `patches` array \
+                — wrap a single edit as `[{ ... }]`. Each entry is {key, \
+                patch} where `patch` may contain {name?, unit?, format?, \
+                kind?}. `key` itself is immutable (so formulas never break); \
+                `kind` replaces the whole row behaviour. Result echoes \
+                {patched:[keys], rowCount, results}.
+                """,
+                parameters: [
+                    "type": "object",
+                    "properties": [
+                        "patches": [
+                            "type": "array",
+                            "items": [
+                                "type": "object",
+                                "properties": [
+                                    "key": ["type": "string"],
+                                    "patch": calcRowPatchSchema(),
+                                ],
+                                "required": ["key", "patch"],
+                            ],
+                        ],
+                    ],
+                    "required": ["patches"],
+                ]
+            ),
+            handler: { args in
+                guard let entries = args["patches"]?.arrayValue, !entries.isEmpty else {
+                    return .object(["ok": .bool(false), "error": "missing 'patches' array"])
+                }
+                return await MainActor.run {
+                    var patched: [AnyJSON] = []
+                    for entry in entries {
+                        guard let key = entry["key"]?.stringValue else { continue }
+                        let patch = parseCalcRowPatch(from: entry["patch"])
+                        if store.patchCalcRow(key: key, patch: patch, myAppId: myAppId, actor: .agent(toolName: "patchCalcRows")) {
+                            patched.append(.string(key))
+                        }
+                    }
+                    let data = calculator(store, myAppId: myAppId)
+                    var result: [String: AnyJSON] = [
+                        "ok": .bool(true),
+                        "patched": .array(patched),
+                        "rowCount": .int(data?.rows.count ?? 0),
+                    ]
+                    if let data { result["results"] = calcResults(store: store, myAppId: myAppId, data: data) }
+                    return .object(result)
+                }
+            }
+        ))
+
+        registry.register(ClientTool(
+            descriptor: ToolDescriptor(
+                name: "removeCalcRows",
+                description: """
+                Remove one or more rows by `key`. Always pass a `keys` array \
+                — wrap a single key as `["..."]`. Formulas that referenced a \
+                removed key then resolve to a `brokenRef` status (handled \
+                live; other rows are not rewritten). Result echoes \
+                {removed:[keys], rowCount}.
+                """,
+                parameters: [
+                    "type": "object",
+                    "properties": ["keys": ["type": "array", "items": ["type": "string"]]],
+                    "required": ["keys"],
+                ]
+            ),
+            handler: { args in
+                guard let keys = args["keys"]?.arrayValue?.compactMap(\.stringValue), !keys.isEmpty else {
+                    return .object(["ok": .bool(false), "error": "missing 'keys' array"])
+                }
+                return await MainActor.run {
+                    var removed: [AnyJSON] = []
+                    for key in keys {
+                        if store.removeCalcRow(key: key, myAppId: myAppId, actor: .agent(toolName: "removeCalcRows")) {
+                            removed.append(.string(key))
+                        }
+                    }
+                    let data = calculator(store, myAppId: myAppId)
+                    return .object([
+                        "ok": .bool(true),
+                        "removed": .array(removed),
+                        "rowCount": .int(data?.rows.count ?? 0),
+                    ])
+                }
+            }
+        ))
+
+        registry.register(ClientTool(
+            descriptor: ToolDescriptor(
+                name: "listCalcRows",
+                description: """
+                Read a calculator's rows with their live-resolved values. \
+                `componentId` optional — resolves to the active / first \
+                calculator. `offset` (default 0) and `limit` (default 50, max \
+                100) slice the row list in order. Result: {ok, componentId, \
+                title, totalRows, offset, limit, rows:[{key, name, kind, \
+                value, status}]}.
+                """,
+                parameters: [
+                    "type": "object",
+                    "properties": [
+                        "componentId": ["type": "string"],
+                        "offset": ["type": "integer", "minimum": 0],
+                        "limit": ["type": "integer", "minimum": 1, "maximum": 100],
+                    ],
+                ]
+            ),
+            handler: { args in
+                let componentId = args["componentId"]?.stringValue
+                let offset = max(0, args["offset"]?.intValue ?? 0)
+                let limit = min(100, max(1, args["limit"]?.intValue ?? 50))
+                return await MainActor.run {
+                    guard let resolved = resolveCalculator(store: store, myAppId: myAppId, componentId: componentId) else {
+                        return .object([
+                            "ok": .bool(false),
+                            "error": "no calculator component matches that componentId (or this myApp has no calculator).",
+                        ])
+                    }
+                    let (data, resolvedId) = resolved
+                    let results = CalculatorResolver.resolve(data, components: siblingComponents(store: store, myAppId: myAppId))
+                    let total = data.rows.count
+                    let slice = offset >= total ? [] : Array(data.rows[offset..<min(offset + limit, total)])
+                    let rows: [AnyJSON] = slice.map { calcRowAsAnyJSON($0, result: results.result(forKey: $0.key), full: false) }
+                    return .object([
+                        "ok": .bool(true),
+                        "componentId": .string(resolvedId),
+                        "title": .string(data.title),
+                        "totalRows": .int(total),
+                        "offset": .int(offset),
+                        "limit": .int(limit),
+                        "rows": .array(rows),
+                    ])
+                }
+            }
+        ))
+
+        registry.register(ClientTool(
+            descriptor: ToolDescriptor(
+                name: "getCalcRow",
+                description: """
+                Full read of one calculator row by `key` — name, unit, \
+                format, the complete kind spec (variable value/control, \
+                aggregate source/field/reduce/filter, or formula expression), \
+                plus the live-resolved {value, status}. `componentId` optional \
+                — resolves to the active / first calculator. Result: {ok, \
+                componentId, row}.
+                """,
+                parameters: [
+                    "type": "object",
+                    "properties": [
+                        "componentId": ["type": "string"],
+                        "key": ["type": "string"],
+                    ],
+                    "required": ["key"],
+                ]
+            ),
+            handler: { args in
+                let componentId = args["componentId"]?.stringValue
+                guard let key = args["key"]?.stringValue else {
+                    return .object(["ok": .bool(false), "error": "missing `key`."])
+                }
+                return await MainActor.run {
+                    guard let resolved = resolveCalculator(store: store, myAppId: myAppId, componentId: componentId) else {
+                        return .object([
+                            "ok": .bool(false),
+                            "error": "no calculator component matches that componentId (or this myApp has no calculator).",
+                        ])
+                    }
+                    let (data, resolvedId) = resolved
+                    guard let row = data.rows.first(where: { $0.key == key }) else {
+                        return .object([
+                            "ok": .bool(false),
+                            "error": .string("no row with key '\(key)' in calculator '\(resolvedId)'."),
+                        ])
+                    }
+                    let results = CalculatorResolver.resolve(data, components: siblingComponents(store: store, myAppId: myAppId))
+                    return .object([
+                        "ok": .bool(true),
+                        "componentId": .string(resolvedId),
+                        "row": calcRowAsAnyJSON(row, result: results.result(forKey: key), full: true),
                     ])
                 }
             }
@@ -3926,6 +4251,7 @@ public enum AppTools {
         case "tracker": return "list.bullet.rectangle"
         case "calendar": return "calendar"
         case "checklist": return "checklist"
+        case "calculator": return "function"
         default: return "square.dashed"
         }
     }
@@ -3992,6 +4318,256 @@ public enum AppTools {
             if case .checklist(let cl) = c.body { return cl }
         }
         return nil
+    }
+
+    // MARK: - Calculator helpers
+
+    @MainActor
+    private static func calculator(_ store: MyAppStore, myAppId: UUID) -> CalculatorData? {
+        guard let myApp = store.myApps.first(where: { $0.id == myAppId }) else { return nil }
+        if let active = myApp.activeComponent, case .calculator(let c) = active.body { return c }
+        for c in myApp.components {
+            if case .calculator(let cd) = c.body { return cd }
+        }
+        return nil
+    }
+
+    @MainActor
+    private static func resolveCalculator(
+        store: MyAppStore,
+        myAppId: UUID,
+        componentId: String?
+    ) -> (CalculatorData, String)? {
+        guard let myApp = store.myApps.first(where: { $0.id == myAppId }) else { return nil }
+        if let componentId {
+            guard let component = myApp.components.first(where: { $0.id == componentId }),
+                  case .calculator(let c) = component.body else { return nil }
+            return (c, componentId)
+        }
+        let activeIdx = myApp.activeComponentId.flatMap { id in
+            myApp.components.firstIndex(where: { $0.id == id })
+        }
+        if let activeIdx, case .calculator(let c) = myApp.components[activeIdx].body {
+            return (c, myApp.components[activeIdx].id)
+        }
+        for component in myApp.components {
+            if case .calculator(let c) = component.body { return (c, component.id) }
+        }
+        return nil
+    }
+
+    /// Sibling components of `myAppId` — the pool calculator aggregate rows
+    /// resolve their source trackers from.
+    @MainActor
+    private static func siblingComponents(store: MyAppStore, myAppId: UUID) -> [Component] {
+        store.myApps.first(where: { $0.id == myAppId })?.components ?? []
+    }
+
+    /// `[{key, value?, status}]` for every row, resolved live. Echoed by the
+    /// mutating calculator tools so the agent sees computed values mid-turn.
+    @MainActor
+    private static func calcResults(store: MyAppStore, myAppId: UUID, data: CalculatorData) -> AnyJSON {
+        let resolved = CalculatorResolver.resolve(data, components: siblingComponents(store: store, myAppId: myAppId))
+        return .array(data.rows.map { row in
+            let r = resolved.result(forKey: row.key)
+            var obj: [String: AnyJSON] = [
+                "key": .string(row.key),
+                "status": .string(r?.status.rawValue ?? "ok"),
+            ]
+            if let v = r?.value { obj["value"] = .double(v) }
+            return .object(obj)
+        })
+    }
+
+    private static func calcRowSchema() -> AnyJSON {
+        [
+            "type": "object",
+            "properties": [
+                "key": ["type": "string", "description": "Stable slug formulas reference. Omit to derive from name."],
+                "name": ["type": "string"],
+                "unit": ["type": "string", "description": "Display unit, e.g. \"$\", \"%\", \"yr\"."],
+                "format": ["type": "string", "description": "Optional printf hint, e.g. \"%.2f\"."],
+                "kind": ["type": "string", "enum": ["variable", "aggregate", "formula"]],
+                "value": ["type": "number", "description": "variable: the input value."],
+                "control": [
+                    "type": "object",
+                    "description": "variable: tuning control.",
+                    "properties": [
+                        "type": ["type": "string", "enum": ["plain", "stepper", "slider"]],
+                        "min": ["type": "number"],
+                        "max": ["type": "number"],
+                        "step": ["type": "number"],
+                    ],
+                ],
+                "aggregate": [
+                    "type": "object",
+                    "description": "aggregate: scalar reduce over a tracker field.",
+                    "properties": [
+                        "sourceComponentId": ["type": "string"],
+                        "field": ["type": "string"],
+                        "reduce": ["type": "string", "enum": ["sum", "avg", "min", "max", "count"]],
+                        "filter": ["type": "object", "description": "Case-insensitive AND equality filter, e.g. {\"cuisine\":\"African\"}."],
+                    ],
+                ],
+                "expression": ["type": "string", "description": "formula: arithmetic over other rows' keys (+ - * / % ^, fns min/max/abs/round/sqrt/log/exp/pow)."],
+            ],
+            "required": ["name", "kind"],
+        ]
+    }
+
+    private static func calcRowPatchSchema() -> AnyJSON {
+        [
+            "type": "object",
+            "properties": [
+                "name": ["type": "string"],
+                "unit": ["type": "string"],
+                "format": ["type": "string"],
+                "kind": ["type": "string", "enum": ["variable", "aggregate", "formula"]],
+                "value": ["type": "number"],
+                "control": ["type": "object"],
+                "aggregate": ["type": "object"],
+                "expression": ["type": "string"],
+            ],
+        ]
+    }
+
+    private static func parseCalcControl(from json: AnyJSON?) -> CalcControl {
+        guard let obj = json?.objectValue, let type = obj["type"]?.stringValue else { return .plain }
+        switch type {
+        case "stepper":
+            return .stepper(step: obj["step"]?.doubleValue ?? 1)
+        case "slider":
+            return .slider(
+                min: obj["min"]?.doubleValue ?? 0,
+                max: obj["max"]?.doubleValue ?? 100,
+                step: obj["step"]?.doubleValue ?? 1
+            )
+        default:
+            return .plain
+        }
+    }
+
+    /// Parse the `kind` discriminator + its sibling fields off a row (or
+    /// patch) object into a `CalcRowKind`. Returns nil when `kind` is
+    /// missing / unknown or an aggregate lacks a `sourceComponentId`.
+    private static func parseCalcRowKind(from entry: AnyJSON) -> CalcRowKind? {
+        guard let kind = entry["kind"]?.stringValue else { return nil }
+        switch kind {
+        case "variable":
+            return .variable(value: entry["value"]?.doubleValue ?? 0, control: parseCalcControl(from: entry["control"]))
+        case "aggregate":
+            let agg: AnyJSON = entry["aggregate"] ?? entry
+            guard let source = agg["sourceComponentId"]?.stringValue else { return nil }
+            let field = agg["field"]?.stringValue ?? agg["fieldName"]?.stringValue ?? ""
+            let reduce = CalcReduce(rawValue: agg["reduce"]?.stringValue ?? "sum") ?? .sum
+            var filter: [String: String] = [:]
+            if let f = agg["filter"]?.objectValue { filter = f.compactMapValues(\.stringValue) }
+            return .aggregate(AggregateSpec(sourceComponentId: source, fieldName: field, reduce: reduce, filter: filter))
+        case "formula":
+            return .formula(expression: entry["expression"]?.stringValue ?? "")
+        default:
+            return nil
+        }
+    }
+
+    /// Parse the common row parts + kind off a row entry. Returns nil if the
+    /// kind can't be parsed.
+    private static func parseCalcRowParts(
+        from entry: AnyJSON
+    ) -> (key: String?, name: String, unit: String?, format: String?, kind: CalcRowKind)? {
+        guard let kind = parseCalcRowKind(from: entry) else { return nil }
+        let key = entry["key"]?.stringValue
+        let name = entry["name"]?.stringValue ?? key ?? ""
+        return (key, name, entry["unit"]?.stringValue, entry["format"]?.stringValue, kind)
+    }
+
+    /// Parse a full `rows` array for `renderCalculator`, slug-deduping keys
+    /// up front so the destructive render lands with unique handles.
+    private static func parseCalcRows(from json: AnyJSON?) -> [CalcRow] {
+        guard let arr = json?.arrayValue else { return [] }
+        var rows: [CalcRow] = []
+        var keys = Set<String>()
+        for entry in arr {
+            guard let parts = parseCalcRowParts(from: entry) else { continue }
+            let base = MyAppStore.slugify(parts.key?.nonEmpty ?? parts.name)
+            let unique = MyAppStore.dedupeSlug(base, existing: keys)
+            keys.insert(unique)
+            rows.append(CalcRow(
+                key: unique,
+                name: parts.name.nonEmpty ?? unique,
+                unit: parts.unit,
+                format: parts.format,
+                kind: parts.kind
+            ))
+        }
+        return rows
+    }
+
+    private static func parseCalcRowPatch(from json: AnyJSON?) -> MyAppStore.CalcRowPatch {
+        var patch = MyAppStore.CalcRowPatch()
+        guard let obj = json?.objectValue, let json else { return patch }
+        if let v = obj["name"]?.stringValue { patch.name = v }
+        // Double-optional: key present (even null) = set/clear; absent = unchanged.
+        if obj["unit"] != nil { patch.unit = obj["unit"]?.stringValue }
+        if obj["format"] != nil { patch.format = obj["format"]?.stringValue }
+        if obj["kind"] != nil, let k = parseCalcRowKind(from: json) { patch.kind = k }
+        return patch
+    }
+
+    private static func calcControlAsAnyJSON(_ control: CalcControl) -> AnyJSON {
+        switch control {
+        case .plain:
+            return .object(["type": .string("plain")])
+        case .stepper(let step):
+            return .object(["type": .string("stepper"), "step": .double(step)])
+        case .slider(let lo, let hi, let step):
+            return .object([
+                "type": .string("slider"),
+                "min": .double(lo),
+                "max": .double(hi),
+                "step": .double(step),
+            ])
+        }
+    }
+
+    /// Serialise one calc row. `full` adds the complete kind spec (control /
+    /// aggregate / expression); the list view omits it. The live-resolved
+    /// `{value, status}` is always attached.
+    private static func calcRowAsAnyJSON(
+        _ row: CalcRow,
+        result: CalculatorResolver.RowResult?,
+        full: Bool
+    ) -> AnyJSON {
+        var obj: [String: AnyJSON] = ["key": .string(row.key), "name": .string(row.name)]
+        if let unit = row.unit { obj["unit"] = .string(unit) }
+        if let format = row.format { obj["format"] = .string(format) }
+        switch row.kind {
+        case .variable(let value, let control):
+            obj["kind"] = .string("variable")
+            if full {
+                obj["input"] = .double(value)
+                obj["control"] = calcControlAsAnyJSON(control)
+            }
+        case .aggregate(let spec):
+            obj["kind"] = .string("aggregate")
+            if full {
+                var agg: [String: AnyJSON] = [
+                    "sourceComponentId": .string(spec.sourceComponentId),
+                    "field": .string(spec.fieldName),
+                    "reduce": .string(spec.reduce.rawValue),
+                ]
+                if !spec.filter.isEmpty { agg["filter"] = .object(spec.filter.mapValues { .string($0) }) }
+                obj["aggregate"] = .object(agg)
+            }
+        case .formula(let expression):
+            obj["kind"] = .string("formula")
+            if full { obj["expression"] = .string(expression) }
+        }
+        if let result {
+            obj["status"] = .string(result.status.rawValue)
+            if let v = result.value { obj["value"] = .double(v) }
+        }
+        return .object(obj)
     }
 
     private static func valuesAsAnyJSON(_ values: [String: String]) -> AnyJSON {

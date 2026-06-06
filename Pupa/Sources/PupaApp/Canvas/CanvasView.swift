@@ -51,6 +51,13 @@ public struct CanvasView: View {
                             componentId: component.id,
                             coordinator: coordinator
                         )
+                    case .calculator(let data):
+                        CalculatorView(
+                            store: store,
+                            data: data,
+                            myAppId: resolvedMyAppId,
+                            componentId: component.id
+                        )
                     }
                 } else {
                     EmptyComponentHint(kind: "empty")
@@ -117,6 +124,7 @@ private struct EmptyComponentHint: View {
         case "calendar": return "This calendar is empty"
         case "tracker": return "This tracker is empty"
         case "checklist": return "This checklist is empty"
+        case "calculator": return "This calculator is empty"
         default: return "Your canvas is empty"
         }
     }
@@ -129,6 +137,8 @@ private struct EmptyComponentHint: View {
             return "Tell the chat what to track. Try \"Build me a wardrobe tracker\" or \"I want to log books I've read\"."
         case "checklist":
             return "Tell the chat what to list. Try \"Make a packing list for a weekend trip\" or \"Things to do today\"."
+        case "calculator":
+            return "Tell the chat what to compute. Try \"Estimate my monthly mortgage payment\" or \"Total my expenses by category\"."
         default:
             return "Tell the chat what you want to build. Try \"Build me a wardrobe tracker\" or \"Add a calendar of my appointments\"."
         }

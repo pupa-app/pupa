@@ -2,6 +2,10 @@
 
 NEVER SIGN YOURSELF IN ANY COMMIT OR PR OR ISSUE. NEVER LEAVE ANY PERSONAL INFORMATION IN THE REPO INCLUDING DEVELOPERS' ACCOUNT NAMES AND PATHS ON THEIR MACHINES.
 
+BE VERY SUCCINT, IN DOCSTRINGS, DOCS and PROMPTS. 
+
+USE /caveman SKILL BY DEFAULT
+
 Native iOS / macOS client for the Pupa agent. SwiftUI canvas that moulds
 into shapes (`tracker` / `calendar` / `checklist` / `slack`…) + side-panel
 chat that drives the canvas via frontend tools. Talks plain AG-UI to the

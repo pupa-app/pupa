@@ -103,6 +103,7 @@ public struct ComponentSummary: Encodable, Sendable {
         case .calendar(let c): return c.events.count
         case .checklist(let cl): return cl.items.count
         case .slack(let s): return s.messagesByChannel.values.reduce(0) { $0 + $1.count }
+        case .calculator(let c): return c.rows.count
         }
     }
 }
