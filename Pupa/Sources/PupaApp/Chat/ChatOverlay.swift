@@ -135,8 +135,9 @@ struct ChatOverlay: View {
                     } label: {
                         Image(systemName: isFullscreen
                               ? "arrow.down.right.and.arrow.up.left"
-                              : "arrow.up.left.and.down.right")
+                              : "arrow.up.left.and.arrow.down.right")
                             .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(.secondary)
                             .padding(6)
                             .background(Color.secondary.opacity(0.15), in: Circle())
                     }
@@ -173,7 +174,7 @@ struct ChatOverlay: View {
     }
 
     private func resizeGrip(in containerSize: CGSize) -> some View {
-        Image(systemName: "arrow.up.left.and.down.right")
+        Image(systemName: "arrow.up.left.and.arrow.down.right")
             .font(.system(size: 10, weight: .bold))
             .foregroundStyle(.secondary)
             .padding(6)

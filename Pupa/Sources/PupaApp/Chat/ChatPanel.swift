@@ -38,6 +38,7 @@ public struct ChatPanel: View {
     /// Called with a thread id when the user deletes a conversation. `nil`
     /// when only one thread exists (delete is not offered).
     let onDeleteThread: ((String) -> Void)?
+    @State private var showThreadList: Bool = false
     @State private var draft: String = ""
     @State private var pickerItem: PhotosPickerItem?
     @State private var pickedImage: PickedImage?
@@ -188,43 +189,15 @@ public struct ChatPanel: View {
         .buttonStyle(.plain)
     }
 
-    /// Conversation selector. Each thread is listed newest-first. When delete
-    /// is available (2+ threads) each entry becomes a submenu offering "Open"
-    /// and "Delete", so any thread can be removed without switching to it first.
+    /// Conversation selector. Tapping the label opens a popover listing all
+    /// threads newest-first. Tapping a thread row selects it and closes the
+    /// popover. When 2+ threads exist a trash button sits at the right edge of
+    /// each row; tapping it deletes that thread without closing the popover so
+    /// multiple threads can be removed in one session.
     @ViewBuilder
     private var threadDropdown: some View {
         let currentTitle = threads.first(where: { $0.id == currentThreadId })?.title ?? ""
-        Menu {
-            ForEach(threads.reversed()) { thread in
-                let label = thread.title.isEmpty ? "New chat" : thread.title
-                if let onDeleteThread {
-                    Menu {
-                        Button { onSelectThread(thread.id) } label: {
-                            Label("Open", systemImage: thread.id == currentThreadId ? "checkmark" : "bubble.left")
-                        }
-                        Button(role: .destructive) {
-                            onDeleteThread(thread.id)
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    } label: {
-                        if thread.id == currentThreadId {
-                            Label(label, systemImage: "checkmark")
-                        } else {
-                            Text(label)
-                        }
-                    }
-                } else {
-                    Button { onSelectThread(thread.id) } label: {
-                        if thread.id == currentThreadId {
-                            Label(label, systemImage: "checkmark")
-                        } else {
-                            Text(label)
-                        }
-                    }
-                }
-            }
-        } label: {
+        Button { showThreadList = true } label: {
             HStack(spacing: 4) {
                 Text(currentTitle.isEmpty ? "New chat" : currentTitle)
                     .font(.caption)
@@ -237,6 +210,51 @@ public struct ChatPanel: View {
             }
         }
         .buttonStyle(.plain)
+        .popover(isPresented: $showThreadList) {
+            threadListPopover
+                .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    @ViewBuilder
+    private var threadListPopover: some View {
+        let reversed = threads.reversed() as [ChatThread]
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(reversed.enumerated()), id: \.element.id) { idx, thread in
+                if idx > 0 { Divider() }
+                HStack(spacing: 0) {
+                    Image(systemName: "checkmark")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .opacity(thread.id == currentThreadId ? 1 : 0)
+                        .frame(width: 28)
+                    Button {
+                        onSelectThread(thread.id)
+                        showThreadList = false
+                    } label: {
+                        Text(thread.title.isEmpty ? "New chat" : thread.title)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                    if let onDeleteThread {
+                        Button(role: .destructive) {
+                            onDeleteThread(thread.id)
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.caption)
+                                .foregroundStyle(.red.opacity(0.75))
+                                .padding(.leading, 12)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+            }
+        }
+        .frame(minWidth: 210, maxWidth: 300)
+        .padding(.vertical, 4)
     }
 
     private var inputBar: some View {
