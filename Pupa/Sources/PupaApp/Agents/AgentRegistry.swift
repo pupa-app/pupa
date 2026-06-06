@@ -30,10 +30,11 @@ public enum AgentRegistry {
     public static func enumerateAgents(
         myApp: MyApp,
         store: MyAppStore,
-        settings: SettingsStore
+        settings: SettingsStore,
+        catalog: ModelCatalogStore
     ) -> [AgentDescriptor] {
         var descriptors: [AgentDescriptor] = []
-        descriptors.append(buildMainAgent(myApp: myApp, store: store, settings: settings))
+        descriptors.append(buildMainAgent(myApp: myApp, store: store, settings: settings, catalog: catalog))
         for component in myApp.components {
             if case .slack(let data) = component.body {
                 for agent in data.agents {
@@ -41,7 +42,8 @@ public enum AgentRegistry {
                         myApp: myApp,
                         component: component,
                         agent: agent,
-                        settings: settings
+                        settings: settings,
+                        catalog: catalog
                     ))
                 }
             }
@@ -55,7 +57,8 @@ public enum AgentRegistry {
     private static func buildMainAgent(
         myApp: MyApp,
         store: MyAppStore,
-        settings: SettingsStore
+        settings: SettingsStore,
+        catalog: ModelCatalogStore
     ) -> AgentDescriptor {
         let promptPath = "\(MemoryStore.myAppFolder(myAppName: myApp.name))/AGENTS.md"
         let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: myApp.name))
@@ -72,7 +75,7 @@ public enum AgentRegistry {
         )
 
         var properties: [AgentProperty] = []
-        properties.append(modelProperty(currentSelection: store.myAppLLM(for: myApp.id)))
+        properties.append(modelProperty(currentSelection: store.myAppLLM(for: myApp.id), catalog: catalog))
         properties.append(permissionsProperty(settings: settings))
         properties.append(AgentProperty(
             id: "prompt",
@@ -123,7 +126,8 @@ public enum AgentRegistry {
     public static func buildOrchestratorAgent(
         store: MyAppStore,
         settings: SettingsStore,
-        memory: MemoryStore
+        memory: MemoryStore,
+        catalog: ModelCatalogStore
     ) -> AgentDescriptor {
         let promptPath = "\(MemoryStore.orchestratorFolder())/AGENTS.md"
         let promptOnDisk = memory.fileExists(at: "\(MemoryStore.orchestratorFolder())/AGENTS.md")
@@ -134,7 +138,7 @@ public enum AgentRegistry {
         )
 
         var properties: [AgentProperty] = []
-        properties.append(modelProperty(currentSelection: settings.orchestratorLLM()))
+        properties.append(modelProperty(currentSelection: settings.orchestratorLLM(), catalog: catalog))
         properties.append(permissionsProperty(settings: settings))
         properties.append(AgentProperty(
             id: "prompt",
@@ -172,7 +176,8 @@ public enum AgentRegistry {
         myApp: MyApp,
         component: Component,
         agent: SlackAgent,
-        settings: SettingsStore
+        settings: SettingsStore,
+        catalog: ModelCatalogStore
     ) -> AgentDescriptor {
         let promptPath = "\(MemoryStore.slackAgentFolder(myAppName: myApp.name, agentName: agent.name))/AGENTS.md"
 
@@ -189,7 +194,7 @@ public enum AgentRegistry {
         } else {
             agentSelection = nil
         }
-        properties.append(modelProperty(currentSelection: agentSelection))
+        properties.append(modelProperty(currentSelection: agentSelection, catalog: catalog))
         properties.append(permissionsProperty(settings: settings))
         properties.append(AgentProperty(
             id: "prompt",
@@ -293,15 +298,18 @@ public enum AgentRegistry {
     // MARK: - Shared property builders
 
     @MainActor
-    private static func modelProperty(currentSelection: (provider: String, model: String)?) -> AgentProperty {
-        // Resolve the current selection against the static catalog so the
-        // picker shows the matching catalog entry as selected. An override
-        // that isn't in the catalog (e.g. one persisted by an older app
-        // build) falls back to the "Backend default" sentinel — the user
-        // can pick a known model to overwrite it.
+    private static func modelProperty(
+        currentSelection: (provider: String, model: String)?,
+        catalog: ModelCatalogStore
+    ) -> AgentProperty {
+        // Resolve the current selection against the dynamic catalog so the
+        // picker shows the matching entry as selected. An override that isn't
+        // in the catalog (e.g. one persisted by an older app build) falls back
+        // to the "Backend default" sentinel — the user can pick a known model
+        // to overwrite it.
         let selectedId: String
         if let (provider, model) = currentSelection,
-           let known = KnownLLMModelCatalog.model(provider: provider, modelId: model) {
+           let known = catalog.model(provider: provider, modelId: model) {
             selectedId = known.id
         } else {
             selectedId = KnownLLMModelCatalog.backendDefaultId
@@ -309,7 +317,7 @@ public enum AgentRegistry {
         return AgentProperty(
             id: "model",
             label: "Model",
-            value: .modelPicker(selectedId: selectedId, options: KnownLLMModelCatalog.all),
+            value: .modelPicker(selectedId: selectedId, options: catalog.models),
             note: selectedId == KnownLLMModelCatalog.backendDefaultId
                 ? "Inherits the model the backend was started with (LLM_PROVIDER env var)."
                 : nil
