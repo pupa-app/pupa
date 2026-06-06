@@ -156,8 +156,14 @@ The **chart** shape plots pie/bar/line with one or more overlaid `series`
 `TrackerAggregator.series`, a list of calculator rows, a calculator `.list`
 array, or inline points), resolved live by `ChartResolver` to `[ChartSeries]`
 with a distinct colour per series. The view (`ChartView(series:kind:)`) is
-store-free so it embeds inside a calculator (`CalculatorData.inlineChart`) or
-stands alone — see [docs/components/chart.md](components/chart.md).
+store-free so it embeds inside a calculator (`CalculatorData.inlineChart`), or
+stands alone — see [docs/components/chart.md](components/chart.md). It also
+embeds **inline in chat**: `embedComponent` (hostKind "chat") resolves a chart
+to `[ChartSeries]` *now* and posts a frozen `ChatChartSnapshot` as its own
+assistant bubble. The snapshot rides in the tool result, so it both renders
+live (`ChatViewModel`) and rebuilds on transcript reload (`TranscriptMapper`)
+with no extra persistence — reproducible, never re-resolved against a mutated
+canvas.
 
 ## Frontend tools — the agent's mutation channel
 

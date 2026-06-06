@@ -236,6 +236,7 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
                 "setChartKind",
                 "addChartSeries",
                 "removeChartSeries",
+                "embedComponent",
             ],
         ],
         promptFragmentsByKind: [
@@ -277,7 +278,8 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
             by field), calculator rows (by key), calculator list row \
             (sweep/column), or inline points. Multi-series over a shared x \
             axis = line chart with multiple CALCULATOR_LIST or TRACKER series. \
-            Pairs naturally with a calculator LIST row.
+            Pairs naturally with a calculator LIST row. To show the user a chart \
+            inline in the conversation, embedComponent(hostKind:"chat").
             """,
         ],
         // No cross-kind gates as of project `0.0.41`. The generic

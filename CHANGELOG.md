@@ -3,6 +3,17 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.10] — 2026-06-06
+
+### Added
+
+- **Inline charts in chat** (#23, Phase 3 of #20): the `embedComponent` tool now
+  takes hostKind `"chat"` — it resolves a chart spec to data *now* and drops a
+  frozen snapshot into the conversation as its own assistant message, rendered
+  by the store-free `ChartView`. The snapshot rides in the tool result, so it
+  rebuilds on transcript reload with no extra persistence and never re-resolves
+  against a mutated canvas (reproducible / shareable). (`PupaApp` `0.0.98`)
+
 ## [0.0.9] — 2026-06-06
 
 ### Added
