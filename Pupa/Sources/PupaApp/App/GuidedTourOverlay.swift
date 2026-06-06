@@ -71,7 +71,7 @@ struct GuidedTourView: View {
             }
             Text(step.title)
                 .font(.headline)
-            Text(step.body)
+            Text((try? AttributedString(markdown: step.body)) ?? AttributedString(step.body))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

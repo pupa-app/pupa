@@ -90,8 +90,8 @@ enum TourContent {
             TourStep(
                 id: "settings-overview",
                 title: "Settings",
-                body: "Settings is where you wire Pupa up — Backend (server + pairing), Tools "
-                    + "(which tools the agent may call), Agent-to-agent guardrails, "
+                body: "Settings is where you wire Pupa up. Like backend pairing, Tools "
+                    + "(which tools/permissions agents have), "
                     + "Notifications, and Examples. Let's start with Backend.",
                 placement: .bottom,
                 settingsPage: .root
@@ -100,16 +100,16 @@ enum TourContent {
                 id: "settings-backend",
                 title: "Settings · Backend",
                 body: "Point Pupa at your backend and pair it here. Until you do, the agent "
-                    + "can't run — everything else just shapes how it behaves once connected. "
-                    + "Changes take effect on your next message.",
+                    + "can't run as the LLM/Agent runs there. If you do not have a QR code already, "
+                    + "find the backend installation [here](https://github.com/pupa-app/pupa-backend).",
                 placement: .bottom,
                 settingsPage: .backend
             ),
             TourStep(
                 id: "myapp",
                 title: "A MyApp",
-                body: "Each MyApp is a canvas of components — trackers, calendars, "
-                    + "checklists — that the agent reads and edits as you chat. This is one "
+                body: "Each MyApp is a canvas of components, like trackers, calendars, "
+                    + "checklists, that the agent reads and edits as you chat. This is one "
                     + "of your example apps.",
                 placement: .bottom,
                 selection: .myAppHome(activeMyAppId)
@@ -150,7 +150,7 @@ enum TourContent {
             TourStep(
                 id: "agent-settings",
                 title: "Agent settings",
-                body: "Every MyApp has its own agent. Here you can see the tools it can call, "
+                body: "Every MyApp has its own main agent. Here you can see the tools it can call, "
                     + "open its AGENTS.md persona file, and review the components it manages.",
                 placement: .bottom,
                 selection: .myAppAgentDetail(activeMyAppId, agentId: AgentRegistry.mainAgentId)
