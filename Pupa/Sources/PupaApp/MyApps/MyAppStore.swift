@@ -1356,6 +1356,218 @@ public final class MyAppStore {
         })?.id
     }
 
+    // MARK: - Calculator mutators
+    //
+    // Mirror the checklist mutators: kind-routed via `mutate(_:kind:"calculator")`
+    // (or `byComponentId` for a targeted call), `@discardableResult`, persist
+    // only on change. Calc-row edits emit an `ItemEvent` for the History
+    // sheet but carry no inverse — calculator rows aren't in the undo graph
+    // yet (Phase 1), so they show as non-reversible entries. The UI tuning
+    // path (`setCalculatorVariable`) deliberately emits NO event: a slider
+    // drag would otherwise flood the log, exactly as `setChecklistItemDone`
+    // stays silent next to `toggleChecklistItem`.
+
+    /// Replace the calculator body of the first calculator component in
+    /// `myAppId` (preferring the active component when it's a calculator).
+    /// Destructive — wipes any existing rows.
+    public func setCalculator(title: String, rows: [CalcRow] = [], myAppId: UUID? = nil) {
+        mutate(myAppId, kind: "calculator") { canvas in
+            canvas = .calculator(CalculatorData(title: title, rows: rows))
+            return true
+        }
+    }
+
+    /// Patch payload for `patchCalcRow`. Double-optional `unit` / `format`
+    /// distinguish "unchanged" (nil) from "clear" (`.some(nil)`). `kind`
+    /// replaces the whole row kind (variable ⇄ aggregate ⇄ formula).
+    public struct CalcRowPatch: Sendable {
+        public var name: String?
+        public var unit: String??
+        public var format: String??
+        public var kind: CalcRowKind?
+
+        public init(
+            name: String? = nil,
+            unit: String?? = nil,
+            format: String?? = nil,
+            kind: CalcRowKind? = nil
+        ) {
+            self.name = name
+            self.unit = unit
+            self.format = format
+            self.kind = kind
+        }
+    }
+
+    /// Append a calc row. The stable `key` formulas reference is slugified
+    /// from `key` (or `name` when `key` is omitted) and de-duplicated
+    /// against existing keys (`spend`, `spend_2`, …) so it's always a unique
+    /// identifier. Returns the resolved key, or nil if there's no calculator
+    /// component in this MyApp.
+    @discardableResult
+    public func addCalcRow(
+        key: String? = nil,
+        name: String,
+        unit: String? = nil,
+        format: String? = nil,
+        kind: CalcRowKind,
+        myAppId: UUID? = nil,
+        actor: ItemEventActor = .user
+    ) -> String? {
+        let compId = calculatorComponentId(myAppId: myAppId)
+        var resolvedKey: String?
+        var rowId: UUID?
+        mutate(myAppId, kind: "calculator") { canvas in
+            guard case .calculator(var c) = canvas else { return false }
+            let base = Self.slugify(key?.nonEmpty ?? name)
+            let unique = Self.dedupeSlug(base, existing: Set(c.rows.map(\.key)))
+            let row = CalcRow(
+                key: unique,
+                name: name.nonEmpty ?? unique,
+                unit: unit,
+                format: format,
+                kind: kind
+            )
+            c.rows.append(row)
+            canvas = .calculator(c)
+            resolvedKey = unique
+            rowId = row.id
+            return true
+        }
+        if let resolvedKey, let compId, let rowId {
+            _ = resolvedKey
+            emitItemEvent(myAppId: myAppId, componentId: compId, kind: .added, actor: actor, itemId: rowId)
+        }
+        return resolvedKey
+    }
+
+    /// Remove a calc row by its stable `key`. Returns true if a row was
+    /// removed. Note: existing formulas that referenced the removed key
+    /// then resolve to `brokenRef` — handled live by `CalculatorResolver`,
+    /// not by rewriting other rows here.
+    @discardableResult
+    public func removeCalcRow(key: String, myAppId: UUID? = nil, actor: ItemEventActor = .user) -> Bool {
+        let compId = calculatorComponentId(myAppId: myAppId)
+        var removedId: UUID?
+        mutate(myAppId, kind: "calculator") { canvas in
+            guard case .calculator(var c) = canvas,
+                  let idx = c.rows.firstIndex(where: { $0.key == key }) else { return false }
+            removedId = c.rows[idx].id
+            c.rows.remove(at: idx)
+            canvas = .calculator(c)
+            return true
+        }
+        if let removedId, let compId {
+            emitItemEvent(myAppId: myAppId, componentId: compId, kind: .removed, actor: actor, itemId: removedId)
+        }
+        return removedId != nil
+    }
+
+    /// Edit a calc row by `key`. Only fields present in `patch` change;
+    /// the `key` itself is immutable so formulas never break under a patch.
+    @discardableResult
+    public func patchCalcRow(
+        key: String,
+        patch: CalcRowPatch,
+        myAppId: UUID? = nil,
+        actor: ItemEventActor = .user
+    ) -> Bool {
+        let compId = calculatorComponentId(myAppId: myAppId)
+        var patchedId: UUID?
+        mutate(myAppId, kind: "calculator") { canvas in
+            guard case .calculator(var c) = canvas,
+                  let idx = c.rows.firstIndex(where: { $0.key == key }) else { return false }
+            if let v = patch.name { c.rows[idx].name = v }
+            if let v = patch.unit { c.rows[idx].unit = v }
+            if let v = patch.format { c.rows[idx].format = v }
+            if let v = patch.kind { c.rows[idx].kind = v }
+            patchedId = c.rows[idx].id
+            canvas = .calculator(c)
+            return true
+        }
+        if let patchedId, let compId {
+            emitItemEvent(myAppId: myAppId, componentId: compId, kind: .patched, actor: actor, itemId: patchedId)
+        }
+        return patchedId != nil
+    }
+
+    /// Set a `variable` row's value from the UI tuning control (slider /
+    /// stepper / field). No-op (and no event) if the row isn't a variable
+    /// or the value is unchanged — keeps live slider drags off the History
+    /// log and out of `persist()` churn when nothing moved.
+    @discardableResult
+    public func setCalculatorVariable(
+        key: String,
+        value: Double,
+        myAppId: UUID? = nil,
+        componentId: String? = nil
+    ) -> Bool {
+        var ok = false
+        let body: (inout CanvasApp) -> Bool = { canvas in
+            guard case .calculator(var c) = canvas,
+                  let idx = c.rows.firstIndex(where: { $0.key == key }),
+                  case .variable(let current, let control) = c.rows[idx].kind,
+                  current != value else { return false }
+            c.rows[idx].kind = .variable(value: value, control: control)
+            canvas = .calculator(c)
+            ok = true
+            return true
+        }
+        if let componentId {
+            mutate(myAppId: myAppId, byComponentId: componentId, body)
+        } else {
+            mutate(myAppId, kind: "calculator", body)
+        }
+        return ok
+    }
+
+    /// Internal: id of the first calculator component in `myAppId` (or the
+    /// active component if it's a calculator). Mirrors the tracker /
+    /// calendar / checklist helpers; used by the calculator tools when no
+    /// explicit `componentId` is passed.
+    public func calculatorComponentId(myAppId: UUID? = nil) -> String? {
+        let target = myAppId ?? activeMyAppId
+        guard let myApp = myApps.first(where: { $0.id == target }) else { return nil }
+        if let activeId = myApp.activeComponentId,
+           let comp = myApp.components.first(where: { $0.id == activeId }),
+           case .calculator = comp.body { return comp.id }
+        return myApp.components.first(where: {
+            if case .calculator = $0.body { return true }
+            return false
+        })?.id
+    }
+
+    /// Slugify `s` into a valid expression identifier (lowercase, words
+    /// joined by `_`, leading digits kept but the result is never empty).
+    /// Calc-row keys must be valid `ExpressionEngine` identifiers because
+    /// formulas reference them by name. `nonisolated` so the tool layer can
+    /// dedupe keys off the MainActor while parsing tool args.
+    nonisolated static func slugify(_ s: String) -> String {
+        var out = ""
+        var pendingUnderscore = false
+        for ch in s.lowercased() {
+            if ch.isLetter || ch.isNumber {
+                if pendingUnderscore, !out.isEmpty { out.append("_") }
+                pendingUnderscore = false
+                out.append(ch)
+            } else {
+                pendingUnderscore = true
+            }
+        }
+        // A pure-digit slug ("2024") is a valid key but not a valid
+        // identifier; prefix it so formulas can reference it.
+        if let first = out.first, first.isNumber { out = "v_" + out }
+        return out.isEmpty ? "row" : out
+    }
+
+    /// Append `_2`, `_3`, … to `base` until it's unique among `existing`.
+    nonisolated static func dedupeSlug(_ base: String, existing: Set<String>) -> String {
+        guard existing.contains(base) else { return base }
+        var n = 2
+        while existing.contains("\(base)_\(n)") { n += 1 }
+        return "\(base)_\(n)"
+    }
+
     // MARK: - Slack mutators
 
     /// Append a `SlackAgent` to the Slack body. Returns the generated
@@ -1706,7 +1918,7 @@ public final class MyAppStore {
             cl.items[iIdx].linkedItems.append(ref)
             bodyVal = .checklist(cl)
             result = .success(cl.items[iIdx].linkedItems.count)
-        case .slack, .empty:
+        case .slack, .empty, .calculator:
             return .failure(.unknownSource)
         }
         myApps[mIdx].components[cIdx].body = bodyVal
@@ -1775,7 +1987,7 @@ public final class MyAppStore {
             changed = before != cl.items[iIdx].linkedItems.count
             if changed { bodyVal = .checklist(cl) }
             result = .success(cl.items[iIdx].linkedItems.count)
-        case .slack, .empty:
+        case .slack, .empty, .calculator:
             return .failure(.unknownSource)
         }
         if changed {
@@ -1800,7 +2012,7 @@ public final class MyAppStore {
         case .tracker(let t): return t.items.contains(where: { $0.id == itemId })
         case .calendar(let cal): return cal.events.contains(where: { $0.id == itemId })
         case .checklist(let cl): return cl.items.contains(where: { $0.id == itemId })
-        case .slack, .empty: return false
+        case .slack, .empty, .calculator: return false
         }
     }
 
@@ -1856,7 +2068,7 @@ public final class MyAppStore {
             return displayNameForCalendarEvent(componentId: componentId, eventId: itemId, myAppId: myAppId)
         case .checklist:
             return displayNameForChecklistItem(componentId: componentId, itemId: itemId, myAppId: myAppId)
-        case .slack, .empty:
+        case .slack, .empty, .calculator:
             return nil
         }
     }

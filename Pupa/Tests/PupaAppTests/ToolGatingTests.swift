@@ -125,6 +125,41 @@ struct ToolGatingTests {
         #expect(!unlocked.contains("renderCalendar"))
     }
 
+    @Test("Calculator component present: gate then unlock exposes all calculator tools")
+    func calculatorComponentShowsGateThenTools() {
+        let (store, myApp) = freshStore()
+        store.addComponent(kind: "calculator", name: "Calc", iconSystemName: "function", myAppId: myApp.id)
+
+        let skillState = SkillState()
+        let gated = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: skillState)
+        #expect(gated.contains("get_skill_calculator"))
+        #expect(!gated.contains("renderCalculator"))
+
+        skillState.activate(kind: "calculator")
+        let unlocked = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: skillState)
+        #expect(unlocked.contains("renderCalculator"))
+        #expect(unlocked.contains("addCalcRows"))
+        #expect(unlocked.contains("patchCalcRows"))
+        #expect(unlocked.contains("removeCalcRows"))
+        #expect(unlocked.contains("listCalcRows"))
+        #expect(unlocked.contains("getCalcRow"))
+        #expect(!unlocked.contains("renderTracker"))
+        #expect(!unlocked.contains("renderChecklist"))
+    }
+
+    @Test("addComponent supports the calculator kind and seeds a typed-empty body")
+    func addComponentCalculator() {
+        let (store, myApp) = freshStore()
+        let id = store.addComponent(
+            kind: "calculator",
+            name: "Calc",
+            iconSystemName: "function",
+            myAppId: myApp.id
+        )
+        let added = store.myApps.first!.components.first(where: { $0.id == id })
+        #expect(added?.kindString == "calculator")
+    }
+
     @Test("Universal link tools are always advertised regardless of kinds present")
     func universalLinkToolsAlwaysOn() {
         let (store, myApp) = freshStore()
@@ -164,6 +199,7 @@ struct ToolGatingTests {
         let expected = MyAppType.tracker.supportedComponentKinds.sorted()
         #expect(Set(kindEnum) == Set(expected))
         #expect(kindEnum.contains("slack"))
+        #expect(kindEnum.contains("calculator"))
         // Description should mention every supported kind so the agent
         // doesn't drift from the schema.
         for kind in expected {

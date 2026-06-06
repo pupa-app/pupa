@@ -575,15 +575,236 @@ public struct SlackData: Codable, Hashable, Sendable {
     }
 }
 
+// MARK: - Calculator component
+
+/// How a tracker aggregate folds the numeric values it pulls from a field
+/// into a single scalar. `count` is the only reduce that doesn't need the
+/// values to parse as numbers — it counts the items that pass the filter.
+public enum CalcReduce: String, Codable, Hashable, Sendable, CaseIterable {
+    case sum
+    case avg
+    case min
+    case max
+    case count
+}
+
+/// Spec for an `aggregate` calc row: pull `fieldName` from every item in
+/// the tracker component `sourceComponentId`, keep only the items matching
+/// `filter` (case-insensitive AND equality across every key/value pair —
+/// this is the "spend on African restaurants" isolation), then `reduce`
+/// the surviving numeric values down to one scalar. `filter` empty = no
+/// filter (aggregate over every item). Pure data; the actual reduce lives
+/// in `TrackerAggregator` and the source lookup in `CalculatorResolver`.
+public struct AggregateSpec: Codable, Hashable, Sendable {
+    public var sourceComponentId: String
+    public var fieldName: String
+    public var reduce: CalcReduce
+    public var filter: [String: String]
+
+    public init(
+        sourceComponentId: String,
+        fieldName: String,
+        reduce: CalcReduce,
+        filter: [String: String] = [:]
+    ) {
+        self.sourceComponentId = sourceComponentId
+        self.fieldName = fieldName
+        self.reduce = reduce
+        self.filter = filter
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case sourceComponentId, fieldName, reduce, filter
+    }
+
+    /// Backward-compatible decoder — `filter` defaults to empty and
+    /// `reduce` to `.sum` so a partial blob still decodes.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.sourceComponentId = try c.decodeIfPresent(String.self, forKey: .sourceComponentId) ?? ""
+        self.fieldName = try c.decodeIfPresent(String.self, forKey: .fieldName) ?? ""
+        self.reduce = try c.decodeIfPresent(CalcReduce.self, forKey: .reduce) ?? .sum
+        self.filter = try c.decodeIfPresent([String: String].self, forKey: .filter) ?? [:]
+    }
+}
+
+/// How a `variable` calc row surfaces its tuning affordance in the
+/// calculator UI. `plain` is a free numeric text field; `stepper` adds
+/// −/+ buttons stepping by `step`; `slider` is a bounded drag between
+/// `min` and `max` snapping to `step`. Persisted with an explicit tagged
+/// codec so adding a control kind later stays backward-compatible.
+public enum CalcControl: Codable, Hashable, Sendable {
+    case plain
+    case stepper(step: Double)
+    case slider(min: Double, max: Double, step: Double)
+
+    enum CodingKeys: String, CodingKey { case type, step, min, max }
+    enum Kind: String, Codable { case plain, stepper, slider }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        // A missing/unknown discriminator decodes as `.plain` so a partial
+        // or future blob degrades to the simplest control rather than
+        // failing the whole calculator decode.
+        let kind = (try? c.decodeIfPresent(Kind.self, forKey: .type)) ?? .plain
+        switch kind {
+        case .plain:
+            self = .plain
+        case .stepper:
+            let step = try c.decodeIfPresent(Double.self, forKey: .step) ?? 1
+            self = .stepper(step: step)
+        case .slider:
+            let lo = try c.decodeIfPresent(Double.self, forKey: .min) ?? 0
+            let hi = try c.decodeIfPresent(Double.self, forKey: .max) ?? 100
+            let step = try c.decodeIfPresent(Double.self, forKey: .step) ?? 1
+            self = .slider(min: lo, max: hi, step: step)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .plain:
+            try c.encode(Kind.plain, forKey: .type)
+        case .stepper(let step):
+            try c.encode(Kind.stepper, forKey: .type)
+            try c.encode(step, forKey: .step)
+        case .slider(let lo, let hi, let step):
+            try c.encode(Kind.slider, forKey: .type)
+            try c.encode(lo, forKey: .min)
+            try c.encode(hi, forKey: .max)
+            try c.encode(step, forKey: .step)
+        }
+    }
+}
+
+/// The three shapes a calculator row can take. `variable` is a tunable
+/// input (value + control); `aggregate` pulls a scalar off a tracker via
+/// `AggregateSpec`; `formula` is an arithmetic expression over other rows'
+/// `key`s (see `ExpressionEngine`). Explicit tagged codec so the on-disk
+/// shape is stable and self-describing.
+public enum CalcRowKind: Codable, Hashable, Sendable {
+    case variable(value: Double, control: CalcControl)
+    case aggregate(AggregateSpec)
+    case formula(expression: String)
+
+    enum CodingKeys: String, CodingKey { case type, value, control, aggregate, expression }
+    enum Kind: String, Codable { case variable, aggregate, formula }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let kind = try c.decode(Kind.self, forKey: .type)
+        switch kind {
+        case .variable:
+            let value = try c.decodeIfPresent(Double.self, forKey: .value) ?? 0
+            let control = try c.decodeIfPresent(CalcControl.self, forKey: .control) ?? .plain
+            self = .variable(value: value, control: control)
+        case .aggregate:
+            let spec = try c.decode(AggregateSpec.self, forKey: .aggregate)
+            self = .aggregate(spec)
+        case .formula:
+            let expression = try c.decodeIfPresent(String.self, forKey: .expression) ?? ""
+            self = .formula(expression: expression)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .variable(let value, let control):
+            try c.encode(Kind.variable, forKey: .type)
+            try c.encode(value, forKey: .value)
+            try c.encode(control, forKey: .control)
+        case .aggregate(let spec):
+            try c.encode(Kind.aggregate, forKey: .type)
+            try c.encode(spec, forKey: .aggregate)
+        case .formula(let expression):
+            try c.encode(Kind.formula, forKey: .type)
+            try c.encode(expression, forKey: .expression)
+        }
+    }
+}
+
+/// One row in a calculator. `key` is a stable slug that formulas reference
+/// (`african / total`), so renaming the human-facing `name` never breaks a
+/// downstream formula. `unit` (e.g. "$", "%") and `format` (a printf-style
+/// hint like "%.2f") are optional presentation. `kind` carries the row's
+/// behaviour. `id` is stable across reorderings for SwiftUI / addressing.
+public struct CalcRow: Codable, Hashable, Sendable, Identifiable {
+    public let id: UUID
+    public var key: String
+    public var name: String
+    public var unit: String?
+    public var format: String?
+    public var kind: CalcRowKind
+
+    public init(
+        id: UUID = UUID(),
+        key: String,
+        name: String,
+        unit: String? = nil,
+        format: String? = nil,
+        kind: CalcRowKind
+    ) {
+        self.id = id
+        self.key = key
+        self.name = name
+        self.unit = unit
+        self.format = format
+        self.kind = kind
+    }
+
+    enum CodingKeys: String, CodingKey { case id, key, name, unit, format, kind }
+
+    /// Backward-compatible decoder — `id` regenerates if absent, `name`
+    /// falls back to `key`, and `unit` / `format` stay optional.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        self.key = try c.decode(String.self, forKey: .key)
+        self.name = try c.decodeIfPresent(String.self, forKey: .name) ?? self.key
+        self.unit = try c.decodeIfPresent(String.self, forKey: .unit)
+        self.format = try c.decodeIfPresent(String.self, forKey: .format)
+        self.kind = try c.decode(CalcRowKind.self, forKey: .kind)
+    }
+}
+
+/// Body of a calculator canvas component — a titled, ordered list of
+/// `CalcRow`s. Results are NEVER persisted: `CalculatorResolver` recomputes
+/// every row's `{value, status}` live on each render so a tuned variable or
+/// an edited source tracker is reflected immediately. Phase 2 (#22) adds an
+/// `inlineChart: ChartData?` field here; the `decodeIfPresent` decoder means
+/// that field can land without a migration of Phase-1 blobs.
+public struct CalculatorData: Codable, Hashable, Sendable {
+    public var title: String
+    public var rows: [CalcRow]
+
+    public init(title: String, rows: [CalcRow] = []) {
+        self.title = title
+        self.rows = rows
+    }
+
+    enum CodingKeys: String, CodingKey { case title, rows }
+
+    /// Backward-compatible decoder — `rows` defaults to `[]` so a
+    /// freshly-seeded empty body decodes cleanly.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.title = try c.decode(String.self, forKey: .title)
+        self.rows = try c.decodeIfPresent([CalcRow].self, forKey: .rows) ?? []
+    }
+}
+
 public enum CanvasApp: Codable, Hashable, Sendable {
     case empty
     case tracker(TrackerData)
     case calendar(CalendarData)
     case checklist(ChecklistData)
     case slack(SlackData)
+    case calculator(CalculatorData)
 
     enum CodingKeys: String, CodingKey { case kind, data }
-    enum Kind: String, Codable { case empty, tracker, calendar, checklist, slack }
+    enum Kind: String, Codable { case empty, tracker, calendar, checklist, slack, calculator }
 
     /// Stable string used by tool dispatch and component-kind routing.
     /// Matches the `Kind.rawValue` written by the encoder.
@@ -594,6 +815,7 @@ public enum CanvasApp: Codable, Hashable, Sendable {
         case .calendar: return "calendar"
         case .checklist: return "checklist"
         case .slack: return "slack"
+        case .calculator: return "calculator"
         }
     }
 
@@ -614,6 +836,9 @@ public enum CanvasApp: Codable, Hashable, Sendable {
         case .slack:
             let data = try c.decode(SlackData.self, forKey: .data)
             self = .slack(data)
+        case .calculator:
+            let data = try c.decode(CalculatorData.self, forKey: .data)
+            self = .calculator(data)
         }
     }
     public func encode(to encoder: Encoder) throws {
@@ -633,6 +858,9 @@ public enum CanvasApp: Codable, Hashable, Sendable {
         case .slack(let d):
             try c.encode(Kind.slack, forKey: .kind)
             try c.encode(d, forKey: .data)
+        case .calculator(let d):
+            try c.encode(Kind.calculator, forKey: .kind)
+            try c.encode(d, forKey: .data)
         }
     }
 
@@ -648,6 +876,7 @@ public enum CanvasApp: Codable, Hashable, Sendable {
         case "calendar": return .calendar(CalendarData(title: "", events: []))
         case "checklist": return .checklist(ChecklistData(title: "", items: []))
         case "slack": return .slack(SlackData())
+        case "calculator": return .calculator(CalculatorData(title: "", rows: []))
         default: return .empty
         }
     }
@@ -666,7 +895,10 @@ public enum CanvasApp: Codable, Hashable, Sendable {
         case .checklist(var cl):
             for i in cl.items.indices { transform(&cl.items[i].linkedItems) }
             self = .checklist(cl)
-        case .slack, .empty:
+        case .slack, .empty, .calculator:
+            // Calculator rows hold no `linkedItems` — they reference
+            // tracker fields via `AggregateSpec`, not via the universal
+            // item-ref graph — so there is nothing to sweep here.
             break
         }
     }
