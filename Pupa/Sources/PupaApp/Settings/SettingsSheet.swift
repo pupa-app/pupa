@@ -601,6 +601,12 @@ private struct PendingNotificationsList: View {
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
+            if item.myAppId != nil {
+                let label = item.componentId.map { "→ \($0)" } ?? "→ app"
+                Text(label)
+                    .font(.caption2)
+                    .foregroundStyle(.tint)
+            }
         }
         #if os(iOS)
         .swipeActions(edge: .trailing) {

@@ -82,6 +82,12 @@ public struct AppView: View {
                 if showBackendReminder { backendReminderBanner }
             }
             .sheet(isPresented: $showBackendSheet) { backendPairingSheet }
+            .onReceive(NotificationCenter.default.publisher(for: .pupaNotificationTap)) { note in
+                guard let sel = note.userInfo?["selection"] as? SidebarSelection else { return }
+                detailPath = []
+                selection = sel
+                dispatchSelection(sel)
+            }
     }
 
     @ViewBuilder

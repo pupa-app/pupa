@@ -37,6 +37,19 @@ public struct NotificationRequest: Sendable, Hashable {
         }
     }
 
+    /// Optional deep-link target. When present, tapping the notification banner
+    /// navigates the app to the specified myApp (and optionally component).
+    public struct Target: Sendable, Hashable {
+        public let myAppId: UUID
+        /// Component to focus, e.g. `"tracker-1"`. Nil opens the myApp home.
+        public let componentId: String?
+
+        public init(myAppId: UUID, componentId: String? = nil) {
+            self.myAppId = myAppId
+            self.componentId = componentId
+        }
+    }
+
     public static let titleMaxLength = 64
     public static let bodyMaxLength = 256
     public static let secondsRange = 1...31_536_000
@@ -44,11 +57,15 @@ public struct NotificationRequest: Sendable, Hashable {
     public let title: String
     public let body: String
     public let trigger: Trigger
+    /// Where to navigate when the user taps the notification banner.
+    /// Nil means tapping just foregrounds the app with no extra routing.
+    public let target: Target?
 
-    public init(title: String, body: String, trigger: Trigger) {
+    public init(title: String, body: String, trigger: Trigger, target: Target? = nil) {
         self.title = title
         self.body = body
         self.trigger = trigger
+        self.target = target
     }
 
     /// Build from the raw `AnyJSON` the tool registry hands us, or throw a
@@ -99,7 +116,15 @@ public struct NotificationRequest: Sendable, Hashable {
             throw ParseError.invalidTrigger("unknown kind '\(kind)' (expected now / after / atDate)")
         }
 
-        self.init(title: title, body: body, trigger: parsedTrigger)
+        var target: Target? = nil
+        if let targetArg = args["target"], case .object = targetArg,
+           let idStr = targetArg["myAppId"]?.stringValue,
+           let uuid = UUID(uuidString: idStr) {
+            let componentId = targetArg["componentId"]?.stringValue
+            target = Target(myAppId: uuid, componentId: componentId)
+        }
+
+        self.init(title: title, body: body, trigger: parsedTrigger, target: target)
     }
 
     /// Compute the delivery instant the user will see in the echo payload.
