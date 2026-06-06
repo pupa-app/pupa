@@ -148,4 +148,54 @@ struct NotificationRequestTests {
         #expect(obj["kind"] == .string("after"))
         #expect(obj["seconds"] == .int(42))
     }
+
+    @Test("target with myAppId only is parsed")
+    func parsesTargetAppOnly() throws {
+        let id = UUID()
+        let req = try NotificationRequest(fromToolArgs: args([
+            "title": .string("Done"),
+            "body": .string("Check it out"),
+            "trigger": .object(["kind": .string("now")]),
+            "target": .object(["myAppId": .string(id.uuidString)]),
+        ]))
+        #expect(req.target?.myAppId == id)
+        #expect(req.target?.componentId == nil)
+    }
+
+    @Test("target with myAppId + componentId is parsed")
+    func parsesTargetWithComponent() throws {
+        let id = UUID()
+        let req = try NotificationRequest(fromToolArgs: args([
+            "title": .string("Done"),
+            "body": .string("Check it out"),
+            "trigger": .object(["kind": .string("now")]),
+            "target": .object([
+                "myAppId": .string(id.uuidString),
+                "componentId": .string("tracker-1"),
+            ]),
+        ]))
+        #expect(req.target?.myAppId == id)
+        #expect(req.target?.componentId == "tracker-1")
+    }
+
+    @Test("target is nil when omitted")
+    func targetNilWhenOmitted() throws {
+        let req = try NotificationRequest(fromToolArgs: args([
+            "title": .string("Hi"),
+            "body": .string("There"),
+            "trigger": .object(["kind": .string("now")]),
+        ]))
+        #expect(req.target == nil)
+    }
+
+    @Test("target with invalid UUID is silently ignored")
+    func targetIgnoresInvalidUUID() throws {
+        let req = try NotificationRequest(fromToolArgs: args([
+            "title": .string("Hi"),
+            "body": .string("There"),
+            "trigger": .object(["kind": .string("now")]),
+            "target": .object(["myAppId": .string("not-a-uuid")]),
+        ]))
+        #expect(req.target == nil)
+    }
 }

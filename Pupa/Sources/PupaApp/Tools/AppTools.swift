@@ -3610,8 +3610,10 @@ public enum AppTools {
                 user has backgrounded the app). `trigger` is a discriminated \
                 union: {kind:"now"} | {kind:"after", seconds:N} | \
                 {kind:"atDate", iso8601:"<ISO-8601>"}. `seconds` ranges 1..\
-                31536000. `atDate` must be in the future. Tapping the banner \
-                just foregrounds Pupa — no agent re-entry. Permission \
+                31536000. `atDate` must be in the future. Supply `target` to \
+                deep-link the tap: `{myAppId:"<UUID>"}` opens that myApp, \
+                add `componentId:"tracker-1"` to jump straight to a component. \
+                Without a target, tapping just foregrounds the app. Permission \
                 is requested lazily on first call; if denied the tool returns \
                 {ok:false, error:"notifications-not-authorized"} so you can \
                 tell the user. Result echoes {id, deliveryAt, trigger} — save \
@@ -3648,6 +3650,21 @@ public enum AppTools {
                                 ],
                             ],
                             "required": ["kind"],
+                        ],
+                        "target": [
+                            "type": "object",
+                            "description": "Optional deep-link: where to navigate when the user taps the banner.",
+                            "properties": [
+                                "myAppId": [
+                                    "type": "string",
+                                    "description": "UUID of the myApp to open.",
+                                ],
+                                "componentId": [
+                                    "type": "string",
+                                    "description": "Component to focus, e.g. \"tracker-1\". Omit to open the myApp home.",
+                                ],
+                            ],
+                            "required": ["myAppId"],
                         ],
                     ],
                     "required": ["title", "body", "trigger"],

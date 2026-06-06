@@ -1,6 +1,13 @@
 import Foundation
 import UserNotifications
 
+extension Notification.Name {
+    /// Posted (on Foundation's `NotificationCenter.default`) when the user taps
+    /// a Pupa notification that carries a deep-link target. The `userInfo`
+    /// dictionary contains a `SidebarSelection` under the key `"selection"`.
+    public static let pupaNotificationTap = Notification.Name("pupa.notificationTap")
+}
+
 /// Singleton wrapper around `UNUserNotificationCenter`. Owns:
 ///
 /// - Lazy permission request (`requestAuthorizationIfNeeded`) — the agent's
@@ -42,6 +49,10 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
         public let title: String
         public let body: String
         public let deliveryAt: Date?
+        /// Deep-link target stored in the notification's userInfo. Nil when
+        /// the notification was scheduled without a target (opens app only).
+        public let myAppId: UUID?
+        public let componentId: String?
     }
 
     public enum ScheduleError: Error, CustomStringConvertible {
@@ -125,6 +136,11 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
         content.title = request.title
         content.body = request.body
         content.sound = .default
+        if let target = request.target {
+            var info: [String: String] = ["pupa.myAppId": target.myAppId.uuidString]
+            if let cid = target.componentId { info["pupa.componentId"] = cid }
+            content.userInfo = info
+        }
 
         let trigger: UNNotificationTrigger
         let referenceDate = Date()
@@ -188,11 +204,16 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
                 default:
                     deliveryAt = nil
                 }
+                let userInfo = req.content.userInfo
+                let myAppId = (userInfo["pupa.myAppId"] as? String).flatMap(UUID.init(uuidString:))
+                let componentId = userInfo["pupa.componentId"] as? String
                 return PendingNotification(
                     id: req.identifier,
                     title: req.content.title,
                     body: req.content.body,
-                    deliveryAt: deliveryAt
+                    deliveryAt: deliveryAt,
+                    myAppId: myAppId,
+                    componentId: componentId
                 )
             }
             .sorted { ($0.deliveryAt ?? .distantFuture) < ($1.deliveryAt ?? .distantFuture) }
@@ -216,8 +237,18 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        // Tap → OS already foregrounds the app. We do nothing else here:
-        // agent re-entry on tap belongs to issue #33.
+        let userInfo = response.notification.request.content.userInfo
+        if let idStr = userInfo["pupa.myAppId"] as? String,
+           let myAppId = UUID(uuidString: idStr) {
+            let componentId = userInfo["pupa.componentId"] as? String
+            let selection: SidebarSelection = componentId.map { .myAppComponent(myAppId, $0) }
+                ?? .myApp(myAppId)
+            NotificationCenter.default.post(
+                name: .pupaNotificationTap,
+                object: nil,
+                userInfo: ["selection": selection]
+            )
+        }
         completionHandler()
     }
 }
