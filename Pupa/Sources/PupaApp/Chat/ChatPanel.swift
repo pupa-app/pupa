@@ -35,9 +35,9 @@ public struct ChatPanel: View {
     let onSelectThread: (String) -> Void
     /// Called when the user taps the `+` button to start a new conversation.
     let onAddThread: (() -> Void)?
-    /// Called when the user deletes the current thread. `nil` when only one
-    /// thread exists (delete is not offered).
-    let onDeleteThread: (() -> Void)?
+    /// Called with a thread id when the user deletes a conversation. `nil`
+    /// when only one thread exists (delete is not offered).
+    let onDeleteThread: ((String) -> Void)?
     @State private var draft: String = ""
     @State private var pickerItem: PhotosPickerItem?
     @State private var pickedImage: PickedImage?
@@ -58,7 +58,7 @@ public struct ChatPanel: View {
         onSwitchAgent: @escaping (ChatScope) -> Void,
         onSelectThread: @escaping (String) -> Void = { _ in },
         onAddThread: (() -> Void)? = nil,
-        onDeleteThread: (() -> Void)? = nil
+        onDeleteThread: ((String) -> Void)? = nil
     ) {
         self.viewModel = viewModel
         self.threads = threads
@@ -188,30 +188,40 @@ public struct ChatPanel: View {
         .buttonStyle(.plain)
     }
 
-    /// Conversation selector. Replaces the old horizontal swipe-pager: tapping
-    /// opens a `Menu` listing every thread for the scope (newest first, the
-    /// active one checkmarked) plus a destructive "Delete this conversation"
-    /// action. The menu's own list scrolls when there are many threads.
+    /// Conversation selector. Each thread is listed newest-first. When delete
+    /// is available (2+ threads) each entry becomes a submenu offering "Open"
+    /// and "Delete", so any thread can be removed without switching to it first.
     @ViewBuilder
     private var threadDropdown: some View {
         let currentTitle = threads.first(where: { $0.id == currentThreadId })?.title ?? ""
         Menu {
             ForEach(threads.reversed()) { thread in
-                Button {
-                    onSelectThread(thread.id)
-                } label: {
-                    let label = thread.title.isEmpty ? "New chat" : thread.title
-                    if thread.id == currentThreadId {
-                        Label(label, systemImage: "checkmark")
-                    } else {
-                        Text(label)
+                let label = thread.title.isEmpty ? "New chat" : thread.title
+                if let onDeleteThread {
+                    Menu {
+                        Button { onSelectThread(thread.id) } label: {
+                            Label("Open", systemImage: thread.id == currentThreadId ? "checkmark" : "bubble.left")
+                        }
+                        Button(role: .destructive) {
+                            onDeleteThread(thread.id)
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    } label: {
+                        if thread.id == currentThreadId {
+                            Label(label, systemImage: "checkmark")
+                        } else {
+                            Text(label)
+                        }
                     }
-                }
-            }
-            if let onDeleteThread {
-                Divider()
-                Button(role: .destructive, action: onDeleteThread) {
-                    Label("Delete this conversation", systemImage: "trash")
+                } else {
+                    Button { onSelectThread(thread.id) } label: {
+                        if thread.id == currentThreadId {
+                            Label(label, systemImage: "checkmark")
+                        } else {
+                            Text(label)
+                        }
+                    }
                 }
             }
         } label: {
