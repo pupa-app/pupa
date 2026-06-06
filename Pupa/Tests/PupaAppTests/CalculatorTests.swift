@@ -283,4 +283,26 @@ struct CalculatorTests {
         let resolved = CalculatorResolver.resolve(calc(store, id)!, components: components(store, id))
         #expect(resolved.result(forKey: "y")?.status == .divisionByZero)
     }
+
+    @Test("header row round-trips via Codable and is skipped by the resolver")
+    func headerRow() throws {
+        let data = CalculatorData(title: "Model", rows: [
+            CalcRow(key: "sec_inputs", name: "Inputs", kind: .header),
+            CalcRow(key: "rate", name: "Rate", kind: .variable(value: 5, control: .plain)),
+            CalcRow(key: "sec_results", name: "Results", kind: .header),
+            CalcRow(key: "result", name: "Result", kind: .formula(expression: "rate * 2")),
+        ])
+        // Codec round-trip.
+        let json = try JSONEncoder().encode(data)
+        let decoded = try JSONDecoder().decode(CalculatorData.self, from: json)
+        #expect(decoded.rows.count == 4)
+        if case .header = decoded.rows[0].kind { } else { Issue.record("row[0] not header") }
+        if case .header = decoded.rows[2].kind { } else { Issue.record("row[2] not header") }
+
+        // Resolver: header produces no result; formula downstream still works.
+        let resolved = CalculatorResolver.resolve(data, components: [])
+        #expect(resolved.result(forKey: "sec_inputs") == nil)
+        #expect(resolved.result(forKey: "sec_results") == nil)
+        #expect(resolved.result(forKey: "result")?.value == 10)
+    }
 }

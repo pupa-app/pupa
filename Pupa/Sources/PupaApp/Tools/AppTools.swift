@@ -4662,7 +4662,7 @@ public enum AppTools {
                 "name": ["type": "string"],
                 "unit": ["type": "string", "description": "Display unit, e.g. \"$\", \"%\", \"yr\"."],
                 "format": ["type": "string", "description": "Optional printf hint, e.g. \"%.2f\"."],
-                "kind": ["type": "string", "enum": ["variable", "aggregate", "formula", "list"]],
+                "kind": ["type": "string", "enum": ["variable", "aggregate", "formula", "list", "header"]],
                 "value": ["type": "number", "description": "variable: the input value."],
                 "control": [
                     "type": "object",
@@ -4713,7 +4713,7 @@ public enum AppTools {
                 "name": ["type": "string"],
                 "unit": ["type": "string"],
                 "format": ["type": "string"],
-                "kind": ["type": "string", "enum": ["variable", "aggregate", "formula", "list"]],
+                "kind": ["type": "string", "enum": ["variable", "aggregate", "formula", "list", "header"]],
                 "value": ["type": "number"],
                 "control": ["type": "object"],
                 "aggregate": ["type": "object"],
@@ -4760,6 +4760,8 @@ public enum AppTools {
         case "list":
             guard let spec = parseCalcListSpec(from: entry["list"] ?? entry) else { return nil }
             return .list(spec)
+        case "header":
+            return .header
         default:
             return nil
         }
@@ -4884,6 +4886,8 @@ public enum AppTools {
         case .list(let spec):
             obj["kind"] = .string("list")
             if full { obj["list"] = calcListSpecAsAnyJSON(spec) }
+        case .header:
+            obj["kind"] = .string("header")
         }
         if let result {
             obj["status"] = .string(result.status.rawValue)

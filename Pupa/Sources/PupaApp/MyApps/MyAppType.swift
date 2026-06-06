@@ -265,23 +265,22 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
             Admin tools (create / add) refuse for sub-agents.
             """,
             "calculator": """
-            CALCULATOR — live numeric model. Three row kinds: VARIABLE \
-            (tunable input + slider/stepper/field control), AGGREGATE (a \
-            scalar reduce — sum/avg/min/max/count — of a numeric field on \
-            another tracker, with a case-insensitive equality filter to \
-            isolate a category), FORMULA (arithmetic over other rows by their \
-            stable `key`: `+ - * / % ^`, fns min/max/abs/round/sqrt/log/exp/pow). \
-            Formulas reference rows by `key`, never by name, so renames never \
-            break them; results recompute live. A fourth kind, LIST, outputs \
-            an ARRAY for charts: SWEEP varies one variable across from/to/step \
-            holding others fixed and reads a target row each step (payment vs \
-            rate curve), or a tracker COLUMN. Build the mortgage / \
-            expense-share scenarios this way. Explore via list/getCalcRow; \
-            `summary` slot — set via renderCalculator(summary:). \
-            embedComponent(hostKind:"calculator", guestKind:"chart", \
-            chart:{title, kind, series}) pins a live chart below the rows \
-            (same series shapes as renderChart; list rows feed it directly). \
-            Pass no `chart` / null to clear the embed.
+            CALCULATOR — live numeric model. Row kinds: VARIABLE (tunable \
+            input + slider/stepper/field control), AGGREGATE (scalar reduce — \
+            sum/avg/min/max/count — of a numeric field on another tracker, \
+            case-insensitive equality filter to isolate a category), FORMULA \
+            (arithmetic over other rows by their stable `key`: `+ - * / % ^`, \
+            fns min/max/abs/round/sqrt/log/exp/pow; references by `key` never \
+            break on rename; results recompute live), LIST (ARRAY output for \
+            charts: SWEEP varies one variable across from/to/step and reads a \
+            target row each step, or a tracker COLUMN), HEADER (section label \
+            — `name` is the heading; rows below collapse/expand as a group \
+            until the next HEADER). Build mortgage / expense-share scenarios \
+            this way. Explore via list/getCalcRow; `summary` slot — set via \
+            renderCalculator(summary:). embedComponent(hostKind:"calculator", \
+            guestKind:"chart", chart:{title, kind, series}) pins a live chart \
+            below the rows (list rows feed it directly). Pass no `chart` / \
+            null to clear the embed.
             """,
             "chart": """
             CHART — pie/bar/line plot with one or MORE overlaid series (each a \
