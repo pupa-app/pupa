@@ -600,13 +600,14 @@ public struct SettingsSheet: View {
     }
 }
 
-/// Settings → Notifications screen: lists pending scheduled notifications (from
-/// the agent's `sendNotification` tool), soonest-first, with their delivery
-/// time, and lets the user cancel one. Reads the app-wide
-/// `NotificationCenterCoordinator.shared` singleton directly.
+/// Settings → Notifications screen: lists pending scheduled notifications
+/// (agent-scheduled and user-created), soonest-first, with their delivery
+/// time. Tap the `+` to compose a new one; swipe / context-menu to cancel.
+/// Reads the app-wide `NotificationCenterCoordinator.shared` singleton directly.
 private struct PendingNotificationsList: View {
     @State private var items: [NotificationCenterCoordinator.PendingNotification] = []
     @State private var loaded = false
+    @State private var showComposer = false
 
     var body: some View {
         List {
@@ -625,7 +626,7 @@ private struct PendingNotificationsList: View {
                     }
                 }
             } footer: {
-                Text("Notifications the agent has scheduled via its `sendNotification` tool but that haven't fired yet. Swipe (or use the context menu) to cancel one.")
+                Text("Scheduled notifications that haven't fired yet — from the agent or created by you. Swipe (or use the context menu) to cancel one.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -634,6 +635,22 @@ private struct PendingNotificationsList: View {
         #if os(iOS)
         .refreshable { await reload() }
         #endif
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { showComposer = true } label: {
+                    Image(systemName: "plus")
+                }
+            }
+        }
+        .sheet(isPresented: $showComposer) {
+            NotificationComposerSheet(
+                onScheduled: {
+                    showComposer = false
+                    Task { await reload() }
+                },
+                onCancel: { showComposer = false }
+            )
+        }
     }
 
     private func row(_ item: NotificationCenterCoordinator.PendingNotification) -> some View {
@@ -681,5 +698,129 @@ private struct PendingNotificationsList: View {
     private func reload() async {
         items = await NotificationCenterCoordinator.shared.pendingNotifications()
         loaded = true
+    }
+}
+
+/// Sheet for composing a user-initiated notification. Reuses `NotificationRequest`
+/// and `NotificationCenterCoordinator.schedule(_:)` — the same path the agent takes.
+private struct NotificationComposerSheet: View {
+    var onScheduled: () -> Void
+    var onCancel: () -> Void
+
+    enum TriggerKind: String, CaseIterable, Identifiable {
+        case now = "Now"
+        case after = "In..."
+        case atDate = "At..."
+        var id: String { rawValue }
+    }
+
+    @State private var title = ""
+    @State private var message = ""
+    @State private var triggerKind: TriggerKind = .now
+    @State private var delayMinutes = 5
+    @State private var atDate = Date().addingTimeInterval(3_600)
+    @State private var isScheduling = false
+    @State private var errorMessage: String?
+
+    private var titleTrimmed: String { title.trimmingCharacters(in: .whitespaces) }
+    private var bodyTrimmed: String { message.trimmingCharacters(in: .whitespaces) }
+    private var canSchedule: Bool {
+        !titleTrimmed.isEmpty
+        && titleTrimmed.count <= NotificationRequest.titleMaxLength
+        && bodyTrimmed.count <= NotificationRequest.bodyMaxLength
+        && !isScheduling
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Content") {
+                    TextField("Title", text: $title)
+                    TextField("Body (optional)", text: $message, axis: .vertical)
+                        .lineLimit(3...)
+                    if titleTrimmed.count > NotificationRequest.titleMaxLength {
+                        Text("Title too long (\(titleTrimmed.count)/\(NotificationRequest.titleMaxLength))")
+                            .font(.caption).foregroundStyle(.red)
+                    }
+                    if bodyTrimmed.count > NotificationRequest.bodyMaxLength {
+                        Text("Body too long (\(bodyTrimmed.count)/\(NotificationRequest.bodyMaxLength))")
+                            .font(.caption).foregroundStyle(.red)
+                    }
+                }
+
+                Section("When") {
+                    Picker("Trigger", selection: $triggerKind) {
+                        ForEach(TriggerKind.allCases) { k in Text(k.rawValue).tag(k) }
+                    }
+                    .pickerStyle(.segmented)
+
+                    switch triggerKind {
+                    case .now:
+                        EmptyView()
+                    case .after:
+                        Stepper(
+                            "In \(delayMinutes) \(delayMinutes == 1 ? "minute" : "minutes")",
+                            value: $delayMinutes, in: 1...60
+                        )
+                    case .atDate:
+                        DatePicker(
+                            "Date & time",
+                            selection: $atDate,
+                            in: Date()...,
+                            displayedComponents: [.date, .hourAndMinute]
+                        )
+                    }
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage).foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("New Reminder")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onCancel)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if isScheduling {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Button("Schedule") { Task { await schedule() } }
+                            .disabled(!canSchedule)
+                    }
+                }
+            }
+        }
+    }
+
+    private func schedule() async {
+        isScheduling = true
+        errorMessage = nil
+        let trigger: NotificationRequest.Trigger
+        switch triggerKind {
+        case .now:   trigger = .now
+        case .after: trigger = .after(seconds: delayMinutes * 60)
+        case .atDate: trigger = .atDate(atDate)
+        }
+        let request = NotificationRequest(
+            title: titleTrimmed,
+            body: bodyTrimmed,
+            trigger: trigger
+        )
+        do {
+            _ = try await NotificationCenterCoordinator.shared.schedule(request)
+            onScheduled()
+        } catch NotificationCenterCoordinator.ScheduleError.notAuthorised {
+            errorMessage = "Notification permission denied. Enable it in Settings → Pupa."
+            isScheduling = false
+        } catch {
+            errorMessage = error.localizedDescription
+            isScheduling = false
+        }
     }
 }
