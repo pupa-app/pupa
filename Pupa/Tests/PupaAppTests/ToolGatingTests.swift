@@ -125,7 +125,7 @@ struct ToolGatingTests {
         #expect(!unlocked.contains("renderCalendar"))
     }
 
-    @Test("Calculator component present: gate then unlock exposes all calculator tools")
+    @Test("Calculator component present: gate then unlock exposes all calculator tools including embedComponent")
     func calculatorComponentShowsGateThenTools() {
         let (store, myApp) = freshStore()
         store.addComponent(kind: "calculator", name: "Calc", iconSystemName: "function", myAppId: myApp.id)
@@ -134,6 +134,7 @@ struct ToolGatingTests {
         let gated = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: skillState)
         #expect(gated.contains("get_skill_calculator"))
         #expect(!gated.contains("renderCalculator"))
+        #expect(!gated.contains("embedComponent"))
 
         skillState.activate(kind: "calculator")
         let unlocked = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: skillState)
@@ -143,8 +144,50 @@ struct ToolGatingTests {
         #expect(unlocked.contains("removeCalcRows"))
         #expect(unlocked.contains("listCalcRows"))
         #expect(unlocked.contains("getCalcRow"))
+        #expect(unlocked.contains("embedComponent"))
         #expect(!unlocked.contains("renderTracker"))
         #expect(!unlocked.contains("renderChecklist"))
+    }
+
+    @Test("embedComponent sets and clears the calculator's inlineChart")
+    func embedComponentSetsAndClearsInlineChart() {
+        let (store, myApp) = freshStore()
+        store.addComponent(kind: "calculator", name: "Calc", iconSystemName: "function", myAppId: myApp.id)
+        store.setCalculator(title: "Mortgage", rows: [], myAppId: myApp.id)
+
+        let chart = ChartData(
+            title: "Payment curve",
+            kind: .line,
+            series: [ChartSeriesSpec(source: .inline(points: [ChartPoint(label: "A", y: 1)]))]
+        )
+        let set = store.setCalculatorInlineChart(chart, myAppId: myApp.id)
+        #expect(set)
+        let body = store.myApps.first!.components.first(where: { $0.kindString == "calculator" })?.body
+        if case .calculator(let data) = body {
+            #expect(data.inlineChart?.title == "Payment curve")
+        } else {
+            Issue.record("Expected calculator body")
+        }
+
+        let cleared = store.setCalculatorInlineChart(nil, myAppId: myApp.id)
+        #expect(cleared)
+        let body2 = store.myApps.first!.components.first(where: { $0.kindString == "calculator" })?.body
+        if case .calculator(let data) = body2 {
+            #expect(data.inlineChart == nil)
+        } else {
+            Issue.record("Expected calculator body after clear")
+        }
+    }
+
+    @Test("embedComponent hidden when no calculator component present")
+    func embedComponentHiddenWithoutCalculator() {
+        let (store, myApp) = freshStore()
+        store.addComponent(kind: "chart", name: "Chart", iconSystemName: "chart.pie", myAppId: myApp.id)
+
+        let skillState = SkillState()
+        skillState.activate(kind: "chart")
+        let allowed = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: skillState)
+        #expect(!allowed.contains("embedComponent"))
     }
 
     @Test("Chart component present: gate then unlock exposes all chart tools")

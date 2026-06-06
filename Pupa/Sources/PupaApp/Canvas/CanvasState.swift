@@ -747,14 +747,19 @@ public enum CalcListSpec: Codable, Hashable, Sendable {
 /// (`CalcListSpec` — a sweep or a tracker column) that a chart plots as one
 /// series. Explicit tagged codec so the on-disk shape is stable and
 /// self-describing.
+///
+/// `header` is a non-computing decoration: its `name` becomes the section
+/// label; the calculator view collapses every row below it until the next
+/// header. Formulas never reference a header key; the resolver skips it.
 public enum CalcRowKind: Codable, Hashable, Sendable {
     case variable(value: Double, control: CalcControl)
     case aggregate(AggregateSpec)
     case formula(expression: String)
     case list(CalcListSpec)
+    case header
 
     enum CodingKeys: String, CodingKey { case type, value, control, aggregate, expression, list }
-    enum Kind: String, Codable { case variable, aggregate, formula, list }
+    enum Kind: String, Codable { case variable, aggregate, formula, list, header }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -773,6 +778,8 @@ public enum CalcRowKind: Codable, Hashable, Sendable {
         case .list:
             let spec = try c.decode(CalcListSpec.self, forKey: .list)
             self = .list(spec)
+        case .header:
+            self = .header
         }
     }
 
@@ -792,6 +799,8 @@ public enum CalcRowKind: Codable, Hashable, Sendable {
         case .list(let spec):
             try c.encode(Kind.list, forKey: .type)
             try c.encode(spec, forKey: .list)
+        case .header:
+            try c.encode(Kind.header, forKey: .type)
         }
     }
 }

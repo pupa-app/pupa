@@ -1,22 +1,22 @@
 import SwiftUI
 
 /// Calculator component view. Renders a titled list of rows whose results
-/// are recomputed live every render by `CalculatorResolver` — never read
-/// from persisted state — so tuning a variable or editing a source tracker
-/// updates downstream values immediately.
+/// are recomputed live every render by `CalculatorResolver`.
 ///
-/// - **Variable** rows show an inline tuning control (slider / stepper /
-///   field) bound through `MyAppStore.setCalculatorVariable`.
-/// - **Aggregate** rows show the computed scalar with a transparent source
-///   subtitle ("sum of amount where cuisine=African").
-/// - **Formula** rows show the computed scalar with the expression as
-///   subtitle, plus a status note when something can't resolve (a deleted
-///   source tracker renders "(source removed)" rather than crashing).
+/// - **Variable** rows show an inline tuning control.
+/// - **Aggregate / formula / list** rows show the computed result. Formula
+///   and list subtitles are collapsed by default — tap the chevron to expand.
+/// - **Header** rows are section labels; tap to collapse/expand the rows
+///   below until the next header.
 public struct CalculatorView: View {
     @Bindable var store: MyAppStore
     let data: CalculatorData
     let myAppId: UUID
     let componentId: String
+
+    /// Header row IDs whose sections are collapsed. Persists across renders
+    /// because row IDs are stable.
+    @State private var collapsedHeaders: Set<UUID> = []
 
     public init(store: MyAppStore, data: CalculatorData, myAppId: UUID, componentId: String) {
         self.store = store
@@ -25,14 +25,29 @@ public struct CalculatorView: View {
         self.componentId = componentId
     }
 
-    /// Sibling components in the same MyApp — the pool aggregate rows pull
-    /// their source trackers from.
     private var siblingComponents: [Component] {
         store.myApps.first(where: { $0.id == myAppId })?.components ?? []
     }
 
     private var resolved: CalculatorResolver.Resolved {
         CalculatorResolver.resolve(data, components: siblingComponents)
+    }
+
+    /// Build the list of rows to display, skipping any whose containing
+    /// section is collapsed. A row is in the section of the last header
+    /// above it; rows before the first header are always visible.
+    private var visibleRows: [CalcRow] {
+        var visible: [CalcRow] = []
+        var currentHeaderCollapsed = false
+        for row in data.rows {
+            if case .header = row.kind {
+                currentHeaderCollapsed = collapsedHeaders.contains(row.id)
+                visible.append(row)        // headers always shown
+            } else if !currentHeaderCollapsed {
+                visible.append(row)
+            }
+        }
+        return visible
     }
 
     public var body: some View {
@@ -43,17 +58,32 @@ public struct CalculatorView: View {
                 CalculatorEmptyHint()
             } else {
                 let results = resolved
+                let rows = visibleRows
                 VStack(spacing: 0) {
-                    ForEach(data.rows) { row in
-                        CalcRowView(
-                            store: store,
-                            myAppId: myAppId,
-                            componentId: componentId,
-                            row: row,
-                            result: results.result(forKey: row.key),
-                            sourceName: sourceName(for: row)
-                        )
-                        if row.id != data.rows.last?.id {
+                    ForEach(rows) { row in
+                        if case .header = row.kind {
+                            CalcHeaderRow(
+                                row: row,
+                                collapsed: collapsedHeaders.contains(row.id),
+                                onToggle: {
+                                    if collapsedHeaders.contains(row.id) {
+                                        collapsedHeaders.remove(row.id)
+                                    } else {
+                                        collapsedHeaders.insert(row.id)
+                                    }
+                                }
+                            )
+                        } else {
+                            CalcRowView(
+                                store: store,
+                                myAppId: myAppId,
+                                componentId: componentId,
+                                row: row,
+                                result: results.result(forKey: row.key),
+                                sourceName: sourceName(for: row)
+                            )
+                        }
+                        if row.id != rows.last?.id {
                             Divider()
                         }
                     }
@@ -62,8 +92,6 @@ public struct CalculatorView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
 
-            // Embedded chart (Phase 2, #22) — same store-free ChartView a
-            // standalone chart component uses, resolved live against siblings.
             if let chart = data.inlineChart {
                 ChartContainerView(store: store, data: chart, myAppId: myAppId)
                     .padding(.top, 4)
@@ -72,8 +100,6 @@ public struct CalculatorView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Display name of an aggregate row's source tracker component (for the
-    /// transparent subtitle). Nil for non-aggregate rows.
     private func sourceName(for row: CalcRow) -> String? {
         guard case .aggregate(let spec) = row.kind else { return nil }
         return store.componentName(spec.sourceComponentId, myAppId: myAppId)
@@ -101,8 +127,37 @@ private struct CalculatorTitleBar: View {
     }
 
     private var rowCountLabel: String {
-        let n = data.rows.count
+        let n = data.rows.filter { if case .header = $0.kind { return false } else { return true } }.count
         return n == 1 ? "1 row" : "\(n) rows"
+    }
+}
+
+// MARK: - Header row
+
+/// Section label row. Tapping the chevron collapses/expands all rows below
+/// until the next header.
+private struct CalcHeaderRow: View {
+    let row: CalcRow
+    let collapsed: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        Button(action: onToggle) {
+            HStack(spacing: 8) {
+                Image(systemName: collapsed ? "chevron.right" : "chevron.down")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 14)
+                Text(row.name.isEmpty ? "Section" : row.name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Spacer()
+            }
+            .padding(.vertical, 8)
+            .padding(.horizontal, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -116,24 +171,59 @@ private struct CalcRowView: View {
     let result: CalculatorResolver.RowResult?
     let sourceName: String?
 
-    var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(row.name.isEmpty ? row.key : row.name)
-                    .font(.body)
-                    .fontWeight(isFormula ? .medium : .regular)
-                if let subtitle {
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-            }
-            Spacer(minLength: 12)
-            trailing
+    /// Formula and list subtitles collapsed by default.
+    @State private var subtitleExpanded = false
+
+    private var hasExpandableSubtitle: Bool {
+        switch row.kind {
+        case .formula, .list: return true
+        default: return false
         }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 12)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 12) {
+                // Left: name + always-visible subtitle (aggregate only)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 4) {
+                        if hasExpandableSubtitle {
+                            Button(action: { subtitleExpanded.toggle() }) {
+                                Image(systemName: subtitleExpanded ? "chevron.down" : "chevron.right")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                                    .frame(width: 12)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        Text(row.name.isEmpty ? row.key : row.name)
+                            .font(.body)
+                            .fontWeight(isFormula ? .medium : .regular)
+                    }
+                    if let sub = alwaysVisibleSubtitle {
+                        Text(sub)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                }
+                Spacer(minLength: 12)
+                trailing
+            }
+            .padding(.vertical, 12)
+            .padding(.horizontal, 12)
+
+            // Expandable subtitle for formula / list rows
+            if hasExpandableSubtitle, subtitleExpanded, let sub = expandableSubtitle {
+                Text(sub)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .padding(.leading, 28)   // indent under chevron
+                    .padding(.trailing, 12)
+                    .padding(.bottom, 10)
+            }
+        }
         .contentShape(Rectangle())
     }
 
@@ -142,22 +232,23 @@ private struct CalcRowView: View {
         return false
     }
 
-    /// The transparent "how this number was computed" subtitle.
-    private var subtitle: String? {
+    /// Subtitle always visible (aggregate source description). Nil for rows
+    /// where the subtitle is collapsed behind a chevron.
+    private var alwaysVisibleSubtitle: String? {
+        guard case .aggregate(let spec) = row.kind else { return nil }
+        var s = "\(spec.reduce.rawValue) of \(spec.fieldName)"
+        if !spec.filter.isEmpty {
+            let clauses = spec.filter.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: ", ")
+            s += " where \(clauses)"
+        }
+        if let sourceName { s += " · \(sourceName)" }
+        return s
+    }
+
+    /// Subtitle shown only when the row is expanded (formula expression /
+    /// list spec description).
+    private var expandableSubtitle: String? {
         switch row.kind {
-        case .variable:
-            return nil
-        case .aggregate(let spec):
-            var s = "\(spec.reduce.rawValue) of \(spec.fieldName)"
-            if !spec.filter.isEmpty {
-                let clauses = spec.filter
-                    .map { "\($0.key)=\($0.value)" }
-                    .sorted()
-                    .joined(separator: ", ")
-                s += " where \(clauses)"
-            }
-            if let sourceName { s += " · \(sourceName)" }
-            return s
         case .formula(let expression):
             return expression
         case .list(let spec):
@@ -171,6 +262,8 @@ private struct CalcRowView: View {
                 }
                 return s
             }
+        default:
+            return nil
         }
     }
 
@@ -196,14 +289,14 @@ private struct CalcRowView: View {
             ComputedValueLabel(result: result, unit: row.unit, format: row.format)
         case .list:
             ListSparkline(points: result?.list ?? [], status: result?.status)
+        case .header:
+            EmptyView()
         }
     }
 }
 
 // MARK: - List sparkline
 
-/// Compact inline preview for a `list` row — a tiny line of the resolved
-/// points plus a count, or a short status note when it couldn't resolve.
 private struct ListSparkline: View {
     let points: [ChartPoint]
     let status: CalculatorResolver.RowStatus?
@@ -235,9 +328,6 @@ private struct ListSparkline: View {
 
 // MARK: - Variable control
 
-/// Inline tuning affordance for a variable row. Drives `onChange` on every
-/// edit; the parent routes that through the store, which re-renders with the
-/// new value so downstream formula rows update live.
 private struct VariableControl: View {
     let value: Double
     let control: CalcControl
@@ -292,9 +382,6 @@ private struct VariableControl: View {
 
 // MARK: - Computed value label
 
-/// Read-only result label for aggregate / formula rows. Shows the formatted
-/// value when resolved, or a short status note (`(source removed)`,
-/// `(circular reference)`, …) when it couldn't compute.
 private struct ComputedValueLabel: View {
     let result: CalculatorResolver.RowResult?
     let unit: String?
@@ -352,10 +439,6 @@ private struct CalculatorEmptyHint: View {
 
 // MARK: - Value formatting
 
-/// Shared number-with-unit formatting for calculator rows. `format` is an
-/// optional printf-style hint (e.g. "%.2f"); without it values render with
-/// up to two decimals, trailing zeros trimmed. Currency-symbol units sit in
-/// front of the number, everything else behind it (`%` with no space).
 enum CalcFormat {
     static func string(_ value: Double, unit: String?, format: String?) -> String {
         let number: String
@@ -383,13 +466,11 @@ enum CalcFormat {
         return s
     }
 
-    /// Currency-ish units render in front of the number.
     static func unitPrefix(_ unit: String?) -> String? {
         guard let unit, ["$", "€", "£", "¥"].contains(unit) else { return nil }
         return unit
     }
 
-    /// Non-currency units render behind the number — `%` snug, words spaced.
     static func unitSuffix(_ unit: String?) -> String? {
         guard let unit = unit?.nonEmpty, unitPrefix(unit) == nil else { return nil }
         return unit == "%" ? "%" : " \(unit)"

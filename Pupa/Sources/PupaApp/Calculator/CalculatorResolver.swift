@@ -86,8 +86,8 @@ public enum CalculatorResolver {
                 byKey[row.key] = RowResult(value: value, status: .ok)
             case .aggregate(let spec):
                 byKey[row.key] = resolveAggregate(spec, components: components)
-            case .formula, .list:
-                break  // formulas in pass 2, lists in pass 3
+            case .formula, .list, .header:
+                break  // formulas in pass 2, lists in pass 3, headers skipped
             }
         }
 
