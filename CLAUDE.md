@@ -4,6 +4,8 @@ NEVER SIGN YOURSELF IN ANY COMMIT OR PR OR ISSUE. NEVER LEAVE ANY PERSONAL INFOR
 
 BE VERY SUCCINT, IN DOCSTRINGS, DOCS and PROMPTS. 
 
+**Prompt vs tool description split:** `promptFragmentsByKind` is for *when to use* a component and cross-kind tips — not operational detail. Operational detail (schemas, parameter shapes, operator lists, error modes) belongs in tool descriptions and JSON schemas. Never repeat tool schema content in the prompt fragment.
+
 USE /caveman SKILL BY DEFAULT
 
 Native iOS / macOS client for the Pupa agent. SwiftUI canvas that moulds

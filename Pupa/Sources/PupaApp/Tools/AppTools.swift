@@ -82,11 +82,10 @@ public enum AppTools {
                 Render a tracker and/or set its `summary`. \
                 `title` + `fields` = DESTRUCTIVE full render (RESETS items) — \
                 only for fresh starts; for schema edits on a populated tracker \
-                use add/rename/reorder/hideTrackerField. 3-6 fields; types: \
-                text/number/select (with options for known enums)/image (URL or \
-                emoji rendered as card hero)/link (clickable pill). \
-                `summary` alone = update content note without re-render; \
-                round-trips in canvas state every turn. \
+                use add/rename/reorder/hideTrackerField. Field types: \
+                text/number/select (options for known enums)/image (URL or \
+                emoji → card hero)/link (clickable pill). \
+                `summary` alone = update content note without re-render. \
                 Result: {fields, totalItems, summarySet?}.
                 """,
                 parameters: trackerSchema()
@@ -2174,22 +2173,12 @@ public enum AppTools {
             descriptor: ToolDescriptor(
                 name: "renderCalculator",
                 description: """
-                Render a calculator on the first calculator component in this \
-                MyApp (or the active component if it's a calculator) and/or \
-                set its LLM-authored content `summary`. Passing `title` is a \
-                DESTRUCTIVE full render — replaces every row. For incremental \
-                changes use addCalcRows / patchCalcRows / removeCalcRows. \
-                `rows` is optional; pass [] to start empty. Each row is \
-                {key?, name, unit?, format?, kind} where kind is one of: \
-                {kind:"variable", value, control?}, {kind:"aggregate", \
-                aggregate:{sourceComponentId, field, reduce, filter?}}, or \
-                {kind:"formula", expression}. Formulas reference other rows by \
-                their stable `key`. If no calculator component exists yet, \
-                call addComponent(kind:"calculator", name:…) first. Pass \
-                `summary` alone (no `title`) to update your content summary \
-                without re-rendering. Result echoes {title, rowCount, \
-                results, summarySet?} — `results` lists each row's resolved \
-                {key, value, status}.
+                Render a calculator and/or set its `summary`. `title` = \
+                DESTRUCTIVE full render — replaces all rows; for incremental \
+                use addCalcRows / patchCalcRows / removeCalcRows. `summary` \
+                alone = update without re-render. Row shapes: see `rows` \
+                schema (variable / aggregate / formula / list / header). \
+                Result: {rowCount, results:[{key, value, status}], summarySet?}.
                 """,
                 parameters: [
                     "type": "object",
@@ -4662,7 +4651,7 @@ public enum AppTools {
                 "name": ["type": "string"],
                 "unit": ["type": "string", "description": "Display unit, e.g. \"$\", \"%\", \"yr\"."],
                 "format": ["type": "string", "description": "Optional printf hint, e.g. \"%.2f\"."],
-                "kind": ["type": "string", "enum": ["variable", "aggregate", "formula", "list", "header"]],
+                "kind": ["type": "string", "enum": ["variable", "aggregate", "formula", "list", "header"], "description": "header: section label — rows below collapse/expand as a group until the next header; `name` is the heading text."],
                 "value": ["type": "number", "description": "variable: the input value."],
                 "control": [
                     "type": "object",
