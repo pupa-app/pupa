@@ -3,6 +3,18 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.18] — 2026-06-15
+
+### Added
+
+- **Dynamic model list** (#35): the agent config picker now fetches its
+  model list from the backend's new `GET /models` endpoint on launch and
+  on backend switch, so new models added to the backend appear in the
+  picker without an app update. Falls back silently to the static
+  `KnownLLMModelCatalog.all` when the backend is unreachable.
+  `ModelCatalogStore` owns the fetched list; `BackendModelsClient` handles
+  the network call (mirrors `BackendToolsClient`).
+
 ## [0.0.17] — 2026-06-15
 
 ### Changed
