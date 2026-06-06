@@ -21,7 +21,10 @@ concurrency:
 jobs:
   test:
     name: swift test (macOS)
-    runs-on: macos-15
+    # macos-26 ships Xcode 26 / Swift 6.3, matching the toolchain the project
+    # is built with. The older macos-15 image (Swift 6.1.2) crashes the
+    # compiler ("error: fatalError") while building the Pupa test target.
+    runs-on: macos-26
     steps:
       - name: Checkout
         uses: actions/checkout@v4
