@@ -115,31 +115,36 @@ public struct ChartContainerView: View {
         store.myApps.first(where: { $0.id == myAppId })?.components ?? []
     }
 
-    private var resolved: [ChartSeries] {
-        ChartResolver.resolve(data, components: siblingComponents)
-    }
-
-    /// Map resolved series name → overridden colour (only for specs that set
-    /// `colorHex`). Matched positionally to the declared specs.
-    private var colorByName: [String: Color] {
-        var map: [String: Color] = [:]
+    /// Resolve every series ONCE per render, then disambiguate duplicate
+    /// names (Swift Charts groups colour + legend by name, so two series
+    /// sharing a name would otherwise collapse into one) and carry each
+    /// spec's `colorHex` override across to the deduped name. Returns the
+    /// renamed series in declared order plus the name→colour overrides.
+    private var resolved: (series: [ChartSeries], colorByName: [String: Color]) {
+        var series: [ChartSeries] = []
+        var colorByName: [String: Color] = [:]
+        var counts: [String: Int] = [:]
         for (idx, spec) in data.series.enumerated() {
-            guard let hex = spec.colorHex, let color = Color(hex: hex) else { continue }
-            if let s = ChartResolver.resolveSeries(spec, index: idx, components: siblingComponents) {
-                map[s.name] = color
+            guard let s = ChartResolver.resolveSeries(spec, index: idx, components: siblingComponents) else { continue }
+            let n = (counts[s.name] ?? 0) + 1
+            counts[s.name] = n
+            let name = n == 1 ? s.name : "\(s.name) (\(n))"
+            series.append(ChartSeries(id: s.id, name: name, points: s.points))
+            if let hex = spec.colorHex, let color = Color(hex: hex) {
+                colorByName[name] = color
             }
         }
-        return map
+        return (series, colorByName)
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ChartTitleBar(data: data)
-            let series = resolved
-            if series.isEmpty {
+            let r = resolved
+            if r.series.isEmpty {
                 ChartEmptyHint()
             } else {
-                ChartView(series: series, kind: data.kind, colorByName: colorByName)
+                ChartView(series: r.series, kind: data.kind, colorByName: r.colorByName)
                     .frame(height: 260)
             }
         }
