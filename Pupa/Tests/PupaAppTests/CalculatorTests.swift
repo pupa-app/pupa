@@ -221,6 +221,60 @@ struct CalculatorTests {
         #expect(resolved.result(forKey: "c")?.value == 42) // unaffected
     }
 
+    @Test("list sweep varies one variable, holds others, reads the target each step")
+    func listSweep() {
+        let (store, id) = freshStore()
+        store.addCalcRow(key: "principal", name: "Principal", kind: .variable(value: 1000, control: .plain), myAppId: id)
+        store.addCalcRow(key: "rate", name: "Rate", kind: .variable(value: 0, control: .plain), myAppId: id)
+        // interest = principal * rate
+        store.addCalcRow(key: "interest", name: "Interest", kind: .formula(expression: "principal * rate"), myAppId: id)
+        // Sweep rate 0 → 0.2 step 0.1, read interest. principal stays 1000.
+        store.addCalcRow(key: "curve", name: "Curve",
+                         kind: .list(.sweep(variableKey: "rate", from: 0, to: 0.2, step: 0.1, targetKey: "interest")), myAppId: id)
+
+        let resolved = CalculatorResolver.resolve(calc(store, id)!, components: components(store, id))
+        let list = resolved.result(forKey: "curve")?.list
+        #expect(list?.count == 3)
+        let ys = list?.map(\.y) ?? []
+        #expect(ys[0] == 0)
+        #expect(abs(ys[1] - 100) < 1e-6)   // 1000 * 0.1
+        #expect(abs(ys[2] - 200) < 1e-6)   // 1000 * 0.2
+        // Sweeping rate must NOT mutate the stored variable (still 0).
+        if case .variable(let v, _)? = calc(store, id)?.rows.first(where: { $0.key == "rate" })?.kind {
+            #expect(v == 0)
+        } else { Issue.record("rate should still be a variable") }
+        // List rows are terminal — carry no scalar value.
+        #expect(resolved.result(forKey: "curve")?.value == nil)
+    }
+
+    @Test("a scalar formula referencing a list key resolves to brokenRef")
+    func formulaOnListIsBroken() {
+        let (store, id) = freshStore()
+        store.addCalcRow(key: "x", name: "X", kind: .variable(value: 1, control: .plain), myAppId: id)
+        store.addCalcRow(key: "lst", name: "List",
+                         kind: .list(.sweep(variableKey: "x", from: 1, to: 3, step: 1, targetKey: "x")), myAppId: id)
+        store.addCalcRow(key: "bad", name: "Bad", kind: .formula(expression: "lst + 1"), myAppId: id)
+        let resolved = CalculatorResolver.resolve(calc(store, id)!, components: components(store, id))
+        #expect(resolved.result(forKey: "bad")?.status == .brokenRef)
+    }
+
+    @Test("list trackerColumn pulls a raw per-item array")
+    func listTrackerColumn() {
+        let (store, id) = freshStore()
+        store.addComponent(kind: "tracker", name: "Readings", iconSystemName: "list.bullet", myAppId: id)
+        store.setTracker(title: "Readings", fields: [FieldDef(name: "value", type: .number)], myAppId: id)
+        store.addItem(["value": "5"], myAppId: id)
+        store.addItem(["value": "8"], myAppId: id)
+        store.addItem(["value": "x"], myAppId: id)   // non-numeric → skipped
+        let trackerId = store.myApps.first(where: { $0.id == id })!.components.first(where: {
+            if case .tracker = $0.body { return true }; return false
+        })!.id
+        store.addCalcRow(key: "col", name: "Col",
+                         kind: .list(.trackerColumn(sourceComponentId: trackerId, valueField: "value", labelField: nil, filter: [:])), myAppId: id)
+        let resolved = CalculatorResolver.resolve(calc(store, id)!, components: components(store, id))
+        #expect(resolved.result(forKey: "col")?.list?.map(\.y) == [5, 8])
+    }
+
     @Test("division by zero in a formula is flagged")
     func divByZero() {
         let (store, id) = freshStore()

@@ -151,12 +151,13 @@ formula rows over other rows' stable keys. Results recompute every render
 via three pure engines (expression evaluator, tracker reducer, resolver) —
 see [docs/components/calculator.md](components/calculator.md).
 
-The **chart** shape plots pie/bar/line over a `ChartSource` (a tracker
-field grouped + reduced via `TrackerAggregator.series`, a list of calculator
-rows, or inline points), resolved live by `ChartResolver` to `[ChartSeries]`.
-The view (`ChartView(series:kind:)`) is store-free so it embeds inside a
-calculator (`CalculatorData.inlineChart`) or stands alone — see
-[docs/components/chart.md](components/chart.md).
+The **chart** shape plots pie/bar/line with one or more overlaid `series`
+(each a `ChartSeriesSource`: a tracker field grouped + reduced via
+`TrackerAggregator.series`, a list of calculator rows, a calculator `.list`
+array, or inline points), resolved live by `ChartResolver` to `[ChartSeries]`
+with a distinct colour per series. The view (`ChartView(series:kind:)`) is
+store-free so it embeds inside a calculator (`CalculatorData.inlineChart`) or
+stands alone — see [docs/components/chart.md](components/chart.md).
 
 ## Frontend tools — the agent's mutation channel
 

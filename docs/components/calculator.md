@@ -19,6 +19,13 @@ rows by `key`, never by display `name`, so renames never break them):
 - **formula** — arithmetic over other rows' keys: `+ - * / % ^` (with `^`
   right-associative, binding tighter than unary minus), parentheses, and
   the functions `min max abs round sqrt log exp pow`.
+- **list** — a terminal **array** output for charts (`CalcListSpec`). Either a
+  **sweep** — vary `variableKey` across `from…to` by `step`, holding every
+  other variable fixed, reading `targetKey` at each step (x = swept value,
+  y = target; the payment-vs-rate sensitivity curve) — or a **trackerColumn**
+  pulling a raw per-item array off a tracker. Scalar formulas can't reference
+  a list key (a list has no scalar value → referencing it is `brokenRef`).
+  Plot one via a chart's `calculatorList` source.
 
 ## Data model
 

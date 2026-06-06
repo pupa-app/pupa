@@ -1544,25 +1544,26 @@ public final class MyAppStore {
     // and single-spec (title + kind + source), so there's no per-item event —
     // a render / patch is a single component-level edit.
 
-    /// Patch payload for `patchChart`. Each field nil = unchanged.
+    /// Patch payload for `patchChart`. Each field nil = unchanged. `series`
+    /// replaces the whole series list.
     public struct ChartPatch: Sendable {
         public var title: String?
         public var kind: ChartKind?
-        public var source: ChartSource?
+        public var series: [ChartSeriesSpec]?
 
-        public init(title: String? = nil, kind: ChartKind? = nil, source: ChartSource? = nil) {
+        public init(title: String? = nil, kind: ChartKind? = nil, series: [ChartSeriesSpec]? = nil) {
             self.title = title
             self.kind = kind
-            self.source = source
+            self.series = series
         }
     }
 
     /// Replace the chart body of the first chart component in `myAppId`
     /// (preferring the active component when it's a chart). Destructive —
-    /// overwrites title / kind / source.
-    public func setChart(title: String, kind: ChartKind, source: ChartSource, myAppId: UUID? = nil) {
+    /// overwrites title / kind / series.
+    public func setChart(title: String, kind: ChartKind, series: [ChartSeriesSpec], myAppId: UUID? = nil) {
         mutate(myAppId, kind: "chart") { canvas in
-            canvas = .chart(ChartData(title: title, kind: kind, source: source))
+            canvas = .chart(ChartData(title: title, kind: kind, series: series))
             return true
         }
     }
@@ -1576,7 +1577,36 @@ public final class MyAppStore {
             guard case .chart(var c) = canvas else { return false }
             if let v = patch.title { c.title = v }
             if let v = patch.kind { c.kind = v }
-            if let v = patch.source { c.source = v }
+            if let v = patch.series { c.series = v }
+            canvas = .chart(c)
+            ok = true
+            return true
+        }
+        return ok
+    }
+
+    /// Append series specs to the chart. Returns the new series count, or nil
+    /// if no chart component exists.
+    @discardableResult
+    public func addChartSeries(_ specs: [ChartSeriesSpec], myAppId: UUID? = nil) -> Int? {
+        var count: Int?
+        mutate(myAppId, kind: "chart") { canvas in
+            guard case .chart(var c) = canvas, !specs.isEmpty else { return false }
+            c.series.append(contentsOf: specs)
+            canvas = .chart(c)
+            count = c.series.count
+            return true
+        }
+        return count
+    }
+
+    /// Remove the series at `index` (0-based). Returns true on removal.
+    @discardableResult
+    public func removeChartSeries(index: Int, myAppId: UUID? = nil) -> Bool {
+        var ok = false
+        mutate(myAppId, kind: "chart") { canvas in
+            guard case .chart(var c) = canvas, c.series.indices.contains(index) else { return false }
+            c.series.remove(at: index)
             canvas = .chart(c)
             ok = true
             return true

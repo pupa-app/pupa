@@ -107,7 +107,7 @@ public struct ComponentSummary: Encodable, Sendable {
         // Resolved series live elsewhere (tracker / calculator), so a chart's
         // own item count is just its literal inline points (0 for the other
         // source arms).
-        case .chart(let c): return c.source.inlinePointCount
+        case .chart(let c): return c.inlinePointCount
         }
     }
 }

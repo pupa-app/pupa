@@ -2499,38 +2499,37 @@ public enum AppTools {
                 description: """
                 Render a chart on the first chart component in this MyApp (or \
                 the active component if it's a chart). DESTRUCTIVE — overwrites \
-                title / kind / source. `kind` is one of pie | bar | line. \
-                `source` is one of: \
+                title / kind / series. `kind` is one of pie | bar | line. \
+                `series` is an ARRAY of overlaid series (line/bar overlay with \
+                a colour each + legend; pie uses series[0] only). Each series \
+                is {name?, colorHex?, source} where `source` is one of: \
                 {type:"tracker", componentId, groupBy, valueField, \
-                reduce:"sum|avg|min|max|count", filter?, xIsNumericOrDate?} — \
-                reduce `valueField` grouped by `groupBy` over a tracker \
-                (`filter` is a case-insensitive equality map to isolate a \
-                category; `xIsNumericOrDate` plots a numeric/date group key as \
-                an ascending x axis for bar/line); \
-                {type:"calculatorRows", componentId, keys:[...]} — plot those \
-                calculator rows' resolved values; or \
-                {type:"inline", points:[{label, x?, y}]} — literal points. \
-                If no chart component exists yet, call \
-                addComponent(kind:"chart", name:…) first. Result echoes \
-                {ok, componentId, title, kind, pointCount}.
+                reduce:"sum|avg|min|max|count", filter?, xIsNumericOrDate?}; \
+                {type:"calculatorRows", componentId, keys:[...]}; \
+                {type:"calculatorList", componentId, key} — plot one \
+                calculator `.list` row (a sweep / column array); or \
+                {type:"inline", points:[{label, x?, y}]}. If no chart \
+                component exists yet, call addComponent(kind:"chart", name:…) \
+                first. Result echoes {ok, componentId, title, kind, \
+                seriesCount, pointCount}.
                 """,
                 parameters: [
                     "type": "object",
                     "properties": [
                         "title": ["type": "string"],
                         "kind": ["type": "string", "enum": ["pie", "bar", "line"]],
-                        "source": chartSourceSchema(),
+                        "series": ["type": "array", "items": chartSeriesSchema()],
                     ],
-                    "required": ["title", "kind", "source"],
+                    "required": ["title", "kind", "series"],
                 ]
             ),
             handler: { args in
                 guard let title = args["title"]?.stringValue,
                       let kindRaw = args["kind"]?.stringValue,
                       let kind = ChartKind(rawValue: kindRaw) else {
-                    return .object(["ok": .bool(false), "error": "renderChart needs `title`, `kind` (pie|bar|line), and `source`."])
+                    return .object(["ok": .bool(false), "error": "renderChart needs `title`, `kind` (pie|bar|line), and `series`."])
                 }
-                let source = parseChartSource(from: args["source"])
+                let series = parseChartSeries(from: args["series"])
                 return await MainActor.run {
                     guard store.chartComponentId(myAppId: myAppId) != nil else {
                         return .object([
@@ -2538,7 +2537,7 @@ public enum AppTools {
                             "error": "no chart component in this MyApp — call addComponent(kind:\"chart\", …) first",
                         ])
                     }
-                    store.setChart(title: title, kind: kind, source: source, myAppId: myAppId)
+                    store.setChart(title: title, kind: kind, series: series, myAppId: myAppId)
                     return chartEcho(store: store, myAppId: myAppId)
                 }
             }
@@ -2549,16 +2548,17 @@ public enum AppTools {
                 name: "patchChart",
                 description: """
                 Edit the chart in place — only the fields you pass change. \
-                `patch` may contain {title?, kind?, source?} (same shapes as \
-                renderChart). Result echoes {ok, componentId, title, kind, \
-                pointCount}.
+                {title?, kind?, series?} (same shapes as renderChart; `series` \
+                replaces the whole list — use addChartSeries / \
+                removeChartSeries for incremental). Result echoes {ok, \
+                componentId, title, kind, seriesCount, pointCount}.
                 """,
                 parameters: [
                     "type": "object",
                     "properties": [
                         "title": ["type": "string"],
                         "kind": ["type": "string", "enum": ["pie", "bar", "line"]],
-                        "source": chartSourceSchema(),
+                        "series": ["type": "array", "items": chartSeriesSchema()],
                     ],
                 ]
             ),
@@ -2566,7 +2566,7 @@ public enum AppTools {
                 var patch = MyAppStore.ChartPatch()
                 if let t = args["title"]?.stringValue { patch.title = t }
                 if let k = args["kind"]?.stringValue, let kind = ChartKind(rawValue: k) { patch.kind = kind }
-                if args["source"] != nil { patch.source = parseChartSource(from: args["source"]) }
+                if args["series"] != nil { patch.series = parseChartSeries(from: args["series"]) }
                 return await MainActor.run {
                     guard store.patchChart(patch: patch, myAppId: myAppId) else {
                         return .object([
@@ -2581,10 +2581,69 @@ public enum AppTools {
 
         registry.register(ClientTool(
             descriptor: ToolDescriptor(
+                name: "addChartSeries",
+                description: """
+                Append one or more series to the chart (each gets its own \
+                colour + legend entry). Pass `series` (array of {name?, \
+                colorHex?, source}; see renderChart). Result echoes {ok, \
+                componentId, title, kind, seriesCount, pointCount}.
+                """,
+                parameters: [
+                    "type": "object",
+                    "properties": ["series": ["type": "array", "items": chartSeriesSchema()]],
+                    "required": ["series"],
+                ]
+            ),
+            handler: { args in
+                let specs = parseChartSeries(from: args["series"])
+                return await MainActor.run {
+                    guard store.addChartSeries(specs, myAppId: myAppId) != nil else {
+                        return .object([
+                            "ok": .bool(false),
+                            "error": "no chart component in this MyApp — call addComponent(kind:\"chart\", …) or renderChart first",
+                        ])
+                    }
+                    return chartEcho(store: store, myAppId: myAppId)
+                }
+            }
+        ))
+
+        registry.register(ClientTool(
+            descriptor: ToolDescriptor(
+                name: "removeChartSeries",
+                description: """
+                Remove the series at 0-based `index`. Result echoes {ok, \
+                componentId, title, kind, seriesCount, pointCount}.
+                """,
+                parameters: [
+                    "type": "object",
+                    "properties": ["index": ["type": "integer", "minimum": 0]],
+                    "required": ["index"],
+                ]
+            ),
+            handler: { args in
+                guard let index = args["index"]?.intValue else {
+                    return .object(["ok": .bool(false), "error": "removeChartSeries needs `index`."])
+                }
+                return await MainActor.run {
+                    guard store.removeChartSeries(index: index, myAppId: myAppId) else {
+                        return .object([
+                            "ok": .bool(false),
+                            "error": "no chart series at that index (or no chart component).",
+                        ])
+                    }
+                    return chartEcho(store: store, myAppId: myAppId)
+                }
+            }
+        ))
+
+        registry.register(ClientTool(
+            descriptor: ToolDescriptor(
                 name: "setChartKind",
                 description: """
                 Flip the chart's kind (pie | bar | line) without touching its \
-                source. Result echoes {ok, componentId, title, kind, pointCount}.
+                series. Result echoes {ok, componentId, title, kind, \
+                seriesCount, pointCount}.
                 """,
                 parameters: [
                     "type": "object",
@@ -4514,7 +4573,7 @@ public enum AppTools {
                 "name": ["type": "string"],
                 "unit": ["type": "string", "description": "Display unit, e.g. \"$\", \"%\", \"yr\"."],
                 "format": ["type": "string", "description": "Optional printf hint, e.g. \"%.2f\"."],
-                "kind": ["type": "string", "enum": ["variable", "aggregate", "formula"]],
+                "kind": ["type": "string", "enum": ["variable", "aggregate", "formula", "list"]],
                 "value": ["type": "number", "description": "variable: the input value."],
                 "control": [
                     "type": "object",
@@ -4524,6 +4583,22 @@ public enum AppTools {
                         "min": ["type": "number"],
                         "max": ["type": "number"],
                         "step": ["type": "number"],
+                    ],
+                ],
+                "list": [
+                    "type": "object",
+                    "description": "list: an ARRAY output for charts (a sweep or tracker column).",
+                    "properties": [
+                        "type": ["type": "string", "enum": ["sweep", "trackerColumn"]],
+                        "variableKey": ["type": "string", "description": "sweep: the variable row key to vary."],
+                        "from": ["type": "number", "description": "sweep: range start."],
+                        "to": ["type": "number", "description": "sweep: range end (inclusive)."],
+                        "step": ["type": "number", "description": "sweep: increment (> 0)."],
+                        "targetKey": ["type": "string", "description": "sweep: the row key read at each step (y)."],
+                        "sourceComponentId": ["type": "string", "description": "trackerColumn: source tracker id."],
+                        "valueField": ["type": "string", "description": "trackerColumn: numeric field → y."],
+                        "labelField": ["type": "string", "description": "trackerColumn: optional field → point label."],
+                        "filter": ["type": "object", "description": "trackerColumn: equality filter."],
                     ],
                 ],
                 "aggregate": [
@@ -4549,11 +4624,12 @@ public enum AppTools {
                 "name": ["type": "string"],
                 "unit": ["type": "string"],
                 "format": ["type": "string"],
-                "kind": ["type": "string", "enum": ["variable", "aggregate", "formula"]],
+                "kind": ["type": "string", "enum": ["variable", "aggregate", "formula", "list"]],
                 "value": ["type": "number"],
                 "control": ["type": "object"],
                 "aggregate": ["type": "object"],
                 "expression": ["type": "string"],
+                "list": ["type": "object"],
             ],
         ]
     }
@@ -4592,8 +4668,35 @@ public enum AppTools {
             return .aggregate(AggregateSpec(sourceComponentId: source, fieldName: field, reduce: reduce, filter: filter))
         case "formula":
             return .formula(expression: entry["expression"]?.stringValue ?? "")
+        case "list":
+            guard let spec = parseCalcListSpec(from: entry["list"] ?? entry) else { return nil }
+            return .list(spec)
         default:
             return nil
+        }
+    }
+
+    /// Parse a `list` row's spec — a sweep or a tracker column.
+    private static func parseCalcListSpec(from json: AnyJSON?) -> CalcListSpec? {
+        guard let obj = json?.objectValue else { return nil }
+        switch obj["type"]?.stringValue {
+        case "trackerColumn":
+            var filter: [String: String] = [:]
+            if let f = obj["filter"]?.objectValue { filter = f.compactMapValues(\.stringValue) }
+            return .trackerColumn(
+                sourceComponentId: obj["sourceComponentId"]?.stringValue ?? "",
+                valueField: obj["valueField"]?.stringValue ?? "",
+                labelField: obj["labelField"]?.stringValue,
+                filter: filter
+            )
+        default: // "sweep"
+            return .sweep(
+                variableKey: obj["variableKey"]?.stringValue ?? "",
+                from: obj["from"]?.doubleValue ?? 0,
+                to: obj["to"]?.doubleValue ?? 0,
+                step: obj["step"]?.doubleValue ?? 1,
+                targetKey: obj["targetKey"]?.stringValue ?? ""
+            )
         }
     }
 
@@ -4689,12 +4792,40 @@ public enum AppTools {
         case .formula(let expression):
             obj["kind"] = .string("formula")
             if full { obj["expression"] = .string(expression) }
+        case .list(let spec):
+            obj["kind"] = .string("list")
+            if full { obj["list"] = calcListSpecAsAnyJSON(spec) }
         }
         if let result {
             obj["status"] = .string(result.status.rawValue)
             if let v = result.value { obj["value"] = .double(v) }
+            // List rows carry no scalar value — echo the resolved point count.
+            if let list = result.list { obj["listCount"] = .int(list.count) }
         }
         return .object(obj)
+    }
+
+    private static func calcListSpecAsAnyJSON(_ spec: CalcListSpec) -> AnyJSON {
+        switch spec {
+        case .sweep(let variableKey, let from, let to, let step, let targetKey):
+            return .object([
+                "type": .string("sweep"),
+                "variableKey": .string(variableKey),
+                "from": .double(from),
+                "to": .double(to),
+                "step": .double(step),
+                "targetKey": .string(targetKey),
+            ])
+        case .trackerColumn(let sourceComponentId, let valueField, let labelField, let filter):
+            var obj: [String: AnyJSON] = [
+                "type": .string("trackerColumn"),
+                "sourceComponentId": .string(sourceComponentId),
+                "valueField": .string(valueField),
+            ]
+            if let labelField { obj["labelField"] = .string(labelField) }
+            if !filter.isEmpty { obj["filter"] = .object(filter.mapValues { .string($0) }) }
+            return .object(obj)
+        }
     }
 
     // MARK: - Chart helpers
@@ -4709,36 +4840,51 @@ public enum AppTools {
         return nil
     }
 
-    /// `{ok, componentId, title, kind, pointCount}` for the resolved chart.
-    /// Shared by renderChart / patchChart / setChartKind.
+    /// `{ok, componentId, title, kind, seriesCount, pointCount}` for the
+    /// resolved chart. Shared by every chart mutating tool.
     @MainActor
     private static func chartEcho(store: MyAppStore, myAppId: UUID) -> AnyJSON {
         guard let (data, id) = chartData(store, myAppId: myAppId) else {
             return .object(["ok": .bool(false), "error": "no chart component"])
         }
-        let count = ChartResolver.pointCount(data.source, components: siblingComponents(store: store, myAppId: myAppId))
+        let count = ChartResolver.pointCount(data, components: siblingComponents(store: store, myAppId: myAppId))
         return .object([
             "ok": .bool(true),
             "componentId": .string(id),
             "title": .string(data.title),
             "kind": .string(data.kind.rawValue),
+            "seriesCount": .int(data.series.count),
             "pointCount": .int(count),
         ])
+    }
+
+    private static func chartSeriesSchema() -> AnyJSON {
+        [
+            "type": "object",
+            "description": "One overlaid series: presentation + a data source.",
+            "properties": [
+                "name": ["type": "string", "description": "Legend label; defaults from the source."],
+                "colorHex": ["type": "string", "description": "Override colour as #RRGGBB; omit to auto-assign a distinct colour."],
+                "source": chartSourceSchema(),
+            ],
+            "required": ["source"],
+        ]
     }
 
     private static func chartSourceSchema() -> AnyJSON {
         [
             "type": "object",
-            "description": "One of tracker | calculatorRows | inline (see `type`).",
+            "description": "One of tracker | calculatorRows | calculatorList | inline (see `type`).",
             "properties": [
-                "type": ["type": "string", "enum": ["tracker", "calculatorRows", "inline"]],
-                "componentId": ["type": "string", "description": "tracker / calculatorRows: source component id."],
+                "type": ["type": "string", "enum": ["tracker", "calculatorRows", "calculatorList", "inline"]],
+                "componentId": ["type": "string", "description": "tracker / calculatorRows / calculatorList: source component id."],
                 "groupBy": ["type": "string", "description": "tracker: field whose value buckets the points (sector / x tick)."],
                 "valueField": ["type": "string", "description": "tracker: numeric field reduced per bucket."],
                 "reduce": ["type": "string", "enum": ["sum", "avg", "min", "max", "count"]],
                 "filter": ["type": "object", "description": "tracker: case-insensitive AND equality filter, e.g. {\"cuisine\":\"African\"}."],
                 "xIsNumericOrDate": ["type": "boolean", "description": "tracker: treat the group value as a numeric/date x axis (ascending) for bar/line."],
                 "keys": ["type": "array", "items": ["type": "string"], "description": "calculatorRows: calculator row keys to plot."],
+                "key": ["type": "string", "description": "calculatorList: the calculator `.list` row key (a sweep / column array)."],
                 "points": [
                     "type": "array",
                     "description": "inline: literal points.",
@@ -4757,10 +4903,23 @@ public enum AppTools {
         ]
     }
 
-    /// Parse a chart `source` JSON object into a `ChartSource`. Unknown /
-    /// missing `type` degrades to an empty inline source so the chart renders
-    /// a placeholder rather than failing the tool call.
-    private static func parseChartSource(from json: AnyJSON?) -> ChartSource {
+    /// Parse a `series` array into `[ChartSeriesSpec]`. Entries without a
+    /// parseable source are skipped.
+    private static func parseChartSeries(from json: AnyJSON?) -> [ChartSeriesSpec] {
+        guard let arr = json?.arrayValue else { return [] }
+        return arr.map { entry in
+            ChartSeriesSpec(
+                name: entry["name"]?.stringValue,
+                colorHex: entry["colorHex"]?.stringValue,
+                source: parseChartSource(from: entry["source"] ?? entry)
+            )
+        }
+    }
+
+    /// Parse a chart `source` JSON object into a `ChartSeriesSource`. Unknown
+    /// / missing `type` degrades to an empty inline source so the chart
+    /// renders a placeholder rather than failing the tool call.
+    private static func parseChartSource(from json: AnyJSON?) -> ChartSeriesSource {
         guard let obj = json?.objectValue, let type = obj["type"]?.stringValue else {
             return .inline(points: [])
         }
@@ -4779,6 +4938,8 @@ public enum AppTools {
         case "calculatorRows":
             let keys = obj["keys"]?.arrayValue?.compactMap(\.stringValue) ?? []
             return .calculatorRows(componentId: obj["componentId"]?.stringValue ?? "", keys: keys)
+        case "calculatorList":
+            return .calculatorList(componentId: obj["componentId"]?.stringValue ?? "", key: obj["key"]?.stringValue ?? "")
         default: // "inline"
             let points: [ChartPoint] = (obj["points"]?.arrayValue ?? []).compactMap { p in
                 guard let y = p["y"]?.doubleValue else { return nil }

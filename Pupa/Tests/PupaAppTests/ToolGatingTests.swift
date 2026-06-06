@@ -162,6 +162,8 @@ struct ToolGatingTests {
         #expect(unlocked.contains("renderChart"))
         #expect(unlocked.contains("patchChart"))
         #expect(unlocked.contains("setChartKind"))
+        #expect(unlocked.contains("addChartSeries"))
+        #expect(unlocked.contains("removeChartSeries"))
         #expect(!unlocked.contains("renderCalculator"))
     }
 
