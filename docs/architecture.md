@@ -69,7 +69,13 @@ screen but stays a slim fixed width on a regular width class (iPad, large
 iPhone landscape). The chat lives in a floating, user-resizable `ChatOverlay`
 card anchored bottom-trailing of the detail pane; on iOS it does its own
 keyboard avoidance (it tracks the keyboard height and lifts/shrinks the card)
-so the composer stays visible above the keyboard in any orientation.
+so the composer stays visible above the keyboard in any orientation. A
+full-screen expand/restore button (⤢) in the card header fills the available
+view; the resize grip is hidden while full-screen is active.
+
+The conversation dropdown (`ChatPanel.threadDropdown`) lists threads newest-first.
+When 2+ threads exist each entry is a submenu with "Open" and "Delete" so any
+thread can be deleted without switching to it first.
 
 ## Launch sequence
 

@@ -34,9 +34,9 @@ struct ConversationPager: View {
                 coordinator.session(for: scope, threadId: id).loadHistoryIfNeeded()
             },
             onAddThread: { store.addThread(for: scope) },
-            onDeleteThread: threads.count > 1 ? {
-                coordinator.discardSession(for: scope, threadId: currentId)
-                store.removeThread(currentId, for: scope)
+            onDeleteThread: threads.count > 1 ? { id in
+                coordinator.discardSession(for: scope, threadId: id)
+                store.removeThread(id, for: scope)
             } : nil
         )
         // Load history when the visible thread changes (and on first appear).

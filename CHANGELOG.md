@@ -3,6 +3,19 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.5] — 2026-06-06
+
+### Added
+
+- Chat overlay now has a full-screen expand/restore button (⤢) in the card
+  header, next to the close button. Tapping it fills the available view with
+  the chat panel; tapping again (or closing) restores the previous size. The
+  resize grip is hidden while in full-screen mode. (`PupaApp` `0.0.93`)
+- Threads in the conversation dropdown can now be deleted individually without
+  switching to them first. When 2+ threads exist each entry becomes a submenu
+  with "Open" and "Delete" actions, so any conversation is one extra tap away
+  from removal. (`PupaApp` `0.0.93`)
+
 ## [0.0.4] — 2026-06-03
 
 ### Added

@@ -15,6 +15,7 @@ struct ChatOverlay: View {
     let onSwitchAgent: (ChatScope) -> Void
 
     @State private var isExpanded: Bool = false
+    @State private var isFullscreen: Bool = false
     @State private var userSize: CGSize? = nil
     @State private var dragStartSize: CGSize? = nil
     /// Height of the on-screen keyboard (0 when hidden). Drives manual
@@ -116,12 +117,32 @@ struct ChatOverlay: View {
     }
 
     private func card(in containerSize: CGSize) -> some View {
-        let size = sizing.resolvedSize(user: userSize, in: containerSize)
+        let size: CGSize = isFullscreen
+            ? CGSize(
+                width: max(0, containerSize.width - edgePadding * 2),
+                height: max(0, containerSize.height - edgePadding * 2)
+              )
+            : sizing.resolvedSize(user: userSize, in: containerSize)
 
         return ZStack(alignment: .topLeading) {
             VStack(spacing: 0) {
                 HStack(spacing: 0) {
                     Spacer()
+                    Button {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            isFullscreen.toggle()
+                        }
+                    } label: {
+                        Image(systemName: isFullscreen
+                              ? "arrow.down.right.and.arrow.up.left"
+                              : "arrow.up.left.and.down.right")
+                            .font(.system(size: 11, weight: .bold))
+                            .padding(6)
+                            .background(Color.secondary.opacity(0.15), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(isFullscreen ? "Restore chat size" : "Expand chat to full screen")
+                    .padding(.trailing, 4)
                     Button(action: collapse) {
                         Image(systemName: "xmark")
                             .font(.system(size: 11, weight: .bold))
@@ -141,7 +162,9 @@ struct ChatOverlay: View {
                     onSwitchAgent: onSwitchAgent
                 )
             }
-            resizeGrip(in: containerSize)
+            if !isFullscreen {
+                resizeGrip(in: containerSize)
+            }
         }
         .frame(width: size.width, height: size.height)
         .background(.regularMaterial)
@@ -189,6 +212,7 @@ struct ChatOverlay: View {
     private func collapse() {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
             isExpanded = false
+            isFullscreen = false
         }
     }
 }
