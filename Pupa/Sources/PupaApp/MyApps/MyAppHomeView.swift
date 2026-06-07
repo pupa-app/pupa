@@ -35,6 +35,15 @@ public struct MyAppHomeView: View {
     /// pattern the sidebar `MemoryRowView` uses so users can drill into
     /// the directory tree without leaving the landing page.
     @State private var expandedMemoryFolders: Set<String> = []
+    /// Drives the full Change History sheet opened from the History panel's
+    /// "View all" row.
+    @State private var historySheetPresented: Bool = false
+
+    private let relFmt: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .abbreviated
+        return f
+    }()
 
     private var myApp: MyApp? {
         store.myApps.first(where: { $0.id == myAppId })
@@ -58,6 +67,7 @@ public struct MyAppHomeView: View {
                     componentsPanel(app)
                     agentsPanel(app)
                     memoriesPanel(app)
+                    historyPanel(app)
                 } else {
                     Text("App not found.")
                         .foregroundStyle(.secondary)
@@ -68,6 +78,11 @@ public struct MyAppHomeView: View {
             .frame(maxWidth: .infinity, alignment: .center)
         }
         .background(Color.canvasBackground)
+        .sheet(isPresented: $historySheetPresented) {
+            ChangeHistorySheet(store: store, myAppId: myAppId) {
+                historySheetPresented = false
+            }
+        }
     }
 
     private func header(_ app: MyApp) -> some View {
@@ -347,6 +362,96 @@ public struct MyAppHomeView: View {
             RoundedRectangle(cornerRadius: 10)
                 .fill(Color.secondary.opacity(0.06))
         )
+    }
+
+    /// Recent change history, sitting below Memories. Shows up to three
+    /// newest events inline; the header and "View all" row both open the
+    /// full `ChangeHistorySheet` (with per-row undo).
+    private func historyPanel(_ app: MyApp) -> some View {
+        let events = Array(store.itemEventLog.events(forMyApp: myAppId).reversed())
+        let preview = Array(events.prefix(3))
+
+        return VStack(alignment: .leading, spacing: 10) {
+            Button {
+                historySheetPresented = true
+            } label: {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("History")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Text("\(events.count)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(events.isEmpty)
+
+            if preview.isEmpty {
+                Text("No changes yet.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 8)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(preview) { event in
+                        historyPreviewRow(event)
+                    }
+                    if events.count > preview.count {
+                        Button {
+                            historySheetPresented = true
+                        } label: {
+                            HStack {
+                                Text("View all \(events.count) changes")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .padding(.top, 4)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.secondary.opacity(0.06))
+        )
+    }
+
+    private func historyPreviewRow(_ event: ItemEvent) -> some View {
+        let isAgent: Bool = { if case .agent = event.actor { return true } else { return false } }()
+        return HStack(spacing: 10) {
+            Image(systemName: isAgent ? "sparkles" : "person.fill")
+                .font(.caption)
+                .frame(width: 22)
+                .foregroundStyle(isAgent ? Color.orchestratorColor : .secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(store.changeSummary(for: event))
+                    .font(.callout)
+                    .foregroundStyle(event.undone ? .secondary : .primary)
+                    .strikethrough(event.undone)
+                    .lineLimit(1)
+                Text(relFmt.localizedString(for: event.timestamp, relativeTo: Date()))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(.vertical, 6)
     }
 }
 

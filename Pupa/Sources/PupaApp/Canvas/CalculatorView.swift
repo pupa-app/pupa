@@ -261,6 +261,8 @@ private struct CalcRowView: View {
                     s += " where " + filter.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: ", ")
                 }
                 return s
+            case .linkedCompare(let refs, let targetKey, _):
+                return "compare \(refs.count) · \(targetKey)"
             }
         default:
             return nil

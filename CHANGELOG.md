@@ -22,6 +22,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
 
 - The orchestrator's accent color is now a dark neutral grey (was purple) so it
   reads as the "meta" agent without competing with per-MyApp colors.
+- **Edit-item sheet reads as key → value**: each field now keeps a persistent
+  leading label (`LabeledContent` / a caption header for multiline text) instead
+  of a placeholder that vanished once a value was typed — the row stays legible
+  when filled. (`PupaApp` `0.0.100`)
+- The MyApp landing page (`MyAppHomeView`) gains a **History** panel below
+  Memories: up to three newest `ItemEventLog` events inline, "View all" opening
+  the full Change History sheet (with per-row undo). The onboarding "It
+  remembers" slide now names both memories and change history. (`PupaApp`
+  `0.0.100`)
 
 ## [0.0.10] — 2026-06-06
 

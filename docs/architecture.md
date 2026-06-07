@@ -132,7 +132,10 @@ All canvas / item mutation goes through **`MyAppStore`**
 `mutate(myAppId:byComponentId:_:)` (explicit component). Views never
 mutate state directly; they read it and call store methods or registered
 tools. Every mutation records a typed inverse in `ItemEventLog` so
-`undo(eventId:)` can reverse it.
+`undo(eventId:)` can reverse it. This log is surfaced both via the
+sidebar's per-MyApp **History** sheet and a **History** panel on the
+MyApp landing page (`MyAppHomeView`, below Memories) — recent events
+inline, "View all" opening the same sheet.
 
 ## Shapes
 
