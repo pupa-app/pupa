@@ -728,11 +728,19 @@ public enum CalcListSpec: Codable, Hashable, Sendable {
     case sweep(variableKey: String, from: Double, to: Double, step: Double, targetKey: String)
     case trackerColumn(sourceComponentId: String, valueField: String, labelField: String?, filter: [String: String])
     case linkedCompare(refs: [ComponentItemRef], targetKey: String, linkedRowKey: String)
+    /// `linkedCompare` whose per-ref read is a swept CURVE rather than a
+    /// scalar: for each `ref`, swap every `linkedField` sharing the anchor
+    /// (`linkedRowKey`) ref, then sweep `variableKey` across `from…to` by
+    /// `step` reading `targetKey` → one curve per ref. Self-contained (embeds
+    /// the sweep params; no reference to a separate sweep row). Plotted as
+    /// multi-line via a chart's `calculatorLinkedSweep` source.
+    case linkedSweep(refs: [ComponentItemRef], linkedRowKey: String,
+                     variableKey: String, from: Double, to: Double, step: Double, targetKey: String)
 
     enum CodingKeys: String, CodingKey {
         case type, variableKey, from, to, step, targetKey, sourceComponentId, valueField, labelField, filter, refs, linkedRowKey
     }
-    enum Kind: String, Codable { case sweep, trackerColumn, linkedCompare }
+    enum Kind: String, Codable { case sweep, trackerColumn, linkedCompare, linkedSweep }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -759,6 +767,16 @@ public enum CalcListSpec: Codable, Hashable, Sendable {
                 targetKey: try c.decodeIfPresent(String.self, forKey: .targetKey) ?? "",
                 linkedRowKey: try c.decodeIfPresent(String.self, forKey: .linkedRowKey) ?? ""
             )
+        case .linkedSweep:
+            self = .linkedSweep(
+                refs: try c.decodeIfPresent([ComponentItemRef].self, forKey: .refs) ?? [],
+                linkedRowKey: try c.decodeIfPresent(String.self, forKey: .linkedRowKey) ?? "",
+                variableKey: try c.decodeIfPresent(String.self, forKey: .variableKey) ?? "",
+                from: try c.decodeIfPresent(Double.self, forKey: .from) ?? 0,
+                to: try c.decodeIfPresent(Double.self, forKey: .to) ?? 0,
+                step: try c.decodeIfPresent(Double.self, forKey: .step) ?? 1,
+                targetKey: try c.decodeIfPresent(String.self, forKey: .targetKey) ?? ""
+            )
         }
     }
 
@@ -783,6 +801,15 @@ public enum CalcListSpec: Codable, Hashable, Sendable {
             try c.encode(refs, forKey: .refs)
             try c.encode(targetKey, forKey: .targetKey)
             try c.encode(linkedRowKey, forKey: .linkedRowKey)
+        case .linkedSweep(let refs, let linkedRowKey, let variableKey, let from, let to, let step, let targetKey):
+            try c.encode(Kind.linkedSweep, forKey: .type)
+            try c.encode(refs, forKey: .refs)
+            try c.encode(linkedRowKey, forKey: .linkedRowKey)
+            try c.encode(variableKey, forKey: .variableKey)
+            try c.encode(from, forKey: .from)
+            try c.encode(to, forKey: .to)
+            try c.encode(step, forKey: .step)
+            try c.encode(targetKey, forKey: .targetKey)
         }
     }
 }
@@ -1021,12 +1048,17 @@ public enum ChartSeriesSource: Codable, Hashable, Sendable {
     case tracker(componentId: String, groupBy: String, valueField: String, reduce: CalcReduce, filter: [String: String], xIsNumericOrDate: Bool)
     case calculatorRows(componentId: String, keys: [String])
     case calculatorList(componentId: String, key: String)
+    /// Plots a calculator `.list` row of kind `linkedSweep`: it resolves to
+    /// MANY series (one curve per linked ref), so this single declared spec
+    /// fans out to N `ChartSeries` at render time — the multi-line analogue of
+    /// `calculatorList` (which is one series). `key` is the linkedSweep row key.
+    case calculatorLinkedSweep(componentId: String, key: String)
     case inline(points: [ChartPoint])
 
     enum CodingKeys: String, CodingKey {
         case type, componentId, groupBy, valueField, reduce, filter, xIsNumericOrDate, keys, key, points
     }
-    enum Kind: String, Codable { case tracker, calculatorRows, calculatorList, inline }
+    enum Kind: String, Codable { case tracker, calculatorRows, calculatorList, calculatorLinkedSweep, inline }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -1048,6 +1080,11 @@ public enum ChartSeriesSource: Codable, Hashable, Sendable {
             )
         case .calculatorList:
             self = .calculatorList(
+                componentId: try c.decodeIfPresent(String.self, forKey: .componentId) ?? "",
+                key: try c.decodeIfPresent(String.self, forKey: .key) ?? ""
+            )
+        case .calculatorLinkedSweep:
+            self = .calculatorLinkedSweep(
                 componentId: try c.decodeIfPresent(String.self, forKey: .componentId) ?? "",
                 key: try c.decodeIfPresent(String.self, forKey: .key) ?? ""
             )
@@ -1073,6 +1110,10 @@ public enum ChartSeriesSource: Codable, Hashable, Sendable {
             try c.encode(keys, forKey: .keys)
         case .calculatorList(let componentId, let key):
             try c.encode(Kind.calculatorList, forKey: .type)
+            try c.encode(componentId, forKey: .componentId)
+            try c.encode(key, forKey: .key)
+        case .calculatorLinkedSweep(let componentId, let key):
+            try c.encode(Kind.calculatorLinkedSweep, forKey: .type)
             try c.encode(componentId, forKey: .componentId)
             try c.encode(key, forKey: .key)
         case .inline(let points):

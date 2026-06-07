@@ -1195,6 +1195,12 @@ public final class MyAppStore {
                             c.rows[rIdx].kind = .list(.linkedCompare(refs: filtered, targetKey: targetKey, linkedRowKey: linkedRowKey))
                             changed = true
                         }
+                    case .list(.linkedSweep(let refs, let linkedRowKey, let variableKey, let from, let to, let step, let targetKey)):
+                        let filtered = refs.filter { !($0.componentId == componentId && $0.itemId == itemId) }
+                        if filtered.count != refs.count {
+                            c.rows[rIdx].kind = .list(.linkedSweep(refs: filtered, linkedRowKey: linkedRowKey, variableKey: variableKey, from: from, to: to, step: step, targetKey: targetKey))
+                            changed = true
+                        }
                     default:
                         break
                     }
@@ -1589,6 +1595,45 @@ public final class MyAppStore {
             emitItemEvent(myAppId: myAppId, componentId: compId, kind: .patched, actor: actor, itemId: patchedId)
         }
         return patchedId != nil
+    }
+
+    /// Point EVERY `linkedField` row at one tracker item at once — the "pick
+    /// the source, the whole model follows" selector backing the calculator's
+    /// single-source dropdown. Only repoints rows that target the SAME tracker
+    /// as `ref` (matching `componentId`, or rows whose ref is currently nil),
+    /// so a calculator mixing two trackers stays coherent. Emits no item event
+    /// (like `setCalculatorVariable`) so flipping the dropdown doesn't flood
+    /// History. Returns the number of rows repointed.
+    @discardableResult
+    public func setAllCalcRowLinks(
+        to ref: ComponentItemRef,
+        myAppId: UUID? = nil,
+        componentId: String? = nil
+    ) -> Int {
+        var count = 0
+        let body: (inout CanvasApp) -> Bool = { canvas in
+            guard case .calculator(var c) = canvas else { return false }
+            var changed = false
+            for idx in c.rows.indices {
+                guard case .linkedField(var spec) = c.rows[idx].kind else { continue }
+                // Leave rows bound to a different tracker untouched.
+                if let existing = spec.ref, existing.componentId != ref.componentId { continue }
+                if spec.ref == ref { continue }
+                spec.ref = ref
+                c.rows[idx].kind = .linkedField(spec)
+                changed = true
+                count += 1
+            }
+            guard changed else { return false }
+            canvas = .calculator(c)
+            return true
+        }
+        if let componentId {
+            mutate(myAppId: myAppId, byComponentId: componentId, body)
+        } else {
+            mutate(myAppId, kind: "calculator", body)
+        }
+        return count
     }
 
     /// Internal: id of the first calculator component in `myAppId` (or the
@@ -2719,10 +2764,14 @@ public final class MyAppStore {
             return (snap.myApps, active, snap.memoryThreads, snap.memoryCurrentThreadId, log)
         }
 
+        // Fresh install: seed the Wellbeing Coach (default, active) plus the
+        // Home Buying example so the calculator/chart demo is present out of
+        // the box. Both are restorable from Settings if deleted.
         let myApp = WellbeingCoachExample.make()
+        let homeBuying = HomeBuyingExample.make()
         let firstThread = ChatThread()
         let snap = Snapshot(
-            myApps: [myApp],
+            myApps: [myApp, homeBuying],
             activeId: myApp.id,
             memoryThreads: [firstThread],
             memoryCurrentThreadId: firstThread.id

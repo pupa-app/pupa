@@ -41,11 +41,16 @@ public enum CalculatorResolver {
         /// array output), so scalar formulas that reference a list key resolve
         /// to `brokenRef` via the normal nil-dependency path.
         public var list: [ChartPoint]?
+        /// Resolved multi-series for a `linkedSweep` list row (one curve per
+        /// linked ref). `nil` for every other row kind. Like `list`, a
+        /// `linkedSweep` row carries `value == nil`.
+        public var series: [ChartSeries]?
 
-        public init(value: Double?, status: RowStatus, list: [ChartPoint]? = nil) {
+        public init(value: Double?, status: RowStatus, list: [ChartPoint]? = nil, series: [ChartSeries]? = nil) {
             self.value = value
             self.status = status
             self.list = list
+            self.series = series
         }
     }
 
@@ -286,6 +291,33 @@ public enum CalculatorResolver {
                 points.append(ChartPoint(label: linkedItemLabel(ref, components: components), y: y))
             }
             return RowResult(value: nil, status: .ok, list: points)
+
+        case .linkedSweep(let refs, let linkedRowKey, let variableKey, let from, let to, let step, let targetKey):
+            // linkedCompare, but each ref reads a swept CURVE instead of a
+            // scalar → one ChartSeries per ref. Self-contained: the embedded
+            // sweep params build a transient .sweep spec per ref.
+            guard let anchorIdx = data.rows.firstIndex(where: { $0.key == linkedRowKey }),
+                  case .linkedField(let anchorSpec) = data.rows[anchorIdx].kind else {
+                return RowResult(value: nil, status: .brokenRef)
+            }
+            let baseRef = anchorSpec.ref
+            let sweepSpec = CalcListSpec.sweep(variableKey: variableKey, from: from, to: to, step: step, targetKey: targetKey)
+            var chartSeries: [ChartSeries] = []
+            for ref in refs {
+                var swapped = data
+                for i in swapped.rows.indices {
+                    if case .linkedField(var s) = swapped.rows[i].kind, s.ref == baseRef {
+                        s.ref = ref
+                        swapped.rows[i].kind = .linkedField(s)
+                    }
+                }
+                // resolveList(.sweep) re-resolves with computeLists:false, so
+                // this never re-enters list work — no recursion through linkedSweep.
+                let listResult = resolveList(sweepSpec, data: swapped, components: components)
+                guard let points = listResult.list, !points.isEmpty else { continue }
+                chartSeries.append(ChartSeries(name: linkedItemLabel(ref, components: components), points: points))
+            }
+            return RowResult(value: nil, status: .ok, series: chartSeries)
         }
     }
 

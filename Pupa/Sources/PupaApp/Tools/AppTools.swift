@@ -4722,20 +4722,20 @@ public enum AppTools {
                 ],
                 "list": [
                     "type": "object",
-                    "description": "list: an ARRAY output for charts (a sweep, a tracker column, or a linkedCompare).",
+                    "description": "list: an ARRAY output for charts. Kinds: sweep (one curve), trackerColumn (raw column), linkedCompare (one point per linked ref → bars), linkedSweep (one CURVE per linked ref → multi-line; linkedCompare with a swept y).",
                     "properties": [
-                        "type": ["type": "string", "enum": ["sweep", "trackerColumn", "linkedCompare"]],
-                        "variableKey": ["type": "string", "description": "sweep: the variable row key to vary."],
-                        "from": ["type": "number", "description": "sweep: range start."],
-                        "to": ["type": "number", "description": "sweep: range end (inclusive)."],
-                        "step": ["type": "number", "description": "sweep: increment (> 0)."],
-                        "targetKey": ["type": "string", "description": "sweep / linkedCompare: the row key read for each point (y)."],
+                        "type": ["type": "string", "enum": ["sweep", "trackerColumn", "linkedCompare", "linkedSweep"]],
+                        "variableKey": ["type": "string", "description": "sweep / linkedSweep: the variable row key to vary."],
+                        "from": ["type": "number", "description": "sweep / linkedSweep: range start."],
+                        "to": ["type": "number", "description": "sweep / linkedSweep: range end (inclusive)."],
+                        "step": ["type": "number", "description": "sweep / linkedSweep: increment (> 0)."],
+                        "targetKey": ["type": "string", "description": "sweep / linkedSweep / linkedCompare: the row key read for each point (y)."],
                         "sourceComponentId": ["type": "string", "description": "trackerColumn: source tracker id."],
                         "valueField": ["type": "string", "description": "trackerColumn: numeric field → y."],
                         "labelField": ["type": "string", "description": "trackerColumn: optional field → point label."],
                         "filter": ["type": "object", "description": "trackerColumn: equality filter."],
-                        "refs": ["type": "array", "description": "linkedCompare: tracker items to compare, one point each.", "items": ["type": "object", "properties": ["componentId": ["type": "string"], "itemId": ["type": "string"]], "required": ["componentId", "itemId"]]],
-                        "linkedRowKey": ["type": "string", "description": "linkedCompare: anchor linkedField row key; every linkedField row sharing its ref is swapped to each compared item before reading targetKey."],
+                        "refs": ["type": "array", "description": "linkedCompare / linkedSweep: tracker items to compare (one point / one curve each).", "items": ["type": "object", "properties": ["componentId": ["type": "string"], "itemId": ["type": "string"]], "required": ["componentId", "itemId"]]],
+                        "linkedRowKey": ["type": "string", "description": "linkedCompare / linkedSweep: anchor linkedField row key; every linkedField row sharing its ref is swapped to each compared item before reading targetKey (linkedSweep sweeps variableKey at each)."],
                     ],
                 ],
                 "linkedField": [
@@ -4855,6 +4855,16 @@ public enum AppTools {
                 refs: parseLinkedItems(from: obj["refs"]),
                 targetKey: obj["targetKey"]?.stringValue ?? "",
                 linkedRowKey: obj["linkedRowKey"]?.stringValue ?? ""
+            )
+        case "linkedSweep":
+            return .linkedSweep(
+                refs: parseLinkedItems(from: obj["refs"]),
+                linkedRowKey: obj["linkedRowKey"]?.stringValue ?? "",
+                variableKey: obj["variableKey"]?.stringValue ?? "",
+                from: obj["from"]?.doubleValue ?? 0,
+                to: obj["to"]?.doubleValue ?? 0,
+                step: obj["step"]?.doubleValue ?? 1,
+                targetKey: obj["targetKey"]?.stringValue ?? ""
             )
         default: // "sweep"
             return .sweep(
@@ -5008,6 +5018,17 @@ public enum AppTools {
                 "targetKey": .string(targetKey),
                 "linkedRowKey": .string(linkedRowKey),
             ])
+        case .linkedSweep(let refs, let linkedRowKey, let variableKey, let from, let to, let step, let targetKey):
+            return .object([
+                "type": .string("linkedSweep"),
+                "refs": .array(refs.map { refAsAnyJSON($0) }),
+                "linkedRowKey": .string(linkedRowKey),
+                "variableKey": .string(variableKey),
+                "from": .double(from),
+                "to": .double(to),
+                "step": .double(step),
+                "targetKey": .string(targetKey),
+            ])
         }
     }
 
@@ -5062,17 +5083,17 @@ public enum AppTools {
     private static func chartSourceSchema() -> AnyJSON {
         [
             "type": "object",
-            "description": "One of tracker | calculatorRows | calculatorList | inline (see `type`).",
+            "description": "One of tracker | calculatorRows | calculatorList | calculatorLinkedSweep | inline (see `type`).",
             "properties": [
-                "type": ["type": "string", "enum": ["tracker", "calculatorRows", "calculatorList", "inline"]],
-                "componentId": ["type": "string", "description": "tracker / calculatorRows / calculatorList: source component id."],
+                "type": ["type": "string", "enum": ["tracker", "calculatorRows", "calculatorList", "calculatorLinkedSweep", "inline"]],
+                "componentId": ["type": "string", "description": "tracker / calculatorRows / calculatorList / calculatorLinkedSweep: source component id."],
                 "groupBy": ["type": "string", "description": "tracker: field whose value buckets the points (sector / x tick)."],
                 "valueField": ["type": "string", "description": "tracker: numeric field reduced per bucket."],
                 "reduce": ["type": "string", "enum": ["sum", "avg", "min", "max", "count"]],
                 "filter": ["type": "object", "description": "tracker: case-insensitive AND equality filter, e.g. {\"cuisine\":\"African\"}."],
                 "xIsNumericOrDate": ["type": "boolean", "description": "tracker: treat the group value as a numeric/date x axis (ascending) for bar/line."],
                 "keys": ["type": "array", "items": ["type": "string"], "description": "calculatorRows: calculator row keys to plot."],
-                "key": ["type": "string", "description": "calculatorList: the calculator `.list` row key (a sweep / column array)."],
+                "key": ["type": "string", "description": "calculatorList: a `.list` row key (one series). calculatorLinkedSweep: a `.linkedSweep` row key (fans out to one line per linked ref)."],
                 "points": [
                     "type": "array",
                     "description": "inline: literal points.",
@@ -5147,6 +5168,8 @@ public enum AppTools {
             return .calculatorRows(componentId: obj["componentId"]?.stringValue ?? "", keys: keys)
         case "calculatorList":
             return .calculatorList(componentId: obj["componentId"]?.stringValue ?? "", key: obj["key"]?.stringValue ?? "")
+        case "calculatorLinkedSweep":
+            return .calculatorLinkedSweep(componentId: obj["componentId"]?.stringValue ?? "", key: obj["key"]?.stringValue ?? "")
         default: // "inline"
             let points: [ChartPoint] = (obj["points"]?.arrayValue ?? []).compactMap { p in
                 guard let y = p["y"]?.doubleValue else { return nil }
