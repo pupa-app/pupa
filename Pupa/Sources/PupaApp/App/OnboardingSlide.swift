@@ -90,7 +90,7 @@ struct OnboardingArtView: View {
     private var logoArt: some View {
         ZStack {
             Circle()
-                .fill(Color.orchestratorColor.opacity(0.12))
+                .fill(Color.brandColor.opacity(0.12))
                 .frame(width: 200, height: 200)
             Group {
                 if let icon = AppIcon.swiftUIImage {
@@ -103,7 +103,7 @@ struct OnboardingArtView: View {
                 } else {
                     Image(systemName: "square.stack.3d.up.fill")
                         .font(.system(size: 80))
-                        .foregroundStyle(Color.orchestratorColor)
+                        .foregroundStyle(Color.brandColor)
                 }
             }
             .shadow(color: .black.opacity(0.18), radius: 14, x: 0, y: 8)
@@ -142,8 +142,8 @@ struct OnboardingArtView: View {
             RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.12)).frame(height: 6).padding(.trailing, 24)
         }
         .padding(10)
-        .background(Color.cardBackground)
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.cardBorder))
+        .background(Color.brandSurface)
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.brandColor.opacity(0.18)))
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
@@ -187,7 +187,7 @@ struct OnboardingArtView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: "doc.text.fill")
-                    .foregroundStyle(Color.orchestratorColor)
+                    .foregroundStyle(Color.brandColor)
                 Text("Interview Prep.md")
                     .font(.subheadline.weight(.semibold))
                 Spacer()
@@ -201,8 +201,8 @@ struct OnboardingArtView: View {
         }
         .padding(16)
         .frame(maxWidth: 300)
-        .background(Color.cardBackground)
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.cardBorder))
+        .background(Color.brandSurface)
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.brandColor.opacity(0.18)))
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }
@@ -219,7 +219,7 @@ struct PageDots: View {
         HStack(spacing: 8) {
             ForEach(0..<count, id: \.self) { i in
                 Capsule()
-                    .fill(i == current ? Color.orchestratorColor : Color.secondary.opacity(0.3))
+                    .fill(i == current ? Color.brandColor : Color.secondary.opacity(0.3))
                     .frame(width: i == current ? 20 : 8, height: 8)
             }
         }

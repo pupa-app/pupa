@@ -19,7 +19,15 @@ extension Color {
         #endif
     }
 
-    // MARK: - Agent color coding
+    // MARK: - Brand + agent color coding
+
+    /// Soft purple used for the splash gradient, onboarding surfaces, and
+    /// any other brand-identity moments. Kept separate from orchestratorColor
+    /// so agent UI can stay neutral without washing out the brand palette.
+    static let brandColor: Color = Color(red: 0.91, green: 0.13, blue: 0.09)
+    /// Solid light-pink surface that matches the icon background — use for
+    /// cards that sit on top of other content (tour, onboarding art cards).
+    static let brandSurface: Color = Color(red: 1.0, green: 0.93, blue: 0.92)
 
     // Deliberately understated — a dark neutral grey so the orchestrator
     // reads as the "meta" agent without competing with the per-MyApp colors.
