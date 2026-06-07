@@ -50,9 +50,34 @@ public struct CalculatorView: View {
         return visible
     }
 
+    /// The single tracker every `linkedField` row points at (when they share
+    /// one), plus the currently-common selection. Drives the top-of-calculator
+    /// "source" dropdown — pick once, the whole model follows. `nil` when there
+    /// are no linked rows, or they span more than one tracker.
+    private var linkedSource: (componentId: String, items: [TrackerItem], selectedId: UUID?)? {
+        let refs: [ComponentItemRef] = data.rows.compactMap {
+            if case .linkedField(let s) = $0.kind { return s.ref }
+            return nil
+        }
+        guard !refs.isEmpty else { return nil }
+        let trackerIds = Set(refs.map(\.componentId))
+        guard trackerIds.count == 1, let compId = trackerIds.first,
+              let comp = siblingComponents.first(where: { $0.id == compId }),
+              case .tracker(let tracker) = comp.body else { return nil }
+        let distinct = Set(refs.map(\.itemId))
+        return (compId, tracker.items, distinct.count == 1 ? distinct.first : nil)
+    }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             CalculatorTitleBar(data: data)
+
+            if let src = linkedSource {
+                CalcLinkedSourcePicker(
+                    store: store, myAppId: myAppId, componentId: componentId,
+                    trackerId: src.componentId, items: src.items, selectedId: src.selectedId
+                )
+            }
 
             if data.rows.isEmpty {
                 CalculatorEmptyHint()
@@ -80,7 +105,11 @@ public struct CalculatorView: View {
                                 componentId: componentId,
                                 row: row,
                                 result: results.result(forKey: row.key),
-                                sourceName: sourceName(for: row)
+                                sourceName: sourceName(for: row),
+                                // When the top dropdown owns the source, hide the
+                                // per-row link pills so the model is driven by one
+                                // selection (no per-datapoint drift).
+                                hideLinkPill: linkedSource != nil
                             )
                         }
                         if row.id != rows.last?.id {
@@ -174,6 +203,9 @@ private struct CalcRowView: View {
     let row: CalcRow
     let result: CalculatorResolver.RowResult?
     let sourceName: String?
+    /// Hide the per-row link pill (the calculator's top dropdown owns the
+    /// linked source instead). Defaults to showing it.
+    var hideLinkPill: Bool = false
 
     /// Formula and list subtitles collapsed by default.
     @State private var subtitleExpanded = false
@@ -267,6 +299,8 @@ private struct CalcRowView: View {
                 return s
             case .linkedCompare(let refs, let targetKey, _):
                 return "compare \(refs.count) · \(targetKey)"
+            case .linkedSweep(let refs, _, let variableKey, let from, let to, let step, let targetKey):
+                return "sweep \(refs.count)× \(variableKey) \(CalcFormat.defaultNumber(from))→\(CalcFormat.defaultNumber(to)) ×\(CalcFormat.defaultNumber(step)) · \(targetKey)"
             }
         default:
             return nil
@@ -294,16 +328,20 @@ private struct CalcRowView: View {
         case .aggregate, .formula:
             ComputedValueLabel(result: result, unit: row.unit, format: row.format)
         case .linkedField(let spec):
-            LinkedFieldControl(
-                store: store,
-                myAppId: myAppId,
-                componentId: componentId,
-                rowKey: row.key,
-                spec: spec,
-                result: result,
-                unit: row.unit,
-                format: row.format
-            )
+            if hideLinkPill {
+                ComputedValueLabel(result: result, unit: row.unit, format: row.format)
+            } else {
+                LinkedFieldControl(
+                    store: store,
+                    myAppId: myAppId,
+                    componentId: componentId,
+                    rowKey: row.key,
+                    spec: spec,
+                    result: result,
+                    unit: row.unit,
+                    format: row.format
+                )
+            }
         case .list:
             ListSparkline(points: result?.list ?? [], status: result?.status)
         case .header:
@@ -318,6 +356,69 @@ private struct CalcRowView: View {
 /// naming the linked tracker item (or "Link…" when unset) plus the extracted
 /// value. Tapping opens the shared `ComponentItemPickerSheet`; the first
 /// picked ref replaces the row's link (swap the item → the model re-runs).
+// MARK: - Linked-source dropdown
+
+/// One dropdown at the top of the calculator that points EVERY `linkedField`
+/// row at the same tracker item — "pick the house, the whole model follows".
+/// Replaces per-row link pills when all linked rows share one tracker, so a
+/// user (or the agent's seed) can't accidentally bind each input to a
+/// different item.
+private struct CalcLinkedSourcePicker: View {
+    @Bindable var store: MyAppStore
+    let myAppId: UUID
+    let componentId: String
+    let trackerId: String
+    let items: [TrackerItem]
+    let selectedId: UUID?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "link")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Menu {
+                ForEach(items, id: \.id) { item in
+                    Button {
+                        store.setAllCalcRowLinks(
+                            to: ComponentItemRef(componentId: trackerId, itemId: item.id),
+                            myAppId: myAppId,
+                            componentId: componentId
+                        )
+                    } label: {
+                        if item.id == selectedId {
+                            Label(item.displayName, systemImage: "checkmark")
+                        } else {
+                            Text(item.displayName)
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(selectedLabel)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color.accentColor.opacity(0.15))
+                .foregroundStyle(Color.accentColor)
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var selectedLabel: String {
+        if let id = selectedId, let item = items.first(where: { $0.id == id }) {
+            return item.displayName
+        }
+        return "Pick a source…"
+    }
+}
+
 private struct LinkedFieldControl: View {
     @Bindable var store: MyAppStore
     let myAppId: UUID

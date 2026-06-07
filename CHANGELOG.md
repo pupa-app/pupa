@@ -3,6 +3,34 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.12] — 2026-06-07
+
+### Added
+
+- **Live per-item time-series via `linkedSweep`** (#37): a new calculator
+  `list` sub-type that resolves a swept **curve per linked ref** (the
+  multi-line analogue of `linkedCompare`'s one-point-per-ref). Self-contained —
+  embeds the same sweep params a `sweep` carries plus `refs` + `linkedRowKey`.
+  Plotted by a new chart source `calculatorLinkedSweep`, which fans one
+  declared spec out to N live series. (`PupaApp` `0.0.102`)
+- **Single-source dropdown on the calculator**: when every `linkedField` row
+  shares one tracker, the calculator view shows one "source" dropdown at the
+  top that repoints all rows together (`setAllCalcRowLinks`) and hides the
+  per-row link pills — "pick the house, the whole model follows", no
+  per-datapoint drift.
+- **Home Buying ships out of the box**: the example is seeded on fresh install
+  alongside the Wellbeing Coach (still restorable from Settings).
+
+### Changed
+
+- **Home Buying model reworked into a standard rent-vs-buy comparison**: the
+  seed-static cumulative-cost lines are gone. The mortgage model now drives a
+  live **Buy-vs-Rent net-worth** chart for the selected house — owning (home
+  value − loan owed) vs. renting (down payment + monthly surplus invested at a
+  market return). Both paths deploy the same money, so the curves start equal
+  and cross when one strategy overtakes the other. New Assumptions sliders:
+  home appreciation, rent, investment return, projection year.
+
 ## [0.0.11] — 2026-06-07
 
 ### Added

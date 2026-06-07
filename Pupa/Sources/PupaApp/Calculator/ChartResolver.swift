@@ -13,9 +13,23 @@ public enum ChartResolver {
     /// Resolve every series in `data`. Empty / broken series are dropped, so
     /// the result holds only series with at least one point.
     public static func resolve(_ data: ChartData, components: [Component]) -> [ChartSeries] {
-        data.series.enumerated().compactMap { idx, spec in
-            resolveSeries(spec, index: idx, components: components)
+        data.series.enumerated().flatMap { idx, spec in
+            resolveSeriesAll(spec, index: idx, components: components)
         }
+    }
+
+    /// Resolve one spec to ONE OR MORE series. Every source resolves to a
+    /// single series except `calculatorLinkedSweep`, which fans out to one
+    /// curve per linked ref (read straight off the `.series` the resolver
+    /// computed for the linkedSweep row).
+    private static func resolveSeriesAll(_ spec: ChartSeriesSpec, index: Int, components: [Component]) -> [ChartSeries] {
+        if case .calculatorLinkedSweep(let componentId, let key) = spec.source {
+            guard let component = components.first(where: { $0.id == componentId }),
+                  case .calculator(let calc) = component.body else { return [] }
+            let resolved = CalculatorResolver.resolve(calc, components: components)
+            return resolved.result(forKey: key)?.series ?? []
+        }
+        return resolveSeries(spec, index: index, components: components).map { [$0] } ?? []
     }
 
     /// Resolve one spec to a named series, or nil when it produces no points.
@@ -65,6 +79,10 @@ public enum ChartResolver {
             let points = resolved.result(forKey: key)?.list ?? []
             let name = calc.rows.first(where: { $0.key == key })?.name ?? key
             return (points, name)
+
+        case .calculatorLinkedSweep:
+            // Multi-series — fanned out in `resolveSeriesAll`, never here.
+            return ([], "")
         }
     }
 

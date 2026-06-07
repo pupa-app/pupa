@@ -119,7 +119,7 @@ enum HomeBuyingExample: ExampleMyApp {
             return Component(
                 id: "tracker-1",
                 name: "Candidate Houses",
-                iconSystemName: "house",
+                iconSystemName: "house.lodge",
                 body: .tracker(TrackerData(
                     title: "Candidate Houses",
                     fields: fields,
@@ -140,6 +140,9 @@ enum HomeBuyingExample: ExampleMyApp {
             func linked(_ field: String) -> CalcRowKind {
                 .linkedField(LinkedFieldSpec(ref: ComponentItemRef(componentId: "tracker-1", itemId: houseA), fieldName: field))
             }
+            let allRefs = [houseA, houseB, houseC, houseD].map {
+                ComponentItemRef(componentId: "tracker-1", itemId: $0)
+            }
             let rows: [CalcRow] = [
                 CalcRow(key: "selected_house", name: "Selected house", kind: .header),
                 CalcRow(key: "price", name: "Price", unit: "$", kind: linked("price")),
@@ -152,6 +155,8 @@ enum HomeBuyingExample: ExampleMyApp {
                 CalcRow(key: "payment", name: "Payment", kind: .header),
                 CalcRow(key: "principal", name: "Loan principal", unit: "$", format: "%.2f",
                         kind: .formula(expression: "price * (1 - down_pct / 100)")),
+                CalcRow(key: "down_amount", name: "Down payment", unit: "$", format: "%.2f",
+                        kind: .formula(expression: "price * down_pct / 100")),
                 CalcRow(key: "r", name: "Monthly rate",
                         kind: .formula(expression: "rate_annual / 100 / 12")),
                 CalcRow(key: "n", name: "Payments",
@@ -163,17 +168,51 @@ enum HomeBuyingExample: ExampleMyApp {
                 CalcRow(key: "total_interest", name: "Total interest", unit: "$", format: "%.2f",
                         kind: .formula(expression: "pi * n - principal")),
 
+                // Global assumptions driving the projection charts. Drag a
+                // slider → every curve below redraws live.
+                CalcRow(key: "assumptions", name: "Assumptions", kind: .header),
+                CalcRow(key: "appreciation_pct", name: "Home appreciation / yr", unit: "%",
+                        kind: .variable(value: 3, control: .slider(min: 0, max: 10, step: 0.5))),
+                CalcRow(key: "rent_monthly", name: "Rent if not buying", unit: "$",
+                        kind: .variable(value: 2500, control: .slider(min: 500, max: 8000, step: 100))),
+                CalcRow(key: "invest_return_pct", name: "Investment return / yr", unit: "%",
+                        kind: .variable(value: 7, control: .slider(min: 1, max: 15, step: 0.5))),
+                CalcRow(key: "year", name: "Projection year", unit: "yr",
+                        kind: .variable(value: 15, control: .slider(min: 1, max: 30, step: 1))),
+
+                // --- Apples-to-apples wealth comparison ---
+                // Both paths deploy the SAME money: the buyer's down payment +
+                // monthly housing cost. So both curves start at the down
+                // payment and diverge only by appreciation vs. market return —
+                // the standard "rent vs. buy" net-worth comparison.
+                //
+                // OWN: net worth = home equity = home value − loan still owed.
+                CalcRow(key: "months_paid", name: "Months paid by year",
+                        kind: .formula(expression: "min(year * 12, n)")),
+                CalcRow(key: "home_value", name: "Home value by year", unit: "$", format: "%.2f",
+                        kind: .formula(expression: "price * (1 + appreciation_pct / 100)^year")),
+                CalcRow(key: "loan_balance", name: "Loan still owed", unit: "$", format: "%.2f",
+                        kind: .formula(expression: "principal * ((1 + r)^n - (1 + r)^months_paid) / ((1 + r)^n - 1)")),
+                CalcRow(key: "own_wealth", name: "Net worth if owning", unit: "$", format: "%.2f",
+                        kind: .formula(expression: "home_value - loan_balance")),
+                // RENT: net worth = invest the down payment + invest each
+                // month's surplus (owning cost − rent) at the market return.
+                CalcRow(key: "monthly_surplus", name: "Monthly surplus invested", unit: "$", format: "%.2f",
+                        kind: .formula(expression: "max(monthly - rent_monthly, 0)")),
+                CalcRow(key: "rent_wealth", name: "Net worth if renting", unit: "$", format: "%.2f",
+                        kind: .formula(expression: "down_amount * (1 + invest_return_pct / 100 / 12)^(year * 12) + monthly_surplus * (((1 + invest_return_pct / 100 / 12)^(year * 12) - 1) / (invest_return_pct / 100 / 12))")),
+
                 CalcRow(key: "compare", name: "Monthly cost by house",
                         kind: .list(.linkedCompare(
-                            refs: [
-                                ComponentItemRef(componentId: "tracker-1", itemId: houseA),
-                                ComponentItemRef(componentId: "tracker-1", itemId: houseB),
-                                ComponentItemRef(componentId: "tracker-1", itemId: houseC),
-                                ComponentItemRef(componentId: "tracker-1", itemId: houseD),
-                            ],
+                            refs: allRefs,
                             targetKey: "monthly",
                             linkedRowKey: "price"
                         ))),
+                // Selected-house wealth curves (Buy vs. Rent chart).
+                CalcRow(key: "own_wealth_curve", name: "Own — net worth over time",
+                        kind: .list(.sweep(variableKey: "year", from: 1, to: 30, step: 1, targetKey: "own_wealth"))),
+                CalcRow(key: "rent_wealth_curve", name: "Rent — net worth over time",
+                        kind: .list(.sweep(variableKey: "year", from: 1, to: 30, step: 1, targetKey: "rent_wealth"))),
             ]
             let chart = ChartData(
                 title: "Monthly cost by house",
@@ -188,51 +227,30 @@ enum HomeBuyingExample: ExampleMyApp {
                     title: "Mortgage Model",
                     rows: rows,
                     inlineChart: chart,
-                    extraCharts: [cumulativeCostChart()]
+                    extraCharts: [buyVsRentChart()]
                 )),
-                summary: "Live mortgage model. The 'Selected house' rows pull each input off ONE linked house in Candidate Houses — tap a row's link pill (or use setCalcRowLink) to switch houses and re-run the payment formulas. The bar chart compares every linked house on total monthly cost. A second line chart projects cumulative cost over 30 years, one line per house."
+                summary: "Live mortgage model for ONE house at a time. Pick the house from the dropdown at the top of the calculator — every 'Selected house' input repoints together and the formulas re-run. The Assumptions sliders (appreciation, rent, investment return, projection year) drive a live Buy-vs-Rent net-worth comparison: both paths deploy the same money, so owning (home equity) and renting (down payment + monthly surplus invested) start equal and diverge by appreciation vs. market return. The bar chart compares all candidate houses on monthly cost. Edit a house or drag a slider and the curves redraw."
             )
         }
 
-        // MARK: Cumulative-cost line chart
+        // MARK: Projection charts (live)
 
-        /// Projected total cash outlay by year, one `inline` line series per
-        /// house: down payment up front, then monthly cost (P&I + tax/12 +
-        /// HOA) accumulated month by month. P&I stops once a house's term is
-        /// paid off, so a 15-year loan's line bends flatter past year 15.
-        /// Seed-static (inline points) — illustrative, unlike the live bar
-        /// chart above; edits to a house don't redraw it.
-        private func cumulativeCostChart() -> ChartData {
-            let series = houseSpecs.map { h in
-                ChartSeriesSpec(name: h.name, source: .inline(points: cumulativeOutlay(h)))
-            }
-            return ChartData(
-                title: "Cumulative cost over 30 years",
+        /// Buy vs. rent for the SELECTED house, as the standard apples-to-apples
+        /// NET-WORTH comparison: owning (home value − loan owed) vs. renting
+        /// (down payment + monthly surplus invested at the market return). Both
+        /// start at the down payment, so the lines are directly comparable and
+        /// cross when one strategy overtakes the other. Two live sweep curves.
+        private func buyVsRentChart() -> ChartData {
+            ChartData(
+                title: "Buy vs. rent — net worth over time",
                 kind: .line,
-                series: series
+                series: [
+                    ChartSeriesSpec(name: "Own (home equity)",
+                                    source: .calculatorList(componentId: "calculator-1", key: "own_wealth_curve")),
+                    ChartSeriesSpec(name: "Rent + invest",
+                                    source: .calculatorList(componentId: "calculator-1", key: "rent_wealth_curve")),
+                ]
             )
-        }
-
-        /// Standard fixed-rate amortization → cumulative spend at each year end.
-        private func cumulativeOutlay(_ h: HouseSpec, years: Int = 30) -> [ChartPoint] {
-            let principal = h.price * (1 - h.downPct / 100)
-            let r = h.ratePct / 100 / 12
-            let n = Double(h.termYears * 12)
-            let pi: Double = r == 0 ? principal / n
-                                    : principal * r * pow(1 + r, n) / (pow(1 + r, n) - 1)
-            var cumulative = h.price * h.downPct / 100   // down payment up front
-            var month = 0
-            var points: [ChartPoint] = []
-            for year in 1...years {
-                for _ in 1...12 {
-                    month += 1
-                    let piThisMonth = Double(month) <= n ? pi : 0
-                    cumulative += piThisMonth + h.propertyTaxYr / 12 + h.hoaMonthly
-                }
-                points.append(ChartPoint(label: "\(year)", x: Double(year),
-                                         y: (cumulative * 100).rounded() / 100))
-            }
-            return points
         }
     }
 }
@@ -251,27 +269,33 @@ extension HomeBuyingExample {
         - **Candidate Houses** (`tracker-1`) — kanban of houses grouped by
           `status`. Each row holds the numeric inputs the model needs.
         - **Mortgage Model** (`calculator-1`) — the "Selected house" rows are
-          `linkedField` rows that pull one field each off a single linked
-          house. The formula rows compute monthly P&I, total monthly cost, and
-          total interest. The `compare` list row + bar chart compares every
-          house on total monthly cost; a second line chart projects cumulative
-          cost over 30 years, one line per house (seed-static — illustrative).
+          `linkedField` rows pulling one field each off ONE house, all bound
+          together via the dropdown at the top of the calculator. The formula
+          rows compute monthly P&I, total monthly cost, and total interest. The
+          Assumptions sliders (appreciation, rent, investment return, projection
+          year) feed a live Buy-vs-Rent net-worth chart for the selected house
+          (two `sweep` curves: owning = home equity, renting = down payment +
+          monthly surplus invested — both start at the down payment so they're
+          directly comparable). The `compare` list row + bar chart compares every
+          house on monthly cost.
 
         ## How to use
 
-        1. In the Mortgage Model, tap a "Selected house" row's link pill to
-           pick which house the model runs for — every formula re-runs.
-        2. Tune the houses in Candidate Houses; the model and chart update live.
-        3. The bar chart compares the houses in the `compare` row's set.
+        1. In the Mortgage Model, use the source dropdown at the top to pick
+           which house the model runs for — every input repoints and the
+           formulas re-run.
+        2. Tune the houses in Candidate Houses; the model and charts update live.
+        3. Drag an Assumptions slider — the Buy-vs-Rent curves redraw.
+        4. The bar chart compares all candidate houses on monthly cost.
 
-        To swap the linked house from chat, call
-        `setCalcRowLink(key, ref:{componentId, itemId})` on any linkedField row
-        (they share one house, so update them together or via the picker).
+        To swap the house from chat, call `setCalcRowLink(key, ref:{componentId,
+        itemId})` on every linkedField row (or just repoint them all to the same
+        house — the dropdown does this in one tap).
 
         ## Anti-patterns
 
         - Don't point the linkedField rows at different houses — they must
-          share one house so the comparison swaps all fields together.
+          share one house so the model is coherent (the dropdown enforces this).
         - Don't store computed payments in the tracker — the calculator
           resolves them live.
         """

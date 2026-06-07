@@ -49,6 +49,17 @@ struct ChartTests {
         #expect(restored.series[2].source == .calculatorList(componentId: "calculator-1", key: "curve"))
     }
 
+    @Test("calculatorLinkedSweep source round-trips via Codable")
+    func calculatorLinkedSweepRoundTrip() throws {
+        let original = ChartData(title: "Plot", kind: .line,
+            source: .calculatorLinkedSweep(componentId: "calculator-1", key: "by_house"))
+        let blob = try JSONEncoder().encode(CanvasApp.chart(original))
+        guard case .chart(let restored) = try JSONDecoder().decode(CanvasApp.self, from: blob) else {
+            Issue.record("expected chart"); return
+        }
+        #expect(restored.series.first?.source == .calculatorLinkedSweep(componentId: "calculator-1", key: "by_house"))
+    }
+
     @Test("inlineChart on a calculator decodes; Phase-1 blob (no inlineChart) stays nil")
     func calculatorInlineChartCompat() throws {
         let phase1 = """
@@ -92,8 +103,8 @@ struct ChartTests {
         #expect(c2.extraCharts.first?.kind == .line)
     }
 
-    @Test("Home Buying seeds a live bar chart + a per-house cumulative-cost line chart")
-    func homeBuyingCumulativeChart() throws {
+    @Test("Home Buying seeds a live bar chart + a live buy-vs-rent net-worth line chart")
+    func homeBuyingBuyVsRentChart() throws {
         let app = HomeBuyingExample.make()
         guard case .calculator(let calc) = app.components.first(where: { $0.id == "calculator-1" })?.body else {
             Issue.record("expected calculator-1"); return
@@ -103,19 +114,30 @@ struct ChartTests {
 
         let line = try #require(calc.extraCharts.first)
         #expect(line.kind == .line)
-        #expect(line.series.count == 4)   // one inline series per house
+        #expect(line.series.count == 2)   // own vs. rent, both live sweep curves
 
-        // Each house's outlay accumulates: 30 points, strictly increasing,
-        // carrying a numeric x so the chart plots a continuous year axis.
+        // Both series are live calculatorList sources (no seed-static inline).
         for spec in line.series {
-            guard case .inline(let points) = spec.source else {
-                Issue.record("expected inline series"); continue
+            guard case .calculatorList = spec.source else {
+                Issue.record("expected calculatorList series, got \(spec.source)"); continue
             }
-            #expect(points.count == 30)
-            #expect(points.allSatisfy { $0.x != nil })
-            let ys = points.map(\.y)
-            #expect(zip(ys, ys.dropFirst()).allSatisfy { $0 < $1 })
         }
+
+        // Resolve the whole chart against the seeded app: both wealth curves
+        // span 30 years and START at the same value (down payment), since both
+        // strategies deploy the same money — the apples-to-apples property.
+        let resolved = ChartResolver.resolve(line, components: app.components)
+        #expect(resolved.count == 2)
+        for s in resolved { #expect(s.points.count == 30) }
+        let own = try #require(resolved.first(where: { $0.name.contains("Own") }))
+        let rent = try #require(resolved.first(where: { $0.name.contains("Rent") }))
+        // Year 1 nearly equal (both ≈ down payment); allow a small first-year gap.
+        let ownY1 = try #require(own.points.first?.y)
+        let rentY1 = try #require(rent.points.first?.y)
+        #expect(abs(ownY1 - rentY1) / max(ownY1, rentY1) < 0.15)
+        // Neither curve plunges negative — net worth stays non-negative.
+        #expect(own.points.allSatisfy { $0.y >= 0 })
+        #expect(rent.points.allSatisfy { $0.y >= 0 })
     }
 
     // MARK: - Resolver

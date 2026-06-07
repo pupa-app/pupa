@@ -31,13 +31,19 @@ rows by `key`, never by display `name`, so renames never break them):
   a **sweep** — vary `variableKey` across `from…to` by `step`, holding every
   other variable fixed, reading `targetKey` at each step (x = swept value,
   y = target; the payment-vs-rate sensitivity curve); a **trackerColumn**
-  pulling a raw per-item array off a tracker; or a **linkedCompare** — compare
+  pulling a raw per-item array off a tracker; a **linkedCompare** — compare
   a *set* of linked items on a target row: for each `ref`, swap every
   `linkedField` row sharing the anchor (`linkedRowKey`) ref to that item,
   re-resolve, read `targetKey` → one point per item (label = item display
-  name). Scalar formulas can't reference a list key (a list has no scalar
-  value → referencing it is `brokenRef`). Plot one via a chart's
-  `calculatorList` source.
+  name); or a **linkedSweep** — `linkedCompare` whose per-ref read is a swept
+  **curve** instead of a scalar (self-contained: embeds the same
+  `variableKey/from/to/step/targetKey` a `sweep` carries, plus `refs` +
+  `linkedRowKey`), resolving to one `ChartSeries` **per ref**. Scalar formulas
+  can't reference a list key (a list has no scalar value → referencing it is
+  `brokenRef`). Plot a sweep / linkedCompare via a chart's `calculatorList`
+  source (one series); a linkedSweep via `calculatorLinkedSweep` (one line per
+  ref). Mental model: `linkedCompare`→bars (scalar per ref),
+  `linkedSweep`→multi-line (curve per ref).
 
 ## Data model
 
@@ -70,9 +76,14 @@ chart with a per-house cumulative-cost line chart.
 `setCalculator`, `addCalcRow` (slug-dedupes, returns the key),
 `patchCalcRow` (+`CalcRowPatch`), `removeCalcRow`, `setCalculatorVariable`
 (UI tuning path — emits no event so slider drags don't flood History),
-`setCalcRowLinkedRef` (swap a `linkedField` row's linked item),
+`setCalcRowLinkedRef` (swap one `linkedField` row's linked item),
+`setAllCalcRowLinks` (repoint EVERY `linkedField` row at one item in a single
+call — backs the calculator view's top-of-list "source" dropdown, "pick the
+house, the whole model follows"; emits no event, like `setCalculatorVariable`),
 `calculatorComponentId`. Row edits emit an `ItemEvent` with no inverse —
-calc rows are not in the undo graph in Phase 1.
+calc rows are not in the undo graph in Phase 1. When all `linkedField` rows
+share one tracker the view shows a single source dropdown and hides the per-row
+link pills (no per-datapoint drift).
 
 ## Tool surface
 

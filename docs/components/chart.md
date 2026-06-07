@@ -26,6 +26,11 @@ gets a distinct colour + a legend; `pie` uses series[0] only. Each series is
   [calculator.md](calculator.md)). This is how a computed curve (payment vs
   rate) becomes a line; several `calculatorList` series over a shared x axis
   give a multi-line projection.
+- **calculatorLinkedSweep** — `{componentId, key}` pointing at a calculator
+  `.linkedSweep` `.list` row. Unlike every other arm (one series), this **fans
+  out to one line per linked ref** at resolve time — the multi-line analogue of
+  `calculatorList`. One declared spec → N `ChartSeries`. Use it for "a live
+  curve per house/item" without declaring a series each.
 - **inline** — `{points: [{label, x?, y}]}`. Literal points; the seam Phase 3
   (#23) snapshots into a chat attachment.
 
