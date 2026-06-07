@@ -24,7 +24,7 @@ extension Color {
     /// Soft purple used for the splash gradient, onboarding surfaces, and
     /// any other brand-identity moments. Kept separate from orchestratorColor
     /// so agent UI can stay neutral without washing out the brand palette.
-    static let brandColor: Color = Color(red: 0.55, green: 0.30, blue: 0.88)
+    static let brandColor: Color = Color(red: 0.91, green: 0.13, blue: 0.09)
 
     // Deliberately understated — a dark neutral grey so the orchestrator
     // reads as the "meta" agent without competing with the per-MyApp colors.
