@@ -96,6 +96,10 @@ public struct CalculatorView: View {
                 ChartContainerView(store: store, data: chart, myAppId: myAppId)
                     .padding(.top, 4)
             }
+            ForEach(Array(data.extraCharts.enumerated()), id: \.offset) { _, chart in
+                ChartContainerView(store: store, data: chart, myAppId: myAppId)
+                    .padding(.top, 4)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

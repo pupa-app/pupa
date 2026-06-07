@@ -56,6 +56,40 @@ enum HomeBuyingExample: ExampleMyApp {
             )
         }
 
+        /// Numeric truth for one house. Single source feeding both the
+        /// tracker rows and the cumulative-cost line chart, so the two can
+        /// never drift.
+        struct HouseSpec {
+            let id: UUID
+            let name: String
+            let price: Double
+            let downPct: Double
+            let ratePct: Double
+            let termYears: Int
+            let propertyTaxYr: Double
+            let hoaMonthly: Double
+            let status: String
+        }
+
+        var houseSpecs: [HouseSpec] {
+            [
+                HouseSpec(id: houseA, name: "Maple St bungalow", price: 520000, downPct: 20,
+                          ratePct: 6.5, termYears: 30, propertyTaxYr: 6800, hoaMonthly: 0, status: "Toured"),
+                HouseSpec(id: houseB, name: "Birch Ave condo", price: 445000, downPct: 10,
+                          ratePct: 6.9, termYears: 30, propertyTaxYr: 5200, hoaMonthly: 250, status: "Considering"),
+                HouseSpec(id: houseC, name: "Cedar Ct family home", price: 610000, downPct: 25,
+                          ratePct: 6.2, termYears: 30, propertyTaxYr: 8100, hoaMonthly: 180, status: "Offer"),
+                HouseSpec(id: houseD, name: "Dogwood Ln cottage", price: 389000, downPct: 15,
+                          ratePct: 7.1, termYears: 15, propertyTaxYr: 4400, hoaMonthly: 0, status: "Considering"),
+            ]
+        }
+
+        /// `20.0` → `"20"`, `6.5` → `"6.5"` — keeps the seeded tracker strings
+        /// clean (no trailing `.0` on whole numbers).
+        private func num(_ d: Double) -> String {
+            d == d.rounded() ? String(Int(d)) : String(d)
+        }
+
         // MARK: Houses tracker
 
         private func housesTracker() -> Component {
@@ -70,48 +104,18 @@ enum HomeBuyingExample: ExampleMyApp {
                 FieldDef(name: "status", label: "Status", type: .select,
                          options: ["Considering", "Toured", "Offer", "Rejected"]),
             ]
-            let items: [TrackerItem] = [
-                TrackerItem(id: houseA, values: [
-                    "name": "Maple St bungalow",
-                    "price": "520000",
-                    "down_payment_pct": "20",
-                    "interest_rate": "6.5",
-                    "term_years": "30",
-                    "property_tax": "6800",
-                    "hoa": "0",
-                    "status": "Toured",
-                ]),
-                TrackerItem(id: houseB, values: [
-                    "name": "Birch Ave condo",
-                    "price": "445000",
-                    "down_payment_pct": "10",
-                    "interest_rate": "6.9",
-                    "term_years": "30",
-                    "property_tax": "5200",
-                    "hoa": "250",
-                    "status": "Considering",
-                ]),
-                TrackerItem(id: houseC, values: [
-                    "name": "Cedar Ct family home",
-                    "price": "610000",
-                    "down_payment_pct": "25",
-                    "interest_rate": "6.2",
-                    "term_years": "30",
-                    "property_tax": "8100",
-                    "hoa": "180",
-                    "status": "Offer",
-                ]),
-                TrackerItem(id: houseD, values: [
-                    "name": "Dogwood Ln cottage",
-                    "price": "389000",
-                    "down_payment_pct": "15",
-                    "interest_rate": "7.1",
-                    "term_years": "15",
-                    "property_tax": "4400",
-                    "hoa": "0",
-                    "status": "Considering",
-                ]),
-            ]
+            let items: [TrackerItem] = houseSpecs.map { h in
+                TrackerItem(id: h.id, values: [
+                    "name": h.name,
+                    "price": num(h.price),
+                    "down_payment_pct": num(h.downPct),
+                    "interest_rate": num(h.ratePct),
+                    "term_years": String(h.termYears),
+                    "property_tax": num(h.propertyTaxYr),
+                    "hoa": num(h.hoaMonthly),
+                    "status": h.status,
+                ])
+            }
             return Component(
                 id: "tracker-1",
                 name: "Candidate Houses",
@@ -183,10 +187,52 @@ enum HomeBuyingExample: ExampleMyApp {
                 body: .calculator(CalculatorData(
                     title: "Mortgage Model",
                     rows: rows,
-                    inlineChart: chart
+                    inlineChart: chart,
+                    extraCharts: [cumulativeCostChart()]
                 )),
-                summary: "Live mortgage model. The 'Selected house' rows pull each input off ONE linked house in Candidate Houses — tap a row's link pill (or use setCalcRowLink) to switch houses and re-run the payment formulas. The bar chart compares every linked house on total monthly cost."
+                summary: "Live mortgage model. The 'Selected house' rows pull each input off ONE linked house in Candidate Houses — tap a row's link pill (or use setCalcRowLink) to switch houses and re-run the payment formulas. The bar chart compares every linked house on total monthly cost. A second line chart projects cumulative cost over 30 years, one line per house."
             )
+        }
+
+        // MARK: Cumulative-cost line chart
+
+        /// Projected total cash outlay by year, one `inline` line series per
+        /// house: down payment up front, then monthly cost (P&I + tax/12 +
+        /// HOA) accumulated month by month. P&I stops once a house's term is
+        /// paid off, so a 15-year loan's line bends flatter past year 15.
+        /// Seed-static (inline points) — illustrative, unlike the live bar
+        /// chart above; edits to a house don't redraw it.
+        private func cumulativeCostChart() -> ChartData {
+            let series = houseSpecs.map { h in
+                ChartSeriesSpec(name: h.name, source: .inline(points: cumulativeOutlay(h)))
+            }
+            return ChartData(
+                title: "Cumulative cost over 30 years",
+                kind: .line,
+                series: series
+            )
+        }
+
+        /// Standard fixed-rate amortization → cumulative spend at each year end.
+        private func cumulativeOutlay(_ h: HouseSpec, years: Int = 30) -> [ChartPoint] {
+            let principal = h.price * (1 - h.downPct / 100)
+            let r = h.ratePct / 100 / 12
+            let n = Double(h.termYears * 12)
+            let pi: Double = r == 0 ? principal / n
+                                    : principal * r * pow(1 + r, n) / (pow(1 + r, n) - 1)
+            var cumulative = h.price * h.downPct / 100   // down payment up front
+            var month = 0
+            var points: [ChartPoint] = []
+            for year in 1...years {
+                for _ in 1...12 {
+                    month += 1
+                    let piThisMonth = Double(month) <= n ? pi : 0
+                    cumulative += piThisMonth + h.propertyTaxYr / 12 + h.hoaMonthly
+                }
+                points.append(ChartPoint(label: "\(year)", x: Double(year),
+                                         y: (cumulative * 100).rounded() / 100))
+            }
+            return points
         }
     }
 }
@@ -208,7 +254,8 @@ extension HomeBuyingExample {
           `linkedField` rows that pull one field each off a single linked
           house. The formula rows compute monthly P&I, total monthly cost, and
           total interest. The `compare` list row + bar chart compares every
-          house on total monthly cost.
+          house on total monthly cost; a second line chart projects cumulative
+          cost over 30 years, one line per house (seed-static — illustrative).
 
         ## How to use
 

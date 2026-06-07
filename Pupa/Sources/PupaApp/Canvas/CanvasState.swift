@@ -921,23 +921,31 @@ public struct CalculatorData: Codable, Hashable, Sendable {
     /// no embedded chart; `decodeIfPresent` means Phase-1 blobs decode
     /// untouched.
     public var inlineChart: ChartData?
+    /// Extra charts stacked below `inlineChart` (seed-declared; the
+    /// `embedComponent` tool only ever touches `inlineChart`). Lets an
+    /// example pair a live comparison chart with a second view of the same
+    /// model — e.g. a per-house cost-over-time line plot under the histogram.
+    /// `decodeIfPresent` → older blobs decode to `[]`.
+    public var extraCharts: [ChartData]
 
-    public init(title: String, rows: [CalcRow] = [], inlineChart: ChartData? = nil) {
+    public init(title: String, rows: [CalcRow] = [], inlineChart: ChartData? = nil, extraCharts: [ChartData] = []) {
         self.title = title
         self.rows = rows
         self.inlineChart = inlineChart
+        self.extraCharts = extraCharts
     }
 
-    enum CodingKeys: String, CodingKey { case title, rows, inlineChart }
+    enum CodingKeys: String, CodingKey { case title, rows, inlineChart, extraCharts }
 
-    /// Backward-compatible decoder — `rows` defaults to `[]` and
-    /// `inlineChart` to `nil` so a freshly-seeded (or Phase-1) body decodes
-    /// cleanly.
+    /// Backward-compatible decoder — `rows` defaults to `[]`, `inlineChart`
+    /// to `nil`, and `extraCharts` to `[]` so a freshly-seeded (or Phase-1)
+    /// body decodes cleanly.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.title = try c.decode(String.self, forKey: .title)
         self.rows = try c.decodeIfPresent([CalcRow].self, forKey: .rows) ?? []
         self.inlineChart = try c.decodeIfPresent(ChartData.self, forKey: .inlineChart)
+        self.extraCharts = try c.decodeIfPresent([ChartData].self, forKey: .extraCharts) ?? []
     }
 }
 

@@ -47,7 +47,10 @@ rows by `key`, never by display `name`, so renames never break them):
 `CalcRowKind` (tagged codec), `CalcControl` (tagged codec),
 `AggregateSpec`, `LinkedFieldSpec`, `CalcReduce`. Phase 2 (#22) adds
 `inlineChart: ChartData?` — the `decodeIfPresent` decoders mean that lands
-without a migration.
+without a migration. `extraCharts: [ChartData]` stacks further charts below
+`inlineChart` (seed-declared; the `embedComponent` tool only ever touches
+`inlineChart`) — e.g. the Home Buying example pairs the live monthly-cost bar
+chart with a per-house cumulative-cost line chart.
 
 ## Engines (pure, store-free)
 

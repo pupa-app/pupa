@@ -17,6 +17,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   workspace: a kanban of candidate houses driving a live mortgage model with an
   embedded bar chart comparing total monthly cost across houses. Deleting a
   house clears its ref from the calculator (cascade). (`PupaApp` `0.0.99`)
+- **A calculator can stack extra charts** below its embedded chart via
+  `CalculatorData.extraCharts` (seed-declared; `embedComponent` still only
+  touches `inlineChart`). The Home Buying model uses it for a per-house
+  **cumulative cost over 30 years** line chart under the monthly-cost
+  histogram — one line each, P&I stopping at each house's payoff. Seed-static
+  (illustrative), unlike the live bar chart. (`PupaApp` `0.0.101`)
 
 ### Changed
 
