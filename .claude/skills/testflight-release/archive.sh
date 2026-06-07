@@ -15,16 +15,24 @@ SCHEME="PupaHost"
 PROJECT="PupaHost/PupaHost.xcodeproj"
 ARCHIVE="build/Pupa.xcarchive"
 
+# Release git flow: bump lands on $DEV_BRANCH, then $MAIN_BRANCH is
+# fast-forwarded from it, so the branches stay aligned (no post-hoc realign).
+DEV_BRANCH="${DEV_BRANCH:-dev}"
+MAIN_BRANCH="${MAIN_BRANCH:-main}"
+
 # --- arg parsing ----------------------------------------------------------
 BUILD_OVERRIDE=""
 NO_BUMP=0
 SKIP_ICON=0
+NO_FLOW=0
 usage() {
   cat <<EOF
-usage: $0 [--build N] [--no-bump] [--skip-icon-check]
+usage: $0 [--build N] [--no-bump] [--skip-icon-check] [--no-flow]
   --build N            Set CURRENT_PROJECT_VERSION to N (default: current + 1)
   --no-bump            Don't change the build number
   --skip-icon-check    Skip alpha-channel check on icon_1024.png
+  --no-flow            Bump + archive the current branch in place; skip the
+                       $DEV_BRANCH→$MAIN_BRANCH fast-forward (local validation builds)
 EOF
 }
 while [[ $# -gt 0 ]]; do
@@ -32,6 +40,7 @@ while [[ $# -gt 0 ]]; do
     --build) BUILD_OVERRIDE="${2:-}"; shift 2;;
     --no-bump) NO_BUMP=1; shift;;
     --skip-icon-check) SKIP_ICON=1; shift;;
+    --no-flow) NO_FLOW=1; shift;;
     -h|--help) usage; exit 0;;
     *) echo "unknown flag: $1" >&2; usage >&2; exit 2;;
   esac
@@ -52,6 +61,22 @@ if [[ -n "$DIRTY" ]]; then
   echo "Working tree has uncommitted changes besides pbxproj:" >&2
   echo "$DIRTY" >&2
   die "Commit or stash these before archiving."
+fi
+
+# --- release flow: move to dev so the bump lands there first --------------
+# The build bump is committed on $DEV_BRANCH, then $MAIN_BRANCH is
+# fast-forwarded from it after the commit (see below). This keeps both
+# branches pointing at the same SHA — no need to realign main→dev afterward.
+START_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+if [[ $NO_FLOW -eq 0 ]]; then
+  git rev-parse --verify --quiet "$DEV_BRANCH" >/dev/null \
+    || die "Branch '$DEV_BRANCH' not found (use --no-flow to bump+archive the current branch)."
+  git rev-parse --verify --quiet "$MAIN_BRANCH" >/dev/null \
+    || die "Branch '$MAIN_BRANCH' not found (use --no-flow to bump+archive the current branch)."
+  if [[ "$START_BRANCH" != "$DEV_BRANCH" ]]; then
+    git checkout "$DEV_BRANCH" >/dev/null 2>&1 || die "Could not checkout '$DEV_BRANCH'."
+    note "switched to '$DEV_BRANCH' to land the build bump"
+  fi
 fi
 
 # --- icon alpha check -----------------------------------------------------
@@ -102,8 +127,31 @@ if [[ "$CURRENT_MV" != "$TARGET_MV" ]]; then
 fi
 
 if [[ "$NEW_BUILD" != "$CURRENT_BUILD" ]]; then
-  sed -i '' "s/CURRENT_PROJECT_VERSION = ${CURRENT_BUILD};/CURRENT_PROJECT_VERSION = ${NEW_BUILD};/g" "$PBXPROJ"
-  note "bumped CURRENT_PROJECT_VERSION ${CURRENT_BUILD} → ${NEW_BUILD}"
+  # Bump CURRENT_PROJECT_VERSION only inside app-target buildSettings blocks
+  # (those carrying the app MARKETING_VERSION). A global sed would also hit
+  # the test targets — which share the default value 1 — and the doc promises
+  # they stay at 1. Buffer each buildSettings block; the build line precedes
+  # MARKETING_VERSION within it, so we can only rewrite once the block is known
+  # to be the app's.
+  awk -v mv="$TARGET_MV" -v old="$CURRENT_BUILD" -v new="$NEW_BUILD" '
+    /buildSettings = \{/ { inblk=1; isapp=0; n=0; buf[n++]=$0; next }
+    inblk {
+      buf[n++]=$0
+      if (index($0, "MARKETING_VERSION = " mv ";")) isapp=1
+      if ($0 ~ /^[[:space:]]*\};[[:space:]]*$/) {
+        for (i=0;i<n;i++) {
+          line=buf[i]
+          if (isapp && index(line, "CURRENT_PROJECT_VERSION = " old ";"))
+            sub("CURRENT_PROJECT_VERSION = " old ";", "CURRENT_PROJECT_VERSION = " new ";", line)
+          print line
+        }
+        inblk=0
+      }
+      next
+    }
+    { print }
+  ' "$PBXPROJ" > "${PBXPROJ}.tmp" && mv "${PBXPROJ}.tmp" "$PBXPROJ"
+  note "bumped CURRENT_PROJECT_VERSION ${CURRENT_BUILD} → ${NEW_BUILD} (app target only)"
   NEEDS_COMMIT=1
 fi
 
@@ -112,6 +160,16 @@ if [[ $NEEDS_COMMIT -eq 1 ]]; then
   git add "$PBXPROJ"
   git commit -m "$(printf 'chore(ios): bump build to %s\n\nAI generated' "$NEW_BUILD")" >/dev/null
   note "committed pbxproj changes on '${BRANCH}' (not pushed)"
+fi
+
+# --- fast-forward main from dev, then archive on main ---------------------
+# Done unconditionally (even when nothing was committed) so an already-bumped
+# dev still advances main. --ff-only refuses if the branches diverged.
+if [[ $NO_FLOW -eq 0 ]]; then
+  git checkout "$MAIN_BRANCH" >/dev/null 2>&1 || die "Could not checkout '$MAIN_BRANCH'."
+  git merge --ff-only "$DEV_BRANCH" >/dev/null 2>&1 \
+    || die "Cannot fast-forward $MAIN_BRANCH from $DEV_BRANCH — they have diverged. Resolve manually, then re-run."
+  note "fast-forwarded $MAIN_BRANCH from $DEV_BRANCH (push both with: git push origin $DEV_BRANCH $MAIN_BRANCH)"
 fi
 
 # --- archive --------------------------------------------------------------
@@ -134,13 +192,18 @@ A_VERSION=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleSho
 A_BUILD=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleVersion" "$ARCHIVE/Info.plist")
 A_BUNDLE=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleIdentifier" "$ARCHIVE/Info.plist")
 
+PUSH_HINT=""
+[[ $NO_FLOW -eq 0 ]] && PUSH_HINT="
+  Branches: $DEV_BRANCH and $MAIN_BRANCH aligned locally — push both:
+            git push origin $DEV_BRANCH $MAIN_BRANCH"
+
 cat <<EOF
 
 ARCHIVE READY
   Path:    $ARCHIVE
   Version: $A_VERSION
   Build:   $A_BUILD
-  Bundle:  $A_BUNDLE
+  Bundle:  $A_BUNDLE$PUSH_HINT
 
 Next step: Open Xcode → Window → Organizer (⌥⇧⌘O), select this archive, click Distribute App → App Store Connect → Upload.
 EOF
