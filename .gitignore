@@ -27,3 +27,7 @@ PupaHost/Local.xcconfig
 .claude/*
 !.claude/skills/
 *.swp
+
+skills-lock.json
+.agents
+.claude/skills/app-store-review
