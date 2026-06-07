@@ -169,7 +169,7 @@ public struct OnboardingFlowView: View {
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
-        .tint(.orchestratorColor)
+        .tint(.brandColor)
     }
 
     // MARK: - Pairing sheet (reuses production BackendEditSheet)
