@@ -302,52 +302,71 @@ struct ItemSheet: View {
         onClose()
     }
 
+    /// Each row reads as key → value: the field name is a persistent leading
+    /// label (`LabeledContent` / a caption header) so the row stays legible
+    /// once filled — a bare placeholder vanishes the moment a value lands.
     @ViewBuilder
     private func sheetField(for field: FieldDef) -> some View {
         let binding = Binding<String>(
             get: { draft[field.name] ?? "" },
             set: { draft[field.name] = $0 }
         )
+        let key = field.label ?? field.name
         switch field.type {
         case .select:
             if let options = field.options {
-                Picker(field.label ?? field.name, selection: binding) {
+                Picker(key, selection: binding) {
                     Text("—").tag("")
                     ForEach(options, id: \.self) { Text($0).tag($0) }
                 }
             }
         case .number:
-            TextField(field.label ?? field.name, text: binding)
-                #if os(iOS)
-                .keyboardType(.decimalPad)
-                #endif
+            LabeledContent(key) {
+                TextField("", text: binding)
+                    .multilineTextAlignment(.trailing)
+                    #if os(iOS)
+                    .keyboardType(.decimalPad)
+                    #endif
+            }
         case .text:
-            HStack(alignment: .top, spacing: 6) {
-                TextField(field.label ?? field.name, text: binding, axis: .vertical)
-                    .lineLimit(1...)
-                NavigationLink {
-                    TextDetailEditor(title: field.label ?? field.name, text: binding)
-                } label: {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(key)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    Spacer()
+                    NavigationLink {
+                        TextDetailEditor(title: key, text: binding)
+                    } label: {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Open larger editor")
                 }
-                .buttonStyle(.borderless)
-                .help("Open larger editor")
+                TextField(key, text: binding, axis: .vertical)
+                    .lineLimit(1...)
             }
         case .image:
-            TextField(field.label ?? field.name, text: binding, prompt: Text("URL or emoji"))
-                #if os(iOS)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled(true)
-                #endif
+            LabeledContent(key) {
+                TextField("", text: binding, prompt: Text("URL or emoji"))
+                    .multilineTextAlignment(.trailing)
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled(true)
+                    #endif
+            }
         case .link:
-            TextField(field.label ?? field.name, text: binding, prompt: Text("https://…"))
-                #if os(iOS)
-                .keyboardType(.URL)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled(true)
-                #endif
+            LabeledContent(key) {
+                TextField("", text: binding, prompt: Text("https://…"))
+                    .multilineTextAlignment(.trailing)
+                    #if os(iOS)
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled(true)
+                    #endif
+            }
         }
     }
 }

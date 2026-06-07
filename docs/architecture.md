@@ -132,7 +132,10 @@ All canvas / item mutation goes through **`MyAppStore`**
 `mutate(myAppId:byComponentId:_:)` (explicit component). Views never
 mutate state directly; they read it and call store methods or registered
 tools. Every mutation records a typed inverse in `ItemEventLog` so
-`undo(eventId:)` can reverse it.
+`undo(eventId:)` can reverse it. This log is surfaced both via the
+sidebar's per-MyApp **History** sheet and a **History** panel on the
+MyApp landing page (`MyAppHomeView`, below Memories) — recent events
+inline, "View all" opening the same sheet.
 
 ## Shapes
 
@@ -146,18 +149,21 @@ Full recipe in
 [docs/adding-a-component.md](adding-a-component.md).
 
 The **calculator** shape is a live numeric model: tunable variable rows,
-tracker-aggregate rows (sum/avg/min/max/count with a category filter), and
-formula rows over other rows' stable keys. Results recompute every render
-via three pure engines (expression evaluator, tracker reducer, resolver) —
-see [docs/components/calculator.md](components/calculator.md).
+tracker-aggregate rows (sum/avg/min/max/count with a category filter),
+`linkedField` rows (one field off a single linked tracker item — swap the
+item to re-run the model), and formula rows over other rows' stable keys.
+Results recompute every render via three pure engines (expression evaluator,
+tracker reducer, resolver) — see
+[docs/components/calculator.md](components/calculator.md).
 
 The **chart** shape plots pie/bar/line with one or more overlaid `series`
 (each a `ChartSeriesSource`: a tracker field grouped + reduced via
 `TrackerAggregator.series`, a list of calculator rows, a calculator `.list`
 array, or inline points), resolved live by `ChartResolver` to `[ChartSeries]`
 with a distinct colour per series. The view (`ChartView(series:kind:)`) is
-store-free so it embeds inside a calculator (`CalculatorData.inlineChart`), or
-stands alone — see [docs/components/chart.md](components/chart.md). It also
+store-free so it embeds inside a calculator (`CalculatorData.inlineChart`, plus
+`extraCharts` for further charts stacked below), or stands alone — see
+[docs/components/chart.md](components/chart.md). It also
 embeds **inline in chat**: `embedComponent` (hostKind "chat") resolves a chart
 to `[ChartSeries]` *now* and posts a frozen `ChatChartSnapshot` as its own
 assistant bubble. The snapshot rides in the tool result, so it both renders

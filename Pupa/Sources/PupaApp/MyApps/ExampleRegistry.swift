@@ -38,6 +38,7 @@ public enum ExampleRegistry {
         ContentStudioExample.self,
         DevWorkspaceExample.self,
         FashionCompanionExample.self,
+        HomeBuyingExample.self,
     ]
 
     /// Write every example's AGENTS.md files. Called once at app launch so

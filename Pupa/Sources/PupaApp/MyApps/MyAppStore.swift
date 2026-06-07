@@ -1168,6 +1168,31 @@ public final class MyAppStore {
             myApps[mIdx].components[cIdx].body.mapLinkedItems { refs in
                 refs.removeAll(where: { $0.componentId == componentId && $0.itemId == itemId })
             }
+            // Calculator rows hold refs in their specs (not the `linkedItems`
+            // graph), so sweep them separately: clear a matching `linkedField`
+            // ref and drop the deleted item from any `linkedCompare` set.
+            if case .calculator(var c) = myApps[mIdx].components[cIdx].body {
+                var changed = false
+                for rIdx in c.rows.indices {
+                    switch c.rows[rIdx].kind {
+                    case .linkedField(var spec):
+                        if spec.ref?.componentId == componentId, spec.ref?.itemId == itemId {
+                            spec.ref = nil
+                            c.rows[rIdx].kind = .linkedField(spec)
+                            changed = true
+                        }
+                    case .list(.linkedCompare(let refs, let targetKey, let linkedRowKey)):
+                        let filtered = refs.filter { !($0.componentId == componentId && $0.itemId == itemId) }
+                        if filtered.count != refs.count {
+                            c.rows[rIdx].kind = .list(.linkedCompare(refs: filtered, targetKey: targetKey, linkedRowKey: linkedRowKey))
+                            changed = true
+                        }
+                    default:
+                        break
+                    }
+                }
+                if changed { myApps[mIdx].components[cIdx].body = .calculator(c) }
+            }
             if myApps[mIdx].components[cIdx].body != before { dirty = true }
         }
         if dirty { persist() }
@@ -1519,6 +1544,43 @@ public final class MyAppStore {
             mutate(myAppId, kind: "calculator", body)
         }
         return ok
+    }
+
+    /// Set (or clear) the linked tracker item a `linkedField` row pulls from.
+    /// This is the "swap the house" mutator — backing both the row's link pill
+    /// and the `setCalcRowLink` tool. No-op (no event) if the row isn't a
+    /// `linkedField` or the ref is unchanged. `ref == nil` clears the link
+    /// (the row then resolves to `brokenRef`).
+    @discardableResult
+    public func setCalcRowLinkedRef(
+        key: String,
+        ref: ComponentItemRef?,
+        myAppId: UUID? = nil,
+        componentId: String? = nil,
+        actor: ItemEventActor = .user
+    ) -> Bool {
+        let compId = componentId ?? calculatorComponentId(myAppId: myAppId)
+        var patchedId: UUID?
+        let body: (inout CanvasApp) -> Bool = { canvas in
+            guard case .calculator(var c) = canvas,
+                  let idx = c.rows.firstIndex(where: { $0.key == key }),
+                  case .linkedField(var spec) = c.rows[idx].kind,
+                  spec.ref != ref else { return false }
+            spec.ref = ref
+            c.rows[idx].kind = .linkedField(spec)
+            patchedId = c.rows[idx].id
+            canvas = .calculator(c)
+            return true
+        }
+        if let componentId {
+            mutate(myAppId: myAppId, byComponentId: componentId, body)
+        } else {
+            mutate(myAppId, kind: "calculator", body)
+        }
+        if let patchedId, let compId {
+            emitItemEvent(myAppId: myAppId, componentId: compId, kind: .patched, actor: actor, itemId: patchedId)
+        }
+        return patchedId != nil
     }
 
     /// Internal: id of the first calculator component in `myAppId` (or the

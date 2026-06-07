@@ -86,6 +86,8 @@ public enum CalculatorResolver {
                 byKey[row.key] = RowResult(value: value, status: .ok)
             case .aggregate(let spec):
                 byKey[row.key] = resolveAggregate(spec, components: components)
+            case .linkedField(let spec):
+                byKey[row.key] = resolveLinkedField(spec, components: components)
             case .formula, .list, .header:
                 break  // formulas in pass 2, lists in pass 3, headers skipped
             }
@@ -256,7 +258,66 @@ public enum CalculatorResolver {
                 points.append(ChartPoint(label: label, x: TrackerAggregator.parseXAxis(label), y: y))
             }
             return RowResult(value: nil, status: .ok, list: points)
+
+        case .linkedCompare(let refs, let targetKey, let linkedRowKey):
+            // The anchor row identifies WHICH ref a house is currently bound to;
+            // every linkedField row sharing that ref follows the compared house
+            // (a house has many fields — price, rate, term — and they must all
+            // move together for the target metric to be coherent).
+            guard let anchorIdx = data.rows.firstIndex(where: { $0.key == linkedRowKey }),
+                  case .linkedField(let anchorSpec) = data.rows[anchorIdx].kind,
+                  data.rows.contains(where: { $0.key == targetKey }) else {
+                return RowResult(value: nil, status: .brokenRef)
+            }
+            let baseRef = anchorSpec.ref
+            var points: [ChartPoint] = []
+            for ref in refs {
+                var swapped = data
+                for i in swapped.rows.indices {
+                    if case .linkedField(var s) = swapped.rows[i].kind, s.ref == baseRef {
+                        s.ref = ref
+                        swapped.rows[i].kind = .linkedField(s)
+                    }
+                }
+                // computeLists:false so this never re-enters list work — no
+                // recursion through linkedCompare.
+                let r = resolve(swapped, components: components, computeLists: false)
+                guard let y = r.result(forKey: targetKey)?.value, y.isFinite else { continue }
+                points.append(ChartPoint(label: linkedItemLabel(ref, components: components), y: y))
+            }
+            return RowResult(value: nil, status: .ok, list: points)
         }
+    }
+
+    /// Display name for a linked tracker item, resolved store-free from the
+    /// component pool (keeps the resolver pure). Falls back to the raw item id.
+    private static func linkedItemLabel(_ ref: ComponentItemRef, components: [Component]) -> String {
+        guard let component = components.first(where: { $0.id == ref.componentId }),
+              case .tracker(let tracker) = component.body,
+              let item = tracker.items.first(where: { $0.id == ref.itemId }) else {
+            return "–"
+        }
+        return item.displayName
+    }
+
+    // MARK: - Linked-field resolution
+
+    /// Resolve a `linkedField` row: pull `fieldName` off the linked tracker
+    /// item and parse it as a number. nil ref or a missing item → `brokenRef`;
+    /// a present-but-unparseable field → `nonNumeric`.
+    private static func resolveLinkedField(_ spec: LinkedFieldSpec, components: [Component]) -> RowResult {
+        guard let ref = spec.ref else {
+            return RowResult(value: nil, status: .brokenRef)
+        }
+        guard let component = components.first(where: { $0.id == ref.componentId }),
+              case .tracker(let tracker) = component.body,
+              let item = tracker.items.first(where: { $0.id == ref.itemId }) else {
+            return RowResult(value: nil, status: .brokenRef)
+        }
+        guard let value = TrackerAggregator.parseNumber(item.values[spec.fieldName]) else {
+            return RowResult(value: nil, status: .nonNumeric)
+        }
+        return RowResult(value: value, status: .ok)
     }
 
     /// Compact label for a swept numeric value (trailing zeros trimmed).

@@ -3,6 +3,41 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.11] — 2026-06-07
+
+### Added
+
+- **Linked-field calculator rows + Home Buying example** (#35): a new calculator
+  row kind `linkedField` pulls one numeric field off a single linked tracker
+  item — swap the linked item (the row's link pill, or the new `setCalcRowLink`
+  tool) to re-run the whole model against a different row. A new `list`
+  sub-type `linkedCompare` compares a *set* of linked items on a target row
+  (swapping every linkedField row that shares the anchor ref per item) and
+  plots one point each — the seam for the new **Example: Home Buying**
+  workspace: a kanban of candidate houses driving a live mortgage model with an
+  embedded bar chart comparing total monthly cost across houses. Deleting a
+  house clears its ref from the calculator (cascade). (`PupaApp` `0.0.99`)
+- **A calculator can stack extra charts** below its embedded chart via
+  `CalculatorData.extraCharts` (seed-declared; `embedComponent` still only
+  touches `inlineChart`). The Home Buying model uses it for a per-house
+  **cumulative cost over 30 years** line chart under the monthly-cost
+  histogram — one line each, P&I stopping at each house's payoff. Seed-static
+  (illustrative), unlike the live bar chart. (`PupaApp` `0.0.101`)
+
+### Changed
+
+- The orchestrator's accent color is now a dark neutral grey (was purple) so it
+  reads as the "meta" agent without competing with per-MyApp colors.
+- **Edit-item sheet reads as key → value**: each field now keeps a persistent
+  leading label (`LabeledContent` / a caption header for multiline text) instead
+  of a placeholder that vanished once a value was typed — the row stays legible
+  when filled. (`PupaApp` `0.0.100`)
+- The MyApp landing page (`MyAppHomeView`) gains a **History** panel below
+  Memories: up to three newest `ItemEventLog` events inline, "View all" opening
+  the full Change History sheet (with per-row undo). The onboarding "It
+  remembers" slide now names both memories and change history. (`PupaApp`
+  `0.0.100`)
+
 ## [0.0.10] — 2026-06-06
 
 ### Added

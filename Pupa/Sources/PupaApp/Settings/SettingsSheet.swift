@@ -33,7 +33,6 @@ public struct SettingsSheet: View {
     /// that one step. Both render sites read this one shared store.
     @State private var tour = GuidedTourStore.shared
 
-    @State private var selectedExampleName: String = ExampleRegistry.all.first?.name ?? ""
     /// Navigation path for the category list. Bound so the guided tour can
     /// deep-link straight to a page (its Settings step lands on Backend).
     @State private var path: [SettingsCategory] = []
@@ -412,35 +411,34 @@ public struct SettingsSheet: View {
     @ViewBuilder
     private var examplesSection: some View {
         Section {
-            Picker("Example", selection: $selectedExampleName) {
-                ForEach(ExampleRegistry.all.indices, id: \.self) { i in
-                    let example = ExampleRegistry.all[i]
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(example.name)
-                        Text(example.tagline)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .tag(example.name)
-                }
+            ForEach(ExampleRegistry.all.indices, id: \.self) { i in
+                exampleRow(ExampleRegistry.all[i])
             }
-            #if os(iOS)
-            .pickerStyle(.navigationLink)
-            #else
-            .pickerStyle(.menu)
-            #endif
-            Button("Restore selected example") {
-                if let example = ExampleRegistry.example(named: selectedExampleName) {
-                    onRestoreExample?(example)
-                }
-            }
-            .buttonStyle(.borderless)
         } header: {
             Text("Examples")
         } footer: {
-            Text("Adds the selected example workspace to the sidebar. Idempotent — if it's already present, this just makes it the active workspace.")
+            Text("Adds an example workspace to the sidebar. Idempotent — if it's already present, this just makes it the active workspace.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func exampleRow(_ example: any ExampleMyApp.Type) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: example.iconSystemName)
+                .font(.title3)
+                .foregroundStyle(.secondary)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(example.name)
+                Text(example.tagline)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 12)
+            Button("Restore") { onRestoreExample?(example) }
+                .buttonStyle(.borderless)
         }
     }
 

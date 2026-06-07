@@ -628,6 +628,35 @@ public struct AggregateSpec: Codable, Hashable, Sendable {
     }
 }
 
+/// Spec for a `linkedField` calc row: extract `fieldName` from a single
+/// linked tracker item (`ref`) and parse it as a number. `ref == nil` means
+/// "not linked yet" — the row resolves to `brokenRef`. Unlike `aggregate`
+/// (which folds every matching item), this row tracks ONE item, so swapping
+/// `ref` (via the link pill or `setCalcRowLink`) re-runs the whole model
+/// against a different source row — the "pick a house, the mortgage updates"
+/// seam. The ref lives in the spec (like `AggregateSpec.sourceComponentId`),
+/// NOT in the universal `linkedItems` graph, because a calc row is not a
+/// link-bearing item kind. `CalculatorResolver` does the lookup + parse.
+public struct LinkedFieldSpec: Codable, Hashable, Sendable {
+    public var ref: ComponentItemRef?
+    public var fieldName: String
+
+    public init(ref: ComponentItemRef? = nil, fieldName: String) {
+        self.ref = ref
+        self.fieldName = fieldName
+    }
+
+    enum CodingKeys: String, CodingKey { case ref, fieldName }
+
+    /// Backward-compatible decoder — `ref` optional, `fieldName` defaults to
+    /// empty so a partial blob still decodes.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.ref = try c.decodeIfPresent(ComponentItemRef.self, forKey: .ref)
+        self.fieldName = try c.decodeIfPresent(String.self, forKey: .fieldName) ?? ""
+    }
+}
+
 /// How a `variable` calc row surfaces its tuning affordance in the
 /// calculator UI. `plain` is a free numeric text field; `stepper` adds
 /// −/+ buttons stepping by `step`; `slider` is a bounded drag between
@@ -689,14 +718,21 @@ public enum CalcControl: Codable, Hashable, Sendable {
 /// - `trackerColumn` pulls a raw per-item column off a tracker as an ordered
 ///   array: `valueField` → y, optional `labelField` → label (else the row
 ///   index), `filter` isolates a subset.
+/// - `linkedCompare` compares a SET of linked tracker items on a computed
+///   metric: for each ref, swap every `linkedField` row that shares the
+///   anchor row's (`linkedRowKey`) ref to that item, re-resolve, and read
+///   `targetKey` → one point per item (label = item display name, y =
+///   metric). This is the "compare the houses you picked on monthly payment"
+///   row; the embedded chart plots it via a `calculatorList` source.
 public enum CalcListSpec: Codable, Hashable, Sendable {
     case sweep(variableKey: String, from: Double, to: Double, step: Double, targetKey: String)
     case trackerColumn(sourceComponentId: String, valueField: String, labelField: String?, filter: [String: String])
+    case linkedCompare(refs: [ComponentItemRef], targetKey: String, linkedRowKey: String)
 
     enum CodingKeys: String, CodingKey {
-        case type, variableKey, from, to, step, targetKey, sourceComponentId, valueField, labelField, filter
+        case type, variableKey, from, to, step, targetKey, sourceComponentId, valueField, labelField, filter, refs, linkedRowKey
     }
-    enum Kind: String, Codable { case sweep, trackerColumn }
+    enum Kind: String, Codable { case sweep, trackerColumn, linkedCompare }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -717,6 +753,12 @@ public enum CalcListSpec: Codable, Hashable, Sendable {
                 labelField: try c.decodeIfPresent(String.self, forKey: .labelField),
                 filter: try c.decodeIfPresent([String: String].self, forKey: .filter) ?? [:]
             )
+        case .linkedCompare:
+            self = .linkedCompare(
+                refs: try c.decodeIfPresent([ComponentItemRef].self, forKey: .refs) ?? [],
+                targetKey: try c.decodeIfPresent(String.self, forKey: .targetKey) ?? "",
+                linkedRowKey: try c.decodeIfPresent(String.self, forKey: .linkedRowKey) ?? ""
+            )
         }
     }
 
@@ -736,6 +778,11 @@ public enum CalcListSpec: Codable, Hashable, Sendable {
             try c.encode(valueField, forKey: .valueField)
             try c.encodeIfPresent(labelField, forKey: .labelField)
             try c.encode(filter, forKey: .filter)
+        case .linkedCompare(let refs, let targetKey, let linkedRowKey):
+            try c.encode(Kind.linkedCompare, forKey: .type)
+            try c.encode(refs, forKey: .refs)
+            try c.encode(targetKey, forKey: .targetKey)
+            try c.encode(linkedRowKey, forKey: .linkedRowKey)
         }
     }
 }
@@ -756,10 +803,13 @@ public enum CalcRowKind: Codable, Hashable, Sendable {
     case aggregate(AggregateSpec)
     case formula(expression: String)
     case list(CalcListSpec)
+    /// Pulls one numeric field off a single linked tracker item; swap the
+    /// linked item to re-run the model against a different source row.
+    case linkedField(LinkedFieldSpec)
     case header
 
-    enum CodingKeys: String, CodingKey { case type, value, control, aggregate, expression, list }
-    enum Kind: String, Codable { case variable, aggregate, formula, list, header }
+    enum CodingKeys: String, CodingKey { case type, value, control, aggregate, expression, list, linkedField }
+    enum Kind: String, Codable { case variable, aggregate, formula, list, linkedField, header }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -778,6 +828,9 @@ public enum CalcRowKind: Codable, Hashable, Sendable {
         case .list:
             let spec = try c.decode(CalcListSpec.self, forKey: .list)
             self = .list(spec)
+        case .linkedField:
+            let spec = try c.decode(LinkedFieldSpec.self, forKey: .linkedField)
+            self = .linkedField(spec)
         case .header:
             self = .header
         }
@@ -799,6 +852,9 @@ public enum CalcRowKind: Codable, Hashable, Sendable {
         case .list(let spec):
             try c.encode(Kind.list, forKey: .type)
             try c.encode(spec, forKey: .list)
+        case .linkedField(let spec):
+            try c.encode(Kind.linkedField, forKey: .type)
+            try c.encode(spec, forKey: .linkedField)
         case .header:
             try c.encode(Kind.header, forKey: .type)
         }
@@ -865,23 +921,31 @@ public struct CalculatorData: Codable, Hashable, Sendable {
     /// no embedded chart; `decodeIfPresent` means Phase-1 blobs decode
     /// untouched.
     public var inlineChart: ChartData?
+    /// Extra charts stacked below `inlineChart` (seed-declared; the
+    /// `embedComponent` tool only ever touches `inlineChart`). Lets an
+    /// example pair a live comparison chart with a second view of the same
+    /// model — e.g. a per-house cost-over-time line plot under the histogram.
+    /// `decodeIfPresent` → older blobs decode to `[]`.
+    public var extraCharts: [ChartData]
 
-    public init(title: String, rows: [CalcRow] = [], inlineChart: ChartData? = nil) {
+    public init(title: String, rows: [CalcRow] = [], inlineChart: ChartData? = nil, extraCharts: [ChartData] = []) {
         self.title = title
         self.rows = rows
         self.inlineChart = inlineChart
+        self.extraCharts = extraCharts
     }
 
-    enum CodingKeys: String, CodingKey { case title, rows, inlineChart }
+    enum CodingKeys: String, CodingKey { case title, rows, inlineChart, extraCharts }
 
-    /// Backward-compatible decoder — `rows` defaults to `[]` and
-    /// `inlineChart` to `nil` so a freshly-seeded (or Phase-1) body decodes
-    /// cleanly.
+    /// Backward-compatible decoder — `rows` defaults to `[]`, `inlineChart`
+    /// to `nil`, and `extraCharts` to `[]` so a freshly-seeded (or Phase-1)
+    /// body decodes cleanly.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.title = try c.decode(String.self, forKey: .title)
         self.rows = try c.decodeIfPresent([CalcRow].self, forKey: .rows) ?? []
         self.inlineChart = try c.decodeIfPresent(ChartData.self, forKey: .inlineChart)
+        self.extraCharts = try c.decodeIfPresent([ChartData].self, forKey: .extraCharts) ?? []
     }
 }
 

@@ -41,7 +41,7 @@ enum OnboardingContent {
         OnboardingSlideContent(
             art: .memory,
             title: "It remembers",
-            subtitle: "Pupa keeps notes on your goals and preferences, getting sharper every session."
+            subtitle: "Pupa keeps memories of your goals and preferences, plus a full history of every change — so nothing gets lost and every undo is one tap away."
         ),
     ]
 }

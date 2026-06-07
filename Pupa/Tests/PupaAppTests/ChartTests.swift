@@ -68,6 +68,56 @@ struct ChartTests {
         #expect(c2.inlineChart?.series.count == 1)
     }
 
+    @Test("extraCharts round-trip; a blob without the key decodes to []")
+    func calculatorExtraChartsCompat() throws {
+        let noKey = """
+        { "kind": "calculator", "data": { "title": "C", "rows": [] } }
+        """.data(using: .utf8)!
+        guard case .calculator(let c1) = try JSONDecoder().decode(CanvasApp.self, from: noKey) else {
+            Issue.record("expected calculator"); return
+        }
+        #expect(c1.extraCharts.isEmpty)
+
+        let withExtras = CalculatorData(
+            title: "C", rows: [],
+            inlineChart: ChartData(title: "Bar", kind: .bar, source: .inline(points: [ChartPoint(label: "a", y: 1)])),
+            extraCharts: [ChartData(title: "Line", kind: .line, source: .inline(points: [ChartPoint(label: "1", x: 1, y: 2)]))]
+        )
+        let blob = try JSONEncoder().encode(CanvasApp.calculator(withExtras))
+        guard case .calculator(let c2) = try JSONDecoder().decode(CanvasApp.self, from: blob) else {
+            Issue.record("expected calculator"); return
+        }
+        #expect(c2.inlineChart?.title == "Bar")
+        #expect(c2.extraCharts.count == 1)
+        #expect(c2.extraCharts.first?.kind == .line)
+    }
+
+    @Test("Home Buying seeds a live bar chart + a per-house cumulative-cost line chart")
+    func homeBuyingCumulativeChart() throws {
+        let app = HomeBuyingExample.make()
+        guard case .calculator(let calc) = app.components.first(where: { $0.id == "calculator-1" })?.body else {
+            Issue.record("expected calculator-1"); return
+        }
+        #expect(calc.inlineChart?.kind == .bar)
+        #expect(calc.extraCharts.count == 1)
+
+        let line = try #require(calc.extraCharts.first)
+        #expect(line.kind == .line)
+        #expect(line.series.count == 4)   // one inline series per house
+
+        // Each house's outlay accumulates: 30 points, strictly increasing,
+        // carrying a numeric x so the chart plots a continuous year axis.
+        for spec in line.series {
+            guard case .inline(let points) = spec.source else {
+                Issue.record("expected inline series"); continue
+            }
+            #expect(points.count == 30)
+            #expect(points.allSatisfy { $0.x != nil })
+            let ys = points.map(\.y)
+            #expect(zip(ys, ys.dropFirst()).allSatisfy { $0 < $1 })
+        }
+    }
+
     // MARK: - Resolver
 
     @Test("tracker source groups + reduces into one point per bucket")

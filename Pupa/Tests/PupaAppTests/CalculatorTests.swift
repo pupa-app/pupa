@@ -305,4 +305,134 @@ struct CalculatorTests {
         #expect(resolved.result(forKey: "sec_results") == nil)
         #expect(resolved.result(forKey: "result")?.value == 10)
     }
+
+    // MARK: - Linked-field rows
+
+    /// Seed a houses tracker with `price` / `rate` fields; return (storeId,
+    /// trackerComponentId, [itemIds]).
+    private func houses(_ store: MyAppStore, _ id: UUID, _ rows: [[String: String]]) -> (String, [UUID]) {
+        store.addComponent(kind: "tracker", name: "Houses", iconSystemName: "house", myAppId: id)
+        store.setTracker(title: "Houses",
+                         fields: [FieldDef(name: "name", type: .text), FieldDef(name: "price", type: .number), FieldDef(name: "rate", type: .number)],
+                         myAppId: id)
+        var ids: [UUID] = []
+        for r in rows { if let itemId = store.addItem(r, myAppId: id) { ids.append(itemId) } }
+        let trackerId = store.myApps.first(where: { $0.id == id })!.components.first(where: {
+            if case .tracker = $0.body { return true }; return false
+        })!.id
+        return (trackerId, ids)
+    }
+
+    @Test("linkedField pulls a numeric field off the linked item; a formula reads it")
+    func linkedFieldResolves() {
+        let (store, id) = freshStore()
+        let (trackerId, ids) = houses(store, id, [["name": "A", "price": "500000", "rate": "6.5"]])
+        store.addCalcRow(key: "price", name: "Price",
+                         kind: .linkedField(LinkedFieldSpec(ref: ComponentItemRef(componentId: trackerId, itemId: ids[0]), fieldName: "price")), myAppId: id)
+        store.addCalcRow(key: "half", name: "Half", kind: .formula(expression: "price / 2"), myAppId: id)
+
+        let resolved = CalculatorResolver.resolve(calc(store, id)!, components: components(store, id))
+        #expect(resolved.result(forKey: "price")?.value == 500000)
+        #expect(resolved.result(forKey: "half")?.value == 250000)
+    }
+
+    @Test("linkedField with no ref is brokenRef and poisons dependents")
+    func linkedFieldUnlinked() {
+        let (store, id) = freshStore()
+        store.addCalcRow(key: "price", name: "Price",
+                         kind: .linkedField(LinkedFieldSpec(ref: nil, fieldName: "price")), myAppId: id)
+        store.addCalcRow(key: "half", name: "Half", kind: .formula(expression: "price / 2"), myAppId: id)
+        let resolved = CalculatorResolver.resolve(calc(store, id)!, components: components(store, id))
+        #expect(resolved.result(forKey: "price")?.status == .brokenRef)
+        #expect(resolved.result(forKey: "price")?.value == nil)
+        #expect(resolved.result(forKey: "half")?.status == .brokenRef)
+    }
+
+    @Test("linkedField on a non-numeric field is nonNumeric")
+    func linkedFieldNonNumeric() {
+        let (store, id) = freshStore()
+        let (trackerId, ids) = houses(store, id, [["name": "A", "price": "500000"]])
+        store.addCalcRow(key: "label", name: "Label",
+                         kind: .linkedField(LinkedFieldSpec(ref: ComponentItemRef(componentId: trackerId, itemId: ids[0]), fieldName: "name")), myAppId: id)
+        let resolved = CalculatorResolver.resolve(calc(store, id)!, components: components(store, id))
+        #expect(resolved.result(forKey: "label")?.status == .nonNumeric)
+    }
+
+    @Test("setCalcRowLinkedRef swaps the linked item and re-runs the model")
+    func linkedFieldSwap() {
+        let (store, id) = freshStore()
+        let (trackerId, ids) = houses(store, id, [
+            ["name": "A", "price": "500000"],
+            ["name": "B", "price": "400000"],
+        ])
+        store.addCalcRow(key: "price", name: "Price",
+                         kind: .linkedField(LinkedFieldSpec(ref: ComponentItemRef(componentId: trackerId, itemId: ids[0]), fieldName: "price")), myAppId: id)
+        #expect(CalculatorResolver.resolve(calc(store, id)!, components: components(store, id)).result(forKey: "price")?.value == 500000)
+        // Swap to house B.
+        #expect(store.setCalcRowLinkedRef(key: "price", ref: ComponentItemRef(componentId: trackerId, itemId: ids[1]), myAppId: id))
+        #expect(CalculatorResolver.resolve(calc(store, id)!, components: components(store, id)).result(forKey: "price")?.value == 400000)
+    }
+
+    @Test("linkedCompare compares a set of houses on a target formula; swaps all shared-ref rows per house")
+    func linkedCompare() {
+        let (store, id) = freshStore()
+        let (trackerId, ids) = houses(store, id, [
+            ["name": "A", "price": "500000", "rate": "6"],
+            ["name": "B", "price": "400000", "rate": "6"],
+            ["name": "C", "price": "300000", "rate": "6"],
+        ])
+        func ref(_ i: Int) -> ComponentItemRef { ComponentItemRef(componentId: trackerId, itemId: ids[i]) }
+        // Two linkedField rows on the SAME (house A) ref so both follow the swap.
+        store.addCalcRow(key: "price", name: "Price", kind: .linkedField(LinkedFieldSpec(ref: ref(0), fieldName: "price")), myAppId: id)
+        store.addCalcRow(key: "rate", name: "Rate", kind: .linkedField(LinkedFieldSpec(ref: ref(0), fieldName: "rate")), myAppId: id)
+        // metric = price + rate (rate is constant 6 here, so metric tracks price).
+        store.addCalcRow(key: "metric", name: "Metric", kind: .formula(expression: "price + rate"), myAppId: id)
+        store.addCalcRow(key: "compare", name: "Compare",
+                         kind: .list(.linkedCompare(refs: [ref(0), ref(1), ref(2)], targetKey: "metric", linkedRowKey: "price")), myAppId: id)
+
+        let resolved = CalculatorResolver.resolve(calc(store, id)!, components: components(store, id))
+        let list = resolved.result(forKey: "compare")?.list
+        #expect(list?.count == 3)
+        #expect(list?.map(\.y) == [500006, 400006, 300006])
+        #expect(list?.map(\.label) == ["A", "B", "C"])
+        // Terminal list row carries no scalar value.
+        #expect(resolved.result(forKey: "compare")?.value == nil)
+    }
+
+    @Test("deleting a linked house clears the linkedField ref and shrinks the compare set")
+    func linkedFieldCascade() {
+        let (store, id) = freshStore()
+        let (trackerId, ids) = houses(store, id, [
+            ["name": "A", "price": "500000"],
+            ["name": "B", "price": "400000"],
+        ])
+        func ref(_ i: Int) -> ComponentItemRef { ComponentItemRef(componentId: trackerId, itemId: ids[i]) }
+        store.addCalcRow(key: "price", name: "Price", kind: .linkedField(LinkedFieldSpec(ref: ref(0), fieldName: "price")), myAppId: id)
+        store.addCalcRow(key: "compare", name: "Compare",
+                         kind: .list(.linkedCompare(refs: [ref(0), ref(1)], targetKey: "price", linkedRowKey: "price")), myAppId: id)
+
+        // Delete house A.
+        store.removeItem(id: ids[0], myAppId: id, componentId: trackerId)
+
+        let data = calc(store, id)!
+        if case .linkedField(let spec) = data.rows.first(where: { $0.key == "price" })!.kind {
+            #expect(spec.ref == nil)                       // cleared
+        } else { Issue.record("price row should be linkedField") }
+        if case .list(.linkedCompare(let refs, _, _)) = data.rows.first(where: { $0.key == "compare" })!.kind {
+            #expect(refs == [ref(1)])                      // A dropped, B kept
+        } else { Issue.record("compare row should be linkedCompare") }
+    }
+
+    @Test("linkedField + linkedCompare round-trip via Codable")
+    func linkedRoundTrip() throws {
+        let ref = ComponentItemRef(componentId: "tracker-1", itemId: UUID())
+        let original = CalculatorData(title: "M", rows: [
+            CalcRow(key: "price", name: "Price", kind: .linkedField(LinkedFieldSpec(ref: ref, fieldName: "price"))),
+            CalcRow(key: "cmp", name: "Cmp", kind: .list(.linkedCompare(refs: [ref], targetKey: "price", linkedRowKey: "price"))),
+        ])
+        let json = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(CalculatorData.self, from: json)
+        #expect(decoded.rows[0].kind == .linkedField(LinkedFieldSpec(ref: ref, fieldName: "price")))
+        #expect(decoded.rows[1].kind == .list(.linkedCompare(refs: [ref], targetKey: "price", linkedRowKey: "price")))
+    }
 }
