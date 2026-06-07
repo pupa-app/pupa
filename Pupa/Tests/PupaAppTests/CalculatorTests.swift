@@ -435,4 +435,69 @@ struct CalculatorTests {
         #expect(decoded.rows[0].kind == .linkedField(LinkedFieldSpec(ref: ref, fieldName: "price")))
         #expect(decoded.rows[1].kind == .list(.linkedCompare(refs: [ref], targetKey: "price", linkedRowKey: "price")))
     }
+
+    @Test("linkedSweep resolves one swept CURVE per linked ref")
+    func linkedSweepResolvesCurvePerRef() {
+        let (store, id) = freshStore()
+        let (trackerId, ids) = houses(store, id, [
+            ["name": "A", "price": "500000", "rate": "6"],
+            ["name": "B", "price": "400000", "rate": "6"],
+            ["name": "C", "price": "300000", "rate": "6"],
+        ])
+        func ref(_ i: Int) -> ComponentItemRef { ComponentItemRef(componentId: trackerId, itemId: ids[i]) }
+        // Two linked rows on house A, a sweep variable `t`, a target formula.
+        store.addCalcRow(key: "price", name: "Price", kind: .linkedField(LinkedFieldSpec(ref: ref(0), fieldName: "price")), myAppId: id)
+        store.addCalcRow(key: "rate", name: "Rate", kind: .linkedField(LinkedFieldSpec(ref: ref(0), fieldName: "rate")), myAppId: id)
+        store.addCalcRow(key: "t", name: "T", kind: .variable(value: 1, control: .plain), myAppId: id)
+        // target = price * t (so each house's curve scales with its price).
+        store.addCalcRow(key: "target", name: "Target", kind: .formula(expression: "price * t"), myAppId: id)
+        store.addCalcRow(key: "curve_by_house", name: "By house",
+                         kind: .list(.linkedSweep(refs: [ref(0), ref(1), ref(2)], linkedRowKey: "price",
+                                                  variableKey: "t", from: 1, to: 3, step: 1, targetKey: "target")), myAppId: id)
+
+        let resolved = CalculatorResolver.resolve(calc(store, id)!, components: components(store, id))
+        let series = resolved.result(forKey: "curve_by_house")?.series
+        #expect(series?.count == 3)                          // one curve per house
+        #expect(series?.allSatisfy { $0.points.count == 3 } == true)  // t = 1,2,3
+        #expect(series?.map(\.name) == ["A", "B", "C"])
+        // House A: target = 500000 * t → 500000, 1000000, 1500000.
+        #expect(series?.first?.points.map(\.y) == [500000, 1000000, 1500000])
+        // A linkedSweep row carries no scalar value and no flat `list`.
+        #expect(resolved.result(forKey: "curve_by_house")?.value == nil)
+        #expect(resolved.result(forKey: "curve_by_house")?.list == nil)
+    }
+
+    @Test("linkedSweep round-trips via Codable")
+    func linkedSweepRoundTrip() throws {
+        let ref = ComponentItemRef(componentId: "tracker-1", itemId: UUID())
+        let spec = CalcListSpec.linkedSweep(refs: [ref], linkedRowKey: "price",
+                                            variableKey: "year", from: 1, to: 30, step: 1, targetKey: "net")
+        let original = CalculatorData(title: "M", rows: [CalcRow(key: "s", name: "S", kind: .list(spec))])
+        let json = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(CalculatorData.self, from: json)
+        #expect(decoded.rows[0].kind == .list(spec))
+    }
+
+    @Test("setAllCalcRowLinks repoints every linkedField row at one item in a single call")
+    func setAllCalcRowLinks() {
+        let (store, id) = freshStore()
+        let (trackerId, ids) = houses(store, id, [
+            ["name": "A", "price": "500000"],
+            ["name": "B", "price": "400000"],
+        ])
+        func ref(_ i: Int) -> ComponentItemRef { ComponentItemRef(componentId: trackerId, itemId: ids[i]) }
+        store.addCalcRow(key: "price", name: "Price", kind: .linkedField(LinkedFieldSpec(ref: ref(0), fieldName: "price")), myAppId: id)
+        store.addCalcRow(key: "rate", name: "Rate", kind: .linkedField(LinkedFieldSpec(ref: ref(0), fieldName: "rate")), myAppId: id)
+
+        let n = store.setAllCalcRowLinks(to: ref(1), myAppId: id)
+        #expect(n == 2)                                       // both rows repointed
+        let data = calc(store, id)!
+        for key in ["price", "rate"] {
+            if case .linkedField(let s) = data.rows.first(where: { $0.key == key })!.kind {
+                #expect(s.ref == ref(1))
+            } else { Issue.record("\(key) should be linkedField") }
+        }
+        // Idempotent: a second call to the same item repoints nothing.
+        #expect(store.setAllCalcRowLinks(to: ref(1), myAppId: id) == 0)
+    }
 }

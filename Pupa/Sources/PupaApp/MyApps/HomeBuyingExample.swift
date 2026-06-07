@@ -119,7 +119,7 @@ enum HomeBuyingExample: ExampleMyApp {
             return Component(
                 id: "tracker-1",
                 name: "Candidate Houses",
-                iconSystemName: "house",
+                iconSystemName: "house.lodge",
                 body: .tracker(TrackerData(
                     title: "Candidate Houses",
                     fields: fields,
@@ -180,25 +180,27 @@ enum HomeBuyingExample: ExampleMyApp {
                 CalcRow(key: "year", name: "Projection year", unit: "yr",
                         kind: .variable(value: 15, control: .slider(min: 1, max: 30, step: 1))),
 
-                // Net cost of owning by `year`: cash out (down + P&I until the
-                // loan's paid off + carrying costs) minus the equity the home
-                // gained at `appreciation_pct`.
-                CalcRow(key: "cumulative_buy", name: "Gross outlay by year", unit: "$", format: "%.2f",
-                        kind: .formula(expression: "down_amount + min(year, term_years) * 12 * pi + year * 12 * (prop_tax_annual / 12 + hoa_monthly)")),
-                CalcRow(key: "appreciation_equity", name: "Appreciation gain", unit: "$", format: "%.2f",
-                        kind: .formula(expression: "price * ((1 + appreciation_pct / 100)^year - 1)")),
-                CalcRow(key: "cumulative_buy_net", name: "Net cost of buying", unit: "$", format: "%.2f",
-                        kind: .formula(expression: "cumulative_buy - appreciation_equity")),
-                // Renting alternative. The renter invests what they'd save vs.
-                // owning EACH MONTH (dollar-cost averaging), not a single lump —
-                // so the gain grows steadily instead of exploding, and the net
-                // cost of renting rises smoothly rather than plunging.
-                CalcRow(key: "monthly_savings", name: "Monthly saving vs. buying", unit: "$", format: "%.2f",
+                // --- Apples-to-apples wealth comparison ---
+                // Both paths deploy the SAME money: the buyer's down payment +
+                // monthly housing cost. So both curves start at the down
+                // payment and diverge only by appreciation vs. market return —
+                // the standard "rent vs. buy" net-worth comparison.
+                //
+                // OWN: net worth = home equity = home value − loan still owed.
+                CalcRow(key: "months_paid", name: "Months paid by year",
+                        kind: .formula(expression: "min(year * 12, n)")),
+                CalcRow(key: "home_value", name: "Home value by year", unit: "$", format: "%.2f",
+                        kind: .formula(expression: "price * (1 + appreciation_pct / 100)^year")),
+                CalcRow(key: "loan_balance", name: "Loan still owed", unit: "$", format: "%.2f",
+                        kind: .formula(expression: "principal * ((1 + r)^n - (1 + r)^months_paid) / ((1 + r)^n - 1)")),
+                CalcRow(key: "own_wealth", name: "Net worth if owning", unit: "$", format: "%.2f",
+                        kind: .formula(expression: "home_value - loan_balance")),
+                // RENT: net worth = invest the down payment + invest each
+                // month's surplus (owning cost − rent) at the market return.
+                CalcRow(key: "monthly_surplus", name: "Monthly surplus invested", unit: "$", format: "%.2f",
                         kind: .formula(expression: "max(monthly - rent_monthly, 0)")),
-                CalcRow(key: "invest_gain", name: "Investment gain", unit: "$", format: "%.2f",
-                        kind: .formula(expression: "monthly_savings * (((1 + invest_return_pct / 100 / 12)^(year * 12) - 1) / (invest_return_pct / 100 / 12)) - monthly_savings * year * 12")),
-                CalcRow(key: "cumulative_rent_net", name: "Net cost of renting", unit: "$", format: "%.2f",
-                        kind: .formula(expression: "rent_monthly * 12 * year - invest_gain")),
+                CalcRow(key: "rent_wealth", name: "Net worth if renting", unit: "$", format: "%.2f",
+                        kind: .formula(expression: "down_amount * (1 + invest_return_pct / 100 / 12)^(year * 12) + monthly_surplus * (((1 + invest_return_pct / 100 / 12)^(year * 12) - 1) / (invest_return_pct / 100 / 12))")),
 
                 CalcRow(key: "compare", name: "Monthly cost by house",
                         kind: .list(.linkedCompare(
@@ -206,11 +208,11 @@ enum HomeBuyingExample: ExampleMyApp {
                             targetKey: "monthly",
                             linkedRowKey: "price"
                         ))),
-                // Selected-house curves (Buy vs. Rent chart).
-                CalcRow(key: "cumulative_buy_curve", name: "Buy — net cost over time",
-                        kind: .list(.sweep(variableKey: "year", from: 1, to: 30, step: 1, targetKey: "cumulative_buy_net"))),
-                CalcRow(key: "cumulative_rent_curve", name: "Rent — net cost over time",
-                        kind: .list(.sweep(variableKey: "year", from: 1, to: 30, step: 1, targetKey: "cumulative_rent_net"))),
+                // Selected-house wealth curves (Buy vs. Rent chart).
+                CalcRow(key: "own_wealth_curve", name: "Own — net worth over time",
+                        kind: .list(.sweep(variableKey: "year", from: 1, to: 30, step: 1, targetKey: "own_wealth"))),
+                CalcRow(key: "rent_wealth_curve", name: "Rent — net worth over time",
+                        kind: .list(.sweep(variableKey: "year", from: 1, to: 30, step: 1, targetKey: "rent_wealth"))),
             ]
             let chart = ChartData(
                 title: "Monthly cost by house",
@@ -227,24 +229,26 @@ enum HomeBuyingExample: ExampleMyApp {
                     inlineChart: chart,
                     extraCharts: [buyVsRentChart()]
                 )),
-                summary: "Live mortgage model for ONE house at a time. Pick the house from the dropdown at the top of the calculator — every 'Selected house' input repoints together and the formulas re-run. The Assumptions sliders (appreciation, rent, investment return, projection year) drive a live Buy-vs-Rent projection: net cost of owning (outlay minus appreciation equity) vs. net cost of renting (rent minus the gains from investing the monthly saving). The bar chart compares all candidate houses on monthly cost. Edit a house or drag a slider and the curves redraw."
+                summary: "Live mortgage model for ONE house at a time. Pick the house from the dropdown at the top of the calculator — every 'Selected house' input repoints together and the formulas re-run. The Assumptions sliders (appreciation, rent, investment return, projection year) drive a live Buy-vs-Rent net-worth comparison: both paths deploy the same money, so owning (home equity) and renting (down payment + monthly surplus invested) start equal and diverge by appreciation vs. market return. The bar chart compares all candidate houses on monthly cost. Edit a house or drag a slider and the curves redraw."
             )
         }
 
         // MARK: Projection charts (live)
 
-        /// Buy vs. rent for the SELECTED house: net cost of owning (outlay −
-        /// appreciation) against net cost of renting (rent − the gains from
-        /// investing the monthly saving). Two live sweep curves over `year`.
+        /// Buy vs. rent for the SELECTED house, as the standard apples-to-apples
+        /// NET-WORTH comparison: owning (home value − loan owed) vs. renting
+        /// (down payment + monthly surplus invested at the market return). Both
+        /// start at the down payment, so the lines are directly comparable and
+        /// cross when one strategy overtakes the other. Two live sweep curves.
         private func buyVsRentChart() -> ChartData {
             ChartData(
-                title: "Buy vs. rent — selected house",
+                title: "Buy vs. rent — net worth over time",
                 kind: .line,
                 series: [
-                    ChartSeriesSpec(name: "Buy (net of equity)",
-                                    source: .calculatorList(componentId: "calculator-1", key: "cumulative_buy_curve")),
-                    ChartSeriesSpec(name: "Rent (net of investing)",
-                                    source: .calculatorList(componentId: "calculator-1", key: "cumulative_rent_curve")),
+                    ChartSeriesSpec(name: "Own (home equity)",
+                                    source: .calculatorList(componentId: "calculator-1", key: "own_wealth_curve")),
+                    ChartSeriesSpec(name: "Rent + invest",
+                                    source: .calculatorList(componentId: "calculator-1", key: "rent_wealth_curve")),
                 ]
             )
         }
@@ -269,10 +273,11 @@ extension HomeBuyingExample {
           together via the dropdown at the top of the calculator. The formula
           rows compute monthly P&I, total monthly cost, and total interest. The
           Assumptions sliders (appreciation, rent, investment return, projection
-          year) feed a live Buy-vs-Rent line chart for the selected house (two
-          `sweep` curves: net cost of owning vs. net cost of renting while
-          investing the monthly saving). The `compare` list row + bar chart
-          compares every house on monthly cost.
+          year) feed a live Buy-vs-Rent net-worth chart for the selected house
+          (two `sweep` curves: owning = home equity, renting = down payment +
+          monthly surplus invested — both start at the down payment so they're
+          directly comparable). The `compare` list row + bar chart compares every
+          house on monthly cost.
 
         ## How to use
 
