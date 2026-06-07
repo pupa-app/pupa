@@ -39,6 +39,7 @@ public struct ChatPanel: View {
     /// when only one thread exists (delete is not offered).
     let onDeleteThread: ((String) -> Void)?
     @State private var showThreadList: Bool = false
+    @State private var showAgentList: Bool = false
     /// Shared guided-tour store. The chat / slash steps park a prefill in
     /// `chatPrefill`; we drop it into the composer so the coach card can point
     /// at a ready-to-send message (or surface the `SlashCommandPalette` on "/").
@@ -181,15 +182,9 @@ public struct ChatPanel: View {
     @ViewBuilder
     private var agentDropdown: some View {
         let current = agents.first(where: { $0.scope == viewModel.pinnedScope })
-        Menu {
-            ForEach(agents) { entry in
-                Button {
-                    onSwitchAgent(entry.scope)
-                } label: {
-                    Label(entry.name, systemImage: entry.icon)
-                }
-            }
-        } label: {
+        // Custom popover (not a native `Menu`) so each agent row keeps its
+        // own color — system menus ignore per-row text/icon tints.
+        Button { showAgentList = true } label: {
             HStack(spacing: 4) {
                 if let icon = current?.icon {
                     Image(systemName: icon)
@@ -204,6 +199,43 @@ public struct ChatPanel: View {
             }
         }
         .buttonStyle(.plain)
+        .popover(isPresented: $showAgentList) {
+            agentListPopover
+                .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    @ViewBuilder
+    private var agentListPopover: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(agents.enumerated()), id: \.element.id) { idx, entry in
+                if idx > 0 { Divider() }
+                Button {
+                    onSwitchAgent(entry.scope)
+                    showAgentList = false
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark")
+                            .font(.caption)
+                            .foregroundStyle(entry.color)
+                            .opacity(entry.scope == viewModel.pinnedScope ? 1 : 0)
+                            .frame(width: 16)
+                        Image(systemName: entry.icon)
+                            .foregroundStyle(entry.color)
+                            .frame(width: 20)
+                        Text(entry.name)
+                            .font(.subheadline)
+                            .foregroundStyle(entry.color)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(minWidth: 180)
     }
 
     /// Conversation selector. Tapping the label opens a popover listing all

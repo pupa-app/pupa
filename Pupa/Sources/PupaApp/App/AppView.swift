@@ -281,6 +281,7 @@ public struct AppView: View {
                                 }
                         }
                 }
+                myAppDock(for: selection ?? .myApp(store.activeMyAppId))
                 ChatOverlay(
                     scope: chatScope,
                     coordinator: coordinator,
@@ -340,6 +341,7 @@ public struct AppView: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
             }
+            myAppDock(for: selection ?? .myApp(store.activeMyAppId))
             ChatOverlay(
                 scope: chatScope,
                 coordinator: coordinator,
@@ -491,6 +493,39 @@ public struct AppView: View {
             )
         case .screenShare:
             ScreenShareView(viewModel: screenShare)
+        }
+    }
+
+    /// Bottom quick-switch dock, shown only on a myApp's home/component pages.
+    /// The effective page is `detailPath.last ?? rootSelection` so a
+    /// homepage→component push still marks the component as active. Taps reuse
+    /// the same flat-switch as the notification handler: reset the stack, set
+    /// the root selection, and run `dispatchSelection` so the chat scope follows.
+    @ViewBuilder
+    private func myAppDock(for rootSelection: SidebarSelection) -> some View {
+        let effective = detailPath.last ?? rootSelection
+        if let id = effective.myAppId, let page = dockPage(for: effective) {
+            MyAppDock(
+                store: store,
+                myAppId: id,
+                currentPage: page,
+                appColor: .color(atIndex: store.colorIndex(for: id)),
+                onSelect: { nav in
+                    detailPath = []
+                    selection = nav
+                    dispatchSelection(nav)
+                }
+            )
+        }
+    }
+
+    /// Maps a selection to the dock's active page, or `nil` for pages that
+    /// shouldn't show a dock (agents, memory files, orchestrator, …).
+    private func dockPage(for sel: SidebarSelection) -> MyAppDock.Page? {
+        switch sel {
+        case .myAppHome, .myApp: return .home
+        case .myAppComponent(_, let componentId): return .component(componentId)
+        default: return nil
         }
     }
 

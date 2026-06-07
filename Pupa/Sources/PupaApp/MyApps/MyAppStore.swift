@@ -157,6 +157,14 @@ public final class MyAppStore {
         persist()
     }
 
+    /// Creation-order index of a myApp, used to pick its palette color via
+    /// `Color.color(atIndex:)`. Sorting by `createdAt` keeps a myApp's color
+    /// stable as others are added/removed.
+    public func colorIndex(for myAppId: UUID) -> Int {
+        myApps.sorted { $0.createdAt < $1.createdAt }
+            .firstIndex(where: { $0.id == myAppId }) ?? 0
+    }
+
     // MARK: - Lifecycle
 
     @discardableResult

@@ -23,11 +23,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   **cumulative cost over 30 years** line chart under the monthly-cost
   histogram — one line each, P&I stopping at each house's payoff. Seed-static
   (illustrative), unlike the live bar chart. (`PupaApp` `0.0.101`)
+- **Per-app bottom dock** for quick page-switching: an icon-only bar (Home +
+  one icon per component, tinted the app's color, current page highlighted)
+  that reveals when you approach the bottom — macOS slides it up on pointer
+  hover; iOS peeks a handle you tap to expand. Lets you hop between a myApp's
+  homepage and any component canvas in one tap, scoped to the active app.
+  (`PupaApp` `0.0.101`)
 
 ### Changed
 
 - The orchestrator's accent color is now a dark neutral grey (was purple) so it
   reads as the "meta" agent without competing with per-MyApp colors.
+- **Chat agent dropdown is now color-coded**: the agent selector is a custom
+  popover (was a native menu) so each agent row shows its name + icon in that
+  agent's color — native menus ignored per-row tints. (`PupaApp` `0.0.101`)
 - **Edit-item sheet reads as key → value**: each field now keeps a persistent
   leading label (`LabeledContent` / a caption header for multiline text) instead
   of a placeholder that vanished once a value was typed — the row stays legible

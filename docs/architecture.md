@@ -73,6 +73,16 @@ so the composer stays visible above the keyboard in any orientation. A
 full-screen expand/restore button (⤢) in the card header fills the available
 view; the resize grip is hidden while full-screen is active.
 
+On a myApp's home/component pages the detail pane also hosts a **bottom dock**
+(`MyApps/MyAppDock.swift`): an icon-only quick-switcher — Home plus one icon
+per component, tinted the app's color (creation-order index via
+`MyAppStore.colorIndex(for:)`), current page highlighted. It reveals on
+*approach* — macOS slides it up while the pointer is near the bottom edge; iOS
+peeks a handle you tap to expand (and tucks away after a selection). `AppView`
+hosts it once below `ChatOverlay`, gated to `.myAppHome`/`.myApp`/
+`.myAppComponent`; taps flat-switch the root selection (reset `detailPath`, set
+`selection`, run `dispatchSelection`).
+
 The conversation dropdown (`ChatPanel.threadDropdown`) lists threads newest-first.
 When 2+ threads exist each entry is a submenu with "Open" and "Delete" so any
 thread can be deleted without switching to it first.
