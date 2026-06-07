@@ -87,7 +87,7 @@ struct GuidedTourView: View {
             }
         }
         .padding(16)
-        .background(Color.brandColor.opacity(0.07))
+        .background(Color.brandSurface)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
