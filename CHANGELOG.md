@@ -3,6 +3,15 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.13] — 2026-06-07
+
+### Fixed
+
+- **Onboarding cards legible in dark mode**: `brandSurface` was a fixed
+  light-pink, so white label text became invisible on it in dark mode. Now an
+  adaptive color (light-pink / dark plum) that resolves per light/dark trait.
+  (`PupaApp` `0.0.103`)
+
 ## [0.0.12] — 2026-06-07
 
 ### Added

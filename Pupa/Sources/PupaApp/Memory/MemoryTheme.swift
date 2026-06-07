@@ -25,9 +25,26 @@ extension Color {
     /// any other brand-identity moments. Kept separate from orchestratorColor
     /// so agent UI can stay neutral without washing out the brand palette.
     static let brandColor: Color = Color(red: 0.91, green: 0.13, blue: 0.09)
-    /// Solid light-pink surface that matches the icon background — use for
-    /// cards that sit on top of other content (tour, onboarding art cards).
-    static let brandSurface: Color = Color(red: 1.0, green: 0.93, blue: 0.92)
+    /// Brand-tinted card surface — light-pink matching the icon background in
+    /// light mode, a dark muted plum in dark mode so white label text stays
+    /// legible. Adaptive: resolves per light/dark trait rather than baking one
+    /// fixed light value (which left white text invisible on the pink in dark).
+    /// Used for cards that sit on top of other content (tour, onboarding art).
+    static let brandSurface: Color = {
+        #if os(macOS)
+        Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? NSColor(red: 0.22, green: 0.10, blue: 0.10, alpha: 1.0)
+                : NSColor(red: 1.0, green: 0.93, blue: 0.92, alpha: 1.0)
+        })
+        #else
+        Color(uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 0.22, green: 0.10, blue: 0.10, alpha: 1.0)
+                : UIColor(red: 1.0, green: 0.93, blue: 0.92, alpha: 1.0)
+        })
+        #endif
+    }()
 
     // Deliberately understated — a dark neutral grey so the orchestrator
     // reads as the "meta" agent without competing with the per-MyApp colors.
