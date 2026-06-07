@@ -24,7 +24,7 @@ struct SplashView: View {
             Color.cardBackground.ignoresSafeArea()
 
             LinearGradient(
-                colors: [Color.orchestratorColor, Color.orchestratorColor.opacity(0.55)],
+                colors: [Color.brandColor, Color.brandColor.opacity(0.55)],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )

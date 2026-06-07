@@ -142,8 +142,8 @@ struct OnboardingArtView: View {
             RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.12)).frame(height: 6).padding(.trailing, 24)
         }
         .padding(10)
-        .background(Color.cardBackground)
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.cardBorder))
+        .background(Color.brandColor.opacity(0.07))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.brandColor.opacity(0.18)))
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
@@ -201,8 +201,8 @@ struct OnboardingArtView: View {
         }
         .padding(16)
         .frame(maxWidth: 300)
-        .background(Color.cardBackground)
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.cardBorder))
+        .background(Color.brandColor.opacity(0.07))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.brandColor.opacity(0.18)))
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }
