@@ -72,8 +72,15 @@ TARGET_MV=$(grep 'PupaAppVersion: String' "$VERSION_SWIFT" | sed -E 's/.*"([^"]+
 CURRENT_MV=$(grep -E 'MARKETING_VERSION = [^;]+;' "$PBXPROJ" | grep -v '= 1\.0;' | head -1 | awk '{print $3}' | tr -d ';')
 [[ -n "$CURRENT_MV" ]] || die "Could not read app target's MARKETING_VERSION from $PBXPROJ."
 
-# Current CURRENT_PROJECT_VERSION for app target (the one ≠ "1", which is the test target default)
-CURRENT_BUILD=$(grep -E 'CURRENT_PROJECT_VERSION = [0-9]+;' "$PBXPROJ" | grep -v '= 1;' | head -1 | awk '{print $3}' | tr -d ';')
+# Current CURRENT_PROJECT_VERSION for the app target. Identify the app target's
+# build-config block by the MARKETING_VERSION we just read (CURRENT_MV); the
+# CURRENT_PROJECT_VERSION line precedes MARKETING_VERSION within the same block.
+# (Can't just skip "= 1;" — the app build legitimately resets to 1 on a new
+# marketing version, which is indistinguishable from the test-target default.)
+CURRENT_BUILD=$(awk -v mv="$CURRENT_MV" '
+  /CURRENT_PROJECT_VERSION = [0-9]+;/ { b=$3; gsub(";","",b) }
+  $0 ~ "MARKETING_VERSION = " mv ";" { print b; exit }
+' "$PBXPROJ")
 [[ -n "$CURRENT_BUILD" ]] || die "Could not read app target's CURRENT_PROJECT_VERSION from $PBXPROJ."
 
 # Compute new build number
