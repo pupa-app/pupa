@@ -27,6 +27,12 @@ public struct SettingsSheet: View {
     /// `nil` hides the row (e.g. previews).
     var onStartTour: (() -> Void)?
     var onClose: () -> Void
+    /// MyApp + memory stores backing the Import & Export screen. When any of
+    /// these three is nil the Sharing row is hidden (e.g. previews).
+    var store: MyAppStore?
+    var memory: MemoryStore?
+    /// Called after a successful import with the new app's id (select + dismiss).
+    var onImported: ((UUID) -> Void)?
     /// Shared guided-tour store. On iOS a `.sheet` renders above the AppView
     /// ZStack, so the coach card hosted there is hidden during the Settings
     /// step — we re-render `GuidedTourView` as this sheet's own overlay for
@@ -85,20 +91,29 @@ public struct SettingsSheet: View {
         settings: SettingsStore,
         onRestoreExample: ((any ExampleMyApp.Type) -> Void)? = nil,
         onStartTour: (() -> Void)? = nil,
-        onClose: @escaping () -> Void
+        onClose: @escaping () -> Void,
+        store: MyAppStore? = nil,
+        memory: MemoryStore? = nil,
+        onImported: ((UUID) -> Void)? = nil
     ) {
         self.settings = settings
         self.onRestoreExample = onRestoreExample
         self.onStartTour = onStartTour
         self.onClose = onClose
+        self.store = store
+        self.memory = memory
+        self.onImported = onImported
     }
 
     /// Top-level Settings categories. Each pushes a screen with that
     /// category's real controls (the existing section builders, re-hosted in
     /// their own `Form`).
     private enum SettingsCategory: Hashable {
-        case backend, tools, agents, notifications, examples
+        case backend, tools, agents, notifications, examples, sharing
     }
+
+    /// True when the Import & Export screen can be shown (stores wired in).
+    private var canShare: Bool { store != nil && memory != nil && onImported != nil }
 
     public var body: some View {
         NavigationStack(path: $path) {
@@ -123,6 +138,12 @@ public struct SettingsSheet: View {
                     NavigationLink(value: SettingsCategory.examples) {
                         categoryRow(icon: "sparkles", title: "Examples",
                                     caption: "Add a sample workspace")
+                    }
+                }
+                if canShare {
+                    NavigationLink(value: SettingsCategory.sharing) {
+                        categoryRow(icon: "square.and.arrow.up.on.square", title: "Import & Export",
+                                    caption: "Share or load a MyApp bundle")
                     }
                 }
                 if let onStartTour {
@@ -248,6 +269,10 @@ public struct SettingsSheet: View {
                 PendingNotificationsList().navigationTitle("Notifications")
             case .examples:
                 Form { examplesSection }.navigationTitle("Examples")
+            case .sharing:
+                if let store, let memory, let onImported {
+                    SharingSettingsView(store: store, memory: memory, onImported: onImported)
+                }
             }
         }
         #if os(iOS)

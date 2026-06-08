@@ -154,6 +154,13 @@ public struct MyAppSidebarView: View {
                         activeMyAppId: store.activeMyAppId,
                         isPaired: settings.isPaired(settings.activeBackend.id)
                     )
+                },
+                store: store,
+                memory: memory,
+                onImported: { id in
+                    selection = .myApp(id)
+                    onSelectionChange(.myApp(id))
+                    settingsSheetPresented = false
                 }
             ) {
                 settingsSheetPresented = false

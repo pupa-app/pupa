@@ -221,6 +221,18 @@ in `RunAgentInput.forwardedProps["llm"]`.
   an update doesn't replay it) and `pupa.onboarding.backendSkipped` (drives the
   connect-backend reminder banner).
 
+## Export / Import (marketplace)
+
+A MyApp can be exported as a portable, **inert** `.pupaapp` bundle (versioned
+header + the `Codable` `MyApp` tree + memory files) and rebuilt on another
+install — **no code from the bundle is executed**. UI lives in Settings ▸
+Import & Export. Cross-component references are enumerated/pruned by a single
+unified model on `CanvasApp` (`componentReferences` / `remapReferences`) shared
+with the delete cascade; each kind registers a `ComponentExportPolicy`. Import
+treats the bundle as untrusted (settings allow-list, size/count caps,
+slug-safe rename, traversal-safe memory writes). Full design + threat model:
+[marketplace.md](marketplace.md).
+
 ## Backend
 
 The backend is a separate repo —

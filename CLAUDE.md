@@ -19,6 +19,8 @@ backend (separate repo) over a single `POST /` SSE stream.
   now**. Source of truth.
 - [docs/adding-a-component.md](docs/adding-a-component.md) — end-to-end
   recipe for landing a new canvas shape.
+- [docs/marketplace.md](docs/marketplace.md) — MyApp export/import bundle
+  format, the unified reference model, and the import threat model.
 - [AGUIKit/](AGUIKit/) — standalone Swift Package: AG-UI client, tool
   registry, multi-round session loop. No dependency on Pupa.
 - [Pupa/](Pupa/) — the app: SwiftUI views, `@Observable` stores, tool

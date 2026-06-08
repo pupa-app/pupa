@@ -225,6 +225,19 @@ public final class MyAppStore {
         return myApp.id
     }
 
+    /// Insert a fully-formed `MyApp` produced by `MyAppImporter` (marketplace
+    /// import). Unlike `restoreExample` this performs no by-name idempotency:
+    /// the importer has already reassigned the `id` and resolved name/slug
+    /// collisions, so the app is appended verbatim and made active. Memories
+    /// are written separately by the importer. Returns the inserted id.
+    @discardableResult
+    public func importMyApp(_ myApp: MyApp) -> UUID {
+        myApps.append(myApp)
+        activeMyAppId = myApp.id
+        persist()
+        return myApp.id
+    }
+
     // MARK: - Thread management
 
     public func threads(for scope: ChatScope) -> [ChatThread] {
@@ -1173,40 +1186,13 @@ public final class MyAppStore {
         var dirty = false
         for cIdx in myApps[mIdx].components.indices {
             let before = myApps[mIdx].components[cIdx].body
-            myApps[mIdx].components[cIdx].body.mapLinkedItems { refs in
-                refs.removeAll(where: { $0.componentId == componentId && $0.itemId == itemId })
-            }
-            // Calculator rows hold refs in their specs (not the `linkedItems`
-            // graph), so sweep them separately: clear a matching `linkedField`
-            // ref and drop the deleted item from any `linkedCompare` set.
-            if case .calculator(var c) = myApps[mIdx].components[cIdx].body {
-                var changed = false
-                for rIdx in c.rows.indices {
-                    switch c.rows[rIdx].kind {
-                    case .linkedField(var spec):
-                        if spec.ref?.componentId == componentId, spec.ref?.itemId == itemId {
-                            spec.ref = nil
-                            c.rows[rIdx].kind = .linkedField(spec)
-                            changed = true
-                        }
-                    case .list(.linkedCompare(let refs, let targetKey, let linkedRowKey)):
-                        let filtered = refs.filter { !($0.componentId == componentId && $0.itemId == itemId) }
-                        if filtered.count != refs.count {
-                            c.rows[rIdx].kind = .list(.linkedCompare(refs: filtered, targetKey: targetKey, linkedRowKey: linkedRowKey))
-                            changed = true
-                        }
-                    case .list(.linkedSweep(let refs, let linkedRowKey, let variableKey, let from, let to, let step, let targetKey)):
-                        let filtered = refs.filter { !($0.componentId == componentId && $0.itemId == itemId) }
-                        if filtered.count != refs.count {
-                            c.rows[rIdx].kind = .list(.linkedSweep(refs: filtered, linkedRowKey: linkedRowKey, variableKey: variableKey, from: from, to: to, step: step, targetKey: targetKey))
-                            changed = true
-                        }
-                    default:
-                        break
-                    }
-                }
-                if changed { myApps[mIdx].components[cIdx].body = .calculator(c) }
-            }
+            // Sweep every ref kind (linkedItems graph + calculator spec refs)
+            // through the unified ref model: keep all components, drop only the
+            // deleted item. Single source of truth shared with the exporter.
+            myApps[mIdx].components[cIdx].body.remapReferences(
+                keepComponent: { _ in true },
+                keepItem: { !($0.componentId == componentId && $0.itemId == itemId) }
+            )
             if myApps[mIdx].components[cIdx].body != before { dirty = true }
         }
         if dirty { persist() }
