@@ -77,10 +77,12 @@ struct SharingSettingsView: View {
                 }
             }
 
-            Section("Components") {
+            Section {
                 ForEach(app.components) { comp in
                     componentRow(comp)
                 }
+            } header: {
+                Text("Components")
             } footer: {
                 Text("Select at least one component to export.")
             }
@@ -93,10 +95,12 @@ struct SharingSettingsView: View {
             }
 
             if !sharedPromptPreview.isEmpty {
-                Section("Agent prompts shared") {
+                Section {
                     ForEach(sharedPromptPreview, id: \.self) { line in
                         Text(line).font(.caption).foregroundStyle(.secondary)
                     }
+                } header: {
+                    Text("Agent prompts shared")
                 } footer: {
                     Text("Personas and prompt files travel with the bundle. Review them before sharing — they may contain personal context.")
                 }

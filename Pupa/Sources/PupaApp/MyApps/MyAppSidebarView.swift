@@ -133,38 +133,7 @@ public struct MyAppSidebarView: View {
             NewMyAppSheet(store: store) { newSheetPresented = false }
         }
         .sheet(isPresented: $settingsSheetPresented) {
-            SettingsSheet(
-                settings: settings,
-                onRestoreExample: { example in
-                    let id = store.restoreExample(example)
-                    // Refresh the example's AGENTS.md files so the
-                    // user-triggered restore writes any that are
-                    // missing (idempotent — user edits stick).
-                    example.seedAgentsMd(globalMemory: memory, appRootOverride: nil)
-                    selection = .myApp(id)
-                    onSelectionChange(.myApp(id))
-                    settingsSheetPresented = false
-                },
-                onStartTour: {
-                    // Dismiss the sheet, then restart the tour from the top.
-                    // Uses the live active myApp + pairing state so route
-                    // targets resolve and the chat copy adapts.
-                    settingsSheetPresented = false
-                    tour.start(
-                        activeMyAppId: store.activeMyAppId,
-                        isPaired: settings.isPaired(settings.activeBackend.id)
-                    )
-                },
-                store: store,
-                memory: memory,
-                onImported: { id in
-                    selection = .myApp(id)
-                    onSelectionChange(.myApp(id))
-                    settingsSheetPresented = false
-                }
-            ) {
-                settingsSheetPresented = false
-            }
+            settingsSheet
         }
         .sheet(item: Binding(
             get: { renamingMyAppId.flatMap { id in store.myApps.first(where: { $0.id == id }) } },
@@ -203,6 +172,43 @@ public struct MyAppSidebarView: View {
         } message: { pending in
             Text(Self.deleteAlertMessage(pending))
         }
+    }
+
+    @ViewBuilder
+    private var settingsSheet: some View {
+        SettingsSheet(
+            settings: settings,
+            onRestoreExample: { example in
+                let id = store.restoreExample(example)
+                // Refresh the example's AGENTS.md files so the
+                // user-triggered restore writes any that are
+                // missing (idempotent — user edits stick).
+                example.seedAgentsMd(globalMemory: memory, appRootOverride: nil)
+                selection = .myApp(id)
+                onSelectionChange(.myApp(id))
+                settingsSheetPresented = false
+            },
+            onStartTour: {
+                // Dismiss the sheet, then restart the tour from the top.
+                // Uses the live active myApp + pairing state so route
+                // targets resolve and the chat copy adapts.
+                settingsSheetPresented = false
+                tour.start(
+                    activeMyAppId: store.activeMyAppId,
+                    isPaired: settings.isPaired(settings.activeBackend.id)
+                )
+            },
+            onClose: {
+                settingsSheetPresented = false
+            },
+            store: store,
+            memory: memory,
+            onImported: { id in
+                selection = .myApp(id)
+                onSelectionChange(.myApp(id))
+                settingsSheetPresented = false
+            }
+        )
     }
 
     @ViewBuilder
