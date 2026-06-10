@@ -9,12 +9,13 @@ enum CardPlacement {
 }
 
 /// Which page inside the Settings sheet a tour step lands on. `.root` shows the
-/// category list (so the step can describe the entries); `.backend` deep-links
-/// straight to the Backend screen. Mirrors a subset of `SettingsSheet`'s
-/// internal navigation.
+/// category list (so the step can describe the entries); `.backend` and
+/// `.sharing` deep-link straight to the Backend / Import & Export screens.
+/// Mirrors a subset of `SettingsSheet`'s internal navigation.
 enum TourSettingsPage: Equatable {
     case root
     case backend
+    case sharing
 }
 
 /// One stop on the guided tour. Pure data — reorder / add / remove entries in
@@ -164,6 +165,15 @@ enum TourContent {
                 placement: .top,
                 opensChat: true,
                 chatPrefill: "/"
+            ),
+            TourStep(
+                id: "share-myapp",
+                title: "Share a MyApp",
+                body: "Export any MyApp as a bundle to share it, then import one a friend "
+                    + "sent you — components, agent prompts, and memories travel with it. "
+                    + "Find it under Settings · Import & Export.",
+                placement: .bottom,
+                settingsPage: .sharing
             ),
         ]
     }

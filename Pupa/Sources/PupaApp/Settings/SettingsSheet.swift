@@ -602,6 +602,7 @@ public struct SettingsSheet: View {
         switch page {
         case .root: path = []
         case .backend: path = [.backend]
+        case .sharing: path = [.sharing]
         case nil: break
         }
     }

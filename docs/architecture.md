@@ -105,10 +105,11 @@ sets a flag that surfaces a dismissible "connect your backend" banner in
 Once onboarding finishes, an **interactive guided tour** runs once
 (`App/GuidedTour.swift` + `App/GuidedTourOverlay.swift`). A floating *coach
 card* explains each step while the tour programmatically navigates the **real**
-app to that surface — nine steps: welcome (opens the sidebar menu), Settings
+app to that surface — ten steps: welcome (opens the sidebar menu), Settings
 overview (the category list), Settings · Backend (deep-linked), a MyApp, chat,
 agents & threads, the orchestrator (prefilled "create a new myapp"), agent
-settings, and slash commands. It is
+settings, slash commands, and Share a MyApp (deep-links Settings · Import &
+Export). It is
 **route-driven, not pixel-anchored**, so it survives UI redesigns: a shared
 `@Observable GuidedTourStore.shared` (mirroring `OnboardingHandoff.shared`)
 holds the step list (`TourContent`, pure data) + current index. Each `TourStep`

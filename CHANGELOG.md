@@ -3,6 +3,14 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.15] — 2026-06-10
+
+### Added
+
+- **Guided tour: Share a MyApp step**. A final tour card introduces Export /
+  Import and deep-links to Settings ▸ **Import & Export** (new `.sharing`
+  tour-settings route).
+
 ## [0.0.14] — 2026-06-08
 
 ### Added
