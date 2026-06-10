@@ -151,8 +151,10 @@ struct SharingSettingsView: View {
     }
 
     private var exportFilename: String {
-        let base = app.map { MemoryStore.myAppFolder(myAppName: $0.name) } ?? "myapp"
-        return "\(base).\(MyAppBundle.fileExtension)"
+        // No extension here: the `.json` content type appends it, so a bare base
+        // yields a clean `name.json`. A branded `.pupaapp` extension is deferred
+        // until a declared UTType ships (#52) — see MyAppDocument.
+        app.map { MemoryStore.myAppFolder(myAppName: $0.name) } ?? "myapp"
     }
 
     private func toggle(_ id: String) {
