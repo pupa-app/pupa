@@ -200,6 +200,24 @@ public struct ComponentItemRef: Codable, Hashable, Sendable {
     }
 }
 
+/// A cross-component reference of any kind, used by the unified ref model
+/// (`CanvasApp.componentReferences` / `remapReferences`). `itemId == nil`
+/// marks a *component-level* pointer (a calculator aggregate source, a chart
+/// series source); a non-nil `itemId` is an *item-level* link
+/// (`ComponentItemRef`). One vocabulary so export validation and the delete
+/// cascade enumerate refs the same way.
+public struct ComponentRef: Hashable, Sendable {
+    public let componentId: String
+    public let itemId: UUID?
+    public init(componentId: String, itemId: UUID? = nil) {
+        self.componentId = componentId
+        self.itemId = itemId
+    }
+    public init(_ ref: ComponentItemRef) {
+        self.init(componentId: ref.componentId, itemId: ref.itemId)
+    }
+}
+
 /// Pre-`0.0.41` name for `ComponentItemRef`. Kept as a typealias for
 /// one release so call sites in app code that haven't been updated yet
 /// keep compiling. Remove in the next major refactor.
@@ -1310,6 +1328,139 @@ public enum CanvasApp: Codable, Hashable, Sendable {
             // reference tracker fields / rows via specs, not via the
             // universal item-ref graph — so there is nothing to sweep here.
             break
+        }
+    }
+}
+
+// MARK: - Unified cross-component reference model
+
+extension ChartSeriesSource {
+    /// The component this series sources its data from, or `nil` for `inline`
+    /// (literal points). Drives chart-series dangling-ref pruning on export.
+    public var referencedComponentId: String? {
+        switch self {
+        case .tracker(let cid, _, _, _, _, _): return cid
+        case .calculatorRows(let cid, _): return cid
+        case .calculatorList(let cid, _): return cid
+        case .calculatorLinkedSweep(let cid, _): return cid
+        case .inline: return nil
+        }
+    }
+}
+
+extension CanvasApp {
+    /// Every cross-component reference this body holds, across ALL mechanisms:
+    /// `linkedItems` on items; calculator `aggregate` / `linkedField` / `list`
+    /// source refs; chart series source componentIds — **including charts
+    /// embedded in a calculator** (`inlineChart` / `extraCharts`). The single
+    /// source of truth for ref enumeration, shared by export validation and the
+    /// delete cascade. The switch is exhaustive (no `default`) so a new
+    /// `CanvasApp` arm fails the build until its refs are declared here.
+    public func componentReferences() -> [ComponentRef] {
+        var out: [ComponentRef] = []
+        switch self {
+        case .tracker(let t):
+            for it in t.items { out.append(contentsOf: it.linkedItems.map { ComponentRef($0) }) }
+        case .calendar(let cal):
+            for e in cal.events { out.append(contentsOf: e.linkedItems.map { ComponentRef($0) }) }
+        case .checklist(let cl):
+            for it in cl.items { out.append(contentsOf: it.linkedItems.map { ComponentRef($0) }) }
+        case .calculator(let c):
+            for row in c.rows { out.append(contentsOf: Self.calcRowRefs(row.kind)) }
+            if let ch = c.inlineChart { out.append(contentsOf: Self.chartRefs(ch)) }
+            for ch in c.extraCharts { out.append(contentsOf: Self.chartRefs(ch)) }
+        case .chart(let ch):
+            out.append(contentsOf: Self.chartRefs(ch))
+        case .slack, .empty:
+            break
+        }
+        return out
+    }
+
+    /// Drop every reference whose target isn't kept. Item-level refs
+    /// (`linkedItems`, `linkedField`, `linkedCompare`/`linkedSweep`) are
+    /// removed when the component is dropped *or* the item is gone; chart
+    /// series are dropped when their source component is gone — recursing into
+    /// a calculator's embedded charts. Scalar component sources
+    /// (`aggregate` / `trackerColumn`) degrade to broken-but-tolerated rather
+    /// than cascading row deletion (the resolver already renders them as
+    /// `brokenRef`). Used by both `cascadeRemoveRefs` (item deletion) and the
+    /// exporter (component subset).
+    public mutating func remapReferences(
+        keepComponent: (String) -> Bool,
+        keepItem: (ComponentItemRef) -> Bool
+    ) {
+        // Universal item-ref graph (tracker / calendar / checklist).
+        mapLinkedItems { refs in
+            refs.removeAll { !keepComponent($0.componentId) || !keepItem($0) }
+        }
+        switch self {
+        case .calculator(var c):
+            for rIdx in c.rows.indices {
+                c.rows[rIdx].kind = Self.remapCalcRowKind(
+                    c.rows[rIdx].kind, keepComponent: keepComponent, keepItem: keepItem)
+            }
+            if var chart = c.inlineChart {
+                Self.dropDanglingSeries(&chart, keepComponent: keepComponent)
+                c.inlineChart = chart
+            }
+            for cIdx in c.extraCharts.indices { Self.dropDanglingSeries(&c.extraCharts[cIdx], keepComponent: keepComponent) }
+            self = .calculator(c)
+        case .chart(var ch):
+            Self.dropDanglingSeries(&ch, keepComponent: keepComponent)
+            self = .chart(ch)
+        case .tracker, .calendar, .checklist, .slack, .empty:
+            break
+        }
+    }
+
+    private static func calcRowRefs(_ kind: CalcRowKind) -> [ComponentRef] {
+        switch kind {
+        case .aggregate(let spec):
+            return [ComponentRef(componentId: spec.sourceComponentId)]
+        case .linkedField(let spec):
+            return spec.ref.map { [ComponentRef($0)] } ?? []
+        case .list(.trackerColumn(let cid, _, _, _)):
+            return [ComponentRef(componentId: cid)]
+        case .list(.linkedCompare(let refs, _, _)):
+            return refs.map(ComponentRef.init)
+        case .list(.linkedSweep(let refs, _, _, _, _, _, _)):
+            return refs.map(ComponentRef.init)
+        case .list(.sweep), .variable, .formula, .header:
+            return []
+        }
+    }
+
+    private static func chartRefs(_ chart: ChartData) -> [ComponentRef] {
+        chart.series.compactMap { spec in
+            spec.source.referencedComponentId.map { ComponentRef(componentId: $0) }
+        }
+    }
+
+    private static func remapCalcRowKind(
+        _ kind: CalcRowKind,
+        keepComponent: (String) -> Bool,
+        keepItem: (ComponentItemRef) -> Bool
+    ) -> CalcRowKind {
+        func kept(_ r: ComponentItemRef) -> Bool { keepComponent(r.componentId) && keepItem(r) }
+        switch kind {
+        case .linkedField(var spec):
+            if let r = spec.ref, !kept(r) { spec.ref = nil }
+            return .linkedField(spec)
+        case .list(.linkedCompare(let refs, let targetKey, let linkedRowKey)):
+            return .list(.linkedCompare(refs: refs.filter(kept), targetKey: targetKey, linkedRowKey: linkedRowKey))
+        case .list(.linkedSweep(let refs, let linkedRowKey, let variableKey, let from, let to, let step, let targetKey)):
+            return .list(.linkedSweep(refs: refs.filter(kept), linkedRowKey: linkedRowKey,
+                                      variableKey: variableKey, from: from, to: to, step: step, targetKey: targetKey))
+        case .aggregate, .formula, .variable, .header, .list(.sweep), .list(.trackerColumn):
+            return kind
+        }
+    }
+
+    private static func dropDanglingSeries(_ chart: inout ChartData, keepComponent: (String) -> Bool) {
+        chart.series.removeAll { spec in
+            if let cid = spec.source.referencedComponentId { return !keepComponent(cid) }
+            return false
         }
     }
 }

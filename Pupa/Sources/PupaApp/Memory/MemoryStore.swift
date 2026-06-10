@@ -209,6 +209,18 @@ public final class MemoryStore {
         return out.sorted()
     }
 
+    /// Snapshot every file under the root as `(relativePath, content)` pairs —
+    /// the marketplace export of this (app-scoped) memory store. Paths are
+    /// root-relative so import can re-root them under a new app's slug.
+    /// Optionally restrict to a set of relative paths (e.g. only `AGENTS.md`).
+    public func exportFiles(matching keep: ((String) -> Bool)? = nil) -> [MemoryFile] {
+        snapshotPaths().compactMap { path in
+            if let keep, !keep(path) { return nil }
+            guard let result = try? readFile(path: path) else { return nil }
+            return MemoryFile(path: path, content: result.content)
+        }
+    }
+
     // MARK: - Private
 
     private static func defaultRoot() -> URL {
@@ -231,6 +243,18 @@ public final class MemoryStore {
     /// creating a session-scoped `MemoryStore`.
     public static func appRoot(myAppName: String) -> URL {
         defaultRoot().appendingPathComponent(myAppFolder(myAppName: myAppName), isDirectory: true)
+    }
+
+    /// This store's root URL (the override, or the default `…/memories`).
+    public var rootURL: URL { root }
+
+    /// A store scoped to one myApp's folder *under this store's root* — so a
+    /// store with a test `rootOverride` produces a child under the same temp
+    /// dir rather than the real Application Support default. Used by the
+    /// marketplace export/import.
+    public func appScopedStore(forAppNamed name: String) -> MemoryStore {
+        MemoryStore(rootOverride: root.appendingPathComponent(
+            Self.myAppFolder(myAppName: name), isDirectory: true))
     }
 
     /// Absolute URL for the orchestrator's memory root.

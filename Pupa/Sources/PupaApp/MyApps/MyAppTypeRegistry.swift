@@ -41,5 +41,19 @@ public final class MyAppTypeRegistry {
         if !ItemPolicyRegistry.shared.isRegistered(forKind: "checklist") {
             ItemPolicyRegistry.shared.register(ChecklistItemPolicy(), forKind: "checklist")
         }
+
+        // Marketplace export policies — one per supported component kind. Must
+        // stay complete: `assertComplete` traps at bootstrap if a supported
+        // kind is missing one (the export round-trip would otherwise silently
+        // skip its records). New component? Register its policy here.
+        let exportPolicies: [any ComponentExportPolicy] = [
+            TrackerExportPolicy(), CalendarExportPolicy(), ChecklistExportPolicy(),
+            SlackExportPolicy(), CalculatorExportPolicy(), ChartExportPolicy(),
+        ]
+        for policy in exportPolicies where !ComponentExportRegistry.shared.isRegistered(forKind: policy.kind) {
+            ComponentExportRegistry.shared.register(policy, forKind: policy.kind)
+        }
+        let supportedKinds = allTypes.reduce(into: Set<String>()) { $0.formUnion($1.supportedComponentKinds) }
+        ComponentExportRegistry.shared.assertComplete(supportedKinds: supportedKinds)
     }
 }

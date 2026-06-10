@@ -35,7 +35,7 @@ struct GuidedTourStoreTests {
         let store = startedStore(defaults: freshDefaults())
         #expect(store.isActive)
         #expect(store.index == 0)
-        #expect(store.steps.count == 9)
+        #expect(store.steps.count == 10)
         #expect(store.isFirstStep)
         #expect(!store.isLastStep)
         #expect(store.currentStep?.id == "welcome")

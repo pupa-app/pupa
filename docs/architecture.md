@@ -105,10 +105,11 @@ sets a flag that surfaces a dismissible "connect your backend" banner in
 Once onboarding finishes, an **interactive guided tour** runs once
 (`App/GuidedTour.swift` + `App/GuidedTourOverlay.swift`). A floating *coach
 card* explains each step while the tour programmatically navigates the **real**
-app to that surface — nine steps: welcome (opens the sidebar menu), Settings
+app to that surface — ten steps: welcome (opens the sidebar menu), Settings
 overview (the category list), Settings · Backend (deep-linked), a MyApp, chat,
 agents & threads, the orchestrator (prefilled "create a new myapp"), agent
-settings, and slash commands. It is
+settings, slash commands, and Share a MyApp (deep-links Settings · Import &
+Export). It is
 **route-driven, not pixel-anchored**, so it survives UI redesigns: a shared
 `@Observable GuidedTourStore.shared` (mirroring `OnboardingHandoff.shared`)
 holds the step list (`TourContent`, pure data) + current index. Each `TourStep`
@@ -220,6 +221,18 @@ in `RunAgentInput.forwardedProps["llm"]`.
   (gates the first-install flow; back-filled `true` for pre-existing users so
   an update doesn't replay it) and `pupa.onboarding.backendSkipped` (drives the
   connect-backend reminder banner).
+
+## Export / Import (marketplace)
+
+A MyApp can be exported as a portable, **inert** `.pupaapp` bundle (versioned
+header + the `Codable` `MyApp` tree + memory files) and rebuilt on another
+install — **no code from the bundle is executed**. UI lives in Settings ▸
+Import & Export. Cross-component references are enumerated/pruned by a single
+unified model on `CanvasApp` (`componentReferences` / `remapReferences`) shared
+with the delete cascade; each kind registers a `ComponentExportPolicy`. Import
+treats the bundle as untrusted (settings allow-list, size/count caps,
+slug-safe rename, traversal-safe memory writes). Full design + threat model:
+[marketplace.md](marketplace.md).
 
 ## Backend
 

@@ -3,6 +3,33 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.15] — 2026-06-10
+
+### Added
+
+- **Guided tour: Share a MyApp step**. A final tour card introduces Export /
+  Import and deep-links to Settings ▸ **Import & Export** (new `.sharing`
+  tour-settings route).
+
+## [0.0.14] — 2026-06-08
+
+### Added
+
+- **MyApp Export / Import (marketplace foundation)**: share a MyApp as a
+  portable, **inert** `.pupaapp` bundle (a versioned-header JSON carrying the
+  `Codable` `MyApp` tree + memory files) and rebuild it on another install — no
+  code from the bundle is ever executed. Settings ▸ **Import & Export**: pick
+  components, toggle records/memories, review the agent prompts being shared,
+  export; import validates and rebuilds in dependency order. Cross-component
+  references are now enumerated/pruned by a single unified model on `CanvasApp`
+  (`componentReferences` / `remapReferences`), shared by the delete cascade and
+  the exporter, so a new component declares its refs in one exhaustive switch.
+  Each kind registers a `ComponentExportPolicy` (completeness enforced at
+  bootstrap + in CI). Import is hardened against hostile bundles: settings
+  allow-list (drops e.g. `shell_approval_disabled`), size/count caps,
+  duplicate-id / unknown-kind rejection, slug-collision-safe renaming, and
+  path-traversal-safe memory writes. (`PupaApp` `0.0.104`)
+
 ## [0.0.13] — 2026-06-07
 
 ### Fixed
