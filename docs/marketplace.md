@@ -82,11 +82,44 @@ The bundle is inert (no code execution). Remaining vectors → mitigations:
 Privacy: sharing = publishing. `AGENTS.md` and Slack personas travel as
 structure; the export screen surfaces personas for review.
 
+## Remote read (Settings ▸ Marketplace)
+
+Read-only browse + install from a remote catalog. Code:
+[Marketplace/Remote/](../Pupa/Sources/PupaApp/Marketplace/Remote/).
+
+**Principle:** the network is only a byte source. The security boundary stays
+`MyAppImporter.importBundle` (unchanged) — install runs the same untrusted-input
+gate as the file importer.
+
+- **`MarketplaceSource`** — host-agnostic `{label, baseURL, pinnedIndexSHA256?,
+  certFingerprint?}`. Any HTTPS host serving `index.json` (GitHub raw by
+  default; `http` only for loopback). Stored on `SettingsStore`
+  (`marketplaceSourceURL`); the browser lets the user repoint it.
+- **`MarketplaceCatalog`** — `index.json`: own `formatVersion` (hard-reject
+  newer) + `entries[]`, each carrying `appFormatVersion` (grey-out incompatible
+  before download), `path`, `sizeBytes`, `sha256`.
+- **`MarketplaceClient`** (`MarketplaceFetching`) — pure transport. `fetchCatalog`
+  (scheme guard, byte cap, optional index-SHA pin, version gate) and `download`
+  (path-safety guard, `sizeBytes` pre-check + raw-bytes cap vs
+  `MyAppImporter.maxBundleBytes`, **post-download SHA-256 verify**).
+- **`MarketplaceStore`** (`@Observable`) — catalog + load state + offline cache
+  (last good catalog; flagged stale on a failed refresh).
+- **`MarketplaceBrowserView`** — list → detail; "Download & review" decodes the
+  bundle to preview agent personas (`AgentPromptPreview`, shared with export)
+  before "Add to my apps" calls `importBundle`.
+
+Catalog repo layout: `index.json` + `apps/<slug>.pupaapp`, hand-maintained for
+now. The `.pupaapp` bundles are fetched as raw bytes by URL, so the local
+`.json`-only `fileImporter` restriction doesn't apply here.
+
 ## Follow-on (not yet built)
 
-Remote marketplace service (store/serve bundles + in-app browser). Add a
-signature/checksum to `MyAppBundle` and server-side moderation then — the
-primary defense against prompt injection, which the importer can only surface.
+- **Publish via PR** — export → prefilled GitHub PR; repo CI validates the
+  bundle and regenerates `index.json` (the moderation hook).
+- **Signing** — add a `signature` field + a pinned maintainer key (the primary
+  defense against prompt injection, which the importer can only surface).
+- Multi-source, search/tags/screenshots, update-in-place, and eventually a real
+  backend service (swap `MarketplaceSource.baseURL`; the client is unchanged).
 
 ## File type
 

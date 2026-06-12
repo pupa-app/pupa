@@ -109,7 +109,7 @@ public struct SettingsSheet: View {
     /// category's real controls (the existing section builders, re-hosted in
     /// their own `Form`).
     private enum SettingsCategory: Hashable {
-        case backend, tools, agents, notifications, examples, sharing
+        case backend, tools, agents, notifications, examples, sharing, marketplace
     }
 
     /// True when the Import & Export screen can be shown (stores wired in).
@@ -144,6 +144,10 @@ public struct SettingsSheet: View {
                     NavigationLink(value: SettingsCategory.sharing) {
                         categoryRow(icon: "square.and.arrow.up.on.square", title: "Import & Export",
                                     caption: "Share or load a MyApp bundle")
+                    }
+                    NavigationLink(value: SettingsCategory.marketplace) {
+                        categoryRow(icon: "bag", title: "Marketplace",
+                                    caption: "Browse & install shared MyApps")
                     }
                 }
                 if let onStartTour {
@@ -272,6 +276,11 @@ public struct SettingsSheet: View {
             case .sharing:
                 if let store, let memory, let onImported {
                     SharingSettingsView(store: store, memory: memory, onImported: onImported)
+                }
+            case .marketplace:
+                if let store, let memory, let onImported {
+                    MarketplaceBrowserView(settings: settings, store: store,
+                                           memory: memory, onImported: onImported)
                 }
             }
         }

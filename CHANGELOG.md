@@ -3,6 +3,18 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.16] — 2026-06-11
+
+### Added
+
+- **Marketplace (remote read)**. Settings ▸ **Marketplace** browses a remote
+  catalog of `.pupaapp` apps and installs one. Host-agnostic: point at any
+  HTTPS host serving an `index.json` (GitHub raw by default); repoint to your
+  own repo from the screen. Downloads are size- and SHA-256-verified, and the
+  detail view previews the agent personas an app carries before you add it.
+  Install reuses the existing untrusted-input importer — the network is only a
+  byte source. See [docs/marketplace.md](docs/marketplace.md).
+
 ## [0.0.15] — 2026-06-10
 
 ### Added

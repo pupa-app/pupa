@@ -135,19 +135,10 @@ struct SharingSettingsView: View {
     }
 
     /// Slack agent personas that would ship in the current selection — the
-    /// privacy review surface.
+    /// privacy review surface (shared with the marketplace import preview).
     private var sharedPromptPreview: [String] {
         guard let app else { return [] }
-        var out: [String] = []
-        for comp in app.components where selectedComponentIds.contains(comp.id) {
-            if case .slack(let s) = comp.body {
-                for agent in s.agents {
-                    let role = agent.role.isEmpty ? "" : " — \(agent.role)"
-                    out.append("\(agent.name)\(role)")
-                }
-            }
-        }
-        return out
+        return AgentPromptPreview.personaLines(in: app, componentIds: selectedComponentIds)
     }
 
     private var exportFilename: String {

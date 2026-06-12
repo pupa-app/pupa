@@ -10,7 +10,9 @@ public enum MyAppImporter {
 
     // MARK: Resource caps (DoS guards)
 
-    static let maxBundleBytes = 8 * 1024 * 1024      // 8 MB raw, checked pre-decode
+    // `nonisolated` so the (non-MainActor) marketplace client can share this
+    // single cap for its pre/post-download size checks.
+    nonisolated static let maxBundleBytes = 8 * 1024 * 1024  // 8 MB raw, checked pre-decode
     static let maxComponents = 64
     static let maxItemsPerComponent = 5_000
     static let maxSlackMessagesPerChannel = 5_000

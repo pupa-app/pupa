@@ -63,6 +63,7 @@ public final class SettingsStore {
 
     public static let defaultBackendURL = URL(string: "http://localhost:8004/")!
     public static let defaultBackendLabel = "Local backend"
+    public static let defaultMarketplaceSourceURL = MarketplaceSource.officialDefault.baseURL
 
     /// A2A (agent-to-agent) guardrails — see `AgentInvocationGate`.
     public static let defaultA2AMaxChainDepth = 4
@@ -92,6 +93,10 @@ public final class SettingsStore {
     /// `a2aMaxChainDepth` caps how deep a chain of agents-calling-agents can go.
     public private(set) var a2aMaxChainDepth: Int
     public private(set) var a2aMaxTurnsPerPair: Int
+    /// Base URL of the remote marketplace catalog (Settings → Marketplace).
+    /// Host-agnostic: any HTTPS host serving `index.json`. Defaults to the
+    /// official source; the user can repoint it at their own repo.
+    public private(set) var marketplaceSourceURL: URL
 
     /// Where paired-device tokens live. Keychain in production, swapped to
     /// `InMemoryCredentialStore` by tests so unit tests don't touch the real
@@ -124,6 +129,17 @@ public final class SettingsStore {
         URLSession.forBackend(certFingerprint: entry.certFingerprint)
     }
 
+    /// The configured marketplace as a `MarketplaceSource` value.
+    public var marketplaceSource: MarketplaceSource {
+        MarketplaceSource(label: "Marketplace", baseURL: marketplaceSourceURL)
+    }
+
+    public func setMarketplaceSourceURL(_ url: URL) {
+        guard url != marketplaceSourceURL else { return }
+        marketplaceSourceURL = url
+        persist()
+    }
+
     public init(
         disabledBackendTools: Set<String>? = nil,
         backendURL: URL? = nil,
@@ -139,6 +155,7 @@ public final class SettingsStore {
         self.orchestratorLLMModel = snapshot.orchestratorLLMModel
         self.a2aMaxChainDepth = snapshot.a2aMaxChainDepth
         self.a2aMaxTurnsPerPair = snapshot.a2aMaxTurnsPerPair
+        self.marketplaceSourceURL = snapshot.marketplaceSourceURL
         self.credentials = credentials ?? KeychainCredentialStore()
 
         // Init override (tests + previews) edits the *active* backend's URL.
@@ -330,7 +347,8 @@ public final class SettingsStore {
             orchestratorLLMProvider: orchestratorLLMProvider,
             orchestratorLLMModel: orchestratorLLMModel,
             a2aMaxChainDepth: a2aMaxChainDepth,
-            a2aMaxTurnsPerPair: a2aMaxTurnsPerPair
+            a2aMaxTurnsPerPair: a2aMaxTurnsPerPair,
+            marketplaceSourceURL: marketplaceSourceURL.absoluteString
         )
         guard let data = try? JSONEncoder().encode(snap) else { return }
         UserDefaults.standard.set(data, forKey: Self.storageKey)
@@ -355,6 +373,8 @@ public final class SettingsStore {
         // Optional so pre-A2A blobs decode; `load()` substitutes the defaults.
         var a2aMaxChainDepth: Int?
         var a2aMaxTurnsPerPair: Int?
+        // Optional so pre-marketplace blobs decode; `load()` substitutes the default.
+        var marketplaceSourceURL: String?
         // Legacy single-backend field. Decoded for migration; never re-encoded.
         var backendURL: String?
     }
@@ -368,6 +388,7 @@ public final class SettingsStore {
         let orchestratorLLMModel: String?
         let a2aMaxChainDepth: Int
         let a2aMaxTurnsPerPair: Int
+        let marketplaceSourceURL: URL
     }
 
     private static func load() -> Loaded {
@@ -383,7 +404,8 @@ public final class SettingsStore {
                 orchestratorLLMProvider: nil,
                 orchestratorLLMModel: nil,
                 a2aMaxChainDepth: defaultA2AMaxChainDepth,
-                a2aMaxTurnsPerPair: defaultA2AMaxTurnsPerPair
+                a2aMaxTurnsPerPair: defaultA2AMaxTurnsPerPair,
+                marketplaceSourceURL: defaultMarketplaceSourceURL
             )
         }
         let (backends, activeID) = resolveBackends(snap)
@@ -395,7 +417,9 @@ public final class SettingsStore {
             orchestratorLLMProvider: snap.orchestratorLLMProvider,
             orchestratorLLMModel: snap.orchestratorLLMModel,
             a2aMaxChainDepth: snap.a2aMaxChainDepth ?? defaultA2AMaxChainDepth,
-            a2aMaxTurnsPerPair: snap.a2aMaxTurnsPerPair ?? defaultA2AMaxTurnsPerPair
+            a2aMaxTurnsPerPair: snap.a2aMaxTurnsPerPair ?? defaultA2AMaxTurnsPerPair,
+            marketplaceSourceURL: snap.marketplaceSourceURL.flatMap(URL.init(string:))
+                ?? defaultMarketplaceSourceURL
         )
     }
 
