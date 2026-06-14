@@ -3,6 +3,20 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.16] — 2026-06-13
+
+### Added
+
+- **Two grounded templates**: **Research Tracker** (competitive-intel
+  watchlist + weekly findings log + signal-trend chart + deltas calculator +
+  Scout/Analyst/Digest room) and **Daily Briefing** (MCP-named sources +
+  today's briefing + feed-volume chart + 7am push). Both seeded in
+  `ExampleRegistry`, exportable as `.pupaapp`, with a self-maintaining agent
+  loop in their `AGENTS.md`.
+- **Template realism bar** ([docs/templates.md](docs/templates.md)): the
+  rubric for building a `.pupaapp` that reads like a real app, a grounded
+  reference index, and the "keep yourself updated" memory/skills convention.
+
 ## [0.0.15] — 2026-06-10
 
 ### Added

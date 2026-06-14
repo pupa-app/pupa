@@ -2,6 +2,7 @@
 
 How a MyApp is turned into a portable artifact and rebuilt elsewhere. Code:
 [Pupa/Sources/PupaApp/Marketplace/](../Pupa/Sources/PupaApp/Marketplace/).
+Building the seeded templates that ship as bundles: [templates.md](templates.md).
 
 ## What a bundle is
 
