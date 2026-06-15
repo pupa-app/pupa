@@ -35,7 +35,7 @@ struct ToolRoundBubbleTests {
             registry: ToolRegistry(),
             scope: .myApp(myApp.id),
             threadId: store.currentThreadId(for: .myApp(myApp.id)),
-            skillState: SkillState()
+            toolGateState: ToolGateState()
         )
     }
 

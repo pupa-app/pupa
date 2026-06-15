@@ -77,7 +77,7 @@ event.
 
 ## Tool surface
 
-Gated behind `get_skill_chart`. `renderChart` (destructive `{title, kind,
+Gated behind `get_tools_chart`. `renderChart` (destructive `{title, kind,
 series}`), `patchChart` (in-place), `addChartSeries` / `removeChartSeries`
 (incremental), `setChartKind` (flip pie⇄bar⇄line). Every tool echoes
 `{seriesCount, pointCount}` so the agent sees what its spec produced.
