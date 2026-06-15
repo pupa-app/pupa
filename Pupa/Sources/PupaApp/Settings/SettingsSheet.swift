@@ -42,8 +42,6 @@ public struct SettingsSheet: View {
     /// Navigation path for the category list. Bound so the guided tour can
     /// deep-link straight to a page (its Settings step lands on Backend).
     @State private var path: [SettingsCategory] = []
-    @State private var toolsLoad: ToolsLoadState = .loading
-    @State private var loadErrorMessage: String?
     @State private var editingBackend: BackendEntry?
     @State private var presentingAddBackend: Bool = false
     @State private var backendProbes: [UUID: BackendProbe] = [:]
@@ -55,37 +53,6 @@ public struct SettingsSheet: View {
         case reachable(BackendConfig)
         case unreachable(String)
     }
-
-    private enum ToolsLoadState: Equatable {
-        case loading
-        case loaded([BackendToolDescriptor])
-        case failed(message: String, fallback: [BackendToolDescriptor])
-
-        var descriptors: [BackendToolDescriptor] {
-            switch self {
-            case .loading: return []
-            case .loaded(let tools): return tools
-            case .failed(_, let fallback): return fallback
-            }
-        }
-    }
-
-    /// Hard-coded fallback so the Developer section renders something useful
-    /// even when the backend is unreachable (e.g. the user opened Settings
-    /// before `make backend` finished booting). Kept in sync manually with
-    /// the canonical list in `backend/backend_tools.py`; drift only matters
-    /// for the offline-render path, the online path always wins.
-    ///
-    /// `enabledByEnv: true` here so the toggle remains tappable offline —
-    /// the user can pre-set their preference and it takes effect on the
-    /// next message once the backend comes online.
-    private static let fallbackTools: [BackendToolDescriptor] = [
-        BackendToolDescriptor(
-            name: "tavily_search",
-            description: "Web search via Tavily — real-world lookups mid-turn.",
-            enabledByEnv: true
-        ),
-    ]
 
     public init(
         settings: SettingsStore,
@@ -204,12 +171,10 @@ public struct SettingsSheet: View {
                         url: updated.url
                     )
                     editingBackend = nil
-                    Task { await loadTools() }
                 },
                 onDelete: settings.backends.count > 1 ? {
                     settings.removeBackend(entry.id)
                     editingBackend = nil
-                    Task { await loadTools() }
                 } : nil,
                 onCancel: { editingBackend = nil },
                 settings: settings
@@ -223,13 +188,11 @@ public struct SettingsSheet: View {
                     let id = settings.addBackend(label: newEntry.label, url: newEntry.url)
                     settings.setActiveBackend(id)
                     presentingAddBackend = false
-                    Task { await loadTools() }
                 },
                 onDelete: nil,
                 onCancel: { presentingAddBackend = false }
             )
         }
-        .task { await loadTools() }
         .task(id: probeKey) { await probeAllBackends() }
     }
 
@@ -256,13 +219,11 @@ public struct SettingsSheet: View {
             case .backend:
                 Form { backendSection }.navigationTitle("Backend")
             case .tools:
-                // All tool permissions in one place: shell-command approval
-                // plus the per-tool backend toggles.
-                Form {
-                    securitySection
-                    developerSection
-                }
-                .navigationTitle("Tools")
+                // Self-contained screen that owns its own `toolsLoad` state.
+                // Pushed via `navigationDestination`, so it must load + render
+                // from its own `@State` — a parent `@State` mutated here is not
+                // reliably re-observed by the destination closure.
+                ToolsSettingsView(settings: settings)
             case .agents:
                 Form { agentsSection }.navigationTitle("Agent-to-agent")
             case .notifications:
@@ -295,7 +256,6 @@ public struct SettingsSheet: View {
                 Button {
                     if entry.id != settings.activeBackendID {
                         settings.setActiveBackend(entry.id)
-                        Task { await loadTools() }
                     } else {
                         editingBackend = entry
                     }
@@ -327,7 +287,6 @@ public struct SettingsSheet: View {
                     if settings.backends.count > 1 {
                         Button(role: .destructive) {
                             settings.removeBackend(entry.id)
-                            Task { await loadTools() }
                         } label: {
                             Label("Delete", systemImage: "trash")
                         }
@@ -347,7 +306,6 @@ public struct SettingsSheet: View {
                     if settings.backends.count > 1 {
                         Button(role: .destructive) {
                             settings.removeBackend(entry.id)
-                            Task { await loadTools() }
                         } label: { Label("Delete", systemImage: "trash") }
                     }
                 }
@@ -410,30 +368,6 @@ public struct SettingsSheet: View {
     }
 
     @ViewBuilder
-    private var securitySection: some View {
-        Section {
-            Toggle(isOn: Binding(
-                get: { !settings.shellApprovalDisabled },
-                set: { settings.setShellApprovalDisabled(!$0) }
-            )) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Require shell approval")
-                    Text("Show an Approve / Deny card before every shell command. When off, commands run unattended.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        } header: {
-            Text("Shell commands")
-        } footer: {
-            Text("Only applies when the backend has the shell tool enabled. The setting is per-device and persisted; flipping it takes effect on your next message.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    @ViewBuilder
     private var examplesSection: some View {
         Section {
             ForEach(ExampleRegistry.all.indices, id: \.self) { i in
@@ -464,70 +398,6 @@ public struct SettingsSheet: View {
             Spacer(minLength: 12)
             Button("Restore") { onRestoreExample?(example) }
                 .buttonStyle(.borderless)
-        }
-    }
-
-    @ViewBuilder
-    private var developerSection: some View {
-        Section {
-            switch toolsLoad {
-            case .loading:
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Loading backend tools…")
-                        .foregroundStyle(.secondary)
-                }
-            case .loaded(let tools), .failed(_, let tools):
-                if tools.isEmpty {
-                    Text("No backend tools registered on the server.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(tools) { tool in
-                        toolRow(tool)
-                    }
-                }
-            }
-        } header: {
-            Text("Backend tools")
-        } footer: {
-            footerView
-        }
-    }
-
-    @ViewBuilder
-    private func toolRow(_ tool: BackendToolDescriptor) -> some View {
-        Toggle(isOn: Binding(
-            get: { settings.isEnabled(tool.name) },
-            set: { settings.setEnabled(tool.name, to: $0) }
-        )) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(tool.name).font(.body.monospaced())
-                Text(tool.description)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if !tool.enabledByEnv {
-                    Text("Unavailable — server is missing the required API key.")
-                        .font(.caption2)
-                        .foregroundStyle(.orange)
-                }
-            }
-        }
-        .disabled(!tool.enabledByEnv)
-    }
-
-    @ViewBuilder
-    private var footerView: some View {
-        if case .failed(let message, _) = toolsLoad {
-            Text("Couldn't reach the backend (\(message)). Showing a fallback list — toggles still persist locally.")
-                .font(.caption)
-                .foregroundStyle(.orange)
-        } else {
-            Text("Disabling a tool removes it from the model's tool list per turn. Re-enabling restores it on the next message — no restart needed.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
     }
 
@@ -607,14 +477,143 @@ public struct SettingsSheet: View {
         }
     }
 
+}
+
+/// Settings ▸ Tools detail. Self-contained: owns the shell-approval toggle and
+/// the backend-tool list, loading the list into its **own** `@State` on appear
+/// and on backend switch. Lives as its own `View` (not an inline section on
+/// `SettingsSheet`) because it's pushed via `navigationDestination`, where a
+/// parent's `@State` mutated from the destination is not reliably re-observed.
+private struct ToolsSettingsView: View {
+    @Bindable var settings: SettingsStore
+
+    @State private var toolsLoad: ToolsLoadState = .loading
+
+    private enum ToolsLoadState: Equatable {
+        case loading
+        case loaded([BackendToolDescriptor])
+        case failed(message: String, fallback: [BackendToolDescriptor])
+    }
+
+    /// Hard-coded fallback so the section renders something useful when the
+    /// backend is unreachable. Kept in sync manually with `backend_tools.py`;
+    /// drift only matters offline — the online path always wins.
+    private static let fallbackTools: [BackendToolDescriptor] = [
+        BackendToolDescriptor(
+            name: "tavily_search",
+            description: "Web search via Tavily — real-world lookups mid-turn.",
+            enabledByEnv: true
+        ),
+    ]
+
+    var body: some View {
+        Form {
+            securitySection
+            developerSection
+        }
+        .navigationTitle("Tools")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .task(id: settings.activeBackendID) { await loadTools() }
+    }
+
+    @ViewBuilder
+    private var securitySection: some View {
+        Section {
+            Toggle(isOn: Binding(
+                get: { !settings.shellApprovalDisabled },
+                set: { settings.setShellApprovalDisabled(!$0) }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Require shell approval")
+                    Text("Show an Approve / Deny card before every shell command. When off, commands run unattended.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        } header: {
+            Text("Shell commands")
+        } footer: {
+            Text("Only applies when the backend has the shell tool enabled. The setting is per-device and persisted; flipping it takes effect on your next message.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var developerSection: some View {
+        Section {
+            switch toolsLoad {
+            case .loading:
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Loading backend tools…")
+                        .foregroundStyle(.secondary)
+                }
+            case .loaded(let tools), .failed(_, let tools):
+                if tools.isEmpty {
+                    Text("No backend tools registered on the server.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(tools) { tool in
+                        toolRow(tool)
+                    }
+                }
+            }
+        } header: {
+            Text("Backend tools")
+        } footer: {
+            footerView
+        }
+    }
+
+    @ViewBuilder
+    private func toolRow(_ tool: BackendToolDescriptor) -> some View {
+        Toggle(isOn: Binding(
+            get: { settings.isEnabled(tool.name) },
+            set: { settings.setEnabled(tool.name, to: $0) }
+        )) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(tool.name).font(.body.monospaced())
+                Text(tool.description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !tool.enabledByEnv {
+                    Text("Unavailable — server is missing the required API key.")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+            }
+        }
+        .disabled(!tool.enabledByEnv)
+    }
+
+    @ViewBuilder
+    private var footerView: some View {
+        if case .failed(let message, _) = toolsLoad {
+            Text("Couldn't reach the backend (\(message)). Showing a fallback list — toggles still persist locally.")
+                .font(.caption)
+                .foregroundStyle(.orange)
+        } else {
+            Text("Disabling a tool removes it from the model's tool list per turn. Re-enabling restores it on the next message — no restart needed.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
     private func loadTools() async {
         let client = BackendToolsClient(
             backendURL: settings.backendURL,
-            extraHeaders: settings.authHeaders
+            extraHeaders: settings.authHeaders,
+            session: settings.backendSession
         )
         do {
-            let tools = try await client.list()
-            toolsLoad = .loaded(tools)
+            toolsLoad = .loaded(try await client.list())
         } catch {
             toolsLoad = .failed(
                 message: String(describing: error),

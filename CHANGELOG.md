@@ -3,6 +3,17 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.18] — 2026-06-15
+
+### Fixed
+
+- **Settings ▸ Tools no longer hangs on "Loading backend tools…"**: the tool
+  list is fetched into state owned by the Tools screen itself instead of the
+  parent Settings sheet. Pushed via `navigationDestination`, the detail screen
+  did not reliably re-observe the parent's `@State`, so a completed fetch left
+  the spinner up. The screen now loads on appear and on backend switch.
+  (`PupaApp` `0.0.108`)
+
 ## [0.0.17] — 2026-06-15
 
 ### Changed
