@@ -41,7 +41,7 @@ public struct SlackPolicy: AgentPolicy {
         let name = myApp?.name ?? ""
         let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: name))
         // The Slack agent uses the same tool set as the parent MyApp.
-        let toolNames = ChatViewModel.allowedToolNames(scope: .myApp(myAppId), store: store, skillState: SkillState())
+        let toolNames = ChatViewModel.allowedToolNames(scope: .myApp(myAppId), store: store, toolGateState: ToolGateState())
         // Slack payload system prompt: same base as MyAppPolicy.
         let myAppPolicy = MyAppPolicy(myAppId: myAppId)
         let systemPrompt = await myAppPolicy.payload(for: scope, store: store).systemPrompt

@@ -247,10 +247,10 @@ public final class ChatViewModel {
     /// Fired on every `isStreaming` transition so the coordinator can update
     /// its derived `busyMyApps` set without polling.
     private let onStreamingChange: ((Bool) -> Void)?
-    /// Per-session skill activation state. nil for sub-run sessions (which
+    /// Per-session tool-gate activation state. nil for sub-run sessions (which
     /// always get the full legacy tool surface). When non-nil, drives the
-    /// skill-gate logic in `allowedToolNames(scope:store:skillState:)`.
-    private let skillState: SkillState
+    /// tool-gate logic in `allowedToolNames(scope:store:toolGateState:)`.
+    private let toolGateState: ToolGateState
 
     /// Client-side slash commands (e.g. `/reset`, `/help`). Built lazily so
     /// the closures can capture `self`. See [SlashCommands.swift].
@@ -329,7 +329,7 @@ public final class ChatViewModel {
         let registry = registry
         let session = session
         let previewTracker = previewTracker
-        let skillState = skillState
+        let toolGateState = toolGateState
         Task { [weak self] in
             let context = await Self.contextEntries(
                 store: store,
@@ -338,7 +338,7 @@ public final class ChatViewModel {
                 focusedPath: focusedPath,
                 previewTracker: previewTracker
             )
-            let allowed = await MainActor.run { Self.allowedToolNames(scope: scope, store: store, skillState: skillState) }
+            let allowed = await MainActor.run { Self.allowedToolNames(scope: scope, store: store, toolGateState: toolGateState) }
             let advertised = registry.descriptors
                 .filter { allowed.contains($0.name) }
                 .sorted { $0.name < $1.name }
@@ -423,20 +423,20 @@ public final class ChatViewModel {
     static func allowedToolNames(
         scope: ChatScope,
         store: MyAppStore,
-        skillState: SkillState
+        toolGateState: ToolGateState
     ) -> Set<String> {
         switch scope {
         case .memory:
             // Memory-mode chat is the orchestrator surface: memory FS +
-            // HITL + orchestrator tools. Notifications stay skill-gated —
+            // HITL + orchestrator tools. Notifications stay tool-gated —
             // the orchestrator rarely needs to schedule banners.
             var memResult: Set<String> = MyAppType.memoryToolNames
                 .union(MyAppType.humanInTheLoopToolNames)
                 .union(MyAppType.orchestratorToolNames)
-            if skillState.isNotificationsActivated {
+            if toolGateState.isNotificationsActivated {
                 memResult.formUnion(MyAppType.notificationToolNames)
             } else {
-                memResult.insert("get_skill_notifications")
+                memResult.insert("get_tools_notifications")
             }
             return memResult
         case .myApp(let id):
@@ -446,27 +446,27 @@ public final class ChatViewModel {
             }
             let kinds = Set(myApp.components.map(\.kindString))
 
-            // Skill-gated surface: base tools + HITL are always visible.
+            // Tool-gated surface: base tools + HITL are always visible.
             // Component-kind tools, memory tools, and notifications are
-            // hidden until the agent calls the matching get_skill_* gate.
+            // hidden until the agent calls the matching get_tools_* gate.
             var result: Set<String> = type.baseToolNames
                 .union(MyAppType.humanInTheLoopToolNames)
-            if skillState.isNotificationsActivated {
+            if toolGateState.isNotificationsActivated {
                 result.formUnion(MyAppType.notificationToolNames)
             } else {
-                result.insert("get_skill_notifications")
+                result.insert("get_tools_notifications")
             }
 
             for kind in kinds {
                 guard type.toolNamesByKind[kind] != nil else { continue }
-                if skillState.isActivated(kind: kind) {
+                if toolGateState.isActivated(kind: kind) {
                     result.formUnion(type.toolNamesByKind[kind]!)
                 } else {
-                    result.insert("get_skill_\(kind)")
+                    result.insert("get_tools_\(kind)")
                 }
             }
 
-            // Co-presence filtering still applies after skill unlock.
+            // Co-presence filtering still applies after tool unlock.
             // TODO: co-presence is evaluated against the components present at
             // gate-call time (when isActivated flips). Removing a component
             // after unlocking does NOT re-gate its tools — the latch is
@@ -478,13 +478,13 @@ public final class ChatViewModel {
                 }
             }
 
-            // get_skill_memories is always advertised because every myApp has
+            // get_tools_memories is always advertised because every myApp has
             // at minimum an AGENTS.md in its memory root, so memory access is
             // universally relevant — this is intentional, not an oversight.
-            if skillState.isMemoriesActivated {
+            if toolGateState.isMemoriesActivated {
                 result.formUnion(MyAppType.memoryToolNames)
             } else {
-                result.insert("get_skill_memories")
+                result.insert("get_tools_memories")
             }
 
             return result
@@ -509,7 +509,7 @@ public final class ChatViewModel {
     private func appendToolsBubble() {
         let placeholderId = UUID().uuidString
         appendBubble(ChatBubble(id: placeholderId, role: .system, text: "Loading tools…"))
-        let allowed = Self.allowedToolNames(scope: pinnedScope, store: store, skillState: skillState)
+        let allowed = Self.allowedToolNames(scope: pinnedScope, store: store, toolGateState: toolGateState)
         let frontendDescriptors = registry.descriptors
             .filter { allowed.contains($0.name) }
             .sorted { $0.name < $1.name }
@@ -571,7 +571,7 @@ public final class ChatViewModel {
     ) -> [ToolGroup] {
         var canvasNames: Set<String> = []
         var kindGroups: [(label: String, names: Set<String>)] = []
-        var skillGateNames: Set<String> = []
+        var toolGateNames: Set<String> = []
         if case .myApp(let id) = scope,
            let myApp = store.myApps.first(where: { $0.id == id }),
            let type = MyAppTypeRegistry.shared.resolve(id: myApp.typeId) {
@@ -582,7 +582,7 @@ public final class ChatViewModel {
             for kind in kindOrder {
                 if let names = type.toolNamesByKind[kind], !names.isEmpty {
                     kindGroups.append((label: kind.capitalized, names: names))
-                    skillGateNames.insert("get_skill_\(kind)")
+                    toolGateNames.insert("get_tools_\(kind)")
                 }
             }
             // Defensive: surface any kinds the type declares beyond the
@@ -590,19 +590,19 @@ public final class ChatViewModel {
             for kind in type.toolNamesByKind.keys.sorted() where !kindOrder.contains(kind) {
                 if let names = type.toolNamesByKind[kind], !names.isEmpty {
                     kindGroups.append((label: kind.capitalized, names: names))
-                    skillGateNames.insert("get_skill_\(kind)")
+                    toolGateNames.insert("get_tools_\(kind)")
                 }
             }
-            skillGateNames.insert("get_skill_memories")
+            toolGateNames.insert("get_tools_memories")
         }
-        // `get_skill_notifications` exists in every scope (memory + myApp)
+        // `get_tools_notifications` exists in every scope (memory + myApp)
         // since notifications are app-global.
-        skillGateNames.insert("get_skill_notifications")
+        toolGateNames.insert("get_tools_notifications")
 
         let orderedDefinitions: [(label: String, names: Set<String>)] = [
             (label: "Canvas", names: canvasNames),
         ] + kindGroups + [
-            (label: "Skill Gates", names: skillGateNames),
+            (label: "Tool Gates", names: toolGateNames),
             (label: "Memory", names: MyAppType.memoryToolNames),
             (label: "Notifications", names: MyAppType.notificationToolNames),
             (label: "Orchestrator", names: MyAppType.orchestratorToolNames),
@@ -685,7 +685,7 @@ public final class ChatViewModel {
         scope: ChatScope,
         threadId: String,
         urlSession: URLSession = .shared,
-        skillState: SkillState,
+        toolGateState: ToolGateState,
         onStreamingChange: ((Bool) -> Void)? = nil
     ) {
         self.store = store
@@ -695,7 +695,7 @@ public final class ChatViewModel {
         self.urlSession = urlSession
         self.pinnedScope = scope
         self.threadId = threadId
-        self.skillState = skillState
+        self.toolGateState = toolGateState
         self.onStreamingChange = onStreamingChange
         let initialURL = settings.backendURL
         let initialHeaders = settings.authHeaders
@@ -809,8 +809,8 @@ public final class ChatViewModel {
             // mid-turn the instant the agent's `addComponent` call adds a
             // component of a new kind (and shrinks when the last one is
             // removed). MainActor hop reads the live `MyAppStore`.
-            toolFilter: { [store, skillState] in
-                await MainActor.run { Self.allowedToolNames(scope: scope, store: store, skillState: skillState) }
+            toolFilter: { [store, toolGateState] in
+                await MainActor.run { Self.allowedToolNames(scope: scope, store: store, toolGateState: toolGateState) }
             },
             state: { [settings, store] in
                 await Self.stateJSON(settings: settings, scope: scope, store: store)

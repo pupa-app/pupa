@@ -27,7 +27,7 @@ struct ToolGatingTests {
     @Test("Fresh MyApp: base tools advertised; kind tools, memory, notifications behind gates")
     func freshMyAppExposesOnlyBaseSurface() {
         let (store, myApp) = freshStore()
-        let allowed = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: SkillState())
+        let allowed = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, toolGateState: ToolGateState())
 
         // Base tools always visible.
         #expect(allowed.contains("addComponent"))
@@ -38,13 +38,13 @@ struct ToolGatingTests {
         #expect(allowed.contains("linkItem"))
         #expect(allowed.contains("unlinkItem"))
 
-        // Notifications now behind get_skill_notifications (issue #220).
-        #expect(allowed.contains("get_skill_notifications"))
+        // Notifications now behind get_tools_notifications (issue #220).
+        #expect(allowed.contains("get_tools_notifications"))
         #expect(!allowed.contains("sendNotification"))
         #expect(!allowed.contains("cancelNotification"))
 
-        // Memory is behind get_skill_memories; raw memory tool hidden.
-        #expect(allowed.contains("get_skill_memories"))
+        // Memory is behind get_tools_memories; raw memory tool hidden.
+        #expect(allowed.contains("get_tools_memories"))
         #expect(!allowed.contains("lsMemories"))
 
         // No kind tools and no kind gates (no components of those kinds).
@@ -54,49 +54,49 @@ struct ToolGatingTests {
         #expect(!allowed.contains("addCalendarEvent"))
         #expect(!allowed.contains("renderChecklist"))
         #expect(!allowed.contains("addChecklistItem"))
-        #expect(!allowed.contains("get_skill_tracker"))
-        #expect(!allowed.contains("get_skill_calendar"))
-        #expect(!allowed.contains("get_skill_checklist"))
+        #expect(!allowed.contains("get_tools_tracker"))
+        #expect(!allowed.contains("get_tools_calendar"))
+        #expect(!allowed.contains("get_tools_checklist"))
     }
 
-    @Test("Tracker component present: get_skill_tracker gate appears; tracker tools hidden until activated")
+    @Test("Tracker component present: get_tools_tracker gate appears; tracker tools hidden until activated")
     func trackerComponentShowsGateThenTools() {
         let (store, myApp) = freshStore()
         store.addComponent(kind: "tracker", name: "Books", iconSystemName: "book", myAppId: myApp.id)
 
         // Before activation: gate visible, kind tools hidden.
-        let skillState = SkillState()
-        let gated = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: skillState)
-        #expect(gated.contains("get_skill_tracker"))
+        let toolGateState = ToolGateState()
+        let gated = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, toolGateState: toolGateState)
+        #expect(gated.contains("get_tools_tracker"))
         #expect(!gated.contains("renderTracker"))
         #expect(!gated.contains("addTrackerItems"))
         // Calendar gate absent (no calendar component).
-        #expect(!gated.contains("get_skill_calendar"))
+        #expect(!gated.contains("get_tools_calendar"))
         #expect(gated.contains("linkItem"))
         #expect(gated.contains("unlinkItem"))
 
         // After activation: kind tools appear, gate disappears.
-        skillState.activate(kind: "tracker")
-        let unlocked = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: skillState)
+        toolGateState.activate(kind: "tracker")
+        let unlocked = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, toolGateState: toolGateState)
         #expect(unlocked.contains("renderTracker"))
         #expect(unlocked.contains("addTrackerItems"))
-        #expect(!unlocked.contains("get_skill_tracker"))
+        #expect(!unlocked.contains("get_tools_tracker"))
         #expect(!unlocked.contains("renderCalendar"))
     }
 
-    @Test("Calendar component present: get_skill_calendar gate appears; tracker tools hidden")
+    @Test("Calendar component present: get_tools_calendar gate appears; tracker tools hidden")
     func calendarComponentShowsGateThenTools() {
         let (store, myApp) = freshStore()
         store.addComponent(kind: "calendar", name: "Cal", iconSystemName: "calendar", myAppId: myApp.id)
 
-        let skillState = SkillState()
-        let gated = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: skillState)
-        #expect(gated.contains("get_skill_calendar"))
+        let toolGateState = ToolGateState()
+        let gated = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, toolGateState: toolGateState)
+        #expect(gated.contains("get_tools_calendar"))
         #expect(!gated.contains("renderCalendar"))
-        #expect(!gated.contains("get_skill_tracker"))
+        #expect(!gated.contains("get_tools_tracker"))
 
-        skillState.activate(kind: "calendar")
-        let unlocked = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: skillState)
+        toolGateState.activate(kind: "calendar")
+        let unlocked = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, toolGateState: toolGateState)
         #expect(unlocked.contains("renderCalendar"))
         #expect(unlocked.contains("addCalendarEvent"))
         #expect(!unlocked.contains("renderTracker"))
@@ -107,13 +107,13 @@ struct ToolGatingTests {
         let (store, myApp) = freshStore()
         store.addComponent(kind: "checklist", name: "Errands", iconSystemName: "checklist", myAppId: myApp.id)
 
-        let skillState = SkillState()
-        let gated = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: skillState)
-        #expect(gated.contains("get_skill_checklist"))
+        let toolGateState = ToolGateState()
+        let gated = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, toolGateState: toolGateState)
+        #expect(gated.contains("get_tools_checklist"))
         #expect(!gated.contains("renderChecklist"))
 
-        skillState.activate(kind: "checklist")
-        let unlocked = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: skillState)
+        toolGateState.activate(kind: "checklist")
+        let unlocked = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, toolGateState: toolGateState)
         #expect(unlocked.contains("renderChecklist"))
         #expect(unlocked.contains("addChecklistItem"))
         #expect(unlocked.contains("toggleChecklistItem"))
@@ -130,14 +130,14 @@ struct ToolGatingTests {
         let (store, myApp) = freshStore()
         store.addComponent(kind: "calculator", name: "Calc", iconSystemName: "function", myAppId: myApp.id)
 
-        let skillState = SkillState()
-        let gated = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: skillState)
-        #expect(gated.contains("get_skill_calculator"))
+        let toolGateState = ToolGateState()
+        let gated = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, toolGateState: toolGateState)
+        #expect(gated.contains("get_tools_calculator"))
         #expect(!gated.contains("renderCalculator"))
         #expect(!gated.contains("embedComponent"))
 
-        skillState.activate(kind: "calculator")
-        let unlocked = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: skillState)
+        toolGateState.activate(kind: "calculator")
+        let unlocked = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, toolGateState: toolGateState)
         #expect(unlocked.contains("renderCalculator"))
         #expect(unlocked.contains("addCalcRows"))
         #expect(unlocked.contains("patchCalcRows"))
@@ -184,15 +184,15 @@ struct ToolGatingTests {
         let (store, myApp) = freshStore()
 
         // No chart / calculator present → embedComponent not advertised.
-        let bare = SkillState()
-        #expect(!ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: bare).contains("embedComponent"))
+        let bare = ToolGateState()
+        #expect(!ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, toolGateState: bare).contains("embedComponent"))
 
-        // Chart present + chart skill active → embedComponent shows (it can
+        // Chart present + chart tool active → embedComponent shows (it can
         // snapshot the chart into chat via hostKind "chat").
         store.addComponent(kind: "chart", name: "Chart", iconSystemName: "chart.pie", myAppId: myApp.id)
-        let skillState = SkillState()
-        skillState.activate(kind: "chart")
-        let allowed = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: skillState)
+        let toolGateState = ToolGateState()
+        toolGateState.activate(kind: "chart")
+        let allowed = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, toolGateState: toolGateState)
         #expect(allowed.contains("embedComponent"))
     }
 
@@ -201,13 +201,13 @@ struct ToolGatingTests {
         let (store, myApp) = freshStore()
         store.addComponent(kind: "chart", name: "Chart", iconSystemName: "chart.pie", myAppId: myApp.id)
 
-        let skillState = SkillState()
-        let gated = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: skillState)
-        #expect(gated.contains("get_skill_chart"))
+        let toolGateState = ToolGateState()
+        let gated = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, toolGateState: toolGateState)
+        #expect(gated.contains("get_tools_chart"))
         #expect(!gated.contains("renderChart"))
 
-        skillState.activate(kind: "chart")
-        let unlocked = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: skillState)
+        toolGateState.activate(kind: "chart")
+        let unlocked = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, toolGateState: toolGateState)
         #expect(unlocked.contains("renderChart"))
         #expect(unlocked.contains("patchChart"))
         #expect(unlocked.contains("setChartKind"))
@@ -232,14 +232,14 @@ struct ToolGatingTests {
     @Test("Universal link tools are always advertised regardless of kinds present")
     func universalLinkToolsAlwaysOn() {
         let (store, myApp) = freshStore()
-        let beforeAny = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: SkillState())
+        let beforeAny = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, toolGateState: ToolGateState())
         #expect(beforeAny.contains("linkItem"))
         #expect(beforeAny.contains("unlinkItem"))
 
         store.addComponent(kind: "tracker", name: "Books", iconSystemName: "book", myAppId: myApp.id)
         store.addComponent(kind: "calendar", name: "Cal", iconSystemName: "calendar", myAppId: myApp.id)
         store.addComponent(kind: "checklist", name: "Errands", iconSystemName: "checklist", myAppId: myApp.id)
-        let withAll = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: SkillState())
+        let withAll = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, toolGateState: ToolGateState())
         #expect(withAll.contains("linkItem"))
         #expect(withAll.contains("unlinkItem"))
 
@@ -318,27 +318,27 @@ struct ToolGatingTests {
     /// the resolver contract that makes mid-turn refresh useful. The
     /// matching AGUIKit test `toolFilter_recomputesPerRound` pins the
     /// other half (`runLoop` actually re-invokes the closure per round).
-    @Test("Mid-turn refresh: addComponent makes the skill gate appear in the next round's tool filter")
+    @Test("Mid-turn refresh: addComponent makes the tool gate appear in the next round's tool filter")
     func midTurnRefresh_snapshotBeforeAndAfterAddComponent() {
         let (store, myApp) = freshStore()
-        let skillState = SkillState()
-        let before = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: skillState)
+        let toolGateState = ToolGateState()
+        let before = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, toolGateState: toolGateState)
         // No tracker component → gate not yet visible.
-        #expect(!before.contains("get_skill_tracker"))
+        #expect(!before.contains("get_tools_tracker"))
         #expect(!before.contains("renderTracker"))
 
         // Simulate the agent's first-round tool call landing.
         store.addComponent(kind: "tracker", name: "Books", iconSystemName: "book", myAppId: myApp.id)
 
-        let after = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: skillState)
+        let after = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, toolGateState: toolGateState)
         // Gate now visible; kind tools still locked until activated.
-        #expect(after.contains("get_skill_tracker"))
+        #expect(after.contains("get_tools_tracker"))
         #expect(!after.contains("renderTracker"))
         // Surface only widens — base tools present in `before` stay present.
         #expect(before.isSubset(of: after))
     }
 
-    @Test("addComponent seeds a typed-empty body so the skill gate is visible to the next round's tool filter")
+    @Test("addComponent seeds a typed-empty body so the tool gate is visible to the next round's tool filter")
     func addComponentSetsKindEagerly() {
         let (store, myApp) = freshStore()
         let id = store.addComponent(
@@ -351,8 +351,8 @@ struct ToolGatingTests {
         #expect(added?.kindString == "calendar")
 
         // Gate appears immediately; kind tools are unlocked only after activation.
-        let allowed = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, skillState: SkillState())
-        #expect(allowed.contains("get_skill_calendar"))
+        let allowed = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, toolGateState: ToolGateState())
+        #expect(allowed.contains("get_tools_calendar"))
         #expect(!allowed.contains("renderCalendar"))
         #expect(!allowed.contains("addCalendarEvent"))
     }
@@ -425,7 +425,7 @@ struct ToolGatingTests {
     @Test("Memory scope surfaces orchestrator + memory FS; notifications gated")
     func memoryScopeSurface() {
         let (store, _) = freshStore()
-        let allowed = ChatViewModel.allowedToolNames(scope: .memory, store: store, skillState: SkillState())
+        let allowed = ChatViewModel.allowedToolNames(scope: .memory, store: store, toolGateState: ToolGateState())
         // Orchestrator surface
         #expect(allowed.contains("listMyApps"))
         #expect(allowed.contains("createMyApp"))
@@ -434,7 +434,7 @@ struct ToolGatingTests {
         #expect(allowed.contains("lsMemories"))
         #expect(allowed.contains("readMemoryFile"))
         // Notifications gated (issue #220).
-        #expect(allowed.contains("get_skill_notifications"))
+        #expect(allowed.contains("get_tools_notifications"))
         #expect(!allowed.contains("sendNotification"))
         // No myApp-scope tools leak in
         #expect(!allowed.contains("renderTracker"))

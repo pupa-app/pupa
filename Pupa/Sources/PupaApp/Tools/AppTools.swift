@@ -4213,28 +4213,28 @@ public enum AppTools {
     }
 
     /// Register the local-notification tools (`sendNotification` +
-    /// `cancelNotification`) plus the `get_skill_notifications` gate.
+    /// `cancelNotification`) plus the `get_tools_notifications` gate.
     /// Notifications are app-global — not bound to a MyApp — so the tool
-    /// names live in `MyAppType.notificationToolNames`. The skill gate
+    /// names live in `MyAppType.notificationToolNames`. The tool gate
     /// keeps the (heavy) descriptions out of the per-turn payload until the
-    /// agent first opts in via `get_skill_notifications` (issue #220).
+    /// agent first opts in via `get_tools_notifications` (issue #220).
     @MainActor
     public static func registerNotificationTools(
         on registry: ToolRegistry,
         coordinator: NotificationCenterCoordinator,
-        skillState: SkillState
+        toolGateState: ToolGateState
     ) {
         registry.register(ClientTool(
             descriptor: ToolDescriptor(
-                name: "get_skill_notifications",
-                description: "Activate the notifications skill. Call once to unlock sendNotification + cancelNotification from the next agent round onward.",
+                name: "get_tools_notifications",
+                description: "Activate the notifications tools. Call once to unlock sendNotification + cancelNotification from the next agent round onward.",
                 parameters: ["type": "object", "properties": [:]]
             ),
-            handler: { [weak skillState] _ in
-                guard let skillState else {
-                    return .object(["ok": .bool(false), "error": .string("skill state unavailable")])
+            handler: { [weak toolGateState] _ in
+                guard let toolGateState else {
+                    return .object(["ok": .bool(false), "error": .string("tool gate state unavailable")])
                 }
-                await MainActor.run { skillState.activateNotifications() }
+                await MainActor.run { toolGateState.activateNotifications() }
                 return .object([
                     "ok": .bool(true),
                     "activated": .string("notifications"),
@@ -5227,37 +5227,37 @@ public enum AppTools {
         }.count
     }
 
-    // MARK: - Skill gate tools
+    // MARK: - Tool gate tools
 
-    /// Register one `get_skill_<kind>` gateway tool per component kind declared
-    /// by `myAppType`, plus a `get_skill_memories` gate for the memory
+    /// Register one `get_tools_<kind>` gateway tool per component kind declared
+    /// by `myAppType`, plus a `get_tools_memories` gate for the memory
     /// filesystem. Called only for `.myApp` sessions.
     ///
-    /// Before the agent activates a skill, only the gate tool is advertised
-    /// (via `ChatViewModel.allowedToolNames`). Calling the gate marks the skill
-    /// as active in `skillState`; on the next agent round the full tool set for
+    /// Before the agent activates a tool group, only the gate tool is advertised
+    /// (via `ChatViewModel.allowedToolNames`). Calling the gate marks the tool group
+    /// as active in `toolGateState`; on the next agent round the full tool set for
     /// that kind replaces the gate in the advertised surface.
     @MainActor
-    public static func registerSkillGateTools(
+    public static func registerToolGates(
         on registry: ToolRegistry,
         myAppType: MyAppType,
-        skillState: SkillState
+        toolGateState: ToolGateState
     ) {
         for kind in myAppType.toolNamesByKind.keys.sorted() {
             let toolCount = myAppType.toolNamesByKind[kind]?.count ?? 0
             let toolList = myAppType.toolNamesByKind[kind]?.sorted().joined(separator: ", ") ?? ""
-            let toolName = "get_skill_\(kind)"
+            let toolName = "get_tools_\(kind)"
             registry.register(ClientTool(
                 descriptor: ToolDescriptor(
                     name: toolName,
-                    description: "Activate the \(kind) skill. Call once to unlock \(toolCount) \(kind) tools (\(toolList)) from the next agent round onward.",
+                    description: "Activate the \(kind) tools. Call once to unlock \(toolCount) \(kind) tools (\(toolList)) from the next agent round onward.",
                     parameters: ["type": "object", "properties": [:]]
                 ),
-                handler: { [weak skillState] _ in
-                    guard let skillState else {
-                        return .object(["ok": .bool(false), "error": .string("skill state unavailable")])
+                handler: { [weak toolGateState] _ in
+                    guard let toolGateState else {
+                        return .object(["ok": .bool(false), "error": .string("tool gate state unavailable")])
                     }
-                    await MainActor.run { skillState.activate(kind: kind) }
+                    await MainActor.run { toolGateState.activate(kind: kind) }
                     return .object([
                         "ok": .bool(true),
                         "activated": .string(kind),
@@ -5270,15 +5270,15 @@ public enum AppTools {
         let memCount = MyAppType.memoryToolNames.count
         registry.register(ClientTool(
             descriptor: ToolDescriptor(
-                name: "get_skill_memories",
-                description: "Activate the memories skill. Call once to unlock \(memCount) memory filesystem tools (lsMemories, readMemoryFile, writeMemoryFile, …) from the next agent round onward.",
+                name: "get_tools_memories",
+                description: "Activate the memories tools. Call once to unlock \(memCount) memory filesystem tools (lsMemories, readMemoryFile, writeMemoryFile, …) from the next agent round onward.",
                 parameters: ["type": "object", "properties": [:]]
             ),
-            handler: { [weak skillState] _ in
-                guard let skillState else {
-                    return .object(["ok": .bool(false), "error": .string("skill state unavailable")])
+            handler: { [weak toolGateState] _ in
+                guard let toolGateState else {
+                    return .object(["ok": .bool(false), "error": .string("tool gate state unavailable")])
                 }
-                await MainActor.run { skillState.activateMemories() }
+                await MainActor.run { toolGateState.activateMemories() }
                 return .object([
                     "ok": .bool(true),
                     "activated": .string("memories"),

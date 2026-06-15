@@ -3,6 +3,17 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.17] — 2026-06-15
+
+### Changed
+
+- **Tool-gate tools renamed `get_skill_*` → `get_tools_*`**. The gates that
+  unlock a component kind's tools (plus `get_tools_memories` /
+  `get_tools_notifications`) were misnamed "skills" — they gate tools, not
+  skills. Internal `SkillState` → `ToolGateState`, `registerSkillGateTools` →
+  `registerToolGates`, and the "Skill Gates" tool group label → "Tool Gates".
+  No persistence migration: gate state is per-session, reset on New session.
+
 ## [0.0.16] — 2026-06-13
 
 ### Added

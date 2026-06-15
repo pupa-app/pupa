@@ -6,7 +6,7 @@ import Foundation
 ///
 /// Memory root:  `<sandbox>/orchestrator/`
 /// System prompt: `orchestrator/AGENTS.md` (or hardcoded fallback).
-/// Tools: memory FS + HITL + `orchestratorToolNames` + skill-gated
+/// Tools: memory FS + HITL + `orchestratorToolNames` + tool-gated
 ///        notifications. Never canvas tools.
 public struct OrchestratorPolicy: AgentPolicy {
 
@@ -18,7 +18,7 @@ public struct OrchestratorPolicy: AgentPolicy {
     public func payload(for scope: ChatScope, store: MyAppStore) async -> AgentPayload {
         let memory = MemoryStore(rootOverride: MemoryStore.orchestratorRoot())
         let systemPrompt = buildSystemPrompt(memory: memory)
-        let toolNames = ChatViewModel.allowedToolNames(scope: .memory, store: store, skillState: SkillState())
+        let toolNames = ChatViewModel.allowedToolNames(scope: .memory, store: store, toolGateState: ToolGateState())
         return AgentPayload(
             systemPrompt: systemPrompt,
             memory: memory,

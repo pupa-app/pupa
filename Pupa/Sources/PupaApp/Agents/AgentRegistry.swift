@@ -63,7 +63,7 @@ public enum AgentRegistry {
         let allowedTools = ChatViewModel.allowedToolNames(
             scope: .myApp(myApp.id),
             store: store,
-            skillState: SkillState()
+            toolGateState: ToolGateState()
         )
         let toolGroups = groupToolNames(
             allowed: allowedTools,
@@ -130,7 +130,7 @@ public enum AgentRegistry {
         let allowedTools = ChatViewModel.allowedToolNames(
             scope: .memory,
             store: store,
-            skillState: SkillState()
+            toolGateState: ToolGateState()
         )
 
         var properties: [AgentProperty] = []
@@ -229,7 +229,7 @@ public enum AgentRegistry {
     // MARK: - Tool grouping
 
     /// Group `allowed` tool names by the same buckets `/tools` uses —
-    /// Canvas → kind groups → Skill Gates → Memory → Notifications →
+    /// Canvas → kind groups → Tool Gates → Memory → Notifications →
     /// Orchestrator → Human-in-the-loop → Other. Mirrors the bucketing
     /// in `ChatViewModel.groupFrontendTools` but operates on names only
     /// (no `ToolDescriptor` dependency) since the agents page does not
@@ -243,7 +243,7 @@ public enum AgentRegistry {
     ) -> [AgentPropertySection] {
         var canvasNames: Set<String> = []
         var kindGroups: [(label: String, names: Set<String>)] = []
-        var skillGateNames: Set<String> = []
+        var toolGateNames: Set<String> = []
         if case .myApp(let id) = scope,
            let myApp = store.myApps.first(where: { $0.id == id }),
            let type = MyAppTypeRegistry.shared.resolve(id: myApp.typeId) {
@@ -252,23 +252,23 @@ public enum AgentRegistry {
             for kind in kindOrder {
                 if let names = type.toolNamesByKind[kind], !names.isEmpty {
                     kindGroups.append((label: kind.capitalized, names: names))
-                    skillGateNames.insert("get_skill_\(kind)")
+                    toolGateNames.insert("get_tools_\(kind)")
                 }
             }
             for kind in type.toolNamesByKind.keys.sorted() where !kindOrder.contains(kind) {
                 if let names = type.toolNamesByKind[kind], !names.isEmpty {
                     kindGroups.append((label: kind.capitalized, names: names))
-                    skillGateNames.insert("get_skill_\(kind)")
+                    toolGateNames.insert("get_tools_\(kind)")
                 }
             }
-            skillGateNames.insert("get_skill_memories")
+            toolGateNames.insert("get_tools_memories")
         }
-        skillGateNames.insert("get_skill_notifications")
+        toolGateNames.insert("get_tools_notifications")
 
         let definitions: [(label: String, names: Set<String>)] = [
             (label: "Canvas", names: canvasNames),
         ] + kindGroups + [
-            (label: "Skill Gates", names: skillGateNames),
+            (label: "Tool Gates", names: toolGateNames),
             (label: "Memory", names: MyAppType.memoryToolNames),
             (label: "Notifications", names: MyAppType.notificationToolNames),
             (label: "Orchestrator", names: MyAppType.orchestratorToolNames),
