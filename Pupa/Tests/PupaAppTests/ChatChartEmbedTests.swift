@@ -86,7 +86,7 @@ struct ChatChartEmbedTests {
             registry: ToolRegistry(),
             scope: .myApp(id),
             threadId: store.currentThreadId(for: .myApp(id)),
-            skillState: SkillState()
+            toolGateState: ToolGateState()
         )
         let snapshot = ChatChartSnapshot(title: "Spend", kind: .bar,
             series: [ChartSeries(name: "S", points: [ChartPoint(label: "Jan", y: 10)])])

@@ -168,7 +168,7 @@ public final class ChatSessionCoordinator {
         // `memory` is used by the sidebar; it is rescanned after each turn
         // so the sidebar reflects writes made through the scoped store.
         let sessionMemory: MemoryStore
-        let sessionSkillState: SkillState
+        let sessionToolGateState: ToolGateState
         switch scope {
         case .myApp(let id):
             let myApp = store.myApps.first(where: { $0.id == id })
@@ -184,20 +184,20 @@ public final class ChatSessionCoordinator {
                 slack: mainChatSlackContext(myAppId: id)
             )
             AppTools.registerMemoryTools(on: registry, memory: sessionMemory)
-            let skillState = SkillState()
-            sessionSkillState = skillState
-            AppTools.registerNotificationTools(on: registry, coordinator: .shared, skillState: skillState)
+            let toolGateState = ToolGateState()
+            sessionToolGateState = toolGateState
+            AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: toolGateState)
             if let myApp,
                let type = MyAppTypeRegistry.shared.resolve(id: myApp.typeId) {
-                AppTools.registerSkillGateTools(on: registry, myAppType: type, skillState: skillState)
+                AppTools.registerToolGates(on: registry, myAppType: type, toolGateState: toolGateState)
             }
         case .memory:
-            let skillState = SkillState()
-            sessionSkillState = skillState
+            let toolGateState = ToolGateState()
+            sessionToolGateState = toolGateState
             sessionMemory = MemoryStore(rootOverride: MemoryStore.orchestratorRoot())
             sessionMemory.onDidMutate = { [weak self] in self?.memory.rescan() }
             AppTools.registerMemoryTools(on: registry, memory: sessionMemory)
-            AppTools.registerNotificationTools(on: registry, coordinator: .shared, skillState: skillState)
+            AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: toolGateState)
             // Orchestrator surface: lets the memory-mode agent see / create
             // myApps and delegate a one-shot prompt to any existing myApp's
             // agent via runOneShot below. Only registered on .memory.
@@ -221,7 +221,7 @@ public final class ChatSessionCoordinator {
             scope: scope,
             threadId: threadId,
             urlSession: urlSession,
-            skillState: sessionSkillState,
+            toolGateState: sessionToolGateState,
             onStreamingChange: { [weak self] streaming in
                 self?.updateBusy(scope: scope, streaming: streaming)
                 // Rescan the global store after each turn so the sidebar
@@ -281,11 +281,11 @@ public final class ChatSessionCoordinator {
         appMemory.onDidMutate = { [weak self] in self?.memory.rescan() }
         AppTools.registerMyAppTools(on: registry, store: store, myAppId: myAppId, memory: appMemory)
         AppTools.registerMemoryTools(on: registry, memory: appMemory)
-        let subRunSkillState = SkillState()
-        AppTools.registerNotificationTools(on: registry, coordinator: .shared, skillState: subRunSkillState)
+        let subRunToolGateState = ToolGateState()
+        AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: subRunToolGateState)
         if let myApp = store.myApps.first(where: { $0.id == myAppId }),
            let type = MyAppTypeRegistry.shared.resolve(id: myApp.typeId) {
-            AppTools.registerSkillGateTools(on: registry, myAppType: type, skillState: subRunSkillState)
+            AppTools.registerToolGates(on: registry, myAppType: type, toolGateState: subRunToolGateState)
         }
         let session = AgentSession(
             client: AgentClient(
@@ -326,8 +326,8 @@ public final class ChatSessionCoordinator {
         defer { decrementBusy(myAppId) }
         var accumulated = ""
         let scope: ChatScope = .myApp(myAppId)
-        let toolFilter: @Sendable () async -> Set<String> = { [store, subRunSkillState] in
-            await MainActor.run { ChatViewModel.allowedToolNames(scope: scope, store: store, skillState: subRunSkillState) }
+        let toolFilter: @Sendable () async -> Set<String> = { [store, subRunToolGateState] in
+            await MainActor.run { ChatViewModel.allowedToolNames(scope: scope, store: store, toolGateState: subRunToolGateState) }
         }
         for try await event in session.send(
             prompt,
@@ -509,11 +509,11 @@ public final class ChatSessionCoordinator {
             slack: subAgentSlackContext(myAppId: myAppId, currentAgentId: agentId)
         )
         AppTools.registerMemoryTools(on: registry, memory: appMemory)
-        let slackSkillState = SkillState()
-        AppTools.registerNotificationTools(on: registry, coordinator: .shared, skillState: slackSkillState)
+        let slackToolGateState = ToolGateState()
+        AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: slackToolGateState)
         if let myApp = store.myApps.first(where: { $0.id == myAppId }),
            let type = MyAppTypeRegistry.shared.resolve(id: myApp.typeId) {
-            AppTools.registerSkillGateTools(on: registry, myAppType: type, skillState: slackSkillState)
+            AppTools.registerToolGates(on: registry, myAppType: type, toolGateState: slackToolGateState)
         }
         // Expose `ask_user_questions` to the sub-agent. The bridge parks
         // any question on this agent's `SlackInvocationState` so the
@@ -562,8 +562,8 @@ public final class ChatSessionCoordinator {
             }
         }
         let scope: ChatScope = .myApp(myAppId)
-        let toolFilter: @Sendable () async -> Set<String> = { [store, slackSkillState] in
-            await MainActor.run { ChatViewModel.allowedToolNames(scope: scope, store: store, skillState: slackSkillState) }
+        let toolFilter: @Sendable () async -> Set<String> = { [store, slackToolGateState] in
+            await MainActor.run { ChatViewModel.allowedToolNames(scope: scope, store: store, toolGateState: slackToolGateState) }
         }
         let prompt = Self.slackInvocationPrompt(
             agent: agent,

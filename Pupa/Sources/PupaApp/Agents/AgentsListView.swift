@@ -8,6 +8,7 @@ public struct AgentsListView: View {
     let store: MyAppStore
     let memory: MemoryStore
     let settings: SettingsStore
+    let modelCatalog: ModelCatalogStore
     let myAppId: UUID
     var onNavigate: (SidebarSelection) -> Void
 
@@ -15,12 +16,14 @@ public struct AgentsListView: View {
         store: MyAppStore,
         memory: MemoryStore,
         settings: SettingsStore,
+        modelCatalog: ModelCatalogStore,
         myAppId: UUID,
         onNavigate: @escaping (SidebarSelection) -> Void
     ) {
         self.store = store
         self.memory = memory
         self.settings = settings
+        self.modelCatalog = modelCatalog
         self.myAppId = myAppId
         self.onNavigate = onNavigate
     }
@@ -37,7 +40,7 @@ public struct AgentsListView: View {
 
     private var descriptors: [AgentDescriptor] {
         guard let app = myApp else { return [] }
-        return AgentRegistry.enumerateAgents(myApp: app, store: store, settings: settings)
+        return AgentRegistry.enumerateAgents(myApp: app, store: store, settings: settings, catalog: modelCatalog)
     }
 
     public var body: some View {

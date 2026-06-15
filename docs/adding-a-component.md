@@ -32,7 +32,8 @@ Adding a `CanvasApp` case turns any non-default-having switch elsewhere in the c
 - [Canvas/CanvasView.swift](../Pupa/Sources/PupaApp/Canvas/CanvasView.swift) — the body dispatcher
 - [Canvas/CanvasSummary.swift](../Pupa/Sources/PupaApp/Canvas/CanvasSummary.swift) — `itemCount(of:)`
 - [Canvas/ComponentItemPickerSheet.swift](../Pupa/Sources/PupaApp/Canvas/ComponentItemPickerSheet.swift) — four switches for the cross-component link picker
-- [MyApps/MyAppStore.swift](../Pupa/Sources/PupaApp/MyApps/MyAppStore.swift) — five switches in `cascadeRemoveRefs`, `linkItems`, `unlinkItems`, `itemExists`, `displayNameForRefTarget`
+- [Canvas/CanvasState.swift](../Pupa/Sources/PupaApp/Canvas/CanvasState.swift) — the **unified reference model**: `mapLinkedItems`, `componentReferences()`, and `remapReferences(keepComponent:keepItem:)`. If your shape holds cross-component refs (item `linkedItems` or spec componentIds), declare them in `componentReferences()` and prune them in `remapReferences` — this one place feeds **both** the delete cascade and marketplace export.
+- [MyApps/MyAppStore.swift](../Pupa/Sources/PupaApp/MyApps/MyAppStore.swift) — switches in `linkItems`, `unlinkItems`, `itemExists`, `displayNameForRefTarget` (`cascadeRemoveRefs` now routes through `CanvasApp.remapReferences`, so it needs no per-kind edit)
 
 For a non-linkable shape (Slack messages aren't link targets), fold the new case in with `.empty`: `case .widget, .empty: return false`. For a linkable shape, mirror the tracker / calendar / checklist branches that handle `linkedItems`.
 
@@ -67,6 +68,10 @@ In `MyAppType.tracker` (the default `MyAppType` every MyApp currently uses):
 - Add `"widget"` to `supportedComponentKinds`. **Without this, the agent's `addComponent` tool will reject the kind** — its JSON Schema `enum` is derived from this set ([AppTools.swift:1057-1080](../Pupa/Sources/PupaApp/Tools/AppTools.swift)).
 - Add an entry to `toolNamesByKind["widget"]` listing every Widget tool name. Tools listed here are only advertised on rounds where at least one `.widget` component exists in the MyApp.
 - Add a paragraph to `promptFragmentsByKind["widget"]` describing the mental model — when to choose this shape, what its `summary` slot is for, how state surfaces. Don't enumerate tool names; they're forwarded as proper tool definitions.
+
+## 5b. Marketplace export policy
+
+Register a `ComponentExportPolicy` for `"widget"` in `MyAppTypeRegistry.registerBuiltins()`, beside the item-policy registrations ([ComponentExportPolicies.swift](../Pupa/Sources/PupaApp/Marketplace/ComponentExportPolicies.swift)). `strippingUserData` drops user records but keeps reusable structure; set `exportDataWarning` if records can't be fully stripped. **`ComponentExportRegistry.assertComplete` traps at bootstrap (and CI fails) if a supported kind has no policy**, so this isn't optional. See [marketplace.md](marketplace.md).
 
 ## 6. Frontend tools
 

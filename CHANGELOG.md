@@ -3,6 +3,70 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.18] — 2026-06-15
+
+### Added
+
+- **Dynamic model list** (#35): the agent config picker now fetches its
+  model list from the backend's new `GET /models` endpoint on launch and
+  on backend switch, so new models added to the backend appear in the
+  picker without an app update. Falls back silently to the static
+  `KnownLLMModelCatalog.all` when the backend is unreachable.
+  `ModelCatalogStore` owns the fetched list; `BackendModelsClient` handles
+  the network call (mirrors `BackendToolsClient`).
+
+## [0.0.17] — 2026-06-15
+
+### Changed
+
+- **Tool-gate tools renamed `get_skill_*` → `get_tools_*`**. The gates that
+  unlock a component kind's tools (plus `get_tools_memories` /
+  `get_tools_notifications`) were misnamed "skills" — they gate tools, not
+  skills. Internal `SkillState` → `ToolGateState`, `registerSkillGateTools` →
+  `registerToolGates`, and the "Skill Gates" tool group label → "Tool Gates".
+  No persistence migration: gate state is per-session, reset on New session.
+
+## [0.0.16] — 2026-06-13
+
+### Added
+
+- **Two grounded templates**: **Research Tracker** (competitive-intel
+  watchlist + weekly findings log + signal-trend chart + deltas calculator +
+  Scout/Analyst/Digest room) and **Daily Briefing** (MCP-named sources +
+  today's briefing + feed-volume chart + 7am push). Both seeded in
+  `ExampleRegistry`, exportable as `.pupaapp`, with a self-maintaining agent
+  loop in their `AGENTS.md`.
+- **Template realism bar** ([docs/templates.md](docs/templates.md)): the
+  rubric for building a `.pupaapp` that reads like a real app, a grounded
+  reference index, and the "keep yourself updated" memory/skills convention.
+
+## [0.0.15] — 2026-06-10
+
+### Added
+
+- **Guided tour: Share a MyApp step**. A final tour card introduces Export /
+  Import and deep-links to Settings ▸ **Import & Export** (new `.sharing`
+  tour-settings route).
+
+## [0.0.14] — 2026-06-08
+
+### Added
+
+- **MyApp Export / Import (marketplace foundation)**: share a MyApp as a
+  portable, **inert** `.pupaapp` bundle (a versioned-header JSON carrying the
+  `Codable` `MyApp` tree + memory files) and rebuild it on another install — no
+  code from the bundle is ever executed. Settings ▸ **Import & Export**: pick
+  components, toggle records/memories, review the agent prompts being shared,
+  export; import validates and rebuilds in dependency order. Cross-component
+  references are now enumerated/pruned by a single unified model on `CanvasApp`
+  (`componentReferences` / `remapReferences`), shared by the delete cascade and
+  the exporter, so a new component declares its refs in one exhaustive switch.
+  Each kind registers a `ComponentExportPolicy` (completeness enforced at
+  bootstrap + in CI). Import is hardened against hostile bundles: settings
+  allow-list (drops e.g. `shell_approval_disabled`), size/count caps,
+  duplicate-id / unknown-kind rejection, slug-collision-safe renaming, and
+  path-traversal-safe memory writes. (`PupaApp` `0.0.104`)
+
 ## [0.0.13] — 2026-06-07
 
 ### Fixed

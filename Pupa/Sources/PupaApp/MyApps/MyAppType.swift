@@ -106,7 +106,7 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
     }
 
     /// User-level long-term memory filesystem tools. Always advertised to
-    /// the .memory orchestrator scope; gated behind `get_skill_memories` in
+    /// the .memory orchestrator scope; gated behind `get_tools_memories` in
     /// .myApp scope (the memories surface is not myApp-scoped, but per-myApp
     /// turns rarely need it — keeping the descriptions out of the per-turn
     /// payload until first use saves ~560 tokens; see issue #220).

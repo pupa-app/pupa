@@ -8,6 +8,7 @@ public struct AgentDetailView: View {
     let store: MyAppStore
     let memory: MemoryStore
     let settings: SettingsStore
+    let modelCatalog: ModelCatalogStore
     /// `nil` for the orchestrator (which has no MyApp parent); set for every
     /// MyApp + Slack sub-agent.
     let myAppId: UUID?
@@ -18,6 +19,7 @@ public struct AgentDetailView: View {
         store: MyAppStore,
         memory: MemoryStore,
         settings: SettingsStore,
+        modelCatalog: ModelCatalogStore,
         myAppId: UUID?,
         agentId: String,
         onNavigate: @escaping (SidebarSelection) -> Void
@@ -25,6 +27,7 @@ public struct AgentDetailView: View {
         self.store = store
         self.memory = memory
         self.settings = settings
+        self.modelCatalog = modelCatalog
         self.myAppId = myAppId
         self.agentId = agentId
         self.onNavigate = onNavigate
@@ -45,10 +48,10 @@ public struct AgentDetailView: View {
     private var descriptor: AgentDescriptor? {
         // Orchestrator path — unscoped, built from settings + global memory.
         if agentId == AgentRegistry.orchestratorAgentId {
-            return AgentRegistry.buildOrchestratorAgent(store: store, settings: settings, memory: memory)
+            return AgentRegistry.buildOrchestratorAgent(store: store, settings: settings, memory: memory, catalog: modelCatalog)
         }
         guard let app = myApp else { return nil }
-        return AgentRegistry.enumerateAgents(myApp: app, store: store, settings: settings)
+        return AgentRegistry.enumerateAgents(myApp: app, store: store, settings: settings, catalog: modelCatalog)
             .first(where: { $0.id == agentId })
     }
 
@@ -131,7 +134,7 @@ public struct AgentDetailView: View {
         if newId == KnownLLMModelCatalog.backendDefaultId {
             provider = nil
             modelId = nil
-        } else if let model = KnownLLMModelCatalog.model(forId: newId) {
+        } else if let model = modelCatalog.model(forId: newId) {
             provider = model.provider
             modelId = model.modelId
         } else {
@@ -258,8 +261,8 @@ private struct AgentPropertyRow: View {
 }
 
 /// Editable model selector rendered as a `Menu` grouped by provider. The
-/// catalog is the static `KnownLLMModelCatalog.all` plus a "Backend default"
-/// sentinel entry that clears the per-agent override.
+/// options come from `ModelCatalogStore.models` (fetched from the backend)
+/// plus a "Backend default" sentinel entry that clears the per-agent override.
 private struct ModelPickerRow: View {
     let selectedId: String
     let options: [KnownLLMModel]

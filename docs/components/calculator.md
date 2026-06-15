@@ -87,7 +87,7 @@ link pills (no per-datapoint drift).
 
 ## Tool surface
 
-Gated behind `get_skill_calculator`. `renderCalculator` (destructive full
+Gated behind `get_tools_calculator`. `renderCalculator` (destructive full
 render or `summary`-only), bulk `addCalcRows` / `patchCalcRows` /
 `removeCalcRows`, `setCalcRowLink` (point a `linkedField` row at a tracker
 item, or clear it), and discovery `listCalcRows` / `getCalcRow`. Every

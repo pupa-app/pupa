@@ -30,7 +30,7 @@ struct ChatViewModelLifecycleTests {
             registry: ToolRegistry(),
             scope: scope,
             threadId: tid,
-            skillState: SkillState()
+            toolGateState: ToolGateState()
         )
     }
 

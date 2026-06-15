@@ -1,0 +1,96 @@
+# Export / Import (marketplace foundation)
+
+How a MyApp is turned into a portable artifact and rebuilt elsewhere. Code:
+[Pupa/Sources/PupaApp/Marketplace/](../Pupa/Sources/PupaApp/Marketplace/).
+Building the seeded templates that ship as bundles: [templates.md](templates.md).
+
+## What a bundle is
+
+A `.pupaapp` file is **inert JSON** — `MyAppBundle` (`MyAppBundle.swift`):
+
+```
+header   (read & validated first)   app (Codable MyApp tree)   memories[]
+```
+
+- `header`: `format` magic, `formatVersion` (hard-reject when newer),
+  `appVersion` (soft-warn when newer), `exportedAt`, `includedRecords`,
+  `includedMemories`.
+- `app`: the whole `MyApp` — the single source of truth. No parallel schema.
+- `memories`: `{path, content}`, paths relative to the app's memory root.
+
+The bundle carries **no executable content**. All rebuild logic lives in the
+app and is dispatched by component `kind`.
+
+## Unified reference model
+
+Every cross-component reference is enumerated and pruned in **one** place —
+`CanvasApp.componentReferences()` / `remapReferences(keepComponent:keepItem:)`
+([CanvasState.swift](../Pupa/Sources/PupaApp/Canvas/CanvasState.swift)) — shared
+by the delete cascade (`MyAppStore.cascadeRemoveRefs`) and the exporter. The
+switch is exhaustive (no `default`), so a new `CanvasApp` arm fails the build
+until its refs are declared. It covers: item `linkedItems`; calculator
+`aggregate` / `linkedField` / `list` source refs; chart series source
+componentIds — **including charts embedded in a calculator** (`inlineChart` /
+`extraCharts`). Scalar component sources degrade to broken-but-tolerated rather
+than cascading row deletion.
+
+## Per-kind export policy
+
+`ComponentExportPolicy` (`ComponentExportPolicy.swift`) owns only what's
+export-specific: `strippingUserData(_ body:)` (drop user records, keep reusable
+structure) and an `exportDataWarning`. One per kind, registered in
+`MyAppTypeRegistry.registerBuiltins()`. Completeness is enforced by
+`ComponentExportRegistry.assertComplete` (a `preconditionFailure` at bootstrap)
+**and** a CI test — a supported kind without a policy can't ship.
+
+## Export (Settings ▸ Import & Export)
+
+`MyAppExporter.makeBundle`: keep selected components → strip records per policy
+(when records off) → prune dangling refs → carry agents (structural) → scope
+memories (drop a deselected kind's subtree; memories-off keeps only `AGENTS.md`)
+→ reset volatile state (threads) → assemble header.
+
+## Import — validate-then-rebuild (untrusted)
+
+`MyAppImporter.importBundle` treats the bundle as **hostile** and validates
+fully before any store/disk mutation:
+
+1. size cap (pre-decode) → decode → header magic + version.
+2. `typeId` resolves; every component `kind` is supported + has a policy.
+3. caps (components / items / messages / memory files) + uniqueness
+   (component / item / agent / channel ids).
+4. **settings allow-list** — only a re-validated `llm.*` pair survives; keys
+   like `shell_approval_disabled` are dropped.
+5. fresh `id`, slug-collision-safe rename, fresh thread + `createdAt`.
+6. prune dangling refs; drop unknown per-agent LLM overrides.
+7. insert; then write memories via `MemoryStore.writeFile` (its `resolve`
+   blocks `..`, absolute paths, non-`.md`).
+
+## Threat model
+
+The bundle is inert (no code execution). Remaining vectors → mitigations:
+
+| Vector | Mitigation |
+|---|---|
+| Settings injection (`shell_approval_disabled` …) | allow-list to validated `llm.*` |
+| Prompt injection via `AGENTS.md` / Slack personas (runs with victim's tools) | export review pane + "imported" provenance; **real fix = signing + moderation in the backend follow-on** |
+| Memory path traversal | `MemoryStore.resolve()` prefix/`..`/`.md` guards |
+| Cross-app memory clobber via slug collision | slug-unique rename on import |
+| DoS (huge/nested bundle) | pre-decode byte cap + post-decode count caps |
+| Integrity (duplicate ids, dangling `activeComponentId`, unknown kind) | stage-0 validation |
+| Cross-app ref escape | refs resolve only within the imported app; `id` reassigned |
+
+Privacy: sharing = publishing. `AGENTS.md` and Slack personas travel as
+structure; the export screen surfaces personas for review.
+
+## Follow-on (not yet built)
+
+Remote marketplace service (store/serve bundles + in-app browser). Add a
+signature/checksum to `MyAppBundle` and server-side moderation then — the
+primary defense against prompt injection, which the importer can only surface.
+
+## File type
+
+Bundles use `.json` content types in `MyAppDocument` (a `.pupaapp` *is* JSON;
+the importer validates via the header, not the extension). A dedicated exported
+UTType (tap-to-open) needs a PupaHost Info.plist declaration — deferred.

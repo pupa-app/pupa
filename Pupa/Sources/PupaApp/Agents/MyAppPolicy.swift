@@ -6,7 +6,7 @@ import Foundation
 ///
 /// Memory root:  `<sandbox>/myapps/<name>/`
 /// System prompt: `<root>/AGENTS.md` (or type-fragment fallback).
-/// Tools: type's resolved tool names + HITL + skill-gated memory /
+/// Tools: type's resolved tool names + HITL + tool-gated memory /
 ///        notifications / per-kind tools. Never orchestrator tools.
 public struct MyAppPolicy: AgentPolicy {
 
@@ -24,7 +24,7 @@ public struct MyAppPolicy: AgentPolicy {
         let name = myApp?.name ?? ""
         let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: name))
         let systemPrompt = buildSystemPrompt(myApp: myApp, memory: memory)
-        let toolNames = ChatViewModel.allowedToolNames(scope: .myApp(myAppId), store: store, skillState: SkillState())
+        let toolNames = ChatViewModel.allowedToolNames(scope: .myApp(myAppId), store: store, toolGateState: ToolGateState())
         return AgentPayload(
             systemPrompt: systemPrompt,
             memory: memory,
