@@ -67,13 +67,24 @@ public struct MyAppSidebarView: View {
             // SwiftUI's `nil` write, leaving the just-popped row stuck
             // "selected" and blocking re-tap until a different row was
             // touched.
+            #if os(macOS)
+            // macOS hosts the sidebar in `AppView`'s plain `HStack` split (not a
+            // `NavigationSplitView`, whose sidebar fails to render in the
+            // unbundled `swift run` demo binary). MyApps and the Orchestrator
+            // share one sidebar List with the Orchestrator as the bottom section;
+            // the iOS layout in `#else` instead pins the Orchestrator in its own
+            // height-capped List.
+            List(selection: $selection) {
+                myAppsSection
+                orchestratorSection
+            }
+            .listStyle(.sidebar)
+            .frame(maxHeight: .infinity)
+            #else
             // MyApps scroll and fill the available space…
             List(selection: $selection) {
                 myAppsSection
             }
-            #if os(macOS)
-            .listStyle(.sidebar)
-            #endif
             .frame(maxHeight: .infinity)
 
             // …while the Orchestrator is pinned to the bottom in its own list
@@ -86,17 +97,14 @@ public struct MyAppSidebarView: View {
             List(selection: $selection) {
                 orchestratorSection
             }
-            #if os(macOS)
-            .listStyle(.sidebar)
-            #else
             .listStyle(.plain)
             // Blend with the footer instead of reading as a raised white card
             // on the grouped MyApps background — a single hairline divider above
             // is the only separator, matching the Settings section delimiters.
             .scrollContentBackground(.hidden)
-            #endif
             .scrollDisabled(!orchestratorExpanded)
             .frame(maxHeight: orchestratorExpanded ? 240 : 52)
+            #endif
 
             HStack(spacing: 8) {
                 Button {
