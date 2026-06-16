@@ -3,6 +3,21 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.19] — 2026-06-16
+
+### Fixed
+
+- **macOS demo (`make mac-demo`) no longer launches with an empty sidebar.**
+  `NavigationSplitView`'s sidebar does not render in the unbundled `swift run`
+  PupaDemo binary — the column came up blank. `AppView` now hosts the macOS
+  layout as a fixed-width `HStack` split (sidebar · `Divider` · detail); the
+  macOS sidebar uses a single merged `List` (MyApps + Orchestrator). iOS is
+  unaffected — it uses its own slide-in drawer. (`PupaApp` `0.0.109`)
+- **macOS detail panes no longer look dimmed.** `Color.canvasBackground` used
+  `underPageBackgroundColor` (a dark ~50% grey meant to sit behind pages); it
+  now resolves to a soft adaptive grey just below the card surface, mirroring
+  iOS `secondarySystemBackground`. macOS only.
+
 ## [0.0.18] — 2026-06-15
 
 ### Fixed

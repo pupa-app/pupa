@@ -22,7 +22,6 @@ public struct AppView: View {
     @State private var coordinator: ChatSessionCoordinator
     @State private var screenShare: ScreenShareViewModel
     @State private var selection: SidebarSelection?
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     #if os(iOS)
     /// Whether the slide-in sidebar/menu is open. Persisted so the app opens to
     /// the same state it was left in; defaults to `true` so a fresh install
@@ -158,7 +157,7 @@ public struct AppView: View {
                 for app in apps { coordinator.ensureMyAppMemory(app) }
             }
         #else
-        NavigationSplitView(columnVisibility: $columnVisibility) {
+        HStack(spacing: 0) {
             MyAppSidebarView(
                 store: store,
                 memory: memory,
@@ -168,8 +167,8 @@ public struct AppView: View {
                 onSelectionChange: dispatchSelection,
                 onDeleteMyApp: deleteMyApp
             )
-            .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 360)
-        } detail: {
+            .frame(width: 260)
+            Divider()
             detail
         }
         .frame(minWidth: 560, idealWidth: 1300, minHeight: 600, idealHeight: 720)

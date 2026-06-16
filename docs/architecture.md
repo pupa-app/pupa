@@ -63,8 +63,13 @@ handlers.
 | [`ScreenShare/`](../Pupa/Sources/PupaApp/ScreenShare/) | WebRTC viewer + signalling client for the backend's `/screenshare/ws` broker. |
 | [`Settings/`](../Pupa/Sources/PupaApp/Settings/) | `SettingsStore` (backend URL, API key, disabled tools), backend-tools client. |
 
-`AppView` lays this out as a `NavigationSplitView` on macOS and a custom
-slide-in drawer on iOS. The drawer fills most of a compact (iPhone-portrait)
+`AppView` lays this out as a fixed-width `HStack` split (sidebar `Divider`
+detail) on macOS and a custom slide-in drawer on iOS. (macOS deliberately
+avoids `NavigationSplitView`: its sidebar fails to render in the unbundled
+`swift run` PupaDemo binary, leaving an empty column. The macOS sidebar also
+uses one merged `List` — MyApps + Orchestrator — since the iOS dual-`List`
+layout doesn't apply without the split view.) The drawer fills most of a
+compact (iPhone-portrait)
 screen but stays a slim fixed width on a regular width class (iPad, large
 iPhone landscape). The chat lives in a floating, user-resizable `ChatOverlay`
 card anchored bottom-trailing of the detail pane; on iOS it does its own

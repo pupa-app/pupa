@@ -13,7 +13,15 @@ extension Color {
     }
     static var canvasBackground: Color {
         #if os(macOS)
-        Color(nsColor: .underPageBackgroundColor)
+        // `underPageBackgroundColor` is a dark ~50% grey meant to sit *behind*
+        // pages — far too dark as a content canvas (it left every detail pane
+        // looking dimmed). Use a soft adaptive grey that sits just below the
+        // card surface, mirroring iOS `secondarySystemBackground`.
+        Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? NSColor(white: 0.12, alpha: 1.0)
+                : NSColor(white: 0.91, alpha: 1.0)
+        })
         #else
         Color(uiColor: .secondarySystemBackground)
         #endif
