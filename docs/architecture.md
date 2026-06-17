@@ -83,8 +83,12 @@ On a myApp's home/component pages the detail pane also hosts a **bottom dock**
 per component, tinted the app's color (creation-order index via
 `MyAppStore.colorIndex(for:)`), current page highlighted. It reveals on
 *approach* — macOS slides it up while the pointer is near the bottom edge; iOS
-peeks a handle you tap to expand (and tucks away after a selection). `AppView`
-hosts it once below `ChatOverlay`, gated to `.myAppHome`/`.myApp`/
+peeks a handle you tap to expand. On iOS the dock never covers the page (no
+scrim), so the page stays scrollable; scrolling dismisses the dock (`AppView`
+bumps a `dockDismissSignal` via a non-blocking `simultaneousGesture` on the
+content `NavigationStack`), and a 5s inactivity timer fades it otherwise. When
+the icons exceed the width the row scrolls horizontally (`ViewThatFits`).
+`AppView` hosts it once below `ChatOverlay`, gated to `.myAppHome`/`.myApp`/
 `.myAppComponent`; taps flat-switch the root selection (reset `detailPath`, set
 `selection`, run `dispatchSelection`).
 

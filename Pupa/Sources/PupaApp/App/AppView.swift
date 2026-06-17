@@ -41,6 +41,9 @@ public struct AppView: View {
     /// inside `MyAppHomeView` pushes onto this path so Back returns to the
     /// landing page instead of clearing the whole detail pane.
     @State private var detailPath: [SidebarSelection] = []
+    /// iOS: bumped when the page behind the dock is scrolled, telling
+    /// `MyAppDock` to tuck away. See the `simultaneousGesture` in `iOSBody`.
+    @State private var dockDismissSignal = 0
     /// Set when the user skipped backend pairing during onboarding. Drives the
     /// dismissible reminder banner until a backend is paired.
     @AppStorage(OnboardingKeys.backendSkipped) private var backendSkipped = false
@@ -280,6 +283,13 @@ public struct AppView: View {
                                 }
                         }
                 }
+                // Scrolling the page dismisses the dock. `simultaneousGesture`
+                // recognizes alongside the child ScrollView's pan, so the page
+                // still scrolls while the drag bumps the dismiss signal.
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 12)
+                        .onChanged { _ in dockDismissSignal += 1 }
+                )
                 myAppDock(for: selection ?? .myApp(store.activeMyAppId))
                 ChatOverlay(
                     scope: chatScope,
@@ -509,6 +519,7 @@ public struct AppView: View {
                 myAppId: id,
                 currentPage: page,
                 appColor: .color(atIndex: store.colorIndex(for: id)),
+                dismissSignal: dockDismissSignal,
                 onSelect: { nav in
                     detailPath = []
                     selection = nav
