@@ -75,8 +75,17 @@ iPhone landscape). The chat lives in a floating, user-resizable `ChatOverlay`
 card anchored bottom-trailing of the detail pane; on iOS it does its own
 keyboard avoidance (it tracks the keyboard height and lifts/shrinks the card)
 so the composer stays visible above the keyboard in any orientation. A
-full-screen expand/restore button (⤢) in the card header fills the available
-view; the resize grip is hidden while full-screen is active.
+full-screen expand/restore button (⤢) in the card header fills the detail pane
+edge-to-edge (no inset, flush corners); the resize grip is hidden while
+full-screen is active.
+
+The composer is a floating, translucent rounded pill overlaid on the bottom of
+the message `ScrollView` (not a layout row), so the message list uses the full
+card height; the ScrollView carries a bottom alpha-gradient `mask` so messages
+fade into the card material as they scroll behind the pill. Message bubbles are
+selectable on every platform and expose a **Copy** context-menu action
+(`ChatClipboard`, right-click on macOS / long-press on iOS) that copies the
+whole bubble.
 
 On a myApp's home/component pages the detail pane also hosts a **bottom dock**
 (`MyApps/MyAppDock.swift`): an icon-only quick-switcher — Home plus one icon
