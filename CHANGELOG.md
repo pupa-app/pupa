@@ -5,6 +5,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
 
 ## [0.0.20] — 2026-06-17
 
+### Changed
+
+- **Chat panel polish.** Message bubbles are now selectable on every platform
+  (was iOS-only) and gain a right-click / long-press **Copy** for the whole
+  bubble. The composer is a floating, translucent rounded pill over the message
+  list — the chat uses the full height and messages fade as they scroll behind
+  it. Fullscreen now fills the pane edge-to-edge (no inset gap, flush corners).
+  Header `+`, expand, close, paperclip, and send controls are ~15% larger.
+  (`PupaApp` `0.0.110`)
+
 ### Fixed
 
 - **The iOS bottom app dock no longer blocks page scrolling.** While the dock
@@ -14,6 +24,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   the dock, and the 5s inactivity fade still applies. When an app has more
   component icons than fit the width, the dock row scrolls horizontally instead
   of overflowing the screen edges. (`PupaApp` `0.0.110`)
+- **iOS attach menu no longer shoves the chat card up.** The paperclip used a
+  `Menu` anchored at the card's bottom edge, so the system lifted the whole
+  bottom-anchored card to fit the popup. It's now a bottom action sheet
+  (`confirmationDialog`) that slides over without moving the card.
 
 ## [0.0.19] — 2026-06-16
 

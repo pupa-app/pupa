@@ -5,6 +5,9 @@ import MarkdownUI
 #if os(iOS)
 import UIKit
 #endif
+#if canImport(AppKit)
+import AppKit
+#endif
 
 public struct AgentPickerEntry: Identifiable {
     public let scope: ChatScope
@@ -51,6 +54,10 @@ public struct ChatPanel: View {
     @State private var isDropTargeted: Bool = false
     /// Presents the system photo-library picker (driven by the paperclip menu).
     @State private var showPhotoPicker: Bool = false
+    /// iOS attach action sheet (Photo Library / Take Photo). A bottom
+    /// `confirmationDialog` instead of a `Menu` so it doesn't shove the
+    /// bottom-anchored chat card up to fit an anchored popup menu.
+    @State private var showAttachOptions: Bool = false
     #if os(iOS)
     /// Presents the in-app camera capture sheet (paperclip menu → Take Photo).
     @State private var showCameraSheet: Bool = false
@@ -118,9 +125,16 @@ public struct ChatPanel: View {
                         }
                     }
                     .padding(12)
+                    // Clearance so the last message can scroll clear above the
+                    // floating composer pill rather than sitting behind it.
+                    .padding(.bottom, 64)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .defaultScrollAnchor(.bottom)
+                // Fade messages into the card material as they pass behind the
+                // floating composer. Mask (not a solid overlay) because the
+                // card background is translucent `.regularMaterial`.
+                .mask(scrollFadeMask)
                 .onChange(of: viewModel.bubbles.count) { _, _ in
                     if let last = viewModel.bubbles.last {
                         withAnimation(.easeOut(duration: 0.15)) {
@@ -128,8 +142,11 @@ public struct ChatPanel: View {
                         }
                     }
                 }
+                // Composer floats over the messages so the chat list uses the
+                // full height; the mask above is applied first, so the pill
+                // itself stays crisp.
+                .overlay(alignment: .bottom) { inputBar }
             }
-            inputBar
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.cardBackground)
@@ -157,6 +174,21 @@ public struct ChatPanel: View {
         }
     }
 
+    /// Vertical alpha gradient masking the message ScrollView: fully opaque
+    /// down to ~82% height, then fading to clear so messages dissolve into the
+    /// translucent card behind the floating composer.
+    private var scrollFadeMask: some View {
+        LinearGradient(
+            stops: [
+                .init(color: .black, location: 0.0),
+                .init(color: .black, location: 0.82),
+                .init(color: .clear, location: 1.0)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
     private var header: some View {
         HStack(spacing: 8) {
             agentDropdown
@@ -168,7 +200,7 @@ public struct ChatPanel: View {
             if let add = onAddThread {
                 Button(action: add) {
                     Image(systemName: "plus")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
@@ -306,75 +338,87 @@ public struct ChatPanel: View {
         .padding(.vertical, 4)
     }
 
+    /// Floating, translucent composer pill. Anchored to the bottom of the
+    /// message ScrollView as an overlay (not a layout row) so the chat list
+    /// keeps the full height; only the pill is opaque, the rest is transparent
+    /// so messages show through and fade behind it.
     private var inputBar: some View {
-        VStack(spacing: 0) {
-            Divider()
-            VStack(alignment: .leading, spacing: 8) {
-                if let prefix = activeSlashPrefix {
-                    SlashCommandPalette(
-                        commands: viewModel.slashCommands.filter(prefix: prefix),
-                        onPick: { name in
-                            draft = "/\(name) "
-                        }
-                    )
-                }
-                if let pickedImage {
-                    attachmentPreview(for: pickedImage)
-                } else if isDropTargeted {
-                    Text("Drop image to attach")
-                        .font(.caption)
+        VStack(alignment: .leading, spacing: 8) {
+            if let prefix = activeSlashPrefix {
+                SlashCommandPalette(
+                    commands: viewModel.slashCommands.filter(prefix: prefix),
+                    onPick: { name in
+                        draft = "/\(name) "
+                    }
+                )
+            }
+            if let pickedImage {
+                attachmentPreview(for: pickedImage)
+            } else if isDropTargeted {
+                Text("Drop image to attach")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 36)
+                    .background(Color.accentColor.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            HStack(spacing: 8) {
+                Button {
+                    #if os(iOS)
+                    showAttachOptions = true
+                    #else
+                    showPhotoPicker = true
+                    #endif
+                } label: {
+                    Image(systemName: "paperclip")
+                        .font(.system(size: 17))
                         .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, minHeight: 36)
-                        .background(Color.accentColor.opacity(0.12))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .frame(width: 34, height: 34)
                 }
-                HStack(spacing: 8) {
-                    Menu {
-                        Button {
-                            showPhotoPicker = true
-                        } label: {
-                            Label("Photo Library", systemImage: "photo.on.rectangle")
-                        }
-                        #if os(iOS)
-                        if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                            Button {
-                                showCameraSheet = true
-                            } label: {
-                                Label("Take Photo", systemImage: "camera")
-                            }
-                        }
-                        #endif
-                    } label: {
-                        Image(systemName: "paperclip")
-                            .padding(8)
+                .buttonStyle(.plain)
+                .disabled(viewModel.isStreaming || isLoadingImage)
+                .help("Attach an image — pick from your library or take a photo (or drag & drop one onto the chat)")
+                #if os(iOS)
+                .confirmationDialog("Attach image", isPresented: $showAttachOptions, titleVisibility: .hidden) {
+                    Button("Photo Library") { showPhotoPicker = true }
+                    if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                        Button("Take Photo") { showCameraSheet = true }
                     }
-                    .menuStyle(.button)
-                    .buttonStyle(.bordered)
-                    .menuIndicator(.hidden)
-                    .disabled(viewModel.isStreaming || isLoadingImage)
-                    .help("Attach an image — pick from your library or take a photo (or drag & drop one onto the chat)")
-                    TextField(composerPlaceholder, text: $draft, axis: .vertical)
-                        .textFieldStyle(.roundedBorder)
-                        .lineLimit(1...4)
-                        .disabled(viewModel.isStreaming || viewModel.hasPendingQuestion)
-                        .onSubmit(send)
-                    Button(action: send) {
-                        Image(systemName: viewModel.isStreaming ? "stop.fill" : "arrow.up")
-                            .padding(8)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(sendDisabled)
                 }
+                #endif
+                TextField(composerPlaceholder, text: $draft, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(1...4)
+                    .disabled(viewModel.isStreaming || viewModel.hasPendingQuestion)
+                    .onSubmit(send)
+                Button(action: send) {
+                    Image(systemName: viewModel.isStreaming ? "stop.fill" : "arrow.up")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 34, height: 34)
+                        .background(
+                            sendDisabled ? Color.gray.opacity(0.4) : Color.accentColor,
+                            in: Circle()
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(sendDisabled)
             }
-            .padding(12)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(Color.accentColor.opacity(isDropTargeted ? 0.7 : 0), lineWidth: 2)
-                    .padding(4)
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(
+                        isDropTargeted ? Color.accentColor.opacity(0.7) : Color.secondary.opacity(0.2),
+                        lineWidth: isDropTargeted ? 2 : 0.5
+                    )
             )
-            .onDrop(of: [UTType.image, UTType.fileURL], isTargeted: $isDropTargeted) { providers in
-                handleDroppedProviders(providers)
-            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 12)
+        .onDrop(of: [UTType.image, UTType.fileURL], isTargeted: $isDropTargeted) { providers in
+            handleDroppedProviders(providers)
         }
         .onChange(of: pickerItem) { _, newItem in
             guard let newItem else { return }
@@ -638,17 +682,25 @@ private struct MessageBubbleView: View {
                                                 .clipShape(RoundedRectangle(cornerRadius: 6))
                                         }
                                 )
-                                #if os(iOS)
                                 .textSelection(.enabled)
-                                #endif
                         } else {
                             Text(bubble.text.isEmpty ? "…" : bubble.text)
+                                .textSelection(.enabled)
                         }
                     }
                 }
                 .padding(10)
                 .background(bubble.role == .user ? Color.accentColor.opacity(0.15) : Color.gray.opacity(0.1))
                 .clipShape(RoundedRectangle(cornerRadius: 10))
+                .contextMenu {
+                    if !bubble.text.isEmpty {
+                        Button {
+                            ChatClipboard.copy(bubble.text)
+                        } label: {
+                            Label("Copy", systemImage: "doc.on.doc")
+                        }
+                    }
+                }
                 .frame(maxWidth: .infinity, alignment: bubble.role == .user ? .trailing : .leading)
                 if bubble.role == .assistant { Spacer(minLength: 40) }
             }
@@ -1183,6 +1235,18 @@ private struct ChatChartBubble: View {
             ChartView(series: snapshot.series, kind: snapshot.kind)
                 .frame(width: 280, height: 200)
         }
+    }
+}
+
+/// Cross-platform clipboard write for the bubble "Copy" context-menu action.
+enum ChatClipboard {
+    static func copy(_ text: String) {
+        #if canImport(UIKit)
+        UIPasteboard.general.string = text
+        #elseif canImport(AppKit)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        #endif
     }
 }
 

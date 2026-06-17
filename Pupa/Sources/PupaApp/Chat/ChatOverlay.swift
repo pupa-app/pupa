@@ -60,7 +60,7 @@ struct ChatOverlay: View {
                         )
                 }
             }
-            .padding(edgePadding)
+            .padding(isFullscreen ? 0 : edgePadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             // Lift the bottom-anchored card above the keyboard.
             .padding(.bottom, overlap)
@@ -133,10 +133,7 @@ struct ChatOverlay: View {
 
     private func card(in containerSize: CGSize) -> some View {
         let size: CGSize = isFullscreen
-            ? CGSize(
-                width: max(0, containerSize.width - edgePadding * 2),
-                height: max(0, containerSize.height - edgePadding * 2)
-              )
+            ? containerSize
             : sizing.resolvedSize(user: userSize, in: containerSize)
 
         return ZStack(alignment: .topLeading) {
@@ -151,9 +148,9 @@ struct ChatOverlay: View {
                         Image(systemName: isFullscreen
                               ? "arrow.down.right.and.arrow.up.left"
                               : "arrow.up.left.and.arrow.down.right")
-                            .font(.system(size: 11, weight: .bold))
+                            .font(.system(size: 13, weight: .bold))
                             .foregroundStyle(.secondary)
-                            .padding(6)
+                            .padding(7)
                             .background(Color.secondary.opacity(0.15), in: Circle())
                     }
                     .buttonStyle(.plain)
@@ -161,8 +158,8 @@ struct ChatOverlay: View {
                     .padding(.trailing, 4)
                     Button(action: collapse) {
                         Image(systemName: "xmark")
-                            .font(.system(size: 11, weight: .bold))
-                            .padding(6)
+                            .font(.system(size: 13, weight: .bold))
+                            .padding(7)
                             .background(Color.secondary.opacity(0.15), in: Circle())
                     }
                     .buttonStyle(.plain)
@@ -184,7 +181,7 @@ struct ChatOverlay: View {
         }
         .frame(width: size.width, height: size.height)
         .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: isFullscreen ? 0 : 14, style: .continuous))
         .shadow(color: .black.opacity(0.25), radius: 18, x: 0, y: 8)
     }
 
