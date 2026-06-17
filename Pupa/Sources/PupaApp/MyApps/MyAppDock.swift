@@ -25,6 +25,9 @@ public struct MyAppDock: View {
     let myAppId: UUID
     let currentPage: Page
     let appColor: Color
+    /// iOS: a counter the host bumps when the page behind is scrolled. Each
+    /// change tucks the dock away — scrolling dismisses it. Unused on macOS.
+    let dismissSignal: Int
     let onSelect: (SidebarSelection) -> Void
 
     public init(
@@ -32,12 +35,14 @@ public struct MyAppDock: View {
         myAppId: UUID,
         currentPage: Page,
         appColor: Color,
+        dismissSignal: Int = 0,
         onSelect: @escaping (SidebarSelection) -> Void
     ) {
         self.store = store
         self.myAppId = myAppId
         self.currentPage = currentPage
         self.appColor = appColor
+        self.dismissSignal = dismissSignal
         self.onSelect = onSelect
     }
 
@@ -83,27 +88,25 @@ public struct MyAppDock: View {
     }
     #else
     /// iOS reveal: a classy up-chevron handle sits at the very bottom; tapping
-    /// it expands the dock. While expanded a full-pane scrim catches taps — so
-    /// tapping the page dismisses the dock — and an inactivity timer fades it
-    /// after 5s. The dock persists across page switches (it doesn't auto-close
-    /// on a jump), so you can hop several pages before it tucks away.
+    /// it expands the dock. The dock never covers the page — only the floating
+    /// capsule and handle are hittable, so the page behind stays scrollable.
+    /// Scrolling dismisses the dock (via `dismissSignal` bumped by the host),
+    /// and an inactivity timer fades it after 5s. The dock persists across page
+    /// switches (it doesn't auto-close on a jump), so you can hop several pages
+    /// before it tucks away.
     private var iosBody: some View {
         ZStack(alignment: .bottom) {
             if revealed {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture { hide() }
                 dockCapsule
                     .padding(.bottom, 10)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             } else {
-                // Non-hittable filler keeps the page interactive; only the
-                // handle takes taps.
-                VStack(spacing: 0) { Spacer(minLength: 0); handle }
+                handle
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .animation(.spring(duration: 0.25), value: revealed)
+        .onChange(of: dismissSignal) { hide() }
         .onDisappear { hideToken += 1 }
     }
 
@@ -142,7 +145,22 @@ public struct MyAppDock: View {
     }
     #endif
 
+    /// Pill row: Home + one icon per component. Hugs its content when the icons
+    /// fit; once they'd overflow the width it scrolls horizontally instead of
+    /// running off the screen edges.
     private var dockCapsule: some View {
+        ViewThatFits(in: .horizontal) {
+            iconRow
+            ScrollView(.horizontal) { iconRow }
+                .scrollIndicators(.hidden)
+        }
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
+        .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
+        .padding(.horizontal, 16)
+    }
+
+    private var iconRow: some View {
         HStack(spacing: 4) {
             iconButton(
                 system: "house",
@@ -158,9 +176,6 @@ public struct MyAppDock: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
-        .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
     }
 
     private func iconButton(

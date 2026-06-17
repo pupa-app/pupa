@@ -3,6 +3,18 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.20] — 2026-06-17
+
+### Fixed
+
+- **The iOS bottom app dock no longer blocks page scrolling.** While the dock
+  was revealed it laid a full-pane invisible scrim that caught every touch, so
+  the page behind could only be tapped (to dismiss the dock), never scrolled.
+  The scrim is gone — the page stays fully interactive. Scrolling now dismisses
+  the dock, and the 5s inactivity fade still applies. When an app has more
+  component icons than fit the width, the dock row scrolls horizontally instead
+  of overflowing the screen edges. (`PupaApp` `0.0.110`)
+
 ## [0.0.19] — 2026-06-16
 
 ### Fixed
