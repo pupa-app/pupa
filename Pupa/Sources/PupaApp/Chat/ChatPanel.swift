@@ -54,6 +54,10 @@ public struct ChatPanel: View {
     @State private var isDropTargeted: Bool = false
     /// Presents the system photo-library picker (driven by the paperclip menu).
     @State private var showPhotoPicker: Bool = false
+    /// iOS attach action sheet (Photo Library / Take Photo). A bottom
+    /// `confirmationDialog` instead of a `Menu` so it doesn't shove the
+    /// bottom-anchored chat card up to fit an anchored popup menu.
+    @State private var showAttachOptions: Bool = false
     #if os(iOS)
     /// Presents the in-app camera capture sheet (paperclip menu → Take Photo).
     @State private var showCameraSheet: Bool = false
@@ -359,20 +363,11 @@ public struct ChatPanel: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             }
             HStack(spacing: 8) {
-                Menu {
-                    Button {
-                        showPhotoPicker = true
-                    } label: {
-                        Label("Photo Library", systemImage: "photo.on.rectangle")
-                    }
+                Button {
                     #if os(iOS)
-                    if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                        Button {
-                            showCameraSheet = true
-                        } label: {
-                            Label("Take Photo", systemImage: "camera")
-                        }
-                    }
+                    showAttachOptions = true
+                    #else
+                    showPhotoPicker = true
                     #endif
                 } label: {
                     Image(systemName: "paperclip")
@@ -380,11 +375,17 @@ public struct ChatPanel: View {
                         .foregroundStyle(.secondary)
                         .frame(width: 34, height: 34)
                 }
-                .menuStyle(.button)
                 .buttonStyle(.plain)
-                .menuIndicator(.hidden)
                 .disabled(viewModel.isStreaming || isLoadingImage)
                 .help("Attach an image — pick from your library or take a photo (or drag & drop one onto the chat)")
+                #if os(iOS)
+                .confirmationDialog("Attach image", isPresented: $showAttachOptions, titleVisibility: .hidden) {
+                    Button("Photo Library") { showPhotoPicker = true }
+                    if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                        Button("Take Photo") { showCameraSheet = true }
+                    }
+                }
+                #endif
                 TextField(composerPlaceholder, text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .lineLimit(1...4)
