@@ -34,6 +34,11 @@
 			</dict>
 		</dict>
 	</array>
+	<!-- Imports copy the bundle's content into the app; the original file is
+	     never edited in place, so this is NO (silences App Store Connect's
+	     "Missing Document Configuration" warning for document-type apps). -->
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<false/>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
