@@ -16,6 +16,9 @@ header   (read & validated first)   app (Codable MyApp tree)   memories[]
   `appVersion` (soft-warn when newer), `exportedAt`, `includedRecords`,
   `includedMemories`.
 - `app`: the whole `MyApp` — the single source of truth. No parallel schema.
+  A component's editable `name` / `iconSystemName` / `summary` already live
+  here, so renaming or re-iconing a component (via `setComponentMeta`) needs
+  **no format change** — `formatVersion` stays put and old bundles load as-is.
 - `memories`: `{path, content}`, paths relative to the app's memory root.
 
 The bundle carries **no executable content**. All rebuild logic lives in the

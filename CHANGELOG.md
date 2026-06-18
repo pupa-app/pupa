@@ -3,6 +3,26 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.22] — 2026-06-18
+
+### Added
+
+- **Memory notes are linkable, and reachable from the dock.** The agent can
+  drop a tappable link to any note in chat — written as
+  `[title](pupa://memory/<path>)` — and tapping it opens the note in the
+  detail pane (Back returns you to the chat). Links are scope-relative: the
+  agent uses the same note path it already reads and writes, and the app
+  binds it to the current app or the orchestrator. A myApp's top-level notes
+  now also appear as shortcuts in the bottom dock, beside Home and the
+  component icons. (`PupaApp` `0.0.113`)
+- **Rename and re-icon a component without losing its data.** Components keep
+  a permanent `id` but their name, icon, and LLM-facing description are now
+  editable in place — via a new `setComponentMeta` agent tool and a sidebar
+  **Rename / icon…** menu (name field, SF Symbol field with a live preview,
+  and a quick-pick glyph grid). The agent no longer deletes and re-adds a
+  component to relabel it. No bundle-format change — existing `.pupaapp`
+  apps are unaffected. (`PupaApp` `0.0.113`)
+
 ## [0.0.21] — 2026-06-18
 
 ### Added
