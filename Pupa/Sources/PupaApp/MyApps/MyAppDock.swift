@@ -19,12 +19,28 @@ public struct MyAppDock: View {
     public enum Page: Equatable {
         case home
         case component(String)
+        case memory(String)
+    }
+
+    /// A myApp memory note shown as a dock shortcut. `path` is the note's
+    /// path in the global memory tree — it drives both selection and the
+    /// active-page highlight.
+    public struct MemoryItem: Identifiable, Equatable {
+        public let path: String
+        public let name: String
+        public init(path: String, name: String) {
+            self.path = path
+            self.name = name
+        }
+        public var id: String { path }
     }
 
     let store: MyAppStore
     let myAppId: UUID
     let currentPage: Page
     let appColor: Color
+    /// The myApp's top-level memory notes, shown after the component icons.
+    let memoryFiles: [MemoryItem]
     /// iOS: a counter the host bumps when the page behind is scrolled. Each
     /// change tucks the dock away — scrolling dismisses it. Unused on macOS.
     let dismissSignal: Int
@@ -35,6 +51,7 @@ public struct MyAppDock: View {
         myAppId: UUID,
         currentPage: Page,
         appColor: Color,
+        memoryFiles: [MemoryItem] = [],
         dismissSignal: Int = 0,
         onSelect: @escaping (SidebarSelection) -> Void
     ) {
@@ -42,6 +59,7 @@ public struct MyAppDock: View {
         self.myAppId = myAppId
         self.currentPage = currentPage
         self.appColor = appColor
+        self.memoryFiles = memoryFiles
         self.dismissSignal = dismissSignal
         self.onSelect = onSelect
     }
@@ -164,14 +182,32 @@ public struct MyAppDock: View {
         HStack(spacing: 4) {
             iconButton(
                 system: "house",
-                active: currentPage == .home
+                active: currentPage == .home,
+                help: "Home"
             ) { select(.myAppHome(myAppId)) }
 
             ForEach(app?.components ?? []) { component in
                 iconButton(
                     system: component.iconSystemName,
-                    active: currentPage == .component(component.id)
+                    active: currentPage == .component(component.id),
+                    help: component.name
                 ) { select(.myAppComponent(myAppId, component.id)) }
+            }
+
+            // The app's notes, after a hairline so they read as a distinct
+            // group from the component pages. All share the `note.text` glyph
+            // — the tooltip / accessibility label carries the note name.
+            if !memoryFiles.isEmpty {
+                Divider()
+                    .frame(height: 22)
+                    .padding(.horizontal, 2)
+                ForEach(memoryFiles) { item in
+                    iconButton(
+                        system: "note.text",
+                        active: currentPage == .memory(item.path),
+                        help: item.name
+                    ) { select(.myAppMemoryFile(myAppId, item.path)) }
+                }
             }
         }
         .padding(.horizontal, 8)
@@ -181,6 +217,7 @@ public struct MyAppDock: View {
     private func iconButton(
         system: String,
         active: Bool,
+        help: String,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -194,6 +231,8 @@ public struct MyAppDock: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
     }
 
     private func select(_ selection: SidebarSelection) {

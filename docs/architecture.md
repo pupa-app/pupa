@@ -88,9 +88,13 @@ selectable on every platform and expose a **Copy** context-menu action
 whole bubble.
 
 On a myApp's home/component pages the detail pane also hosts a **bottom dock**
-(`MyApps/MyAppDock.swift`): an icon-only quick-switcher — Home plus one icon
-per component, tinted the app's color (creation-order index via
-`MyAppStore.colorIndex(for:)`), current page highlighted. It reveals on
+(`MyApps/MyAppDock.swift`): an icon-only quick-switcher — Home, one icon per
+component, then (after a hairline) the app's top-level memory notes
+(`AppView.dockMemoryFiles` reads the same per-app subtree of `memory.tree` the
+sidebar shows; files only). All tinted the app's color (creation-order index
+via `MyAppStore.colorIndex(for:)`), current page highlighted; notes share the
+`note.text` glyph with the name in the tooltip / accessibility label. It
+reveals on
 *approach* — macOS slides it up while the pointer is near the bottom edge; iOS
 peeks a handle you tap to expand. On iOS the dock never covers the page (no
 scrim), so the page stays scrollable; scrolling dismisses the dock (`AppView`
@@ -98,8 +102,19 @@ bumps a `dockDismissSignal` via a non-blocking `simultaneousGesture` on the
 content `NavigationStack`), and a 5s inactivity timer fades it otherwise. When
 the icons exceed the width the row scrolls horizontally (`ViewThatFits`).
 `AppView` hosts it once below `ChatOverlay`, gated to `.myAppHome`/`.myApp`/
-`.myAppComponent`; taps flat-switch the root selection (reset `detailPath`, set
-`selection`, run `dispatchSelection`).
+`.myAppComponent`/`.myAppMemoryFile`; taps flat-switch the root selection (reset
+`detailPath`, set `selection`, run `dispatchSelection`).
+
+**In-app links (`pupa://`).** The agent can embed tappable navigation links in
+chat markdown; `Chat/ChatLink.swift` maps a `pupa://` URL to a
+`SidebarSelection` and `AppView.chatLinkAction` (an `OpenURLAction` installed on
+both the detail `NavigationStack` and `ChatOverlay`) pushes it onto `detailPath`
+— real `http(s)` URLs fall through to the browser. Links are **scope-relative**:
+`pupa://memory/<path>` uses the same note path the agent reads/writes and binds
+to the current chat scope (a myApp → `.myAppMemoryFile`, the orchestrator →
+`.memoryFile`); `pupa://component/<id>` targets the current myApp; the explicit
+`pupa://myapp/<uuid>/memory/<path>` form is for cross-scope links. Distinct from
+Slack's `pupa-mention://` and the `.pupaapp` file type.
 
 The conversation dropdown (`ChatPanel.threadDropdown`) lists threads newest-first.
 When 2+ threads exist each entry is a submenu with "Open" and "Delete" so any
@@ -176,6 +191,13 @@ tool derives its JSON-Schema `kind` enum from `supportedComponentKinds` at
 registration time — a new kind not added there is silently rejected.
 Full recipe in
 [docs/adding-a-component.md](adding-a-component.md).
+
+A `Component`'s `id` is permanent (the key every cross-component ref, active
+selection, and tool dispatch resolves by), but its `name`, `iconSystemName`,
+and LLM-facing `summary` are mutable. `MyAppStore.updateComponentMeta` edits
+them in place, exposed to the agent as the `setComponentMeta` tool and to the
+user via the sidebar component row's **Rename / icon…** sheet — so relabelling
+never means delete-and-re-add (which would lose the component's data).
 
 The **calculator** shape is a live numeric model: tunable variable rows,
 tracker-aggregate rows (sum/avg/min/max/count with a category filter),

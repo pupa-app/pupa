@@ -428,6 +428,53 @@ public final class MyAppStore {
         return true
     }
 
+    /// Edit a component's mutable metadata in place — `name`, `iconSystemName`,
+    /// and the LLM-facing `summary` (the "what this is for" description). The
+    /// component `id` and `body` (its data) are untouched, so this never loses
+    /// content the way delete-and-re-add would. Each argument is optional:
+    /// `nil` leaves that field alone; a value sets it (an all-whitespace `name`
+    /// or `iconSystemName` is ignored, an all-whitespace `summary` clears it,
+    /// matching `setComponentSummary`). Returns `true` iff anything changed.
+    @discardableResult
+    public func updateComponentMeta(
+        componentId: String,
+        name: String? = nil,
+        iconSystemName: String? = nil,
+        summary: String? = nil,
+        myAppId: UUID? = nil
+    ) -> Bool {
+        let target = myAppId ?? activeMyAppId
+        guard let mIdx = myApps.firstIndex(where: { $0.id == target }),
+              let cIdx = myApps[mIdx].components.firstIndex(where: { $0.id == componentId })
+        else { return false }
+
+        var changed = false
+        if let name {
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty, myApps[mIdx].components[cIdx].name != trimmed {
+                myApps[mIdx].components[cIdx].name = trimmed
+                changed = true
+            }
+        }
+        if let iconSystemName {
+            let trimmed = iconSystemName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty, myApps[mIdx].components[cIdx].iconSystemName != trimmed {
+                myApps[mIdx].components[cIdx].iconSystemName = trimmed
+                changed = true
+            }
+        }
+        if let summary {
+            let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+            let next: String? = trimmed.isEmpty ? nil : trimmed
+            if myApps[mIdx].components[cIdx].summary != next {
+                myApps[mIdx].components[cIdx].summary = next
+                changed = true
+            }
+        }
+        if changed { persist() }
+        return changed
+    }
+
     /// Set or clear the LLM-authored content `summary` for a component
     /// (the slot surfaced in the canvas state context entry every turn).
     /// Targets a component by kind using the same selection rule as

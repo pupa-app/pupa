@@ -17,6 +17,8 @@ public struct MyAppSidebarView: View {
     @State private var tour = GuidedTourStore.shared
     @State private var renamingMyAppId: UUID?
     @State private var renameDraft: String = ""
+    /// The component whose name + icon the user is editing, or `nil`.
+    @State private var editingComponent: EditingComponentRef?
     @State private var expanded: Set<String> = []
     /// Which MyApp rows are currently expanded in the sidebar. Seeded with
     /// the active myApp on first render so the user's current canvas is
@@ -158,6 +160,23 @@ public struct MyAppSidebarView: View {
                 renamingMyAppId = nil
             } onCancel: {
                 renamingMyAppId = nil
+            }
+        }
+        .sheet(item: $editingComponent) { ref in
+            if let component = store.myApps
+                .first(where: { $0.id == ref.myAppId })?
+                .components.first(where: { $0.id == ref.componentId }) {
+                EditComponentSheet(initial: component) { newName, newIcon in
+                    store.updateComponentMeta(
+                        componentId: ref.componentId,
+                        name: newName,
+                        iconSystemName: newIcon,
+                        myAppId: ref.myAppId
+                    )
+                    editingComponent = nil
+                } onCancel: {
+                    editingComponent = nil
+                }
             }
         }
         .sheet(item: $activeMemorySheet) { sheet in
@@ -596,6 +615,13 @@ public struct MyAppSidebarView: View {
             Image(systemName: component.iconSystemName)
         }
         .tag(SidebarSelection.myAppComponent(myApp.id, component.id))
+        .contextMenu {
+            Button {
+                editingComponent = EditingComponentRef(myAppId: myApp.id, componentId: component.id)
+            } label: {
+                Label("Rename / icon…", systemImage: "pencil")
+            }
+        }
     }
 
     /// Renders the memory subtree rooted at `rootSlug` (a top-level folder
@@ -938,5 +964,110 @@ private struct RenameMyAppSheet: View {
             draft = initial
             focused = true
         }
+    }
+}
+
+/// Identifies the component being edited in `EditComponentSheet`. Component
+/// ids (`"tracker-1"`) repeat across myApps, so the myApp id is part of the
+/// identity.
+private struct EditingComponentRef: Identifiable {
+    let myAppId: UUID
+    let componentId: String
+    var id: String { "\(myAppId.uuidString)/\(componentId)" }
+}
+
+/// Edits a component's name + icon (its `id` and data are untouched). Mirrors
+/// `RenameMyAppSheet`, plus an SF Symbol field with a live preview and a
+/// quick-pick grid of common glyphs.
+private struct EditComponentSheet: View {
+    let initial: Component
+    var onCommit: (_ name: String, _ icon: String) -> Void
+    var onCancel: () -> Void
+
+    @State private var name: String = ""
+    @State private var icon: String = ""
+    @FocusState private var nameFocused: Bool
+
+    /// A small palette so the common case needs no typing. Any valid SF
+    /// Symbol name still works via the text field.
+    private let suggestions = [
+        "list.bullet.rectangle", "calendar", "checklist", "bubble.left.and.bubble.right",
+        "function", "chart.pie", "book", "star", "flag", "tag",
+        "folder", "tray", "cart", "dumbbell", "fork.knife", "heart",
+        "dollarsign.circle", "briefcase", "house", "person.2",
+    ]
+
+    private let columns = [GridItem(.adaptive(minimum: 44), spacing: 8)]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Name") {
+                    TextField("e.g. Books, Wardrobe, Workouts", text: $name)
+                        .focused($nameFocused)
+                        .onSubmit(commit)
+                }
+                Section("Icon") {
+                    HStack(spacing: 10) {
+                        Image(systemName: icon.isEmpty ? "square.dashed" : icon)
+                            .font(.system(size: 22))
+                            .frame(width: 32, height: 32)
+                        TextField("SF Symbol name", text: $icon)
+                            #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            #endif
+                    }
+                    LazyVGrid(columns: columns, spacing: 8) {
+                        ForEach(suggestions, id: \.self) { symbol in
+                            Button { icon = symbol } label: {
+                                Image(systemName: symbol)
+                                    .font(.system(size: 18))
+                                    .frame(width: 40, height: 40)
+                                    .background {
+                                        if icon == symbol {
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .fill(Color.accentColor.opacity(0.2))
+                                        }
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+            .navigationTitle("Edit component")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onCancel)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save", action: commit)
+                        .disabled(!isDirty || name.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            #if os(macOS)
+            .frame(minWidth: 340, idealWidth: 400, minHeight: 320, idealHeight: 380)
+            #endif
+        }
+        .onAppear {
+            name = initial.name
+            icon = initial.iconSystemName
+            nameFocused = true
+        }
+    }
+
+    private var isDirty: Bool {
+        name != initial.name || icon != initial.iconSystemName
+    }
+
+    private func commit() {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+        onCommit(trimmedName, icon.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 }

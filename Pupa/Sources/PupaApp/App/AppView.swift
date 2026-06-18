@@ -371,6 +371,8 @@ public struct AppView: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
             }
+            // Route `pupa://` links inside pushed memory notes in-app too.
+            .environment(\.openURL, chatLinkAction)
             myAppDock(for: selection ?? .myApp(store.activeMyAppId))
             ChatOverlay(
                 scope: chatScope,
@@ -379,6 +381,11 @@ public struct AppView: View {
                 agents: agentPickerEntries,
                 onSwitchAgent: switchAgent
             )
+            // Intercept `pupa://` links the agent embeds in chat markdown —
+            // route them in-app instead of to the browser. Scoped to the
+            // overlay subtree so it doesn't hijack the canvas's own openURL
+            // handlers (e.g. Slack mentions). Real http(s) URLs fall through.
+            .environment(\.openURL, chatLinkAction)
             if tour.isActive {
                 GuidedTourView(tour: tour)
             }
@@ -540,6 +547,7 @@ public struct AppView: View {
                 myAppId: id,
                 currentPage: page,
                 appColor: .color(atIndex: store.colorIndex(for: id)),
+                memoryFiles: dockMemoryFiles(myAppId: id),
                 dismissSignal: dockDismissSignal,
                 onSelect: { nav in
                     detailPath = []
@@ -551,12 +559,29 @@ public struct AppView: View {
     }
 
     /// Maps a selection to the dock's active page, or `nil` for pages that
-    /// shouldn't show a dock (agents, memory files, orchestrator, …).
+    /// shouldn't show a dock (agents, orchestrator, …). A myApp memory note
+    /// keeps the dock up and highlights the note.
     private func dockPage(for sel: SidebarSelection) -> MyAppDock.Page? {
         switch sel {
         case .myAppHome, .myApp: return .home
         case .myAppComponent(_, let componentId): return .component(componentId)
+        case .myAppMemoryFile(_, let path): return .memory(path)
         default: return nil
+        }
+    }
+
+    /// The active myApp's top-level memory notes, surfaced as dock shortcuts.
+    /// Reads the same per-app subtree of the global `memory.tree` the sidebar
+    /// shows; files only (folders stay sidebar-only).
+    private func dockMemoryFiles(myAppId: UUID) -> [MyAppDock.MemoryItem] {
+        guard let app = store.myApps.first(where: { $0.id == myAppId }) else { return [] }
+        let slug = MemoryStore.myAppFolder(myAppName: app.name)
+        let children = memory.tree.children?
+            .first(where: { $0.name == slug })?
+            .children ?? []
+        return children.compactMap { node in
+            guard case .file = node.kind else { return nil }
+            return MyAppDock.MemoryItem(path: node.path, name: node.name)
         }
     }
 
@@ -595,6 +620,28 @@ public struct AppView: View {
             // Screen share doesn't change the chat scope — the overlay just
             // floats over the panel and keeps using the memory session.
             break
+        }
+    }
+
+    /// Navigate from a tapped in-app `pupa://` link in chat. Pushes the
+    /// target onto the detail stack — so Back returns to where the user was
+    /// — and routes the chat scope to match (via `dispatchSelection`).
+    private func openFromChat(_ sel: SidebarSelection) {
+        detailPath.append(sel)
+        dispatchSelection(sel)
+    }
+
+    /// `OpenURLAction` that routes in-app `pupa://` links (chat + notes) to a
+    /// `SidebarSelection` and lets every other URL fall through to the system
+    /// browser. Scope-relative links bind to the chat's current myApp.
+    private var chatLinkAction: OpenURLAction {
+        OpenURLAction { url in
+            let current: UUID? = { if case .myApp(let id) = chatScope { return id }; return nil }()
+            guard let sel = ChatLink.sidebarSelection(from: url, currentMyAppId: current) else {
+                return .systemAction
+            }
+            openFromChat(sel)
+            return .handled
         }
     }
 

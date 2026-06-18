@@ -1345,6 +1345,50 @@ public enum AppTools {
                 }
             }
         ))
+
+        registry.register(ClientTool(
+            descriptor: ToolDescriptor(
+                name: "setComponentMeta",
+                description: """
+                Edit a component's metadata IN PLACE — its `name` (sidebar / \
+                dock label), `iconSystemName` (SF Symbol), and/or `summary` \
+                (your short "what this is for" description, surfaced in the \
+                canvas-state context every turn). The component's `id` and its \
+                data are untouched. Pass only the fields you want to change; \
+                an empty `summary` clears it. Result echoes {componentId, changed}.
+                """,
+                parameters: [
+                    "type": "object",
+                    "properties": [
+                        "componentId": ["type": "string"],
+                        "name": ["type": "string"],
+                        "iconSystemName": ["type": "string"],
+                        "summary": ["type": "string"],
+                    ],
+                    "required": ["componentId"],
+                ]
+            ),
+            handler: { args in
+                let id = args["componentId"]?.stringValue ?? ""
+                let name = args["name"]?.stringValue
+                let icon = args["iconSystemName"]?.stringValue
+                let summary = args["summary"]?.stringValue
+                return await MainActor.run {
+                    let changed = store.updateComponentMeta(
+                        componentId: id,
+                        name: name,
+                        iconSystemName: icon,
+                        summary: summary,
+                        myAppId: myAppId
+                    )
+                    return .object([
+                        "ok": .bool(true),
+                        "componentId": .string(id),
+                        "changed": .bool(changed),
+                    ])
+                }
+            }
+        ))
     }
 
     // MARK: - Calendar tools
@@ -3755,7 +3799,9 @@ public enum AppTools {
                 List entries at a memory path. `path` is relative to the memories \
                 root (use "" for the root). With `recursive=true`, returns the full \
                 subtree (paths flattened). Result echoes \
-                {entries: [{path, name, kind: "file"|"folder", sizeBytes?, modifiedAt?}]}.
+                {entries: [{path, name, kind: "file"|"folder", sizeBytes?, modifiedAt?}]}. \
+                To surface a note in chat as a tappable link, write the markdown \
+                `[title](pupa://memory/<path>)` using a returned `path`.
                 """,
                 parameters: [
                     "type": "object",
