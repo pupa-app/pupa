@@ -408,6 +408,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Pupa;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Pupa uses the camera so you can share photos or visual context with the chat agent.\n";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Pupa uses the microphone so you can talk to the chat agent by voice.\n";
@@ -457,6 +458,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Pupa;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Pupa uses the camera so you can share photos or visual context with the chat agent.\n";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Pupa uses the microphone so you can talk to the chat agent by voice.\n";

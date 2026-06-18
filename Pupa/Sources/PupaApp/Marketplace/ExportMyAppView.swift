@@ -16,8 +16,10 @@ struct SharingSettingsView: View {
     @State private var includeRecords = false
     @State private var includeMemories = false
 
-    @State private var exportDocument: MyAppDocument?
-    @State private var presentingExporter = false
+    /// Temp `.pupaapp` file backing the share sheet. Rebuilt whenever the
+    /// selection or toggles change so a share always reflects the current
+    /// choices; `nil` (control disabled) until at least one component is picked.
+    @State private var shareURL: URL?
     @State private var presentingImporter = false
     @State private var notice: Notice?
 
@@ -42,19 +44,12 @@ struct SharingSettingsView: View {
         #endif
         .onAppear(perform: syncSelection)
         .onChange(of: selectedAppId) { _, _ in syncSelection() }
-        .fileExporter(
-            isPresented: $presentingExporter,
-            document: exportDocument,
-            contentType: .json,
-            defaultFilename: exportFilename
-        ) { result in
-            if case .failure(let error) = result {
-                notice = Notice(title: "Export failed", message: error.localizedDescription)
-            }
-        }
+        .onChange(of: selectedComponentIds) { _, _ in regenerateShareFile() }
+        .onChange(of: includeRecords) { _, _ in regenerateShareFile() }
+        .onChange(of: includeMemories) { _, _ in regenerateShareFile() }
         .fileImporter(
             isPresented: $presentingImporter,
-            allowedContentTypes: [.json]
+            allowedContentTypes: [.pupaAppBundle, .json]
         ) { result in
             handleImport(result)
         }
@@ -107,8 +102,24 @@ struct SharingSettingsView: View {
             }
 
             Section {
-                Button("Export…", action: startExport)
-                    .disabled(selectedComponentIds.isEmpty)
+                if let shareURL {
+                    // An explicit preview stops the share sheet probing the
+                    // bundle for a thumbnail it can't make (benign but noisy
+                    // "error fetching item … (null)" logs) and gives a clean card.
+                    ShareLink(
+                        item: shareURL,
+                        preview: SharePreview(
+                            app.name,
+                            image: Image(systemName: app.iconSystemName))
+                    ) {
+                        Label("Share…", systemImage: "square.and.arrow.up")
+                    }
+                } else {
+                    Label("Share…", systemImage: "square.and.arrow.up")
+                        .foregroundStyle(.secondary)
+                }
+            } footer: {
+                Text("Shares a .pupaapp file — AirDrop, Messages, WhatsApp, Mail, or Save to Files. Opening it on another device imports the app into Pupa.")
             }
         } else {
             Section { Text("No apps to export.").foregroundStyle(.secondary) }
@@ -150,13 +161,6 @@ struct SharingSettingsView: View {
         return out
     }
 
-    private var exportFilename: String {
-        // No extension here: the `.json` content type appends it, so a bare base
-        // yields a clean `name.json`. A branded `.pupaapp` extension is deferred
-        // until a declared UTType ships (#52) — see MyAppDocument.
-        app.map { MemoryStore.myAppFolder(myAppName: $0.name) } ?? "myapp"
-    }
-
     private func toggle(_ id: String) {
         if selectedComponentIds.contains(id) { selectedComponentIds.remove(id) }
         else { selectedComponentIds.insert(id) }
@@ -166,10 +170,17 @@ struct SharingSettingsView: View {
         guard let app else { return }
         selectedAppId = app.id
         selectedComponentIds = Set(app.components.map(\.id))
+        regenerateShareFile()
     }
 
-    private func startExport() {
-        guard let app else { return }
+    /// Encode the current selection to a temp `<App>.pupaapp` file the share
+    /// sheet hands off. `nil`s `shareURL` (disabling the control) when nothing
+    /// is selected. Cheap enough to re-run on every toggle.
+    private func regenerateShareFile() {
+        guard let app, !selectedComponentIds.isEmpty else {
+            shareURL = nil
+            return
+        }
         let bundle = MyAppExporter.makeBundle(
             app: app,
             options: .init(
@@ -178,9 +189,13 @@ struct SharingSettingsView: View {
                 includeMemories: includeMemories),
             memory: memory)
         do {
-            exportDocument = MyAppDocument(data: try bundle.encoded())
-            presentingExporter = true
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent(MemoryStore.myAppFolder(myAppName: app.name))
+                .appendingPathExtension(MyAppBundle.fileExtension)
+            try bundle.encoded().write(to: url, options: .atomic)
+            shareURL = url
         } catch {
+            shareURL = nil
             notice = Notice(title: "Export failed", message: error.localizedDescription)
         }
     }

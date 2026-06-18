@@ -59,6 +59,12 @@ public struct AppView: View {
     /// (`wantSettingsOpen` / `wantChatOpen` / `chatPrefill`) and `applyTourStep`
     /// drives `selection` for `.navigate` steps.
     @State private var tour = GuidedTourStore.shared
+    /// A `.pupaapp` opened from outside the app (`onOpenURL`), staged for an
+    /// explicit confirm step before it touches the store — the source is
+    /// untrusted and the bundle's agent prompts run with the user's tools.
+    @State private var pendingImport: PendingImport?
+    /// Result/error surfaced after an external import attempt.
+    @State private var importNotice: ImportNotice?
 
     /// `settings` is optional so `RootView` can hand in the shared
     /// `SettingsStore` it also gives to onboarding — pairing done during
@@ -99,6 +105,21 @@ public struct AppView: View {
                 detailPath = []
                 selection = sel
                 dispatchSelection(sel)
+            }
+            // Tap-to-import: a `.pupaapp` opened from Files / Mail / a chat app
+            // arrives here. Stage it for a confirm step rather than importing
+            // straight into the store (untrusted source).
+            .onOpenURL { stagePendingImport($0) }
+            .sheet(item: $pendingImport) { pending in
+                ImportConfirmSheet(
+                    pending: pending,
+                    onImport: { confirmImport(pending) },
+                    onCancel: { pendingImport = nil }
+                )
+            }
+            .alert(item: $importNotice) { note in
+                Alert(title: Text("Import"), message: Text(note.message),
+                      dismissButton: .default(Text("OK")))
             }
             // One-time guided tour: evaluate on appear (covers a relaunch where
             // a previous run was abandoned mid-tour) and whenever onboarding
@@ -589,5 +610,118 @@ public struct AppView: View {
         if case .myApp(let chatId) = chatScope, chatId == id {
             chatScope = .myApp(store.activeMyAppId)
         }
+    }
+
+    // MARK: Tap-to-import
+
+    /// Read + read-only-decode an opened `.pupaapp` for the confirm preview.
+    /// `MyAppImporter` is the validation authority — this only extracts the app
+    /// name + agent prompts and never mutates the store.
+    private func stagePendingImport(_ url: URL) {
+        guard url.isFileURL else { return }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url) else {
+            importNotice = ImportNotice(message: "Couldn't read that file.")
+            return
+        }
+        guard let bundle = try? MyAppBundle.makeDecoder().decode(MyAppBundle.self, from: data),
+              bundle.header.format == MyAppBundle.formatMagic else {
+            importNotice = ImportNotice(message: "This file isn't a valid Pupa app bundle.")
+            return
+        }
+        pendingImport = PendingImport(
+            data: data,
+            appName: bundle.app.name,
+            agentPrompts: agentPrompts(in: bundle.app))
+    }
+
+    /// Slack agent personas in a bundle — the privacy review surface, mirroring
+    /// the export screen's `sharedPromptPreview`.
+    private func agentPrompts(in app: MyApp) -> [String] {
+        var out: [String] = []
+        for comp in app.components {
+            if case .slack(let s) = comp.body {
+                for agent in s.agents {
+                    let role = agent.role.isEmpty ? "" : " — \(agent.role)"
+                    out.append("\(agent.name)\(role)")
+                }
+            }
+        }
+        return out
+    }
+
+    /// Run the real import after the user confirms, then navigate to the new
+    /// app exactly like the in-app Import button.
+    private func confirmImport(_ pending: PendingImport) {
+        pendingImport = nil
+        do {
+            let result = try MyAppImporter.importBundle(pending.data, into: store, memory: memory)
+            detailPath = []
+            selection = .myApp(result.myAppId)
+            dispatchSelection(.myApp(result.myAppId))
+            if !result.warnings.isEmpty {
+                importNotice = ImportNotice(message: result.warnings.joined(separator: "\n"))
+            }
+        } catch {
+            importNotice = ImportNotice(message: error.localizedDescription)
+        }
+    }
+}
+
+/// A `.pupaapp` opened from outside the app, staged for confirmation.
+private struct PendingImport: Identifiable {
+    let id = UUID()
+    let data: Data
+    let appName: String
+    /// Agent personas in the bundle, surfaced for review before import.
+    let agentPrompts: [String]
+}
+
+private struct ImportNotice: Identifiable {
+    let id = UUID()
+    let message: String
+}
+
+/// Confirm step for an externally-opened `.pupaapp`: names the app and lists
+/// the agent prompts that would run with the user's tools, so an untrusted
+/// bundle can't import silently.
+private struct ImportConfirmSheet: View {
+    let pending: PendingImport
+    let onImport: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text(pending.appName).font(.headline)
+                } header: {
+                    Text("Import app")
+                } footer: {
+                    Text("This app was shared with you. Imported agents run with your tools and data — review before importing.")
+                }
+                if !pending.agentPrompts.isEmpty {
+                    Section("Agent prompts") {
+                        ForEach(pending.agentPrompts, id: \.self) { line in
+                            Text(line).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Import")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onCancel)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Import", action: onImport)
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 }
