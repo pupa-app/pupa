@@ -12,7 +12,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   Save to Files. `.pupaapp` is a registered, Pupa-owned file type, so opening a
   shared bundle on another device (Files, Mail, a chat app) launches Pupa and
   offers to import it after a confirm step that names the app and lists the
-  agent prompts it carries. (`PupaApp` `0.0.111`)
+  agent prompts it carries. Import & Export is split into two focused
+  screens — **Share an app** and **Import an app** — instead of one mixed
+  page. (`PupaApp` `0.0.112`)
 
 ## [0.0.20] — 2026-06-17
 
