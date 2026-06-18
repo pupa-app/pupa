@@ -2,16 +2,15 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// Thin `FileDocument` wrapper around raw bundle bytes, for SwiftUI's
-/// `.fileExporter` / `.fileImporter` on iOS + macOS.
+/// `.fileImporter` on iOS + macOS.
 ///
-/// Content type is `.json`: a bundle *is* a JSON document, and the importer
-/// validates it via the header `format` magic, not the file extension. A bare
-/// `.pupaapp` extension needs a declared exported UTType (PupaHost Info.plist) —
-/// an in-code dynamic type names exports but the OS won't recognize it on
-/// import, greying the file out. Deferred; see docs/marketplace.md and #52.
+/// Writes the branded `.pupaAppBundle` type (`.pupaapp`, declared in the
+/// PupaHost Info.plist); reads both it and legacy `.json` exports. A bundle
+/// *is* JSON, so the importer still validates via the header `format` magic,
+/// not the extension. See docs/marketplace.md.
 struct MyAppDocument: FileDocument {
-    static var readableContentTypes: [UTType] { [.json] }
-    static var writableContentTypes: [UTType] { [.json] }
+    static var readableContentTypes: [UTType] { [.pupaAppBundle, .json] }
+    static var writableContentTypes: [UTType] { [.pupaAppBundle] }
 
     var data: Data
 

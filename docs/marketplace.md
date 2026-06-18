@@ -43,14 +43,27 @@ structure) and an `exportDataWarning`. One per kind, registered in
 `ComponentExportRegistry.assertComplete` (a `preconditionFailure` at bootstrap)
 **and** a CI test — a supported kind without a policy can't ship.
 
-## Export (Settings ▸ Import & Export)
+## Export + share (Settings ▸ Import & Export)
+
+Export is a **Share…** action (`ShareLink`): the current selection is encoded to
+a temp `<App>.pupaapp` and handed to the system share sheet — AirDrop, Messages,
+WhatsApp, Mail, or Save to Files. The temp file is rebuilt whenever the
+component selection or the records/memories toggles change.
 
 `MyAppExporter.makeBundle`: keep selected components → strip records per policy
 (when records off) → prune dangling refs → carry agents (structural) → scope
 memories (drop a deselected kind's subtree; memories-off keeps only `AGENTS.md`)
 → reset volatile state (threads) → assemble header.
 
-## Import — validate-then-rebuild (untrusted)
+## Import — two entry points, one authority
+
+A bundle reaches the importer two ways: the in-app **Import bundle…** picker, and
+**tap-to-open** — a `.pupaapp` opened from Files / Mail / a chat app. The OS
+routes the latter to Pupa via the registered file type (see *File type*);
+SwiftUI delivers it to `AppView.onOpenURL`. Because that source is untrusted, an
+external open is **read-only decoded for a confirm sheet** (app name + agent
+prompts) before anything runs — only on confirm does it call the same
+`MyAppImporter.importBundle`. Both paths share that one validation authority.
 
 `MyAppImporter.importBundle` treats the bundle as **hostile** and validates
 fully before any store/disk mutation:
@@ -73,7 +86,7 @@ The bundle is inert (no code execution). Remaining vectors → mitigations:
 | Vector | Mitigation |
 |---|---|
 | Settings injection (`shell_approval_disabled` …) | allow-list to validated `llm.*` |
-| Prompt injection via `AGENTS.md` / Slack personas (runs with victim's tools) | export review pane + "imported" provenance; **real fix = signing + moderation in the backend follow-on** |
+| Prompt injection via `AGENTS.md` / Slack personas (runs with victim's tools) | export review pane + "imported" provenance + a confirm sheet (names app + agent prompts) on externally-opened files; **real fix = signing + moderation in the backend follow-on** |
 | Memory path traversal | `MemoryStore.resolve()` prefix/`..`/`.md` guards |
 | Cross-app memory clobber via slug collision | slug-unique rename on import |
 | DoS (huge/nested bundle) | pre-decode byte cap + post-decode count caps |
@@ -91,6 +104,14 @@ primary defense against prompt injection, which the importer can only surface.
 
 ## File type
 
-Bundles use `.json` content types in `MyAppDocument` (a `.pupaapp` *is* JSON;
-the importer validates via the header, not the extension). A dedicated exported
-UTType (tap-to-open) needs a PupaHost Info.plist declaration — deferred.
+`.pupaapp` is an **exported UTType** — `com.pupa.app-bundle`, conforming to
+`public.data` **only** (not `public.json`/`public.text`: a text conformance
+makes Files/QuickLook preview the JSON on tap instead of opening Pupa),
+declared in `PupaHost/Info.plist` (`UTExportedTypeDeclarations`) and owned by
+the app via `CFBundleDocumentTypes` (`LSHandlerRank = Owner`). That ownership +
+opacity is what lets the OS open a received `.pupaapp` in Pupa (tap-to-import).
+In Swift it's `UTType.pupaAppBundle` (`PupaUTType.swift`): the share/export side
+writes it, the importer accepts it **and** legacy `.json` exports. A bundle is
+still JSON, so the importer validates via the header `format` magic, not the
+extension. The Info.plist holds only the array keys — `GENERATE_INFOPLIST_FILE`
+stays on and merges the generated keys over it.

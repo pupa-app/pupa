@@ -1,31 +1,80 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Settings ▸ Import & Export screen — the marketplace foundation's UI.
-/// Export a MyApp as a portable `.pupaapp` bundle (component selection +
-/// records/memories toggles + a review of the agent prompts being shared),
-/// and import a bundle back. No MyApp-sidebar changes.
+/// Settings ▸ Import & Export hub. Splits the two flows onto their own focused
+/// screens — **Share an app** (export a `.pupaapp` bundle) and **Import an
+/// app** (load one back) — so neither page mixes unrelated controls.
 struct SharingSettingsView: View {
     @Bindable var store: MyAppStore
     var memory: MemoryStore
     /// Called after a successful import with the new app's id.
     var onImported: (UUID) -> Void
 
+    var body: some View {
+        Form {
+            Section {
+                NavigationLink {
+                    ExportShareScreen(store: store, memory: memory)
+                } label: {
+                    hubRow(icon: "square.and.arrow.up",
+                           title: "Share an app",
+                           caption: "Send a MyApp as a .pupaapp bundle")
+                }
+                NavigationLink {
+                    ImportAppScreen(store: store, memory: memory, onImported: onImported)
+                } label: {
+                    hubRow(icon: "square.and.arrow.down",
+                           title: "Import an app",
+                           caption: "Load a .pupaapp someone shared")
+                }
+            } footer: {
+                Text("Apps travel as inert .pupaapp bundles. Sharing publishes whatever you include — review the agent prompts on the Share screen before sending.")
+            }
+        }
+        .navigationTitle("Import & Export")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+    }
+
+    private func hubRow(icon: String, title: String, caption: String) -> some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                Text(caption).font(.caption).foregroundStyle(.secondary)
+            }
+        } icon: {
+            Image(systemName: icon)
+        }
+    }
+}
+
+/// One-off alert payload shared by both screens.
+private struct SharingNotice: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
+}
+
+// MARK: - Share
+
+/// Export a MyApp to a `.pupaapp` and hand it to the system share sheet:
+/// component selection + records/memories toggles + a review of the agent
+/// prompts being shared.
+private struct ExportShareScreen: View {
+    @Bindable var store: MyAppStore
+    var memory: MemoryStore
+
     @State private var selectedAppId: UUID?
     @State private var selectedComponentIds: Set<String> = []
     @State private var includeRecords = false
     @State private var includeMemories = false
 
-    @State private var exportDocument: MyAppDocument?
-    @State private var presentingExporter = false
-    @State private var presentingImporter = false
-    @State private var notice: Notice?
-
-    private struct Notice: Identifiable {
-        let id = UUID()
-        let title: String
-        let message: String
-    }
+    /// Temp `.pupaapp` file backing the share sheet. Rebuilt whenever the
+    /// selection or toggles change so a share always reflects the current
+    /// choices; `nil` (control disabled) until at least one component is picked.
+    @State private var shareURL: URL?
+    @State private var notice: SharingNotice?
 
     private var app: MyApp? {
         store.myApps.first { $0.id == selectedAppId } ?? store.myApps.first
@@ -33,40 +82,24 @@ struct SharingSettingsView: View {
 
     var body: some View {
         Form {
-            exportSection
-            importSection
+            content
         }
-        .navigationTitle("Import & Export")
+        .navigationTitle("Share an app")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .onAppear(perform: syncSelection)
         .onChange(of: selectedAppId) { _, _ in syncSelection() }
-        .fileExporter(
-            isPresented: $presentingExporter,
-            document: exportDocument,
-            contentType: .json,
-            defaultFilename: exportFilename
-        ) { result in
-            if case .failure(let error) = result {
-                notice = Notice(title: "Export failed", message: error.localizedDescription)
-            }
-        }
-        .fileImporter(
-            isPresented: $presentingImporter,
-            allowedContentTypes: [.json]
-        ) { result in
-            handleImport(result)
-        }
+        .onChange(of: selectedComponentIds) { _, _ in regenerateShareFile() }
+        .onChange(of: includeRecords) { _, _ in regenerateShareFile() }
+        .onChange(of: includeMemories) { _, _ in regenerateShareFile() }
         .alert(item: $notice) { n in
             Alert(title: Text(n.title), message: Text(n.message), dismissButton: .default(Text("OK")))
         }
     }
 
-    // MARK: Export
-
     @ViewBuilder
-    private var exportSection: some View {
+    private var content: some View {
         if let app {
             Section("App") {
                 Picker("App", selection: Binding(
@@ -84,7 +117,7 @@ struct SharingSettingsView: View {
             } header: {
                 Text("Components")
             } footer: {
-                Text("Select at least one component to export.")
+                Text("Select at least one component to share.")
             }
 
             Section {
@@ -107,11 +140,27 @@ struct SharingSettingsView: View {
             }
 
             Section {
-                Button("Export…", action: startExport)
-                    .disabled(selectedComponentIds.isEmpty)
+                if let shareURL {
+                    // An explicit preview stops the share sheet probing the
+                    // bundle for a thumbnail it can't make (benign but noisy
+                    // "error fetching item … (null)" logs) and gives a clean card.
+                    ShareLink(
+                        item: shareURL,
+                        preview: SharePreview(
+                            app.name,
+                            image: Image(systemName: app.iconSystemName))
+                    ) {
+                        Label("Share…", systemImage: "square.and.arrow.up")
+                    }
+                } else {
+                    Label("Share…", systemImage: "square.and.arrow.up")
+                        .foregroundStyle(.secondary)
+                }
+            } footer: {
+                Text("Shares a .pupaapp file — AirDrop, Messages, WhatsApp, Mail, or Save to Files. Opening it on another device imports the app into Pupa.")
             }
         } else {
-            Section { Text("No apps to export.").foregroundStyle(.secondary) }
+            Section { Text("No apps to share.").foregroundStyle(.secondary) }
         }
     }
 
@@ -150,13 +199,6 @@ struct SharingSettingsView: View {
         return out
     }
 
-    private var exportFilename: String {
-        // No extension here: the `.json` content type appends it, so a bare base
-        // yields a clean `name.json`. A branded `.pupaapp` extension is deferred
-        // until a declared UTType ships (#52) — see MyAppDocument.
-        app.map { MemoryStore.myAppFolder(myAppName: $0.name) } ?? "myapp"
-    }
-
     private func toggle(_ id: String) {
         if selectedComponentIds.contains(id) { selectedComponentIds.remove(id) }
         else { selectedComponentIds.insert(id) }
@@ -166,10 +208,17 @@ struct SharingSettingsView: View {
         guard let app else { return }
         selectedAppId = app.id
         selectedComponentIds = Set(app.components.map(\.id))
+        regenerateShareFile()
     }
 
-    private func startExport() {
-        guard let app else { return }
+    /// Encode the current selection to a temp `<App>.pupaapp` file the share
+    /// sheet hands off. `nil`s `shareURL` (disabling the control) when nothing
+    /// is selected. Cheap enough to re-run on every toggle.
+    private func regenerateShareFile() {
+        guard let app, !selectedComponentIds.isEmpty else {
+            shareURL = nil
+            return
+        }
         let bundle = MyAppExporter.makeBundle(
             app: app,
             options: .init(
@@ -178,25 +227,62 @@ struct SharingSettingsView: View {
                 includeMemories: includeMemories),
             memory: memory)
         do {
-            exportDocument = MyAppDocument(data: try bundle.encoded())
-            presentingExporter = true
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent(MemoryStore.myAppFolder(myAppName: app.name))
+                .appendingPathExtension(MyAppBundle.fileExtension)
+            try bundle.encoded().write(to: url, options: .atomic)
+            shareURL = url
         } catch {
-            notice = Notice(title: "Export failed", message: error.localizedDescription)
+            shareURL = nil
+            notice = SharingNotice(title: "Export failed", message: error.localizedDescription)
         }
     }
+}
 
-    // MARK: Import
+// MARK: - Import
 
-    private var importSection: some View {
-        Section("Import") {
-            Button("Import bundle…") { presentingImporter = true }
+/// Load a `.pupaapp` bundle from the Files picker. (Opening one from Mail /
+/// Messages / AirDrop routes through `AppView.onOpenURL` with its own confirm
+/// step — this is the manual in-app path.)
+private struct ImportAppScreen: View {
+    @Bindable var store: MyAppStore
+    var memory: MemoryStore
+    var onImported: (UUID) -> Void
+
+    @State private var presentingImporter = false
+    @State private var notice: SharingNotice?
+
+    var body: some View {
+        Form {
+            Section {
+                Button {
+                    presentingImporter = true
+                } label: {
+                    Label("Choose a .pupaapp file…", systemImage: "folder")
+                }
+            } footer: {
+                Text("Pick a .pupaapp bundle from Files. You can also open one straight from Mail, Messages, or AirDrop — Pupa imports it after a confirm step. Imported apps are sandboxed: untrusted bundles can't change your settings.")
+            }
+        }
+        .navigationTitle("Import an app")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .fileImporter(
+            isPresented: $presentingImporter,
+            allowedContentTypes: [.pupaAppBundle, .json]
+        ) { result in
+            handleImport(result)
+        }
+        .alert(item: $notice) { n in
+            Alert(title: Text(n.title), message: Text(n.message), dismissButton: .default(Text("OK")))
         }
     }
 
     private func handleImport(_ result: Result<URL, Error>) {
         switch result {
         case .failure(let error):
-            notice = Notice(title: "Import failed", message: error.localizedDescription)
+            notice = SharingNotice(title: "Import failed", message: error.localizedDescription)
         case .success(let url):
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -206,13 +292,13 @@ struct SharingSettingsView: View {
                 if imported.warnings.isEmpty {
                     onImported(imported.myAppId)
                 } else {
-                    notice = Notice(
+                    notice = SharingNotice(
                         title: "Imported with notes",
                         message: imported.warnings.joined(separator: "\n"))
                     onImported(imported.myAppId)
                 }
             } catch {
-                notice = Notice(title: "Import failed", message: error.localizedDescription)
+                notice = SharingNotice(title: "Import failed", message: error.localizedDescription)
             }
         }
     }

@@ -3,6 +3,19 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.21] — 2026-06-18
+
+### Added
+
+- **Share an exported app, and open `.pupaapp` files to import.** Export is now
+  a **Share…** action — send a MyApp over AirDrop, Messages, WhatsApp, Mail, or
+  Save to Files. `.pupaapp` is a registered, Pupa-owned file type, so opening a
+  shared bundle on another device (Files, Mail, a chat app) launches Pupa and
+  offers to import it after a confirm step that names the app and lists the
+  agent prompts it carries. Import & Export is split into two focused
+  screens — **Share an app** and **Import an app** — instead of one mixed
+  page. (`PupaApp` `0.0.112`)
+
 ## [0.0.20] — 2026-06-17
 
 ### Changed

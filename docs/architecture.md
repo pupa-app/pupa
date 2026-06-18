@@ -245,7 +245,11 @@ in `RunAgentInput.forwardedProps["llm"]`.
 A MyApp can be exported as a portable, **inert** `.pupaapp` bundle (versioned
 header + the `Codable` `MyApp` tree + memory files) and rebuilt on another
 install — **no code from the bundle is executed**. UI lives in Settings ▸
-Import & Export. Cross-component references are enumerated/pruned by a single
+Import & Export: export is a **Share…** action (`ShareLink` → AirDrop /
+Messages / WhatsApp / Files). `.pupaapp` is a registered, app-owned file type
+(`UTType.pupaAppBundle`), so opening a shared bundle routes to Pupa via
+`AppView.onOpenURL`, which read-only-decodes it for a confirm sheet before
+running the same importer. Cross-component references are enumerated/pruned by a single
 unified model on `CanvasApp` (`componentReferences` / `remapReferences`) shared
 with the delete cascade; each kind registers a `ComponentExportPolicy`. Import
 treats the bundle as untrusted (settings allow-list, size/count caps,
