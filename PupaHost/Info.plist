@@ -21,24 +21,30 @@
 			<array>
 				<string>public.data</string>
 			</array>
+			<!-- Extension only, no public.mime-type: chat apps (WhatsApp…)
+			     resolve received files by MIME, and an application/json tag
+			     maps to the system public.json (text) type, so the file
+			     previews as raw JSON instead of offering "Open in Pupa".
+			     Dropping the MIME forces extension-based routing. -->
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>
 				<array>
 					<string>pupaapp</string>
 				</array>
-				<key>public.mime-type</key>
-				<array>
-					<string>application/json</string>
-				</array>
 			</dict>
 		</dict>
 	</array>
-	<!-- Imports copy the bundle's content into the app; the original file is
-	     never edited in place, so this is NO (silences App Store Connect's
-	     "Missing Document Configuration" warning for document-type apps). -->
+	<!-- YES so Files.app routes a tap straight to Pupa: this key governs
+	     in-place URL delivery vs an Inbox copy, NOT import semantics. Pupa
+	     reads the original URL under startAccessingSecurityScopedResource()
+	     and copies the bytes itself, so in-place delivery is exactly right.
+	     A NO here makes Files treat Pupa as unable to open in place and fall
+	     back to a generic QuickLook preview instead of opening the app.
+	     Declaring the key (either value) silences App Store Connect's
+	     "Missing Document Configuration" warning. -->
 	<key>LSSupportsOpeningDocumentsInPlace</key>
-	<false/>
+	<true/>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
