@@ -35,6 +35,10 @@ public enum SidebarSelection: Hashable, Sendable {
     /// Routes to the myApp's chat (not the orchestrator) while showing
     /// the file content in the detail pane.
     case myAppMemoryFile(UUID, String)
+    /// The myApp's memory browse page — a folder tree of all its notes.
+    /// Reached from the dock's Memories button; files inside push
+    /// `.myAppMemoryFile`.
+    case myAppMemories(UUID)
     /// A memory file in the orchestrator's tree. Routes to the memory/
     /// orchestrator chat and sets `memoryFocusedPath`.
     case memoryFile(String)
@@ -50,8 +54,8 @@ public enum SidebarSelection: Hashable, Sendable {
     public var myAppId: UUID? {
         switch self {
         case .myAppHome(let id), .myApp(let id), .myAppComponent(let id, _),
-             .myAppMemoryFile(let id, _), .myAppAgents(let id),
-             .myAppAgentDetail(let id, _): return id
+             .myAppMemoryFile(let id, _), .myAppMemories(let id),
+             .myAppAgents(let id), .myAppAgentDetail(let id, _): return id
         default: return nil
         }
     }

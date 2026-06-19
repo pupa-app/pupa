@@ -455,13 +455,13 @@ public struct MyAppHomeView: View {
     }
 }
 
-/// Recursive memory row used inside `MyAppHomeView.memoriesPanel`.
-/// Folders toggle their children on tap (tracked via the shared
-/// `expanded` set, keyed by full path); files navigate via the
-/// `onNavigate` callback. Extracted to its own `View` because SwiftUI's
-/// opaque-type inference doesn't handle a self-recursive `@ViewBuilder`
-/// instance method.
-private struct MemoryLandingRow: View {
+/// Recursive memory row used by `MyAppHomeView.memoriesPanel` and the
+/// `MyAppMemoriesView` browse page. Folders toggle their children on tap
+/// (tracked via the shared `expanded` set, keyed by full path); files
+/// navigate via the `onNavigate` callback. Extracted to its own `View`
+/// because SwiftUI's opaque-type inference doesn't handle a self-recursive
+/// `@ViewBuilder` instance method.
+struct MemoryLandingRow: View {
     let app: MyApp
     let node: MemoryNode
     let depth: Int
