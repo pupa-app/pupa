@@ -48,6 +48,11 @@ public struct MyAppDock: View {
         self.onSelect = onSelect
     }
 
+    /// Trailing space reserved for the floating chat launcher (`ChatOverlay`'s
+    /// 56pt button + its 16pt edge inset), so the centered dock never slides
+    /// under it. The dock centers within the remaining width instead.
+    private static let chatLauncherGutter: CGFloat = 72
+
     /// Revealed = dock fully shown. macOS toggles it on hover; iOS on tap.
     @State private var revealed = false
     /// iOS inactivity timer token. Bumped on every reveal / page-switch / hide;
@@ -87,6 +92,7 @@ public struct MyAppDock: View {
             .animation(.spring(duration: 0.25), value: revealed)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .padding(.trailing, Self.chatLauncherGutter)
     }
     #else
     /// iOS reveal: a classy up-chevron handle sits at the very bottom; tapping
@@ -107,6 +113,7 @@ public struct MyAppDock: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .padding(.trailing, Self.chatLauncherGutter)
         .animation(.spring(duration: 0.25), value: revealed)
         .onChange(of: dismissSignal) { hide() }
         .onDisappear { hideToken += 1 }

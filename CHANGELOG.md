@@ -12,7 +12,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   and a single **Memories** button (the `brain` glyph) now sit together behind
   the hairline, after the component icons. Memories opens a new browse page
   (`MyAppMemoriesView`) showing the app's full note tree — folders drill in,
-  files open in place. (`PupaApp` `0.0.115`)
+  files open in place. The dock also reserves trailing space for the floating
+  chat launcher so its right-most icon is no longer hidden behind it.
+  (`PupaApp` `0.0.115`)
 
 ## [0.0.23] — 2026-06-19
 

@@ -100,7 +100,9 @@ peeks a handle you tap to expand. On iOS the dock never covers the page (no
 scrim), so the page stays scrollable; scrolling dismisses the dock (`AppView`
 bumps a `dockDismissSignal` via a non-blocking `simultaneousGesture` on the
 content `NavigationStack`), and a 5s inactivity timer fades it otherwise. When
-the icons exceed the width the row scrolls horizontally (`ViewThatFits`).
+the icons exceed the width the row scrolls horizontally (`ViewThatFits`). The
+capsule centers within the width minus a trailing gutter (`chatLauncherGutter`)
+so it never slides under the floating chat launcher pinned bottom-trailing.
 `AppView` hosts it once below `ChatOverlay`, gated to `.myAppHome`/`.myApp`/
 `.myAppComponent`/`.myAppMemoryFile`; taps flat-switch the root selection (reset
 `detailPath`, set `selection`, run `dispatchSelection`).
