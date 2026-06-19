@@ -3,6 +3,19 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.23] — 2026-06-19
+
+### Fixed
+
+- **Tap a `.pupaapp` to open it in Pupa — from Files, and from chat apps.**
+  Tapping a bundle in Files used to show a generic preview, and one received
+  over WhatsApp opened as raw JSON; both forced a Save-to-Files /
+  Share-to-Pupa detour. The file type now declares
+  `LSSupportsOpeningDocumentsInPlace=YES` (so Files routes a tap straight to
+  Pupa's import sheet) and drops its `application/json` MIME tag (so chat apps
+  stop previewing the JSON and instead surface "Open in Pupa"). No import-logic
+  change. (`PupaApp` `0.0.114`)
+
 ## [0.0.22] — 2026-06-18
 
 ### Added

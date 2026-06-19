@@ -113,6 +113,11 @@ makes Files/QuickLook preview the JSON on tap instead of opening Pupa),
 declared in `PupaHost/Info.plist` (`UTExportedTypeDeclarations`) and owned by
 the app via `CFBundleDocumentTypes` (`LSHandlerRank = Owner`). That ownership +
 opacity is what lets the OS open a received `.pupaapp` in Pupa (tap-to-import).
+The type carries **no `public.mime-type` tag** (a prior `application/json` tag
+made chat apps preview the JSON instead of offering "Open in Pupa"), and
+`LSSupportsOpeningDocumentsInPlace=YES` so Files routes a tap straight to the
+import sheet — Pupa reads the original URL under a security-scoped resource and
+copies the bytes itself.
 In Swift it's `UTType.pupaAppBundle` (`PupaUTType.swift`): the share/export side
 writes it, the importer accepts it **and** legacy `.json` exports. A bundle is
 still JSON, so the importer validates via the header `format` magic, not the
