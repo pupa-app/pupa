@@ -3,6 +3,22 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.25] — 2026-06-19
+
+### Added
+
+- **Settings → Agents.** A new app-wide overview organised as nested
+  dropdowns: each MyApp expands to its agents (main agent + Slack
+  personas), each agent expands to its own lifetime stats (delegations
+  made, invocations received, conversations, last active). The
+  orchestrator is a top-level agent dropdown. A second section lists
+  conversation threads grouped by agent (tap to make current, swipe to
+  delete). Stats are backed by a new
+  schema-free `AgentStatsStore` (a flat `[agentKey: counters]` bag keyed by
+  `AgentInvocationKey.statKey`), bumped at the single `AgentInvocationGate`
+  chokepoint every nested agent run funnels through — so it stays correct
+  as agent types grow. (`PupaApp` `0.0.116`)
+
 ## [0.0.24] — 2026-06-19
 
 ### Changed

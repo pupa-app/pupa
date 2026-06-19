@@ -43,6 +43,11 @@ public final class ChatSessionCoordinator {
     private let urlSession: URLSession
     private var sessions: [SessionKey: ChatViewModel] = [:]
 
+    /// Lifetime per-agent activity counters. Bumped via the gate's
+    /// `onNestedEnter` hook so every MyApp sub-run and Slack sub-agent
+    /// records `delegationsMade` / `invocationsReceived` through one path.
+    public let agentStats: AgentStatsStore
+
     /// Cross-scope agent-invocation policy. Owns the busy set,
     /// invocation stack, and chain-depth cap. Shared with
     /// `slackInvoker` (which adds Slack-specific UI substrate on top)
@@ -65,11 +70,14 @@ public final class ChatSessionCoordinator {
         store: MyAppStore,
         memory: MemoryStore,
         settings: SettingsStore,
+        agentStats: AgentStatsStore? = nil,
         urlSession: URLSession? = nil
     ) {
         self.store = store
         self.memory = memory
         self.settings = settings
+        let stats = agentStats ?? AgentStatsStore()
+        self.agentStats = stats
         // Use the cert-pinning session when the active backend has a fingerprint;
         // fall back to .shared (or the injected test session) otherwise.
         self.urlSession = urlSession ?? settings.backendSession
@@ -79,6 +87,12 @@ public final class ChatSessionCoordinator {
         )
         self.agentInvocationGate = gate
         self.slackInvoker = SlackInvoker(gate: gate)
+        // Record lifetime activity at the one chokepoint every nested run
+        // funnels through. `caller` delegated to `target`.
+        gate.onNestedEnter = { [weak stats] caller, target in
+            stats?.bump(caller.statKey, AgentStatsStore.delegationsMade)
+            stats?.bump(target.statKey, AgentStatsStore.invocationsReceived)
+        }
         bootstrapMemories()
     }
 
