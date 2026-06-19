@@ -492,6 +492,16 @@ public struct AppView: View {
                     detailPath.append(nav)
                 }
             )
+        case .myAppMemories(let id):
+            MyAppMemoriesView(
+                store: store,
+                memory: memory,
+                myAppId: id,
+                onNavigate: { nav in
+                    dispatchSelection(nav)
+                    detailPath.append(nav)
+                }
+            )
         case .myAppMemoryFile(let id, let path):
             MemoryFileView(store: memory, path: path) {
                 if !detailPath.isEmpty {
@@ -547,7 +557,6 @@ public struct AppView: View {
                 myAppId: id,
                 currentPage: page,
                 appColor: .color(atIndex: store.colorIndex(for: id)),
-                memoryFiles: dockMemoryFiles(myAppId: id),
                 dismissSignal: dockDismissSignal,
                 onSelect: { nav in
                     detailPath = []
@@ -559,29 +568,14 @@ public struct AppView: View {
     }
 
     /// Maps a selection to the dock's active page, or `nil` for pages that
-    /// shouldn't show a dock (agents, orchestrator, …). A myApp memory note
-    /// keeps the dock up and highlights the note.
+    /// shouldn't show a dock (agents, orchestrator, …). The Memories browse
+    /// page and any memory file within it both highlight the Memories button.
     private func dockPage(for sel: SidebarSelection) -> MyAppDock.Page? {
         switch sel {
         case .myAppHome, .myApp: return .home
         case .myAppComponent(_, let componentId): return .component(componentId)
-        case .myAppMemoryFile(_, let path): return .memory(path)
+        case .myAppMemories, .myAppMemoryFile: return .memories
         default: return nil
-        }
-    }
-
-    /// The active myApp's top-level memory notes, surfaced as dock shortcuts.
-    /// Reads the same per-app subtree of the global `memory.tree` the sidebar
-    /// shows; files only (folders stay sidebar-only).
-    private func dockMemoryFiles(myAppId: UUID) -> [MyAppDock.MemoryItem] {
-        guard let app = store.myApps.first(where: { $0.id == myAppId }) else { return [] }
-        let slug = MemoryStore.myAppFolder(myAppName: app.name)
-        let children = memory.tree.children?
-            .first(where: { $0.name == slug })?
-            .children ?? []
-        return children.compactMap { node in
-            guard case .file = node.kind else { return nil }
-            return MyAppDock.MemoryItem(path: node.path, name: node.name)
         }
     }
 
@@ -601,7 +595,7 @@ public struct AppView: View {
             // canvas + kind-targeted mutators agree on what's focused.
             _ = store.setActiveComponent(componentId: componentId, myAppId: id)
             chatScope = .myApp(id)
-        case .myAppMemoryFile(let id, _):
+        case .myAppMemoryFile(let id, _), .myAppMemories(let id):
             store.setActive(id)
             chatScope = .myApp(id)
         case .myAppAgents(let id), .myAppAgentDetail(let id, _):

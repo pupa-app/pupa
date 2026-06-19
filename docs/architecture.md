@@ -88,13 +88,13 @@ selectable on every platform and expose a **Copy** context-menu action
 whole bubble.
 
 On a myApp's home/component pages the detail pane also hosts a **bottom dock**
-(`MyApps/MyAppDock.swift`): an icon-only quick-switcher — Home, one icon per
-component, then (after a hairline) the app's top-level memory notes
-(`AppView.dockMemoryFiles` reads the same per-app subtree of `memory.tree` the
-sidebar shows; files only). All tinted the app's color (creation-order index
-via `MyAppStore.colorIndex(for:)`), current page highlighted; notes share the
-`note.text` glyph with the name in the tooltip / accessibility label. It
-reveals on
+(`MyApps/MyAppDock.swift`): an icon-only quick-switcher — one icon per
+component, then (after a hairline) the app-level nav pair **Home** (`house`)
+and **Memories** (`brain`). Memories opens `MyAppMemoriesView`, a browse page
+showing the app's note tree (folders drill in, files push `.myAppMemoryFile`);
+viewing any note keeps the Memories button highlighted. All tinted the app's
+color (creation-order index via `MyAppStore.colorIndex(for:)`), current page
+highlighted. It reveals on
 *approach* — macOS slides it up while the pointer is near the bottom edge; iOS
 peeks a handle you tap to expand. On iOS the dock never covers the page (no
 scrim), so the page stays scrollable; scrolling dismisses the dock (`AppView`

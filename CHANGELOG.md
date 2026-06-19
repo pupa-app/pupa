@@ -3,6 +3,17 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.24] — 2026-06-19
+
+### Changed
+
+- **Bottom dock memories cleaned up.** The dock no longer scatters one icon
+  per top-level note (each opening a flat file like AGENTS.md). Instead Home
+  and a single **Memories** button (the `brain` glyph) now sit together behind
+  the hairline, after the component icons. Memories opens a new browse page
+  (`MyAppMemoriesView`) showing the app's full note tree — folders drill in,
+  files open in place. (`PupaApp` `0.0.115`)
+
 ## [0.0.23] — 2026-06-19
 
 ### Fixed
