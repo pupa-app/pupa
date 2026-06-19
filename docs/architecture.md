@@ -248,8 +248,25 @@ in `RunAgentInput.forwardedProps["llm"]`.
   optional API key, disabled backend tools, A2A guardrails). The Settings
   sheet groups these into drill-down categories: Backend, Tools (shell
   approval + backend tool toggles), Agent-to-agent (the `AgentInvocationGate`
-  conversation-rounds + chain-depth limits), Notifications (lists/cancels
+  conversation-rounds + chain-depth limits), **Agents** (the
+  `AgentsOverviewView` — see below), Notifications (lists/cancels
   pending scheduled notifications), and Examples.
+- **Agent activity stats** → `UserDefaults` blob `pupa.agentstats.v1`,
+  owned by `AgentStatsStore`. Deliberately schema-free: a flat
+  `[agentKey: AgentStat]` bag whose `counters` are an open `[String: Int]`,
+  keyed by `AgentInvocationKey.statKey` (opaque string, never a struct
+  shape) so it survives as agent kinds grow. Counters are bumped at the one
+  `AgentInvocationGate.onNestedEnter` chokepoint every MyApp sub-run and
+  Slack sub-agent funnels through — `delegationsMade` on the caller,
+  `invocationsReceived` on the target. Stats are advisory/lossy-tolerant
+  (missing key → zero; orphans ignored). **Settings → Agents**
+  (`AgentsOverviewView`) reads the roster through the existing
+  `AgentRegistry` descriptor pipeline and renders it as nested dropdowns
+  (each MyApp expands to its agents — main agent + Slack personas, derived
+  from `AgentDescriptor.kind`/`myAppId`; each agent expands to its stats;
+  the orchestrator is a top-level agent dropdown) showing these counters +
+  per-agent conversation counts (derived live from `MyAppStore.threads`),
+  plus a threads collection grouped by agent.
 - **Memories** → markdown files under
   `~/Library/Application Support/pupa/memories/` (per-agent namespaces
   under `agents/<agentId>/`). Survive "New session".

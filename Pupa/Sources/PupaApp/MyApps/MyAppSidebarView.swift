@@ -4,6 +4,9 @@ public struct MyAppSidebarView: View {
     @Bindable var store: MyAppStore
     @Bindable var memory: MemoryStore
     @Bindable var settings: SettingsStore
+    /// Lifetime per-agent activity counters, forwarded to the Settings →
+    /// Agents overview.
+    let stats: AgentStatsStore
     @Binding var selection: SidebarSelection?
     let busyMyApps: Set<UUID>
     var onSelectionChange: (SidebarSelection) -> Void
@@ -45,6 +48,7 @@ public struct MyAppSidebarView: View {
         store: MyAppStore,
         memory: MemoryStore,
         settings: SettingsStore,
+        stats: AgentStatsStore,
         selection: Binding<SidebarSelection?>,
         busyMyApps: Set<UUID>,
         onSelectionChange: @escaping (SidebarSelection) -> Void,
@@ -53,6 +57,7 @@ public struct MyAppSidebarView: View {
         self.store = store
         self.memory = memory
         self.settings = settings
+        self.stats = stats
         self._selection = selection
         self.busyMyApps = busyMyApps
         self.onSelectionChange = onSelectionChange
@@ -236,6 +241,7 @@ public struct MyAppSidebarView: View {
             },
             store: store,
             memory: memory,
+            stats: stats,
             onImported: { id in
                 selection = .myApp(id)
                 onSelectionChange(.myApp(id))

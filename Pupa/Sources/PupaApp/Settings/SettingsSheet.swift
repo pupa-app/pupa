@@ -31,6 +31,9 @@ public struct SettingsSheet: View {
     /// these three is nil the Sharing row is hidden (e.g. previews).
     var store: MyAppStore?
     var memory: MemoryStore?
+    /// Lifetime per-agent activity counters backing the Agents overview.
+    /// When nil (e.g. previews) the Agents row is hidden.
+    var stats: AgentStatsStore?
     /// Called after a successful import with the new app's id (select + dismiss).
     var onImported: ((UUID) -> Void)?
     /// Shared guided-tour store. On iOS a `.sheet` renders above the AppView
@@ -61,6 +64,7 @@ public struct SettingsSheet: View {
         onClose: @escaping () -> Void,
         store: MyAppStore? = nil,
         memory: MemoryStore? = nil,
+        stats: AgentStatsStore? = nil,
         onImported: ((UUID) -> Void)? = nil
     ) {
         self.settings = settings
@@ -69,6 +73,7 @@ public struct SettingsSheet: View {
         self.onClose = onClose
         self.store = store
         self.memory = memory
+        self.stats = stats
         self.onImported = onImported
     }
 
@@ -76,11 +81,14 @@ public struct SettingsSheet: View {
     /// category's real controls (the existing section builders, re-hosted in
     /// their own `Form`).
     private enum SettingsCategory: Hashable {
-        case backend, tools, agents, notifications, examples, sharing
+        case backend, tools, agents, agentsOverview, notifications, examples, sharing
     }
 
     /// True when the Import & Export screen can be shown (stores wired in).
     private var canShare: Bool { store != nil && memory != nil && onImported != nil }
+
+    /// True when the Agents overview can be shown (stores wired in).
+    private var canShowAgents: Bool { store != nil && memory != nil && stats != nil }
 
     public var body: some View {
         NavigationStack(path: $path) {
@@ -96,6 +104,12 @@ public struct SettingsSheet: View {
                 NavigationLink(value: SettingsCategory.agents) {
                     categoryRow(icon: "point.3.connected.trianglepath.dotted", title: "Agent-to-agent",
                                 caption: "Conversation rounds & chain depth")
+                }
+                if canShowAgents {
+                    NavigationLink(value: SettingsCategory.agentsOverview) {
+                        categoryRow(icon: "person.3.sequence", title: "Agents",
+                                    caption: "Overview, nesting & activity")
+                    }
                 }
                 NavigationLink(value: SettingsCategory.notifications) {
                     categoryRow(icon: "bell.badge", title: "Notifications",
@@ -226,6 +240,10 @@ public struct SettingsSheet: View {
                 ToolsSettingsView(settings: settings)
             case .agents:
                 Form { agentsSection }.navigationTitle("Agent-to-agent")
+            case .agentsOverview:
+                if let store, let memory, let stats {
+                    AgentsOverviewView(store: store, settings: settings, memory: memory, stats: stats)
+                }
             case .notifications:
                 PendingNotificationsList().navigationTitle("Notifications")
             case .examples:

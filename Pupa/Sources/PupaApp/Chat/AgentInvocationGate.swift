@@ -14,6 +14,20 @@ public enum AgentInvocationKey: Hashable, Sendable {
     case orchestrator
     case myApp(UUID)
     case slack(agentId: String)
+
+    /// Opaque, stable id used to key `AgentStatsStore`. Slack carries the
+    /// bare `SlackAgent.id` (a UUID, no colons) — the agents overview
+    /// derives the same `"slack:<bareId>"` from a descriptor's composite
+    /// id by taking the segment after the last `:`. MyApp uses the raw
+    /// UUID string (the per-MyApp main-agent descriptor id is a shared
+    /// constant, so the overview keys main agents off `myAppId`, not id).
+    public var statKey: String {
+        switch self {
+        case .orchestrator: return "orchestrator"
+        case .myApp(let id): return id.uuidString
+        case .slack(let agentId): return "slack:\(agentId)"
+        }
+    }
 }
 
 /// One node in the active invocation forest. Every in-flight agent
@@ -125,6 +139,14 @@ public final class AgentInvocationGate {
     /// Cleaned up when the parent node exits.
     private var pairTurnCounts: [UUID: [AgentInvocationKey: Int]] = [:]
 
+    /// Fired on every *nested* `enter` (caller present) with the caller's
+    /// and target's keys. The single chokepoint both MyApp sub-runs and
+    /// Slack sub-agents funnel through, so the coordinator wires this once
+    /// to record lifetime activity in `AgentStatsStore`. Pure side-channel:
+    /// the gate's own policy never consults it.
+    @ObservationIgnored
+    public var onNestedEnter: ((_ caller: AgentInvocationKey, _ target: AgentInvocationKey) -> Void)?
+
     public init(maxChainDepth: Int = 4, maxTurnsPerPair: Int = 5) {
         self.maxChainDepth = maxChainDepth
         self.maxTurnsPerPair = maxTurnsPerPair
@@ -186,6 +208,11 @@ public final class AgentInvocationGate {
         )
         if let caller {
             pairTurnCounts[caller, default: [:]][target, default: 0] += 1
+            // Caller's node was entered before this one, so its key is
+            // resolvable from the live forest. Fire the activity hook.
+            if let callerKey = activeInvocations[caller]?.agentKey {
+                onNestedEnter?(callerKey, target)
+            }
         }
     }
 
