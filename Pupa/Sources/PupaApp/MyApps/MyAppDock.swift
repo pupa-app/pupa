@@ -88,11 +88,11 @@ public struct MyAppDock: View {
                     .offset(y: revealed ? 0 : 96)
                     .opacity(revealed ? 1 : 0)
                     .padding(.bottom, 12)
+                    .padding(.trailing, Self.chatLauncherGutter)
             }
             .animation(.spring(duration: 0.25), value: revealed)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-        .padding(.trailing, Self.chatLauncherGutter)
     }
     #else
     /// iOS reveal: a classy up-chevron handle sits at the very bottom; tapping
@@ -107,13 +107,13 @@ public struct MyAppDock: View {
             if revealed {
                 dockCapsule
                     .padding(.bottom, 10)
+                    .padding(.trailing, Self.chatLauncherGutter)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             } else {
                 handle
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-        .padding(.trailing, Self.chatLauncherGutter)
         .animation(.spring(duration: 0.25), value: revealed)
         .onChange(of: dismissSignal) { hide() }
         .onDisappear { hideToken += 1 }
