@@ -16,6 +16,7 @@ public struct AgentsOverviewView: View {
     let settings: SettingsStore
     let memory: MemoryStore
     let stats: AgentStatsStore
+    let modelCatalog: ModelCatalogStore
 
     /// Per-thread token + cost, fetched on appear from `POST /db/threads/usage`.
     /// Local to this view — usage is shown nowhere else.
@@ -25,12 +26,14 @@ public struct AgentsOverviewView: View {
         store: MyAppStore,
         settings: SettingsStore,
         memory: MemoryStore,
-        stats: AgentStatsStore
+        stats: AgentStatsStore,
+        modelCatalog: ModelCatalogStore
     ) {
         self.store = store
         self.settings = settings
         self.memory = memory
         self.stats = stats
+        self.modelCatalog = modelCatalog
     }
 
     private var sortedApps: [MyApp] {
@@ -42,7 +45,7 @@ public struct AgentsOverviewView: View {
             Section("Agents") {
                 agentDisclosure(
                     AgentRegistry.buildOrchestratorAgent(
-                        store: store, settings: settings, memory: memory
+                        store: store, settings: settings, memory: memory, catalog: modelCatalog
                     ),
                     scope: .memory
                 )
@@ -90,7 +93,7 @@ public struct AgentsOverviewView: View {
     /// One MyApp dropdown → its agents (main agent first, then Slack
     /// personas), each its own stats dropdown.
     private func appDisclosure(_ app: MyApp) -> some View {
-        let agents = AgentRegistry.enumerateAgents(myApp: app, store: store, settings: settings)
+        let agents = AgentRegistry.enumerateAgents(myApp: app, store: store, settings: settings, catalog: modelCatalog)
         return DisclosureGroup {
             ForEach(agents) { descriptor in
                 agentDisclosure(

@@ -3,6 +3,17 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.26] — 2026-06-20
+
+### Changed
+
+- **Model picker reads the live backend catalog.** Agent model pickers
+  (orchestrator, MyApp main agents, Slack sub-agents) now list whatever the
+  backend has registered, fetched from `GET /models` into a new
+  `ModelCatalogStore` on launch and whenever the active backend changes.
+  The static `KnownLLMModelCatalog` is now only the offline fallback
+  (backend unreachable, old backend, not paired). (`PupaApp` `0.0.117`)
+
 ## [0.0.25] — 2026-06-19
 
 ### Added

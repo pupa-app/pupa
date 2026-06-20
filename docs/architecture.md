@@ -58,7 +58,7 @@ handlers.
 | [`Chat/`](../Pupa/Sources/PupaApp/Chat/) | `ChatViewModel`, `ChatSessionCoordinator` (drives `AgentSession`), `ChatPanel` + thread-selector dropdown (`ConversationPager`), slash commands, transcript mapping. The composer attaches one image — from the photo library, the camera (`CameraPicker`, iOS), or drag-and-drop — all funnelled through `ImagePreparer` into a `PickedImage`. |
 | [`Tools/`](../Pupa/Sources/PupaApp/Tools/) | `AppTools.swift` — registers every frontend tool against the `ToolRegistry`. |
 | [`Memory/`](../Pupa/Sources/PupaApp/Memory/) | `MemoryStore` — sandboxed markdown filesystem; orchestrator home. |
-| [`Agents/`](../Pupa/Sources/PupaApp/Agents/) | Per-agent policies, the agent overview/detail pages, `KnownLLMModelCatalog`. |
+| [`Agents/`](../Pupa/Sources/PupaApp/Agents/) | Per-agent policies, the agent overview/detail pages, `ModelCatalogStore` (live backend model list) + `KnownLLMModelCatalog` (offline fallback). |
 | [`Slack/`](../Pupa/Sources/PupaApp/Slack/) | `SlackInvoker` — multi-agent room invocation policy. |
 | [`ScreenShare/`](../Pupa/Sources/PupaApp/ScreenShare/) | WebRTC viewer + signalling client for the backend's `/screenshare/ws` broker. |
 | [`Settings/`](../Pupa/Sources/PupaApp/Settings/) | `SettingsStore` (backend URL, API key, disabled tools), backend-tools client. |
@@ -235,11 +235,15 @@ that `ChatViewModel` conforms to). The backend forwards their schemas to
 the model and the client executes the calls — the backend owns no
 canvas logic.
 
-The model picker catalog
+The model picker catalog is fetched live from the backend's `GET /models`
+route by `BackendModelsClient` into a `ModelCatalogStore`
+([Agents/ModelCatalogStore.swift](../Pupa/Sources/PupaApp/Agents/ModelCatalogStore.swift)),
+owned by `AppView` and refreshed on launch and whenever the active backend
+changes. The static `KnownLLMModelCatalog`
 ([Agents/KnownLLMModel.swift](../Pupa/Sources/PupaApp/Agents/KnownLLMModel.swift))
-is a static list that must stay in sync with the backend's
-`MODEL_REGISTRY`; the selected `{provider, model}` is forwarded per turn
-in `RunAgentInput.forwardedProps["llm"]`.
+is now only the offline fallback (backend unreachable, old backend, not
+paired). The selected `{provider, model}` is forwarded per turn in
+`RunAgentInput.forwardedProps["llm"]`.
 
 ## Persistence
 

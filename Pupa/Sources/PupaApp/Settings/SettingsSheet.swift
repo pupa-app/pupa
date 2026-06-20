@@ -34,6 +34,9 @@ public struct SettingsSheet: View {
     /// Lifetime per-agent activity counters backing the Agents overview.
     /// When nil (e.g. previews) the Agents row is hidden.
     var stats: AgentStatsStore?
+    /// Live LLM model registry backing the Agents overview's model pickers.
+    /// When nil (e.g. previews) the Agents row is hidden.
+    var modelCatalog: ModelCatalogStore?
     /// Called after a successful import with the new app's id (select + dismiss).
     var onImported: ((UUID) -> Void)?
     /// Shared guided-tour store. On iOS a `.sheet` renders above the AppView
@@ -65,6 +68,7 @@ public struct SettingsSheet: View {
         store: MyAppStore? = nil,
         memory: MemoryStore? = nil,
         stats: AgentStatsStore? = nil,
+        modelCatalog: ModelCatalogStore? = nil,
         onImported: ((UUID) -> Void)? = nil
     ) {
         self.settings = settings
@@ -74,6 +78,7 @@ public struct SettingsSheet: View {
         self.store = store
         self.memory = memory
         self.stats = stats
+        self.modelCatalog = modelCatalog
         self.onImported = onImported
     }
 
@@ -88,7 +93,7 @@ public struct SettingsSheet: View {
     private var canShare: Bool { store != nil && memory != nil && onImported != nil }
 
     /// True when the Agents overview can be shown (stores wired in).
-    private var canShowAgents: Bool { store != nil && memory != nil && stats != nil }
+    private var canShowAgents: Bool { store != nil && memory != nil && stats != nil && modelCatalog != nil }
 
     public var body: some View {
         NavigationStack(path: $path) {
@@ -241,8 +246,8 @@ public struct SettingsSheet: View {
             case .agents:
                 Form { agentsSection }.navigationTitle("Agent-to-agent")
             case .agentsOverview:
-                if let store, let memory, let stats {
-                    AgentsOverviewView(store: store, settings: settings, memory: memory, stats: stats)
+                if let store, let memory, let stats, let modelCatalog {
+                    AgentsOverviewView(store: store, settings: settings, memory: memory, stats: stats, modelCatalog: modelCatalog)
                 }
             case .notifications:
                 PendingNotificationsList().navigationTitle("Notifications")

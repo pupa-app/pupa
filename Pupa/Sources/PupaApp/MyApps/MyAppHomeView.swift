@@ -8,6 +8,7 @@ public struct MyAppHomeView: View {
     let store: MyAppStore
     let memory: MemoryStore
     let settings: SettingsStore
+    let modelCatalog: ModelCatalogStore
     let myAppId: UUID
     /// Called when the user taps a component card or a memory file to
     /// navigate deeper. AppView handles the actual selection update.
@@ -17,12 +18,14 @@ public struct MyAppHomeView: View {
         store: MyAppStore,
         memory: MemoryStore,
         settings: SettingsStore,
+        modelCatalog: ModelCatalogStore,
         myAppId: UUID,
         onNavigate: @escaping (SidebarSelection) -> Void
     ) {
         self.store = store
         self.memory = memory
         self.settings = settings
+        self.modelCatalog = modelCatalog
         self.myAppId = myAppId
         self.onNavigate = onNavigate
     }
@@ -221,7 +224,8 @@ public struct MyAppHomeView: View {
         let descriptors = AgentRegistry.enumerateAgents(
             myApp: app,
             store: store,
-            settings: settings
+            settings: settings,
+            catalog: modelCatalog
         )
         let preview = Array(descriptors.prefix(3))
         let extra = descriptors.count - preview.count
