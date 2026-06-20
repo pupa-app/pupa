@@ -3,6 +3,25 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.27] — 2026-06-20
+
+### Fixed
+
+- **Shell-approval / question interrupts no longer get silently orphaned.**
+  While the agent is parked on a `request_shell_approval` (or
+  `ask_user_questions`) card, the turn is still in flight, so `isStreaming`
+  stayed true — which made the composer's primary button a **Stop** button.
+  Tapping it routed into `cancel()`, which tore down the session task before
+  the resume POST could fire: the backend interrupt was left parked forever
+  and the next message landed as a fresh run that silently dropped the
+  approved command (the "agent stopped silently" report). Now the composer
+  suppresses its Stop affordance while an interrupt is pending (new
+  `isAwaitingHumanInput`); resolution flows only through the card's
+  Approve / Deny / Submit. And `cancel()` while parked resolves the interrupt
+  (deny / empty answers) and keeps the turn alive so the live loop delivers
+  the resume, instead of orphaning it. Regression test drives the real
+  `ChatViewModel` loop against a mock backend. (`PupaApp` `0.0.118`)
+
 ## [0.0.26] — 2026-06-20
 
 ### Changed

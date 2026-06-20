@@ -177,6 +177,17 @@ public final class ChatViewModel {
     /// True iff the agent's `request_shell_approval` frontend tool is awaiting
     /// the user's Approve / Deny decision. The composer reads this to gate input.
     public var hasPendingShellApproval: Bool { pendingShellApprovalContinuation != nil }
+    /// True while the turn is suspended on *any* human-in-the-loop interrupt
+    /// (`ask_user_questions` or `request_shell_approval`). The turn is still in
+    /// flight — `isStreaming` stays true so `busyMyApps`, attach-gating, etc.
+    /// keep treating it as active — but the *model* is not generating; it is
+    /// blocked on the user. The composer reads this to suppress its Stop
+    /// affordance: hitting Stop here would cancel the session task and orphan
+    /// the backend interrupt (the resume POST never fires, and the next send
+    /// lands as a fresh run that silently drops the pending command). The only
+    /// valid resolution is the bubble's Submit / Approve / Deny, which keeps
+    /// the live AGUIKit loop intact so it can POST the resume.
+    public var isAwaitingHumanInput: Bool { hasPendingQuestion || hasPendingShellApproval }
     /// True iff every pending answer has been filled in (non-empty after
     /// trimming whitespace). The bubble's Submit button reads this to
     /// decide whether the user can submit yet.
@@ -885,24 +896,36 @@ public final class ChatViewModel {
     }
 
     public func cancel() {
-        streamTask?.cancel()
-        streamTask = nil
-        // User-initiated cancel must resume the suspended ask_user_questions
-        // handler with empty answers so the bridge's continuation fires
-        // exactly once and AGUIKit's dispatch loop unblocks. The handler
-        // returns those empty answers as the tool result; the backend
-        // graph stays parked on the interrupt and re-emits it on the
-        // next user send (the user will see the question panel again).
+        // Case A — parked on a human-in-the-loop interrupt. The model is NOT
+        // running; the AGUIKit stream is suspended awaiting the user. Resolve
+        // the interrupt by resuming the bridge continuation with its terminal
+        // value (deny / empty answers) and let the *live* loop POST the
+        // `command.resume` so the backend interrupt is actually answered. We
+        // must NOT tear the task down here: cancelling the stream would strand
+        // the backend interrupt — the resume never fires, and the next send
+        // lands as a fresh run that silently drops the pending command (the
+        // exact "agent stopped silently" failure). The run settles itself once
+        // the backend processes the resolution, flipping `isStreaming` off via
+        // `consume`. Resolve at most one interrupt per call (only one is ever
+        // pending at a time).
+        if let continuation = pendingShellApprovalContinuation {
+            pendingShellApprovalContinuation = nil
+            appendBubble(ChatBubble(role: .user, text: "Deny"))
+            continuation.resume(returning: (approved: false, remember: false))
+            return
+        }
         if let continuation = pendingContinuation {
             pendingContinuation = nil
             pendingBubbleId = nil
             pendingAnswers = []
             continuation.resume(returning: [])
+            return
         }
-        if let continuation = pendingShellApprovalContinuation {
-            pendingShellApprovalContinuation = nil
-            continuation.resume(returning: (approved: false, remember: false))
-        }
+        // Case B — a genuine in-flight model turn with no pending interrupt.
+        // Abort the stream; the backend run for this POST is dropped and there
+        // is no interrupt to orphan.
+        streamTask?.cancel()
+        streamTask = nil
         setStreaming(false)
     }
 
