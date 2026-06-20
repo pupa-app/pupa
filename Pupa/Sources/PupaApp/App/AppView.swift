@@ -19,6 +19,7 @@ public struct AppView: View {
     @State private var store: MyAppStore
     @State private var memory: MemoryStore
     @State private var settings: SettingsStore
+    @State private var modelCatalog = ModelCatalogStore()
     @State private var coordinator: ChatSessionCoordinator
     @State private var screenShare: ScreenShareViewModel
     @State private var selection: SidebarSelection?
@@ -121,6 +122,12 @@ public struct AppView: View {
                 Alert(title: Text("Import"), message: Text(note.message),
                       dismissButton: .default(Text("OK")))
             }
+            // Fetch the model catalog from the active backend on launch and
+            // whenever the active backend changes (URL or pairing state).
+            .task { await modelCatalog.refresh(settings: settings) }
+            .onChange(of: settings.activeBackendID) { _, _ in
+                Task { await modelCatalog.refresh(settings: settings) }
+            }
             // One-time guided tour: evaluate on appear (covers a relaunch where
             // a previous run was abandoned mid-tour) and whenever onboarding
             // completes (the first-install hand-off from `OnboardingFlowView`).
@@ -187,6 +194,7 @@ public struct AppView: View {
                 memory: memory,
                 settings: settings,
                 stats: coordinator.agentStats,
+                modelCatalog: modelCatalog,
                 selection: $selection,
                 busyMyApps: coordinator.busyMyApps,
                 onSelectionChange: dispatchSelection,
@@ -335,6 +343,7 @@ public struct AppView: View {
                     memory: memory,
                     settings: settings,
                     stats: coordinator.agentStats,
+                    modelCatalog: modelCatalog,
                     selection: $selection,
                     busyMyApps: coordinator.busyMyApps,
                     onSelectionChange: dispatchSelection,
@@ -459,6 +468,7 @@ public struct AppView: View {
                 store: store,
                 memory: memory,
                 settings: settings,
+                modelCatalog: modelCatalog,
                 myAppId: id,
                 onNavigate: { nav in
                     // Push onto the navigation stack instead of replacing
@@ -476,6 +486,7 @@ public struct AppView: View {
                 store: store,
                 memory: memory,
                 settings: settings,
+                modelCatalog: modelCatalog,
                 myAppId: id,
                 onNavigate: { nav in
                     dispatchSelection(nav)
@@ -487,6 +498,7 @@ public struct AppView: View {
                 store: store,
                 memory: memory,
                 settings: settings,
+                modelCatalog: modelCatalog,
                 myAppId: id,
                 agentId: agentId,
                 onNavigate: { nav in
@@ -533,6 +545,7 @@ public struct AppView: View {
                 store: store,
                 memory: memory,
                 settings: settings,
+                modelCatalog: modelCatalog,
                 myAppId: nil,
                 agentId: AgentRegistry.orchestratorAgentId,
                 onNavigate: { nav in
