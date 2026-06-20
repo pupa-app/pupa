@@ -17,6 +17,10 @@ public struct AgentsOverviewView: View {
     let memory: MemoryStore
     let stats: AgentStatsStore
 
+    /// Per-thread token + cost, fetched on appear from `POST /db/threads/usage`.
+    /// Local to this view — usage is shown nowhere else.
+    @State private var usage = ThreadUsageStore()
+
     public init(
         store: MyAppStore,
         settings: SettingsStore,
@@ -57,6 +61,28 @@ public struct AgentsOverviewView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .task { await refreshUsage() }
+    }
+
+    /// Batch every visible thread id into one usage request.
+    private func refreshUsage() async {
+        let ids = threadGroups.flatMap { store.threads(for: $0.scope).map(\.id) }
+        let client = BackendUsageClient(
+            backendURL: settings.backendURL,
+            extraHeaders: settings.authHeaders,
+            session: settings.backendSession
+        )
+        await usage.refresh(threadIds: ids, client: client)
+    }
+
+    /// On-demand cache-breakdown fetch for one agent's threads (runs on expand).
+    private func refreshCache(_ ids: [String]) async {
+        let client = BackendUsageClient(
+            backendURL: settings.backendURL,
+            extraHeaders: settings.authHeaders,
+            session: settings.backendSession
+        )
+        await usage.refreshCache(threadIds: ids, client: client)
     }
 
     // MARK: - Agents
@@ -74,10 +100,16 @@ public struct AgentsOverviewView: View {
             }
         } label: {
             Label {
-                HStack(spacing: 6) {
-                    Text(app.name).font(.callout).fontWeight(.medium)
-                    Text("\(agents.count)")
-                        .font(.caption2).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(app.name).font(.callout).fontWeight(.medium)
+                        Text("\(agents.count)")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    // MyApp-wide total, summed across every thread in the app.
+                    if let caption = scopeUsageCaption(.myApp(app.id)) {
+                        Text(caption).font(.caption2).foregroundStyle(.secondary)
+                    }
                 }
             } icon: {
                 Image(systemName: "square.stack.3d.up")
@@ -94,6 +126,25 @@ public struct AgentsOverviewView: View {
             statRow("Invocations received", "\(stat.count(AgentStatsStore.invocationsReceived))")
             if let conversations {
                 statRow("Conversations", "\(conversations)")
+            }
+            if let scope, let roll = usage.rollup(threadIds: store.threads(for: scope).map(\.id)) {
+                if let tokens = roll.totalTokens {
+                    statRow("Tokens used", formatTokens(tokens))
+                }
+                if let cost = roll.costUSD {
+                    statRow("Est. cost", formatCost(cost))
+                }
+            }
+            // Prompt-cache % — fetched on demand when this agent is expanded.
+            if let scope {
+                let ids = store.threads(for: scope).map(\.id)
+                if !ids.isEmpty {
+                    statRow(
+                        "Cache read",
+                        usage.cacheReadPct(threadIds: ids).map { String(format: "%.0f%%", $0) } ?? "—"
+                    )
+                    .task(id: ids) { await refreshCache(ids) }
+                }
             }
             if let last = stat.lastActiveAt {
                 statRow("Last active", last.formatted(date: .abbreviated, time: .shortened))
@@ -127,6 +178,39 @@ public struct AgentsOverviewView: View {
             Text(value).foregroundStyle(.secondary)
         }
         .font(.callout)
+    }
+
+    // MARK: - Usage formatting
+
+    /// One-line `"12.3k tok · $0.04"` for a thread, or `nil` when no usage
+    /// is known (Langfuse off, or no trace ingested yet).
+    private func usageLine(for threadId: String) -> String? {
+        guard let u = usage.usage(for: threadId) else { return nil }
+        var parts: [String] = []
+        if let tokens = u.totalTokens { parts.append("\(formatTokens(tokens)) tok") }
+        if let cost = u.costUSD { parts.append(formatCost(cost)) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// Compact `"7.2k tok · $0.03"` total across every thread in `scope`,
+    /// or `nil` when no thread has known usage. Used for the MyApp-wide and
+    /// per-agent aggregate captions.
+    private func scopeUsageCaption(_ scope: ChatScope) -> String? {
+        guard let roll = usage.rollup(threadIds: store.threads(for: scope).map(\.id)) else { return nil }
+        var parts: [String] = []
+        if let tokens = roll.totalTokens { parts.append("\(formatTokens(tokens)) tok") }
+        if let cost = roll.costUSD { parts.append(formatCost(cost)) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private func formatTokens(_ tokens: Int) -> String {
+        if tokens < 1000 { return "\(tokens)" }
+        return String(format: "%.1fk", Double(tokens) / 1000.0)
+    }
+
+    private func formatCost(_ cost: Double) -> String {
+        // Sub-dollar costs need more precision than two decimals.
+        cost < 1 ? String(format: "$%.4f", cost) : String(format: "$%.2f", cost)
     }
 
     /// Resolve the `AgentStatsStore` key for a descriptor, matching
@@ -186,6 +270,11 @@ public struct AgentsOverviewView: View {
             Text(thread.createdAt.formatted(date: .abbreviated, time: .shortened))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+            if let line = usageLine(for: thread.id) {
+                Text(line)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {
