@@ -389,10 +389,10 @@ public struct ChatPanel: View {
                 TextField(composerPlaceholder, text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .lineLimit(1...4)
-                    .disabled(viewModel.isStreaming || viewModel.hasPendingQuestion)
+                    .disabled(viewModel.isStreaming || viewModel.isAwaitingHumanInput)
                     .onSubmit(send)
                 Button(action: send) {
-                    Image(systemName: viewModel.isStreaming ? "stop.fill" : "arrow.up")
+                    Image(systemName: (viewModel.isStreaming && !viewModel.isAwaitingHumanInput) ? "stop.fill" : "arrow.up")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(width: 34, height: 34)
@@ -524,6 +524,7 @@ public struct ChatPanel: View {
     }
 
     private var sendDisabled: Bool {
+        if viewModel.isAwaitingHumanInput { return true }  // resolve via the card, not the composer
         if viewModel.isStreaming { return false }  // tap = cancel
         if isLoadingImage { return true }
         return draft.trimmingCharacters(in: .whitespaces).isEmpty && pickedImage == nil
@@ -536,8 +537,12 @@ public struct ChatPanel: View {
     /// answers travel through the bubble's Submit button, not the
     /// composer, so the placeholder explains where to reply.
     private var composerPlaceholder: String {
-        if viewModel.isStreaming { return "Streaming… tap Stop to cancel" }
+        // Interrupt copy wins over the streaming copy: while parked, the turn
+        // is technically still in flight (`isStreaming == true`) but the user's
+        // only action is on the bubble, not the composer.
+        if viewModel.hasPendingShellApproval { return "Approve or deny the command above…" }
         if viewModel.hasPendingQuestion { return "Answer above and tap Submit…" }
+        if viewModel.isStreaming { return "Streaming… tap Stop to cancel" }
         return "Type a message or /reset…"
     }
 
@@ -570,6 +575,12 @@ public struct ChatPanel: View {
     }
 
     private func send() {
+        // Parked on a human-in-the-loop interrupt: the composer is inert.
+        // Resolution flows through the bubble's Approve / Deny / Submit — the
+        // composer's Stop affordance would cancel the turn and orphan the
+        // backend interrupt. Guarded here too so a stray keyboard return is a
+        // no-op even if the button/field disabled state is ever bypassed.
+        if viewModel.isAwaitingHumanInput { return }
         if viewModel.isStreaming {
             viewModel.cancel()
             return
