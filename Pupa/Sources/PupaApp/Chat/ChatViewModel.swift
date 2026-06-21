@@ -303,6 +303,18 @@ public final class ChatViewModel {
         ) { [weak self] in
             self?.appendPromptDumpBubble()
             return .appOnly
+        },
+        SlashCommand(
+            name: "setup",
+            summary: "Provision this workspace's backend capabilities by following its SETUP.md playbook"
+        ) {
+            .rewriteMessage(
+                "Set up this workspace's backend capabilities. Read this app's "
+                + "`SETUP.md` memory playbook (use the memory tools) and follow it "
+                + "step by step. Run each shell command only after I approve it; if "
+                + "the shell tool isn't available, list the exact commands for me to "
+                + "run myself instead."
+            )
         }
     ])
 
