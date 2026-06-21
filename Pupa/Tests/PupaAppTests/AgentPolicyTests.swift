@@ -87,11 +87,11 @@ struct OrchestratorPolicyTests {
         let store = makeStore()
         let payload = await OrchestratorPolicy().payload(for: .memory, store: store)
         // Memory root should be orchestratorRoot — verify by checking that
-        // writing a file at "AGENTS.md" doesn't affect the global root.
+        // writing a file at "pupa/AGENTS.md" doesn't affect the global root.
         let globalMemory = MemoryStore()
-        let globalBefore = try? globalMemory.readFile(path: "AGENTS.md")
+        let globalBefore = try? globalMemory.readFile(path: "pupa/AGENTS.md")
         _ = try? payload.memory.writeFile(path: "_test_orch.md", content: "test")
-        let globalAfter = try? globalMemory.readFile(path: "AGENTS.md")
+        let globalAfter = try? globalMemory.readFile(path: "pupa/AGENTS.md")
         // Global AGENTS.md unaffected
         #expect(globalBefore?.content == globalAfter?.content)
         // cleanup
@@ -102,11 +102,11 @@ struct OrchestratorPolicyTests {
     func systemPromptWithAgentsMd() async {
         let store = makeStore()
         let memory = MemoryStore(rootOverride: MemoryStore.orchestratorRoot())
-        _ = try? memory.writeFile(path: "AGENTS.md", content: "## Custom orchestrator instructions\n\nBe helpful.")
-        defer { _ = try? memory.delete(path: "AGENTS.md") }
+        _ = try? memory.writeFile(path: "pupa/AGENTS.md", content: "## Custom orchestrator instructions\n\nBe helpful.")
+        defer { _ = try? memory.delete(path: "pupa/AGENTS.md") }
         let desc = OrchestratorPolicy().buildSystemPrompt(memory: memory)
         #expect(desc.contains("Custom orchestrator instructions"))
-        #expect(desc.contains("AGENTS.md"))
+        #expect(desc.contains("pupa/AGENTS.md"))
     }
 }
 
@@ -161,11 +161,11 @@ struct MyAppPolicyTests {
         let app = MyApp(name: "TestApp", iconSystemName: "star", typeId: "tracker")
         let store = MyAppStore(initial: ([app], app.id))
         let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: "TestApp"))
-        _ = try? memory.writeFile(path: "AGENTS.md", content: "## Custom MyApp instructions\n\nTrack things carefully.")
-        defer { _ = try? memory.delete(path: "AGENTS.md") }
+        _ = try? memory.writeFile(path: "pupa/AGENTS.md", content: "## Custom MyApp instructions\n\nTrack things carefully.")
+        defer { _ = try? memory.delete(path: "pupa/AGENTS.md") }
         let desc = MyAppPolicy(myAppId: app.id).buildSystemPrompt(myApp: app, memory: memory)
         #expect(desc.contains("Custom MyApp instructions"))
-        #expect(desc.contains("AGENTS.md"))
+        #expect(desc.contains("pupa/AGENTS.md"))
     }
 
     @Test("systemPrompt falls back to type-fragment when no AGENTS.md")
@@ -208,8 +208,8 @@ struct AgentPolicyScopingTests {
 
         // Write orchestrator AGENTS.md with unique content
         let orchMem = MemoryStore(rootOverride: MemoryStore.orchestratorRoot())
-        _ = try? orchMem.writeFile(path: "AGENTS.md", content: "ORCH UNIQUE MARKER XYZ")
-        defer { _ = try? orchMem.delete(path: "AGENTS.md") }
+        _ = try? orchMem.writeFile(path: "pupa/AGENTS.md", content: "ORCH UNIQUE MARKER XYZ")
+        defer { _ = try? orchMem.delete(path: "pupa/AGENTS.md") }
 
         // MyApp payload should NOT contain the orchestrator marker
         let myAppPayload = await MyAppPolicy(myAppId: app.id).payload(for: .myApp(app.id), store: store)
@@ -223,8 +223,8 @@ struct AgentPolicyScopingTests {
 
         // Write myApp AGENTS.md with unique content
         let myAppMem = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: "BleedTestApp2"))
-        _ = try? myAppMem.writeFile(path: "AGENTS.md", content: "MYAPP UNIQUE MARKER ABC")
-        defer { _ = try? myAppMem.delete(path: "AGENTS.md") }
+        _ = try? myAppMem.writeFile(path: "pupa/AGENTS.md", content: "MYAPP UNIQUE MARKER ABC")
+        defer { _ = try? myAppMem.delete(path: "pupa/AGENTS.md") }
 
         // Orchestrator payload should NOT contain the myApp marker
         let orchPayload = await OrchestratorPolicy().payload(for: .memory, store: store)
@@ -239,11 +239,11 @@ struct AgentPolicyScopingTests {
 
         let memX = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: "MyAppX"))
         let memY = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: "MyAppY"))
-        _ = try? memX.writeFile(path: "AGENTS.md", content: "Instructions for X only")
-        _ = try? memY.writeFile(path: "AGENTS.md", content: "Instructions for Y only")
+        _ = try? memX.writeFile(path: "pupa/AGENTS.md", content: "Instructions for X only")
+        _ = try? memY.writeFile(path: "pupa/AGENTS.md", content: "Instructions for Y only")
         defer {
-            _ = try? memX.delete(path: "AGENTS.md")
-            _ = try? memY.delete(path: "AGENTS.md")
+            _ = try? memX.delete(path: "pupa/AGENTS.md")
+            _ = try? memY.delete(path: "pupa/AGENTS.md")
         }
 
         let payloadX = await MyAppPolicy(myAppId: appX.id).payload(for: .myApp(appX.id), store: store)

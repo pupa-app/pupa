@@ -44,7 +44,7 @@ struct SlashToolsRenderingTests {
             store: store
         )
         let labels = groups.map(\.label)
-        #expect(labels == ["Tool Gates", "Memory", "Orchestrator", "Human-in-the-loop"])
+        #expect(labels == ["Tool Gates", "Memory", "Skills", "Orchestrator", "Human-in-the-loop"])
 
         let memoryNames = groups.first(where: { $0.label == "Memory" })!.tools.map(\.name)
         #expect(Set(memoryNames) == MyAppType.memoryToolNames)
@@ -64,7 +64,7 @@ struct SlashToolsRenderingTests {
             store: store
         )
         // No components → no kind gates; memories + notifications gates advertised.
-        #expect(groups.map(\.label) == ["Canvas", "Tool Gates", "Human-in-the-loop"])
+        #expect(groups.map(\.label) == ["Canvas", "Tool Gates", "Skills", "Human-in-the-loop"])
         let canvasNames = Set(groups.first(where: { $0.label == "Canvas" })!.tools.map(\.name))
         #expect(canvasNames == MyAppType.tracker.baseToolNames)
         let gateNames = Set(groups.first(where: { $0.label == "Tool Gates" })!.tools.map(\.name))
@@ -84,7 +84,7 @@ struct SlashToolsRenderingTests {
             store: store
         )
         // Kind tools are hidden until a gate is called; only gate tool names appear.
-        #expect(groups.map(\.label) == ["Canvas", "Tool Gates", "Human-in-the-loop"])
+        #expect(groups.map(\.label) == ["Canvas", "Tool Gates", "Skills", "Human-in-the-loop"])
         let gateNames = Set(groups.first(where: { $0.label == "Tool Gates" })!.tools.map(\.name))
         #expect(gateNames == [
             "get_tools_tracker", "get_tools_calendar", "get_tools_checklist",
@@ -111,7 +111,7 @@ struct SlashToolsRenderingTests {
             store: store
         )
         #expect(groups.map(\.label) == [
-            "Canvas", "Tracker", "Calendar", "Checklist", "Memory", "Notifications", "Human-in-the-loop",
+            "Canvas", "Tracker", "Calendar", "Checklist", "Memory", "Skills", "Notifications", "Human-in-the-loop",
         ])
         let trackerNames = Set(groups.first(where: { $0.label == "Tracker" })!.tools.map(\.name))
         #expect(trackerNames == MyAppType.tracker.toolNamesByKind["tracker"])

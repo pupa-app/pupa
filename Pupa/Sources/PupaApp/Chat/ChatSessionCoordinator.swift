@@ -110,8 +110,8 @@ public final class ChatSessionCoordinator {
     /// a chat session to be lazily opened.
     private func bootstrapMemories() {
         let orchMemory = MemoryStore(rootOverride: MemoryStore.orchestratorRoot())
-        if !orchMemory.fileExists(at: "AGENTS.md") {
-            _ = try? orchMemory.writeFile(path: "AGENTS.md", content: Self.orchestratorAgentsMd())
+        if !orchMemory.fileExists(at: MemoryStore.pupaAgentsPath) {
+            _ = try? orchMemory.writeFile(path: MemoryStore.pupaAgentsPath, content: Self.orchestratorAgentsMd())
             memory.rescan()
         }
         for myApp in store.myApps {
@@ -124,7 +124,7 @@ public final class ChatSessionCoordinator {
     /// immediately, before any chat session is opened.
     public func ensureMyAppMemory(_ myApp: MyApp) {
         let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: myApp.name))
-        if !appMemory.fileExists(at: "AGENTS.md") {
+        if !appMemory.fileExists(at: MemoryStore.pupaAgentsPath) {
             let typeFragment = MyAppTypeRegistry.shared.resolve(id: myApp.typeId)
                 .map { $0.baseSystemPromptFragment } ?? ""
             let content = """
@@ -135,7 +135,7 @@ public final class ChatSessionCoordinator {
                 ## Instructions
                 \(typeFragment.isEmpty ? "_No instructions set._" : typeFragment)
                 """
-            _ = try? appMemory.writeFile(path: "AGENTS.md", content: content)
+            _ = try? appMemory.writeFile(path: MemoryStore.pupaAgentsPath, content: content)
             memory.rescan()
         }
     }
@@ -198,6 +198,7 @@ public final class ChatSessionCoordinator {
                 slack: mainChatSlackContext(myAppId: id)
             )
             AppTools.registerMemoryTools(on: registry, memory: sessionMemory)
+            AppTools.registerSkillTools(on: registry, memory: sessionMemory)
             let toolGateState = ToolGateState()
             sessionToolGateState = toolGateState
             AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: toolGateState)
@@ -211,6 +212,7 @@ public final class ChatSessionCoordinator {
             sessionMemory = MemoryStore(rootOverride: MemoryStore.orchestratorRoot())
             sessionMemory.onDidMutate = { [weak self] in self?.memory.rescan() }
             AppTools.registerMemoryTools(on: registry, memory: sessionMemory)
+            AppTools.registerSkillTools(on: registry, memory: sessionMemory)
             AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: toolGateState)
             // Orchestrator surface: lets the memory-mode agent see / create
             // myApps and delegate a one-shot prompt to any existing myApp's
@@ -243,6 +245,15 @@ public final class ChatSessionCoordinator {
                 if !streaming { self?.memory.rescan() }
             }
         )
+        // Refresh the session's skill cache whenever its scoped memory mutates
+        // (agent or user wrote a file), so the `/skill` palette and the skills
+        // context entry pick up newly added `pupa/skills/`. Chains the existing
+        // per-scope sidebar-sync handler set above.
+        let priorOnMutate = sessionMemory.onDidMutate
+        sessionMemory.onDidMutate = { [weak vm] in
+            priorOnMutate?()
+            vm?.refreshSkills()
+        }
         // Wire `ask_user_questions` into the registry now that the
         // ChatViewModel exists to serve as the bridge. The handler is
         // captured weakly so the registry doesn't pin the VM.
@@ -295,6 +306,7 @@ public final class ChatSessionCoordinator {
         appMemory.onDidMutate = { [weak self] in self?.memory.rescan() }
         AppTools.registerMyAppTools(on: registry, store: store, myAppId: myAppId, memory: appMemory)
         AppTools.registerMemoryTools(on: registry, memory: appMemory)
+        AppTools.registerSkillTools(on: registry, memory: appMemory)
         let subRunToolGateState = ToolGateState()
         AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: subRunToolGateState)
         if let myApp = store.myApps.first(where: { $0.id == myAppId }),
@@ -378,8 +390,11 @@ public final class ChatSessionCoordinator {
                 description: "User memories — markdown filesystem (paths only). Use the memory tools to read or update.",
                 value: memoriesJSON
             )
+            // Skills under pupa/skills/ — the sub-run / Slack agent can load any
+            // via app_skill_view (and create new ones). Same entry as main chat.
+            let skillsEntry = [ChatViewModel.skillsContextEntry(SkillStore(memory: memory))]
             guard let myApp = store.myApps.first(where: { $0.id == myAppId }) else {
-                return [memoriesEntry]
+                return [memoriesEntry] + skillsEntry
             }
             // Same thin enumeration as the main chat — full item lists
             // stay reachable via `getCanvasState` and the `list*` /
@@ -387,7 +402,7 @@ public final class ChatSessionCoordinator {
             let summary = CanvasSummary.build(myApp: myApp)
             let canvasJSON = summary.toJSONString()
             // System prompt for sub-run via MyAppPolicy — reads
-            // <myapps/name>/AGENTS.md; falls back to type-fragment text.
+            // <myapps/name>/pupa/AGENTS.md; falls back to type-fragment text.
             let typeDescription = MyAppPolicy(myAppId: myAppId).buildSystemPrompt(
                 myApp: myApp, memory: memory
             )
@@ -405,7 +420,7 @@ public final class ChatSessionCoordinator {
                 ),
                 memoriesEntry,
                 AgentContextEntry(description: typeDescription, value: typeJSON),
-            ]
+            ] + skillsEntry
         }
     }
 
@@ -523,6 +538,7 @@ public final class ChatSessionCoordinator {
             slack: subAgentSlackContext(myAppId: myAppId, currentAgentId: agentId)
         )
         AppTools.registerMemoryTools(on: registry, memory: appMemory)
+        AppTools.registerSkillTools(on: registry, memory: appMemory)
         let slackToolGateState = ToolGateState()
         AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: slackToolGateState)
         if let myApp = store.myApps.first(where: { $0.id == myAppId }),

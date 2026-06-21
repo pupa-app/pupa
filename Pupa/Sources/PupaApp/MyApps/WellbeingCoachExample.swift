@@ -22,8 +22,8 @@ enum WellbeingCoachExample: ExampleMyApp {
         let appRoot = appRootOverride ?? MemoryStore.appRoot(myAppName: name)
         let appMemory = MemoryStore(rootOverride: appRoot)
         var wroteAny = false
-        if !appMemory.fileExists(at: "AGENTS.md") {
-            _ = try? appMemory.writeFile(path: "AGENTS.md", content: appAgentsMd)
+        if !appMemory.fileExists(at: "pupa/AGENTS.md") {
+            _ = try? appMemory.writeFile(path: "pupa/AGENTS.md", content: appAgentsMd)
             wroteAny = true
         }
         if wroteAny { globalMemory.rescan() }

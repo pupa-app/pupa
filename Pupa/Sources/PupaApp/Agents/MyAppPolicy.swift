@@ -5,7 +5,7 @@ import Foundation
 /// `AgentPolicy` for an active MyApp (`.myApp(id)` scope).
 ///
 /// Memory root:  `<sandbox>/myapps/<name>/`
-/// System prompt: `<root>/AGENTS.md` (or type-fragment fallback).
+/// System prompt: `<root>/pupa/AGENTS.md` (or type-fragment fallback).
 /// Tools: type's resolved tool names + HITL + tool-gated memory /
 ///        notifications / per-kind tools. Never orchestrator tools.
 public struct MyAppPolicy: AgentPolicy {
@@ -52,9 +52,9 @@ public struct MyAppPolicy: AgentPolicy {
         let typeFragment = type.map {
             ChatViewModel.activeSystemPromptFragment(myApp: myApp, type: $0)
         } ?? ""
-        let agentsMd = (try? memory.readFile(path: "AGENTS.md"))?.content
+        let agentsMd = (try? memory.readFile(path: MemoryStore.pupaAgentsPath))?.content
         return agentsMd.map {
-            "MyApp instructions (AGENTS.md):\n\n\($0)"
+            "MyApp instructions (pupa/AGENTS.md):\n\n\($0)"
         } ?? "MyApp type (typeId, myAppName) + per-type rules:\n\n\(typeFragment)"
     }
 }

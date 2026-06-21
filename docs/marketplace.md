@@ -19,7 +19,11 @@ header   (read & validated first)   app (Codable MyApp tree)   memories[]
   A component's editable `name` / `iconSystemName` / `summary` already live
   here, so renaming or re-iconing a component (via `setComponentMeta`) needs
   **no format change** — `formatVersion` stays put and old bundles load as-is.
-- `memories`: `{path, content}`, paths relative to the app's memory root.
+- `memories`: `{path, content}`, paths relative to the app's memory root. The
+  `pupa/` config subtree (agent + subagent prompts, skills) is app
+  capability, not user data: it rides the bundle and **survives a memories-off
+  export**. On import, `MemoryStore.writeFile` accepts only `.md` / `.json`, so
+  a hostile bundle can't drop an executable into the sandbox.
 
 The bundle carries **no executable content**. All rebuild logic lives in the
 app and is dispatched by component `kind`.

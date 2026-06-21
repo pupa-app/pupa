@@ -5,7 +5,7 @@ import Foundation
 /// `AgentPolicy` for the orchestrator (`.memory` scope).
 ///
 /// Memory root:  `<sandbox>/orchestrator/`
-/// System prompt: `orchestrator/AGENTS.md` (or hardcoded fallback).
+/// System prompt: `orchestrator/pupa/AGENTS.md` (or hardcoded fallback).
 /// Tools: memory FS + HITL + `orchestratorToolNames` + tool-gated
 ///        notifications. Never canvas tools.
 public struct OrchestratorPolicy: AgentPolicy {
@@ -40,9 +40,9 @@ public struct OrchestratorPolicy: AgentPolicy {
 
     @MainActor
     public func buildSystemPrompt(memory: MemoryStore) -> String {
-        let agentsMd = (try? memory.readFile(path: "AGENTS.md"))?.content
+        let agentsMd = (try? memory.readFile(path: MemoryStore.pupaAgentsPath))?.content
         return agentsMd.map {
-            "Orchestrator instructions (AGENTS.md):\n\n\($0)"
+            "Orchestrator instructions (pupa/AGENTS.md):\n\n\($0)"
         } ?? """
             ORCHESTRATOR scope — no canvas here. Surfaces: memories FileSystem + \
             list/create/renameMyApp + invokeMyAppAgent(myAppId, prompt) to \

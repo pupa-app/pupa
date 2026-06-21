@@ -22,21 +22,26 @@ enum ContentStudioExample: ExampleMyApp {
         let appRoot = appRootOverride ?? MemoryStore.appRoot(myAppName: name)
         let appMemory = MemoryStore(rootOverride: appRoot)
         var wroteAny = false
-        if !appMemory.fileExists(at: "AGENTS.md") {
-            _ = try? appMemory.writeFile(path: "AGENTS.md", content: appAgentsMd)
+        if !appMemory.fileExists(at: "pupa/AGENTS.md") {
+            _ = try? appMemory.writeFile(path: "pupa/AGENTS.md", content: appAgentsMd)
             wroteAny = true
         }
         for (slug, body) in slackAgentDocs {
-            let path = "slack/\(slug)/AGENTS.md"
+            let path = "pupa/agents/\(slug)/AGENTS.md"
             if !appMemory.fileExists(at: path) {
                 _ = try? appMemory.writeFile(path: path, content: body)
                 wroteAny = true
             }
         }
-        // Self-provisioning playbook + reel build recipe. The agent reads these
-        // on `/setup` and a reel request, then writes the embedded scripts onto
-        // the backend host via the shell tool — no backend code ships them.
-        for (path, body) in [("SETUP.md", setupMd), ("reels/RECIPE.md", reelsRecipeMd)] {
+        // Self-provisioning setup *skill* + reel build recipe. The skill exists
+        // simply by living in `pupa/skills/setup/`, which makes `/setup`
+        // available; the agent loads it (and the recipe on a reel request),
+        // then writes the embedded scripts onto the backend host via the shell
+        // tool — no backend code ships them.
+        for (path, body) in [
+            ("pupa/skills/setup/SKILL.md", setupSkillMd),
+            ("reels/RECIPE.md", reelsRecipeMd),
+        ] {
             if !appMemory.fileExists(at: path) {
                 _ = try? appMemory.writeFile(path: path, content: body)
                 wroteAny = true
@@ -236,11 +241,11 @@ extension ContentStudioExample {
         [("researcher", researcherAgentsMd), ("editor", editorAgentsMd), ("ideator", ideatorAgentsMd)]
     }
 
-    fileprivate static let researcherPersona = "You research facts, data, and context to support content creation. When asked about a topic, pull statistics, recent trends, counter-narratives, and notable voices worth citing. If tavily_search is available, use it for live web lookups. Be specific — point at concrete data, not vague advice to 'do more research'. Your full AGENTS.md persona lives at example-content-studio/slack/researcher/AGENTS.md."
+    fileprivate static let researcherPersona = "You research facts, data, and context to support content creation. When asked about a topic, pull statistics, recent trends, counter-narratives, and notable voices worth citing. If tavily_search is available, use it for live web lookups. Be specific — point at concrete data, not vague advice to 'do more research'. Your full AGENTS.md persona lives at example-content-studio/pupa/agents/researcher/AGENTS.md."
 
-    fileprivate static let editorPersona = "You are an editorial coach who reviews content for clarity, structure, and impact. When shown a draft, assess the hook, body flow, and CTA. Give line-level feedback — rewrite weak sentences directly, don't just describe what's wrong. Push for specificity and remove filler. Your full AGENTS.md persona lives at example-content-studio/slack/editor/AGENTS.md."
+    fileprivate static let editorPersona = "You are an editorial coach who reviews content for clarity, structure, and impact. When shown a draft, assess the hook, body flow, and CTA. Give line-level feedback — rewrite weak sentences directly, don't just describe what's wrong. Push for specificity and remove filler. Your full AGENTS.md persona lives at example-content-studio/pupa/agents/editor/AGENTS.md."
 
-    fileprivate static let ideatorPersona = "You generate creative angles, formats, and content ideas. When given a topic, suggest 3–5 distinct angles — contrarian, personal story, listicle, data-driven, Q&A — with a one-line hook for each. Think about what would make someone stop scrolling. Your full AGENTS.md persona lives at example-content-studio/slack/ideator/AGENTS.md."
+    fileprivate static let ideatorPersona = "You generate creative angles, formats, and content ideas. When given a topic, suggest 3–5 distinct angles — contrarian, personal story, listicle, data-driven, Q&A — with a one-line hook for each. Think about what would make someone stop scrolling. Your full AGENTS.md persona lives at example-content-studio/pupa/agents/ideator/AGENTS.md."
 
     fileprivate static let appAgentsMd = """
         # Example: Content Studio
@@ -296,8 +301,8 @@ extension ContentStudioExample {
         TikTok/Reels format), but the backend needs provisioning first:
         ffmpeg, a voiceover provider, and a synced output folder.
 
-        Run `/setup` (or just say "let's set up"). The agent reads the
-        `SETUP.md` playbook in this app's memory and walks the steps — it runs
+        Run `/setup` (or just say "let's set up") — the agent follows the
+        **setup** skill and walks the steps. It runs
         each backend command through the shell-approval card, or, if the shell
         tool is off, tells you exactly what to run. You only need to do this
         once per backend.
@@ -406,10 +411,14 @@ extension ContentStudioExample {
     // Raw strings (flush-left content) so the embedded python/bash keeps its
     // exact whitespace and backslashes. The agent reads these from memory and
     // writes them onto the backend host via the shell tool during `/setup`.
-    fileprivate static let setupMd = #"""
-# SETUP.md — provision this backend for reels
+    fileprivate static let setupSkillMd = #"""
+---
+description: Provision this backend to build short-video reels (one-time setup)
+when_to_use: when the user runs /setup or asks to set up reels / the backend
+---
+# Reels backend setup
 
-Triggered by `/setup`. Goal: make this backend able to build short-video reels
+Goal: make this backend able to build short-video reels
 and drop the finished mp4 into a cloud-synced folder. Do each step with the
 `shell` tool, showing me the command first (the approval card). If the shell
 tool is disabled, print the command and ask me to run it myself.

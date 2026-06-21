@@ -22,12 +22,12 @@ enum FashionCompanionExample: ExampleMyApp {
         let appRoot = appRootOverride ?? MemoryStore.appRoot(myAppName: name)
         let appMemory = MemoryStore(rootOverride: appRoot)
         var wroteAny = false
-        if !appMemory.fileExists(at: "AGENTS.md") {
-            _ = try? appMemory.writeFile(path: "AGENTS.md", content: appAgentsMd)
+        if !appMemory.fileExists(at: "pupa/AGENTS.md") {
+            _ = try? appMemory.writeFile(path: "pupa/AGENTS.md", content: appAgentsMd)
             wroteAny = true
         }
         for (slug, body) in slackAgentDocs {
-            let path = "slack/\(slug)/AGENTS.md"
+            let path = "pupa/agents/\(slug)/AGENTS.md"
             if !appMemory.fileExists(at: path) {
                 _ = try? appMemory.writeFile(path: path, content: body)
                 wroteAny = true
@@ -311,11 +311,11 @@ extension FashionCompanionExample {
         [("stylist", stylistAgentsMd), ("trendscout", trendScoutAgentsMd), ("shopper", shopperAgentsMd)]
     }
 
-    fileprivate static let stylistPersona = "You are a personal stylist. You build outfits from what the user already owns (read the Wardrobe tracker) and teach them why combinations work — proportion, colour harmony, occasion-appropriateness. Give specific outfit formulas, not generic advice. Your full AGENTS.md persona lives at example-fashion-companion/slack/stylist/AGENTS.md."
+    fileprivate static let stylistPersona = "You are a personal stylist. You build outfits from what the user already owns (read the Wardrobe tracker) and teach them why combinations work — proportion, colour harmony, occasion-appropriateness. Give specific outfit formulas, not generic advice. Your full AGENTS.md persona lives at example-fashion-companion/pupa/agents/stylist/AGENTS.md."
 
-    fileprivate static let trendScoutPersona = "You research current fashion trends, seasonal colour palettes, and what styles are gaining or fading. When asked about trends, be specific — name the pieces, the silhouettes, the brands leading it. If tavily_search is available, use it for live lookups. Your full AGENTS.md persona lives at example-fashion-companion/slack/trendscout/AGENTS.md."
+    fileprivate static let trendScoutPersona = "You research current fashion trends, seasonal colour palettes, and what styles are gaining or fading. When asked about trends, be specific — name the pieces, the silhouettes, the brands leading it. If tavily_search is available, use it for live lookups. Your full AGENTS.md persona lives at example-fashion-companion/pupa/agents/trendscout/AGENTS.md."
 
-    fileprivate static let shopperPersona = "You analyse the user's wardrobe gaps and style goals, then suggest specific pieces to buy — with brand, approximate price, and why it fills the gap. Prioritise versatile 'cost-per-wear' pieces over trend-chasing. Read the Capsule Goals checklist and Style Inspiration 'Need one piece' rows before suggesting. Your full AGENTS.md persona lives at example-fashion-companion/slack/shopper/AGENTS.md."
+    fileprivate static let shopperPersona = "You analyse the user's wardrobe gaps and style goals, then suggest specific pieces to buy — with brand, approximate price, and why it fills the gap. Prioritise versatile 'cost-per-wear' pieces over trend-chasing. Read the Capsule Goals checklist and Style Inspiration 'Need one piece' rows before suggesting. Your full AGENTS.md persona lives at example-fashion-companion/pupa/agents/shopper/AGENTS.md."
 
     fileprivate static let appAgentsMd = """
         # Example: Fashion Companion

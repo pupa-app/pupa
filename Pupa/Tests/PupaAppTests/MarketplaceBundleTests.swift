@@ -243,6 +243,36 @@ struct MarketplaceBundleTests {
         #expect(!FileManager.default.fileExists(atPath: mem.rootURL.appendingPathComponent("escape.md").path))
     }
 
+    @Test("Skills + subagent prompts ride the bundle and survive memories-off")
+    func skillsAndSubagentPromptsRideTheBundle() throws {
+        let mem = tempMemory()
+        let app = fixtureApp()
+        let store = MyAppStore(initial: ([], UUID()))
+        // Seed config (pupa/) + a user note into the app's scoped memory.
+        let appMem = mem.appScopedStore(forAppNamed: app.name)
+        try appMem.writeFile(path: "pupa/skills/greet/SKILL.md", content: "---\ndescription: greet\n---\nSay hi.")
+        try appMem.writeFile(path: "pupa/agents/coach/AGENTS.md", content: "Coach persona.")
+        try appMem.writeFile(path: "notes/scratch.md", content: "user note")
+
+        // Memories OFF — config under pupa/ survives; user data is dropped.
+        let opts = MyAppExporter.Options(
+            selectedComponentIds: Set(app.components.map(\.id)),
+            includeRecords: true, includeMemories: false)
+        let bundle = MyAppExporter.makeBundle(app: app, options: opts, memory: mem)
+        let bundlePaths = Set(bundle.memories.map(\.path))
+        #expect(bundlePaths.contains("pupa/skills/greet/SKILL.md"))
+        #expect(bundlePaths.contains("pupa/agents/coach/AGENTS.md"))
+        #expect(!bundlePaths.contains("notes/scratch.md"))
+
+        // Re-import: skill re-materialises on disk and is discoverable again.
+        let result = try MyAppImporter.importBundle(try bundle.encoded(), into: store, memory: mem)
+        let imported = try #require(store.myApps.first { $0.id == result.myAppId })
+        let scoped = mem.appScopedStore(forAppNamed: imported.name)
+        #expect(scoped.fileExists(at: "pupa/skills/greet/SKILL.md"))
+        #expect(scoped.fileExists(at: "pupa/agents/coach/AGENTS.md"))
+        #expect(SkillStore(memory: scoped).skill(named: "greet") != nil)
+    }
+
     @Test("Every supported component kind has an export policy")
     func exportRegistryComplete() {
         MyAppTypeRegistry.shared.registerBuiltins()

@@ -117,13 +117,13 @@ struct ResearchTrackerExampleTests {
 
         ResearchTrackerExample.seedAgentsMd(globalMemory: global, appRootOverride: appRoot)
         let appMemory = MemoryStore(rootOverride: appRoot)
-        for path in ["AGENTS.md", "slack/scout/AGENTS.md", "slack/analyst/AGENTS.md", "slack/digest/AGENTS.md"] {
+        for path in ["pupa/AGENTS.md", "pupa/agents/scout/AGENTS.md", "pupa/agents/analyst/AGENTS.md", "pupa/agents/digest/AGENTS.md"] {
             #expect(appMemory.fileExists(at: path), "\(path) missing after seed")
         }
-        let appMd = try String(contentsOf: appRoot.appendingPathComponent("AGENTS.md"), encoding: .utf8)
+        let appMd = try String(contentsOf: appRoot.appendingPathComponent("pupa/AGENTS.md"), encoding: .utf8)
         #expect(appMd.contains("Keeping yourself updated"))
 
-        let scoutUrl = appRoot.appendingPathComponent("slack/scout/AGENTS.md")
+        let scoutUrl = appRoot.appendingPathComponent("pupa/agents/scout/AGENTS.md")
         try "# User-edited\n".write(to: scoutUrl, atomically: true, encoding: .utf8)
         ResearchTrackerExample.seedAgentsMd(globalMemory: global, appRootOverride: appRoot)
         #expect(try String(contentsOf: scoutUrl, encoding: .utf8) == "# User-edited\n")

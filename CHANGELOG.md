@@ -3,6 +3,28 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.28] — 2026-06-21
+
+### Added
+
+- **Skills + the per-MyApp `pupa/` config folder.** Each MyApp's driving
+  config now lives in a visible `pupa/` folder in its memory tree:
+  `pupa/AGENTS.md` (main agent), `pupa/agents/<sub>/AGENTS.md` (subagents),
+  and `pupa/skills/<name>/SKILL.md`. A **skill** is a
+  Claude-Code-style markdown playbook auto-discovered for every agent in the
+  MyApp: palette-visible skills become `/<name>` chat commands (the bubble
+  shows `/<name> args`, the agent receives the rendered body), and
+  model-visible skills are listed in context by name + `when_to_use` so the
+  agent can load one on demand via the new `app_skill_view` tool (progressive
+  disclosure). Memory writes now accept `.json` alongside `.md`; other
+  extensions stay rejected (import threat surface). **Breaking:** config moved
+  to `pupa/` with no migration — reset an existing workspace's memories to
+  clear pre-`pupa/` files. Skills + subagent prompts ride the `.pupaapp`
+  bundle and survive a
+  memories-off export. Closes #8 (skills parity, markdown-first) and #58
+  (symmetric frontend `app_skill_view`). See [docs/skills.md](docs/skills.md).
+  (`PupaApp` `0.0.119`)
+
 ## [0.0.27] — 2026-06-20
 
 ### Fixed

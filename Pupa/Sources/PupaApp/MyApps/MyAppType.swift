@@ -122,6 +122,13 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
         "createMemoryFolder",
     ]
 
+    /// Frontend skills tool. `app_skill_view` loads a `pupa/skills/<name>/SKILL.md`
+    /// body on demand. Always advertised (like `get_tools_memories`): skills are
+    /// universally relevant and the advertised surface is one cheap tool.
+    public static let skillToolNames: Set<String> = [
+        "app_skill_view",
+    ]
+
     /// Local notification scheduling. Always advertised to every scope so
     /// either a myApp agent or the orchestrator can post banners.
     public static let notificationToolNames: Set<String> = [

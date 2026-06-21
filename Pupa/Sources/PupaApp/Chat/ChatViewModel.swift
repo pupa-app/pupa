@@ -212,6 +212,10 @@ public final class ChatViewModel {
     private var hasLoadedHistory = false
     private let store: MyAppStore
     private let memory: MemoryStore
+    /// Skills discovered under this scope's `pupa/skills/`. Drives the `/`
+    /// palette and the model-facing skills context entry. Refreshed via
+    /// `refreshSkills()` when the backing memory mutates.
+    private let skillStore: SkillStore
     private let settings: SettingsStore
     /// Held so `/tools` can enumerate exactly the tool surface advertised to
     /// the model — `AgentSession` reads from the same `ToolRegistry` when
@@ -272,51 +276,39 @@ public final class ChatViewModel {
         SlashCommand(
             name: "reset",
             summary: "Start a new chat thread (clears conversation; canvas and memories untouched)"
-        ) { [weak self] in
+        ) { [weak self] _ in
             self?.newThread()
             return .appOnly
         },
         SlashCommand(
             name: "help",
             summary: "List available slash commands (local-only — not sent to the agent)"
-        ) { [weak self] in
+        ) { [weak self] _ in
             self?.appendHelpBubble()
             return .appOnly
         },
         SlashCommand(
             name: "tools",
             summary: "List the tools available to this agent (local-only)"
-        ) { [weak self] in
+        ) { [weak self] _ in
             self?.appendToolsBubble()
             return .appOnly
         },
         SlashCommand(
             name: "verbose",
             summary: "Toggle verbose output for slash commands (e.g. /tools shows descriptions)"
-        ) { [weak self] in
+        ) { [weak self] _ in
             self?.toggleVerbose()
             return .appOnly
         },
         SlashCommand(
             name: "ag-ui-payload",
             summary: "Print the AG-UI RunAgentInput payload (context, tools, state) that would go to the backend next turn"
-        ) { [weak self] in
+        ) { [weak self] _ in
             self?.appendPromptDumpBubble()
             return .appOnly
-        },
-        SlashCommand(
-            name: "setup",
-            summary: "Provision this workspace's backend capabilities by following its SETUP.md playbook"
-        ) {
-            .rewriteMessage(
-                "Set up this workspace's backend capabilities. Read this app's "
-                + "`SETUP.md` memory playbook (use the memory tools) and follow it "
-                + "step by step. Run each shell command only after I approve it; if "
-                + "the shell tool isn't available, list the exact commands for me to "
-                + "run myself instead."
-            )
         }
-    ])
+    ], skillProvider: { [weak self] in self?.skillStore.slashCommands() ?? [] })
 
     private func toggleVerbose() {
         verbose.toggle()
@@ -328,6 +320,10 @@ public final class ChatViewModel {
         let body = "Available commands (local-only, not sent to the agent):\n" + lines.joined(separator: "\n")
         appendBubble(ChatBubble(role: .system, text: body))
     }
+
+    /// Rebuild the skill cache from the backing memory. Called when files
+    /// change so the `/` palette and the skills context entry stay current.
+    public func refreshSkills() { skillStore.rescan() }
 
     /// Snapshot the FE → BE wire payload (`RunAgentInput` shape) the chat
     /// **would** send on its next turn — context entries, the advertised tool
@@ -461,6 +457,9 @@ public final class ChatViewModel {
             } else {
                 memResult.insert("get_tools_notifications")
             }
+            // app_skill_view is always advertised so the orchestrator can load
+            // any skill listed in its context (progressive disclosure).
+            memResult.formUnion(MyAppType.skillToolNames)
             return memResult
         case .myApp(let id):
             guard let myApp = store.myApps.first(where: { $0.id == id }),
@@ -509,6 +508,10 @@ public final class ChatViewModel {
             } else {
                 result.insert("get_tools_memories")
             }
+
+            // app_skill_view is always advertised (like get_tools_memories):
+            // skills are universally relevant and the list is cheap.
+            result.formUnion(MyAppType.skillToolNames)
 
             return result
         }
@@ -627,6 +630,7 @@ public final class ChatViewModel {
         ] + kindGroups + [
             (label: "Tool Gates", names: toolGateNames),
             (label: "Memory", names: MyAppType.memoryToolNames),
+            (label: "Skills", names: MyAppType.skillToolNames),
             (label: "Notifications", names: MyAppType.notificationToolNames),
             (label: "Orchestrator", names: MyAppType.orchestratorToolNames),
             (label: "Human-in-the-loop", names: MyAppType.humanInTheLoopToolNames),
@@ -713,6 +717,7 @@ public final class ChatViewModel {
     ) {
         self.store = store
         self.memory = memory
+        self.skillStore = SkillStore(memory: memory)
         self.settings = settings
         self.registry = registry
         self.urlSession = urlSession
@@ -763,6 +768,11 @@ public final class ChatViewModel {
 
     public func send(_ raw: String, image: PickedImage? = nil) {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // `text` is what reaches the backend; `displayText` is what the user
+        // bubble shows. They diverge only for `/skill`-style rewrites, where
+        // the bubble shows `/name args` but the agent receives the rendered
+        // skill body.
+        var displayText = text
         // Allow sends with an image but no text — the agent can still reason
         // about the image alone. Block only if both inputs are empty.
         guard (!text.isEmpty || image != nil), !isStreaming else { return }
@@ -773,8 +783,9 @@ public final class ChatViewModel {
         switch slashCommands.dispatch(text) {
         case .appOnly:
             return
-        case .rewriteMessage(let rewritten):
-            text = rewritten
+        case .rewriteMessage(let display, let payload):
+            text = payload
+            displayText = display
         case .hiddenHint:
             return
         case .unknown(let name):
@@ -796,12 +807,12 @@ public final class ChatViewModel {
             return
         }
 
-        appendBubble(ChatBubble(role: .user, text: text, imageData: image?.data))
+        appendBubble(ChatBubble(role: .user, text: displayText, imageData: image?.data))
 
         // Capture the first user message as the thread title (set-once).
         let isFirstUserMessage = !bubbles.dropLast().contains(where: { $0.role == .user })
         if isFirstUserMessage {
-            store.setThreadTitle(Self.deriveTitle(text), threadId: threadId, for: pinnedScope)
+            store.setThreadTitle(Self.deriveTitle(displayText), threadId: threadId, for: pinnedScope)
         }
 
         setStreaming(true)
@@ -1211,6 +1222,9 @@ public final class ChatViewModel {
                 description: "User memories — sandboxed markdown FileSystem persisted across sessions. Payload: flat list of paths relative to memories root. Explore via ls/read/grepMemories; write/append/editMemoryFile to save user-volunteered facts (e.g. diet.md, notes/goals.md); move/delete/createMemoryFolder for organisation.",
                 value: memoriesJSON
             )
+            // Skills available in this scope (pupa/skills/). Always present so
+            // the agent knows it can use AND create skills, even with none yet.
+            let skillsEntry = [skillsContextEntry(SkillStore(memory: memory))]
 
             switch scope {
             case .memory:
@@ -1236,7 +1250,7 @@ public final class ChatViewModel {
                 ]
                 let modeJSON = (try? JSONEncoder().encode(modePayload)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
                 // System prompt via OrchestratorPolicy — reads
-                // orchestrator/AGENTS.md; falls back to hardcoded text.
+                // orchestrator/pupa/AGENTS.md; falls back to hardcoded text.
                 let orchDescription = OrchestratorPolicy().buildSystemPrompt(memory: memory)
                 return [
                     memoriesEntry,
@@ -1244,7 +1258,7 @@ public final class ChatViewModel {
                         description: orchDescription,
                         value: modeJSON
                     ),
-                ]
+                ] + skillsEntry
 
             case .myApp(let id):
                 guard let myApp = store.myApps.first(where: { $0.id == id }) else {
@@ -1254,7 +1268,7 @@ public final class ChatViewModel {
                 }
                 let summary = CanvasSummary.build(myApp: myApp, previewTracker: previewTracker)
                 let canvasJSON = summary.toJSONString()
-                // System prompt via MyAppPolicy — reads <myapps/name>/AGENTS.md;
+                // System prompt via MyAppPolicy — reads <myapps/name>/pupa/AGENTS.md;
                 // falls back to the type-fragment description.
                 let typeDescription = MyAppPolicy(myAppId: id).buildSystemPrompt(
                     myApp: myApp, memory: memory
@@ -1272,9 +1286,40 @@ public final class ChatViewModel {
                     ),
                     memoriesEntry,
                     AgentContextEntry(description: typeDescription, value: typeJSON),
-                ]
+                ] + skillsEntry
             }
         }
+    }
+
+    /// The skills context entry for a scope's `SkillStore`. Always present so
+    /// the agent knows both how to USE skills (`app_skill_view`) and how to
+    /// CREATE them (write a `pupa/skills/<name>/SKILL.md`), even when the
+    /// catalogue is empty. `value` lists only model-visible skills (name +
+    /// when_to_use); bodies load on demand (progressive disclosure). Shared by
+    /// the orchestrator/myApp chat paths and the sub-run / Slack paths in
+    /// `ChatSessionCoordinator`.
+    @MainActor
+    static func skillsContextEntry(_ skillStore: SkillStore) -> AgentContextEntry {
+        let payload: [[String: String]] = skillStore.modelContextSkills().map { skill in
+            var dict: [String: String] = ["name": skill.name]
+            if !skill.description.isEmpty { dict["description"] = skill.description }
+            if let w = skill.whenToUse, !w.isEmpty { dict["when_to_use"] = w }
+            if let a = skill.argumentHint, !a.isEmpty { dict["argument_hint"] = a }
+            return dict
+        }
+        let json = (try? JSONEncoder().encode(["skills": payload]))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "{\"skills\":[]}"
+        return AgentContextEntry(
+            description: "Skills — reusable `/command` playbooks in pupa/skills/ (the `skills` list "
+                + "below is the catalogue; empty means none yet). USE one: call app_skill_view(name:) "
+                + "to load its full instructions, then follow them. CREATE one: writeMemoryFile to "
+                + "`pupa/skills/<name>/SKILL.md` — `<name>` becomes its /command. Optional YAML "
+                + "frontmatter above the markdown body: `description` (what + when to use it), "
+                + "`when_to_use`, `disable-model-invocation: true` (user-only, hidden from you), "
+                + "`user-invocable: false` (you-only, no slash command). Only descriptions ride "
+                + "context; bodies load on view.",
+            value: json
+        )
     }
 }
 

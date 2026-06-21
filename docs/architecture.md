@@ -245,6 +245,33 @@ is now only the offline fallback (backend unreachable, old backend, not
 paired). The selected `{provider, model}` is forwarded per turn in
 `RunAgentInput.forwardedProps["llm"]`.
 
+## Skills & the `pupa/` config folder
+
+Each MyApp keeps its driving config in a visible `pupa/` subfolder of its
+memory root (`memories/<slug>/pupa/`): `AGENTS.md` (main agent),
+`agents/<sub>/AGENTS.md` (subagents), and `skills/<name>/SKILL.md` (a
+playbook can be a skill — e.g. the Content Studio `setup` skill provides
+`/setup`).
+The orchestrator has its own `orchestrator/pupa/`. Visible (non-dot) so it
+rides the sidebar, per-turn snapshot, and the `.pupaapp` bundle; writes are
+limited to `.md` / `.json`.
+
+A **skill** is a markdown playbook (`SKILL.md` + optional frontmatter), the
+directory name being its `/command`. `SkillStore`
+([Pupa/Sources/PupaApp/Skills/](../Pupa/Sources/PupaApp/Skills/)) discovers
+them per scope and:
+
+- feeds palette-visible skills into `SlashCommandRegistry` as `/<name>`
+  commands (`SkillStore.slashCommands()` → the registry's live `skillProvider`;
+  built-ins win on name collision);
+- lists model-visible skills (name + `when_to_use`) into the agent's context
+  via `ChatViewModel.skillsContextEntry` — present in all three context paths
+  (main chat, sub-run, Slack);
+- the agent loads a body on demand with `app_skill_view`, always advertised
+  through `MyAppType.skillToolNames`.
+
+Full reference: [skills.md](skills.md).
+
 ## Persistence
 
 - **Canvas + MyApps state** → `UserDefaults` blob `pupa.myapps.v1`.
