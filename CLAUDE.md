@@ -21,6 +21,9 @@ backend (separate repo) over a single `POST /` SSE stream.
   recipe for landing a new canvas shape.
 - [docs/marketplace.md](docs/marketplace.md) — MyApp export/import bundle
   format, the unified reference model, and the import threat model.
+- [docs/skills.md](docs/skills.md) — the per-MyApp `pupa/` config folder
+  (AGENTS.md, subagent prompts) and how skills become slash commands +
+  model-loadable playbooks (`app_skill_view`).
 - [docs/templates.md](docs/templates.md) — the realism bar for shipping
   `.pupaapp` templates: rubric, grounded reference index, and the
   self-maintaining agent loop. Read before adding an `ExampleMyApp`.

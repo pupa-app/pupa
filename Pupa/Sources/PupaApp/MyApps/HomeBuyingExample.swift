@@ -28,8 +28,8 @@ enum HomeBuyingExample: ExampleMyApp {
     static func seedAgentsMd(globalMemory: MemoryStore, appRootOverride: URL? = nil) {
         let appRoot = appRootOverride ?? MemoryStore.appRoot(myAppName: name)
         let appMemory = MemoryStore(rootOverride: appRoot)
-        if !appMemory.fileExists(at: "AGENTS.md") {
-            _ = try? appMemory.writeFile(path: "AGENTS.md", content: appAgentsMd)
+        if !appMemory.fileExists(at: "pupa/AGENTS.md") {
+            _ = try? appMemory.writeFile(path: "pupa/AGENTS.md", content: appAgentsMd)
             globalMemory.rescan()
         }
     }

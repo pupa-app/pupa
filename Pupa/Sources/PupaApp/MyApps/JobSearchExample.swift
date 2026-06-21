@@ -65,12 +65,12 @@ enum JobSearchExample: ExampleMyApp {
         let appRoot = appRootOverride ?? MemoryStore.appRoot(myAppName: name)
         let appMemory = MemoryStore(rootOverride: appRoot)
         var wroteAny = false
-        if !appMemory.fileExists(at: "AGENTS.md") {
-            _ = try? appMemory.writeFile(path: "AGENTS.md", content: appAgentsMd)
+        if !appMemory.fileExists(at: "pupa/AGENTS.md") {
+            _ = try? appMemory.writeFile(path: "pupa/AGENTS.md", content: appAgentsMd)
             wroteAny = true
         }
         for (slug, body) in slackAgentDocs {
-            let path = "slack/\(slug)/AGENTS.md"
+            let path = "pupa/agents/\(slug)/AGENTS.md"
             if !appMemory.fileExists(at: path) {
                 _ = try? appMemory.writeFile(path: path, content: body)
                 wroteAny = true
@@ -462,7 +462,7 @@ enum JobSearchExample: ExampleMyApp {
                     messagesByChannel: [:],
                     activeChannelId: general.id
                 )),
-                summary: "Multi-agent prep room. @-mention Coach for mock interviews, Challenger to stress-test reasoning, or Scout to research roles and companies. Each agent's persona lives in its AGENTS.md under example-job-search/slack/<slug>/AGENTS.md."
+                summary: "Multi-agent prep room. @-mention Coach for mock interviews, Challenger to stress-test reasoning, or Scout to research roles and companies. Each agent's persona lives in its AGENTS.md under example-job-search/pupa/agents/<slug>/AGENTS.md."
             )
         }
     }
@@ -474,7 +474,7 @@ extension JobSearchExample {
     /// Per-Slack-agent AGENTS.md content, keyed by the agent's id-slug
     /// (matches the folder name produced by `slugify`). Used by
     /// `seedAgentsMd` to write each persona file at
-    /// `example-job-search/slack/<slug>/AGENTS.md`.
+    /// `example-job-search/pupa/agents/<slug>/AGENTS.md`.
     fileprivate static var slackAgentDocs: [(slug: String, content: String)] {
         [
             ("coach", coachAgentsMd),
@@ -483,11 +483,11 @@ extension JobSearchExample {
         ]
     }
 
-    fileprivate static let coachPersona = "You are an experienced interview coach. Walk the user through mock interviews, help them structure STAR stories, and give constructive, concrete feedback. Be encouraging but direct about weaknesses — naming a soft spot is more useful than glossing over it. Your full AGENTS.md persona lives at example-job-search/slack/coach/AGENTS.md."
+    fileprivate static let coachPersona = "You are an experienced interview coach. Walk the user through mock interviews, help them structure STAR stories, and give constructive, concrete feedback. Be encouraging but direct about weaknesses — naming a soft spot is more useful than glossing over it. Your full AGENTS.md persona lives at example-job-search/pupa/agents/coach/AGENTS.md."
 
-    fileprivate static let challengerPersona = "You are a sceptical, probing interviewer. Challenge the user's reasoning, push on assumptions, ask 'why?' until you reach first principles, and look for weak spots in their stories and design choices. Frame challenges as questions an interviewer would actually ask. Your full AGENTS.md persona lives at example-job-search/slack/challenger/AGENTS.md."
+    fileprivate static let challengerPersona = "You are a sceptical, probing interviewer. Challenge the user's reasoning, push on assumptions, ask 'why?' until you reach first principles, and look for weak spots in their stories and design choices. Frame challenges as questions an interviewer would actually ask. Your full AGENTS.md persona lives at example-job-search/pupa/agents/challenger/AGENTS.md."
 
-    fileprivate static let scoutPersona = "You help research related roles, companies, and industry context. When asked about a company or role, suggest concrete angles worth researching, common interview formats for that domain, and likely questions to prepare for. Be specific — point at what to look up, not just that the user should look something up. Your full AGENTS.md persona lives at example-job-search/slack/scout/AGENTS.md."
+    fileprivate static let scoutPersona = "You help research related roles, companies, and industry context. When asked about a company or role, suggest concrete angles worth researching, common interview formats for that domain, and likely questions to prepare for. Be specific — point at what to look up, not just that the user should look something up. Your full AGENTS.md persona lives at example-job-search/pupa/agents/scout/AGENTS.md."
 
     fileprivate static let appAgentsMd = """
         # Example: Job Search
@@ -517,7 +517,7 @@ extension JobSearchExample {
         - **Prep Room** (`slack-1`) — multi-agent prep room. `@Coach` for
           mock interviews, `@Challenger` to stress-test reasoning,
           `@Scout` to research roles and companies. Each agent has its
-          own AGENTS.md persona file under `slack/<agent>/AGENTS.md`.
+          own AGENTS.md persona file under `pupa/agents/<agent>/AGENTS.md`.
 
         ## How to use
 

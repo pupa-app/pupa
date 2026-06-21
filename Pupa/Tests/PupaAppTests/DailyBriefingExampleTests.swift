@@ -99,12 +99,12 @@ struct DailyBriefingExampleTests {
 
         DailyBriefingExample.seedAgentsMd(globalMemory: global, appRootOverride: appRoot)
         let appMemory = MemoryStore(rootOverride: appRoot)
-        #expect(appMemory.fileExists(at: "AGENTS.md"))
-        let appMd = try String(contentsOf: appRoot.appendingPathComponent("AGENTS.md"), encoding: .utf8)
+        #expect(appMemory.fileExists(at: "pupa/AGENTS.md"))
+        let appMd = try String(contentsOf: appRoot.appendingPathComponent("pupa/AGENTS.md"), encoding: .utf8)
         #expect(appMd.contains("Keeping yourself updated"))
         #expect(appMd.contains("Capability boundaries"))
 
-        let url = appRoot.appendingPathComponent("AGENTS.md")
+        let url = appRoot.appendingPathComponent("pupa/AGENTS.md")
         try "# User-edited\n".write(to: url, atomically: true, encoding: .utf8)
         DailyBriefingExample.seedAgentsMd(globalMemory: global, appRootOverride: appRoot)
         #expect(try String(contentsOf: url, encoding: .utf8) == "# User-edited\n")

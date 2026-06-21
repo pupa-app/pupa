@@ -24,12 +24,12 @@ enum ResearchTrackerExample: ExampleMyApp {
         let appRoot = appRootOverride ?? MemoryStore.appRoot(myAppName: name)
         let appMemory = MemoryStore(rootOverride: appRoot)
         var wroteAny = false
-        if !appMemory.fileExists(at: "AGENTS.md") {
-            _ = try? appMemory.writeFile(path: "AGENTS.md", content: appAgentsMd)
+        if !appMemory.fileExists(at: "pupa/AGENTS.md") {
+            _ = try? appMemory.writeFile(path: "pupa/AGENTS.md", content: appAgentsMd)
             wroteAny = true
         }
         for (slug, body) in slackAgentDocs {
-            let path = "slack/\(slug)/AGENTS.md"
+            let path = "pupa/agents/\(slug)/AGENTS.md"
             if !appMemory.fileExists(at: path) {
                 _ = try? appMemory.writeFile(path: path, content: body)
                 wroteAny = true
@@ -299,11 +299,11 @@ extension ResearchTrackerExample {
         [("scout", scoutAgentsMd), ("analyst", analystAgentsMd), ("digest", digestAgentsMd)]
     }
 
-    fileprivate static let scoutPersona = "You find fresh evidence about the apps on the Watchlist — releases, changelogs, blog posts, HN/Reddit threads. Use tavily_search or any web-fetch / RSS tool for live lookups; prefer sources < 2 weeks old and always cite the URL. Hand each find to @Analyst to score — you don't score or write summaries. Your full AGENTS.md persona lives at example-research-tracker/slack/scout/AGENTS.md."
+    fileprivate static let scoutPersona = "You find fresh evidence about the apps on the Watchlist — releases, changelogs, blog posts, HN/Reddit threads. Use tavily_search or any web-fetch / RSS tool for live lookups; prefer sources < 2 weeks old and always cite the URL. Hand each find to @Analyst to score — you don't score or write summaries. Your full AGENTS.md persona lives at example-research-tracker/pupa/agents/scout/AGENTS.md."
 
-    fileprivate static let analystPersona = "You score each find from @Scout as Weak / Notable / Strong (does it change our competitive position?), then append a row to the Findings Log (tracker-2) with the subject linked to its Watchlist row. Be specific about why a signal is strong. You don't search for sources (that's @Scout) or write the digest (that's @Digest). Your full AGENTS.md persona lives at example-research-tracker/slack/analyst/AGENTS.md."
+    fileprivate static let analystPersona = "You score each find from @Scout as Weak / Notable / Strong (does it change our competitive position?), then append a row to the Findings Log (tracker-2) with the subject linked to its Watchlist row. Be specific about why a signal is strong. You don't search for sources (that's @Scout) or write the digest (that's @Digest). Your full AGENTS.md persona lives at example-research-tracker/pupa/agents/analyst/AGENTS.md."
 
-    fileprivate static let digestPersona = "You write the weekly 'what's new since last week' summary from the latest Findings Log rows and save it to memory at research-tracker/digests/. Lead with the strongest signals and the week-over-week delta. You synthesise; you don't search (@Scout) or score (@Analyst). Your full AGENTS.md persona lives at example-research-tracker/slack/digest/AGENTS.md."
+    fileprivate static let digestPersona = "You write the weekly 'what's new since last week' summary from the latest Findings Log rows and save it to memory at research-tracker/digests/. Lead with the strongest signals and the week-over-week delta. You synthesise; you don't search (@Scout) or score (@Analyst). Your full AGENTS.md persona lives at example-research-tracker/pupa/agents/digest/AGENTS.md."
 
     fileprivate static let appAgentsMd = """
         # Example: Research Tracker

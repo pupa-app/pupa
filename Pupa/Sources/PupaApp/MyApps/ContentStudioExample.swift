@@ -22,12 +22,26 @@ enum ContentStudioExample: ExampleMyApp {
         let appRoot = appRootOverride ?? MemoryStore.appRoot(myAppName: name)
         let appMemory = MemoryStore(rootOverride: appRoot)
         var wroteAny = false
-        if !appMemory.fileExists(at: "AGENTS.md") {
-            _ = try? appMemory.writeFile(path: "AGENTS.md", content: appAgentsMd)
+        if !appMemory.fileExists(at: "pupa/AGENTS.md") {
+            _ = try? appMemory.writeFile(path: "pupa/AGENTS.md", content: appAgentsMd)
             wroteAny = true
         }
         for (slug, body) in slackAgentDocs {
-            let path = "slack/\(slug)/AGENTS.md"
+            let path = "pupa/agents/\(slug)/AGENTS.md"
+            if !appMemory.fileExists(at: path) {
+                _ = try? appMemory.writeFile(path: path, content: body)
+                wroteAny = true
+            }
+        }
+        // Self-provisioning setup *skill* + reel build recipe. The skill exists
+        // simply by living in `pupa/skills/setup/`, which makes `/setup`
+        // available; the agent loads it (and the recipe on a reel request),
+        // then writes the embedded scripts onto the backend host via the shell
+        // tool — no backend code ships them.
+        for (path, body) in [
+            ("pupa/skills/setup/SKILL.md", setupSkillMd),
+            ("reels/RECIPE.md", reelsRecipeMd),
+        ] {
             if !appMemory.fileExists(at: path) {
                 _ = try? appMemory.writeFile(path: path, content: body)
                 wroteAny = true
@@ -227,11 +241,11 @@ extension ContentStudioExample {
         [("researcher", researcherAgentsMd), ("editor", editorAgentsMd), ("ideator", ideatorAgentsMd)]
     }
 
-    fileprivate static let researcherPersona = "You research facts, data, and context to support content creation. When asked about a topic, pull statistics, recent trends, counter-narratives, and notable voices worth citing. If tavily_search is available, use it for live web lookups. Be specific — point at concrete data, not vague advice to 'do more research'. Your full AGENTS.md persona lives at example-content-studio/slack/researcher/AGENTS.md."
+    fileprivate static let researcherPersona = "You research facts, data, and context to support content creation. When asked about a topic, pull statistics, recent trends, counter-narratives, and notable voices worth citing. If tavily_search is available, use it for live web lookups. Be specific — point at concrete data, not vague advice to 'do more research'. Your full AGENTS.md persona lives at example-content-studio/pupa/agents/researcher/AGENTS.md."
 
-    fileprivate static let editorPersona = "You are an editorial coach who reviews content for clarity, structure, and impact. When shown a draft, assess the hook, body flow, and CTA. Give line-level feedback — rewrite weak sentences directly, don't just describe what's wrong. Push for specificity and remove filler. Your full AGENTS.md persona lives at example-content-studio/slack/editor/AGENTS.md."
+    fileprivate static let editorPersona = "You are an editorial coach who reviews content for clarity, structure, and impact. When shown a draft, assess the hook, body flow, and CTA. Give line-level feedback — rewrite weak sentences directly, don't just describe what's wrong. Push for specificity and remove filler. Your full AGENTS.md persona lives at example-content-studio/pupa/agents/editor/AGENTS.md."
 
-    fileprivate static let ideatorPersona = "You generate creative angles, formats, and content ideas. When given a topic, suggest 3–5 distinct angles — contrarian, personal story, listicle, data-driven, Q&A — with a one-line hook for each. Think about what would make someone stop scrolling. Your full AGENTS.md persona lives at example-content-studio/slack/ideator/AGENTS.md."
+    fileprivate static let ideatorPersona = "You generate creative angles, formats, and content ideas. When given a topic, suggest 3–5 distinct angles — contrarian, personal story, listicle, data-driven, Q&A — with a one-line hook for each. Think about what would make someone stop scrolling. Your full AGENTS.md persona lives at example-content-studio/pupa/agents/ideator/AGENTS.md."
 
     fileprivate static let appAgentsMd = """
         # Example: Content Studio
@@ -280,6 +294,27 @@ extension ContentStudioExample {
         - Memory: tell the agent your brand voice, target audience, and
           content pillars once — it will write them to memory and apply them
           every session.
+
+        ## First-time setup
+
+        This workspace can produce **short-video reels** (the faceless
+        TikTok/Reels format), but the backend needs provisioning first:
+        ffmpeg, a voiceover provider, and a synced output folder.
+
+        Run `/setup` (or just say "let's set up") — the agent follows the
+        **setup** skill and walks the steps. It runs
+        each backend command through the shell-approval card, or, if the shell
+        tool is off, tells you exactly what to run. You only need to do this
+        once per backend.
+
+        ## Making a reel
+
+        For a `Short video` card in the Content Pipeline, ask the agent to
+        "make the reel". It follows `reels/RECIPE.md` in memory: builds the
+        slides, voiceover, and captions, assembles the mp4 with ffmpeg, and
+        drops the finished file into the synced output folder agreed at setup
+        (so it lands in your Google Drive / Dropbox automatically). Iterate by
+        asking for script, pacing, or caption tweaks.
         """
 
     fileprivate static let researcherAgentsMd = """
@@ -372,4 +407,349 @@ extension ContentStudioExample {
         - You don't critique drafts — that's `@Editor`.
         - You don't research the facts behind the ideas — that's `@Researcher`.
         """
+
+    // Raw strings (flush-left content) so the embedded python/bash keeps its
+    // exact whitespace and backslashes. The agent reads these from memory and
+    // writes them onto the backend host via the shell tool during `/setup`.
+    fileprivate static let setupSkillMd = #"""
+---
+description: Provision this backend to build short-video reels (one-time setup)
+when_to_use: when the user runs /setup or asks to set up reels / the backend
+---
+# Reels backend setup
+
+Goal: make this backend able to build short-video reels
+and drop the finished mp4 into a cloud-synced folder. Do each step with the
+`shell` tool, showing me the command first (the approval card). If the shell
+tool is disabled, print the command and ask me to run it myself.
+
+## 0. Prereqs
+Reels need a self-hosted backend on the user's own Mac — the `shell` tool is
+pinned off in the cloud image. If `shell` is unavailable, explain that and stop.
+
+## 1. ffmpeg + Pillow
+- `ffmpeg -version` — if missing: `brew install ffmpeg`.
+- Caption support: `ffmpeg -hide_banner -filters | grep -E 'drawtext|subtitles'`.
+  If EMPTY (typical on stock homebrew GPL builds), captions are baked with
+  Pillow — the recipe already does this. Do NOT use `drawtext`/`subtitles=.ass`.
+- `python3 -c 'import PIL' || pip3 install pillow` (a venv is fine too).
+
+## 2. Voiceover MCP (ElevenLabs)
+- Add it (key stays an env placeholder — never inline a key):
+  `pupa-backend mcp add --name elevenlabs --command uvx --arg elevenlabs-mcp --env ELEVENLABS_API_KEY='${ELEVENLABS_API_KEY}' --description "Text-to-speech voiceover — writes an audio file." --force`
+- Tell the user: `export ELEVENLABS_API_KEY=...` in the backend shell, then
+  restart the backend (config.yml is read at startup — no hot-reload).
+- No key? Fall back to macOS `say -v Samantha` for placeholder voiceover.
+- Optional: add an image MCP (Pexels/fal) the same way; otherwise the user's
+  own images / thumbnails work directly.
+
+## 3. Synced output folder (the agreed drive drop)
+- Probe, in order:
+  - `ls -d ~/Library/CloudStorage/GoogleDrive-* 2>/dev/null`
+  - `ls -d ~/Dropbox 2>/dev/null`
+  - `ls -d ~/'Google Drive' 2>/dev/null`
+- Create `PupaReels` inside the first match: `mkdir -p "<match>/PupaReels"`.
+  If none is found, ask the user for their Drive/Dropbox path, or fall back to
+  `~/PupaReels`.
+- Report the chosen absolute path and save it to memory as `reels/OUTPUT.md` —
+  every finished reel is copied there.
+
+## 4. Install the build recipe as a backend skill
+- `mkdir -p ~/.pupa-backend/skills/reels`
+- Read `reels/RECIPE.md` from this app's memory and write its embedded files
+  onto the backend via shell heredocs (`cat > <path> <<'EOF' … EOF`):
+  - recipe body → `~/.pupa-backend/skills/reels/SKILL.md` (prepend the
+    `name: reels` frontmatter shown in RECIPE.md)
+  - `make_slides.py`, `make_captions.py`, `build_v3.sh` →
+    `~/.pupa-backend/skills/reels/`
+- A NEW chat session will then surface a `reels` skill the agent can `skill_view`.
+
+## 5. Verify
+- `pupa-backend mcp list` shows `elevenlabs`.
+- `ls ~/.pupa-backend/skills/reels` shows SKILL.md + the three scripts.
+- `ffmpeg -version` works.
+Tell the user setup is done, where reels will be saved, and that a fresh session
+is needed for the `reels` skill to appear.
+"""#
+
+    fileprivate static let reelsRecipeMd = #"""
+# Reels build recipe
+
+Build recipe for vertical short-video reels (1080x1920, 9:16). When installed
+as a backend skill it lives at `~/.pupa-backend/skills/reels/SKILL.md`. Prepend
+this frontmatter when writing SKILL.md:
+
+```
+---
+name: reels
+description: Build a vertical 1080x1920 short-video reel from images + text + voiceover with ffmpeg (Ken Burns, crossfades, baked captions, synced VO). Use when the user asks to make a reel, short video, or TikTok/Reels-style clip.
+---
+```
+
+## Pipeline
+idea → per-slide script → one image per slide (own / stock MCP / AI MCP / game
+thumbnail) → per-slide voiceover (ElevenLabs or `say`) → Pillow bakes the slides
+and caption PNGs → ffmpeg assembles → `cp` to the synced output folder.
+
+## Hard-won rules (do NOT skip)
+- **No `drawtext`/libass** on stock homebrew ffmpeg. Bake text with Pillow
+  (`make_slides.py` for titles, `make_captions.py` for caption overlays) and
+  `overlay` the PNGs. Never use `subtitles=.ass`.
+- **zoompan**: feed a SINGLE image (no `-loop 1 -t N`) and set `d=<frames>` +
+  `fps=30`. `-loop 1 -t` multiplies output frames per input frame and explodes
+  the file (hundreds of seconds, huge size).
+- **Audio sync**: one VO per slide; `ffprobe` each VO and set that slide's
+  length to its own VO length (+ pads). Don't stretch one long VO over equal
+  slides.
+- **Crossfades eat speech**: wrap each VO in lead/tail silence ≥ the xfade
+  duration (`adelay` + `apad`), so `xfade`/`acrossfade` overlap silence, not
+  words.
+- **Black-video fix**: JPEG sources make ffmpeg emit full-range `yuvj420p`,
+  which QuickTime/QuickLook render BLACK. Always finish with
+  `scale=in_range=full:out_range=tv,format=yuv420p` + `-color_range tv` +
+  `-movflags +faststart`.
+- **Loudness**: `loudnorm I=-14:TP=-1.5:LRA=11` for social.
+
+## Per-reel steps
+1. Write a tight script — one short, natural line per slide; vary the openers;
+   say the topic name once. ElevenLabs voice, or `say -v Samantha -r 168`.
+2. Gather one image per slide.
+3. Adapt the `games` / `slides` / script arrays in the three scripts to this
+   reel, then run:
+   `python3 make_slides.py && python3 make_captions.py && bash build_v3.sh`
+4. `cp reel_v3.mp4 "<output folder>/<slug>.mp4"` (path from `reels/OUTPUT.md`);
+   report it — it syncs to Drive/Dropbox. Verify it plays and `ffprobe` shows
+   `pix_fmt=yuv420p`, `color_range=tv`.
+
+The three scripts below are a COMPLETE working example (a "top Roblox games"
+reel). The `games` / `slides` / caption arrays are the parts to edit per topic.
+
+### make_slides.py
+```python
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
+
+W, H = 1080, 1920
+FONT_BOLD = "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
+FONT_REG = "/System/Library/Fonts/Supplemental/Arial.ttf"
+
+title_font = ImageFont.truetype(FONT_BOLD, 96)
+sub_font = ImageFont.truetype(FONT_REG, 50)
+badge_font = ImageFont.truetype(FONT_BOLD, 130)
+intro_font = ImageFont.truetype(FONT_BOLD, 120)
+
+# game slides: (out, thumb, badge, title, sub)
+games = [
+    ("slide0.jpg", "game_garden.jpg", "#1", "GROW A GARDEN", "Roblox's farming hit"),
+    ("slide1.jpg", "game_blox.jpg",   "#2", "BLOX FRUITS",   "Top action RPG"),
+    ("slide2.jpg", "game_brook.jpg",  "#3", "BROOKHAVEN",    "Roleplay favorite"),
+    ("slide3.jpg", "game_adopt.jpg",  "#4", "ADOPT ME!",     "Pet sim classic"),
+]
+
+
+def cover(img, w, h):
+    sr, dr = img.width / img.height, w / h
+    if sr > dr:
+        nw, nh = int(h * sr), h
+    else:
+        nw, nh = w, int(w / sr)
+    img = img.resize((nw, nh), Image.LANCZOS)
+    l, t = (nw - w) // 2, (nh - h) // 2
+    return img.crop((l, t, l + w, t + h))
+
+
+def centered(draw, text, font, y, fill="white", stroke=5):
+    b = draw.textbbox((0, 0), text, font=font, stroke_width=stroke)
+    draw.text(((W - (b[2] - b[0])) / 2 - b[0], y), text, font=font,
+              fill=fill, stroke_width=stroke, stroke_fill="black")
+
+
+for out, thumb, badge, title, sub in games:
+    src = Image.open(thumb).convert("RGB")
+
+    # blurred + darkened fill background from the same art
+    bg = cover(src, W, H).filter(ImageFilter.GaussianBlur(40))
+    bg = Image.blend(bg, Image.new("RGB", (W, H), "black"), 0.5)
+
+    # sharp thumbnail card, full width, centered upper
+    cw = W - 120
+    ch = int(cw * src.height / src.width)
+    card = src.resize((cw, ch), Image.LANCZOS)
+    cy = int(H * 0.22)
+    bg.paste(card, ((W - cw) // 2, cy))
+
+    draw = ImageDraw.Draw(bg)
+    # border around card
+    draw.rectangle([(W - cw) // 2, cy, (W - cw) // 2 + cw, cy + ch],
+                   outline="white", width=6)
+
+    centered(draw, badge, badge_font, H * 0.07, fill="#ffd54f", stroke=6)
+    centered(draw, title, title_font, cy + ch + 70)
+    centered(draw, sub, sub_font, cy + ch + 190)
+
+    bg.save(out, quality=92)
+
+# intro slide over neon bg
+intro = cover(Image.open("bg_intro.jpg").convert("RGB"), W, H)
+intro = Image.blend(intro, Image.new("RGB", (W, H), "black"), 0.55)
+d = ImageDraw.Draw(intro)
+centered(d, "TOP 4", intro_font, H * 0.30, fill="#ffd54f", stroke=6)
+centered(d, "ROBLOX GAMES", intro_font, H * 0.42)
+centered(d, "Playing right now", sub_font, H * 0.55)
+intro.save("intro.jpg", quality=92)
+
+print("done")
+```
+
+### make_captions.py
+```python
+from PIL import Image, ImageDraw, ImageFont
+
+W, H = 1080, 1920
+FONT_BOLD = "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
+font = ImageFont.truetype(FONT_BOLD, 52)
+
+# clip name -> spoken caption (verbatim VO, for muted viewing)
+caps = {
+    "intro": "Here are the four Roblox games everyone is playing right now.",
+    "s0": "First up, Grow a Garden. Plant your crops, then watch them grow even when you log off.",
+    "s1": "Next, Blox Fruits. Fast combat, wild power-ups, and a grind you can't put down.",
+    "s2": "Then Brookhaven, where you just hang out, role-play, and build your own little life.",
+    "s3": "And Adopt Me. Raise adorable pets, trade them, and design your dream home.",
+}
+
+MAXW = 960  # text wrap width in px
+
+
+def wrap(draw, text, font, maxw):
+    words, lines, cur = text.split(), [], ""
+    for w in words:
+        t = (cur + " " + w).strip()
+        if draw.textlength(t, font=font) <= maxw:
+            cur = t
+        else:
+            lines.append(cur)
+            cur = w
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+for name, text in caps.items():
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    lines = wrap(d, text, font, MAXW)
+    lh = font.size + 18
+    block_h = lh * len(lines)
+    y0 = int(H * 0.80) - block_h // 2  # caption band low in frame
+
+    # translucent rounded box behind text
+    pad = 36
+    box = [(W - MAXW) // 2 - pad, y0 - pad,
+           (W + MAXW) // 2 + pad, y0 + block_h + pad]
+    d.rounded_rectangle(box, radius=28, fill=(0, 0, 0, 150))
+
+    for i, line in enumerate(lines):
+        tw = d.textlength(line, font=font)
+        x = (W - tw) / 2
+        y = y0 + i * lh
+        d.text((x, y), line, font=font, fill="white",
+               stroke_width=4, stroke_fill="black")
+
+    img.save(f"cap_{name}.png")
+
+print("captions done:", ", ".join(caps))
+```
+
+### build_v3.sh
+```bash
+#!/usr/bin/env bash
+# reel_v3: pacing floor + crossfade transitions + alternating Ken Burns +
+# fade in/out + loudnorm. Speech protected from the crossfade by wrapping each
+# VO in lead/tail silence (>= XF), so transitions overlap silence, not words.
+# Caption PNG overlaid per slide if cap_<name>.png exists (make_captions.py).
+set -euo pipefail
+cd "$(dirname "$0")"
+
+FPS=30
+XF=0.4          # crossfade duration
+LEAD=0.45       # silence before speech  (>= XF so xfade region is silent)
+TAIL=0.65       # silence after speech   (>= XF)
+VOMIN=1.8       # floor on the speech window itself
+
+# name image seg motion
+slides=(
+  "intro intro.jpg seg_intro.aiff in"
+  "s0    slide0.jpg seg0.aiff      out"
+  "s1    slide1.jpg seg1.aiff      in"
+  "s2    slide2.jpg seg2.aiff      out"
+  "s3    slide3.jpg seg3.aiff      in"
+)
+
+durs=(); clips=()
+
+for row in "${slides[@]}"; do
+  read -r name img seg motion <<<"$row"
+  vo=$(ffprobe -v error -show_entries format=duration -of default=nokey=1:noprint_wrappers=1 "$seg")
+  # total slide time = lead + max(vo,VOMIN) + tail
+  T=$(awk -v a="$vo" -v m="$VOMIN" -v l="$LEAD" -v t="$TAIL" \
+        'BEGIN{w=(a>m?a:m); printf "%.3f", l+w+t}')
+  frames=$(awk -v t="$T" -v f="$FPS" 'BEGIN{printf "%d", t*f}')
+  ms=$(awk -v l="$LEAD" 'BEGIN{printf "%d", l*1000}')
+  durs+=("$T")
+
+  if [ "$motion" = "in" ]; then
+    zp="z='min(zoom+0.0016,1.18)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+  else
+    zp="z='if(eq(on,0),1.18,max(zoom-0.0016,1.0))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+  fi
+
+  cap="cap_${name}.png"
+  if [ -f "$cap" ]; then
+    capin=(-i "$cap")
+    vchain="[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,\
+zoompan=${zp}:d=${frames}:fps=${FPS}:s=1080x1920,setsar=1[bg];\
+[bg][2:v]overlay=0:0:format=auto[v];"
+  else
+    capin=()
+    vchain="[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,\
+zoompan=${zp}:d=${frames}:fps=${FPS}:s=1080x1920,setsar=1[v];"
+  fi
+
+  ffmpeg -y -loglevel error \
+    -i "$img" -i "$seg" "${capin[@]}" \
+    -filter_complex "${vchain}\
+[1:a]aformat=sample_rates=44100:channel_layouts=stereo,adelay=${ms}|${ms},\
+apad,atrim=0:${T},asetpts=N/SR/TB[a]" \
+    -map "[v]" -map "[a]" -t "$T" \
+    -c:v libx264 -pix_fmt yuv420p -c:a aac -ar 44100 "clip_${name}.mp4"
+  clips+=("clip_${name}.mp4")
+done
+
+# xfade + acrossfade chain (transitions sit inside the silent pads)
+inputs=(); for c in "${clips[@]}"; do inputs+=(-i "$c"); done
+fc=""; prevV="[0:v]"; prevA="[0:a]"; acc=${durs[0]}
+for i in 1 2 3 4; do
+  off=$(awk -v a="$acc" -v x="$XF" 'BEGIN{printf "%.3f", a-x}')
+  fc+="${prevV}[${i}:v]xfade=transition=fade:duration=${XF}:offset=${off}[vx${i}];"
+  fc+="${prevA}[${i}:a]acrossfade=d=${XF}[ax${i}];"
+  prevV="[vx${i}]"; prevA="[ax${i}]"
+  acc=$(awk -v a="$acc" -v d="${durs[$i]}" -v x="$XF" 'BEGIN{printf "%.3f", a+d-x}')
+done
+
+total=$acc
+fadeout=$(awk -v t="$total" 'BEGIN{printf "%.3f", t-0.6}')
+# scale range full->tv + format yuv420p so players don't render black (jpeg src = full range)
+fc+="${prevV}fade=t=in:st=0:d=0.4,fade=t=out:st=${fadeout}:d=0.6,scale=in_range=full:out_range=tv,format=yuv420p[vout];"
+fc+="${prevA}loudnorm=I=-14:TP=-1.5:LRA=11[aout]"
+
+ffmpeg -y -loglevel error "${inputs[@]}" \
+  -filter_complex "$fc" -map "[vout]" -map "[aout]" \
+  -c:v libx264 -profile:v high -level 4.0 -pix_fmt yuv420p -crf 20 \
+  -color_range tv -colorspace bt709 -color_primaries bt709 -color_trc bt709 \
+  -c:a aac -b:a 192k -movflags +faststart reel_v3.mp4
+
+echo "built reel_v3.mp4 total~${total}s"
+ffprobe -v error -show_entries format=duration -of default=nokey=1:noprint_wrappers=1 reel_v3.mp4
+```
+"""#
 }

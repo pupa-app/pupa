@@ -3791,6 +3791,48 @@ public enum AppTools {
     }
 
     @MainActor
+    /// Register the frontend skills tool. `app_skill_view` loads a skill's
+    /// full instructions by name (its `pupa/skills/<name>/SKILL.md` body) so the
+    /// model can follow them on demand — the skills list it sees in context
+    /// carries only name + when_to_use (progressive disclosure).
+    public static func registerSkillTools(on registry: ToolRegistry, memory: MemoryStore) {
+        registry.register(ClientTool(
+            descriptor: ToolDescriptor(
+                name: "app_skill_view",
+                description: """
+                Load a skill's full instructions by name and follow them. `name` \
+                is the skill's directory name (the same token as its /command). \
+                Use when a listed skill matches the task. Result echoes \
+                {ok, name, body} or {ok:false, error}.
+                """,
+                parameters: [
+                    "type": "object",
+                    "properties": [
+                        "name": ["type": "string"],
+                    ],
+                    "required": ["name"],
+                ]
+            ),
+            handler: { args in
+                let name = args["name"]?.stringValue ?? ""
+                return await MainActor.run {
+                    let skills = SkillStore(memory: memory)
+                    guard let skill = skills.skill(named: name) else {
+                        return .object([
+                            "ok": .bool(false),
+                            "error": .string("No skill named '\(name)'. See the skills list in context."),
+                        ])
+                    }
+                    return .object([
+                        "ok": .bool(true),
+                        "name": .string(skill.name),
+                        "body": .string(skill.body),
+                    ])
+                }
+            }
+        ))
+    }
+
     public static func registerMemoryTools(on registry: ToolRegistry, memory: MemoryStore) {
         registry.register(ClientTool(
             descriptor: ToolDescriptor(

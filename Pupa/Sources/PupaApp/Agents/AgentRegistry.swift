@@ -60,9 +60,9 @@ public enum AgentRegistry {
         settings: SettingsStore,
         catalog: ModelCatalogStore
     ) -> AgentDescriptor {
-        let promptPath = "\(MemoryStore.myAppFolder(myAppName: myApp.name))/AGENTS.md"
+        let promptPath = "\(MemoryStore.pupaFolder(myAppName: myApp.name))/AGENTS.md"
         let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: myApp.name))
-        let promptOnDisk = memory.fileExists(at: "AGENTS.md")
+        let promptOnDisk = memory.fileExists(at: MemoryStore.pupaAgentsPath)
         let allowedTools = ChatViewModel.allowedToolNames(
             scope: .myApp(myApp.id),
             store: store,
@@ -129,8 +129,8 @@ public enum AgentRegistry {
         memory: MemoryStore,
         catalog: ModelCatalogStore
     ) -> AgentDescriptor {
-        let promptPath = "\(MemoryStore.orchestratorFolder())/AGENTS.md"
-        let promptOnDisk = memory.fileExists(at: "\(MemoryStore.orchestratorFolder())/AGENTS.md")
+        let promptPath = "\(MemoryStore.orchestratorFolder())/\(MemoryStore.pupaAgentsPath)"
+        let promptOnDisk = memory.fileExists(at: "\(MemoryStore.orchestratorFolder())/\(MemoryStore.pupaAgentsPath)")
         let allowedTools = ChatViewModel.allowedToolNames(
             scope: .memory,
             store: store,
@@ -275,6 +275,7 @@ public enum AgentRegistry {
         ] + kindGroups + [
             (label: "Tool Gates", names: toolGateNames),
             (label: "Memory", names: MyAppType.memoryToolNames),
+            (label: "Skills", names: MyAppType.skillToolNames),
             (label: "Notifications", names: MyAppType.notificationToolNames),
             (label: "Orchestrator", names: MyAppType.orchestratorToolNames),
             (label: "Human-in-the-loop", names: MyAppType.humanInTheLoopToolNames),

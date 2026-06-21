@@ -231,9 +231,32 @@ public final class MemoryStore {
 
     // MARK: - Path helpers for structured namespace
 
+    /// File extensions the agent may write. Config is JSON-shaped; everything
+    /// else stays markdown. Executable/free-format types are intentionally
+    /// excluded (marketplace import threat surface; nothing executes them).
+    static let writableExtensions: Set<String> = ["md", "json"]
+
     /// Top-level folder for a myApp: `<slug>` (e.g. `"my-fitness-app"`).
     public static func myAppFolder(myAppName: String) -> String {
         slugify(myAppName)
+    }
+
+    // MARK: `pupa/` config folder
+    //
+    // Each scope (myApp or orchestrator) keeps its driving prompts + skills in
+    // a visible `pupa/` subfolder, separate from user content at the root.
+    // The constants below are *relative* to a scope-rooted `MemoryStore`.
+
+    /// The config folder name. Visible (non-dot) so it rides the memory tree,
+    /// sidebar, glob, and the marketplace bundle unchanged.
+    public static let pupaFolderName = "pupa"
+    /// Main agent prompt, relative to a scope-rooted store.
+    public static let pupaAgentsPath = "pupa/AGENTS.md"
+    /// Skills directory, relative to a scope-rooted store: `pupa/skills`.
+    public static let pupaSkillsDir = "pupa/skills"
+    /// Absolute (global-root-relative) `pupa/` folder for a myApp.
+    public static func pupaFolder(myAppName: String) -> String {
+        "\(myAppFolder(myAppName: myAppName))/\(pupaFolderName)"
     }
 
     /// Top-level folder for the orchestrator's memories.
@@ -268,16 +291,19 @@ public final class MemoryStore {
         "\(myAppFolder(myAppName: myAppName))/\(componentKind)"
     }
 
-    /// Private subfolder for a named Slack agent within the global root:
-    /// `<myAppSlug>/slack/<agentNameSlug>` (e.g. `"my-fitness-app/slack/marketing"`).
+    /// Private subfolder for a named subagent within the global root:
+    /// `<myAppSlug>/pupa/agents/<agentNameSlug>`
+    /// (e.g. `"my-fitness-app/pupa/agents/marketing"`). Lives under the `pupa/`
+    /// config folder so a subagent's prompt + private notes sit with the rest
+    /// of the workspace config.
     public static func slackAgentFolder(myAppName: String, agentName: String) -> String {
-        "\(componentFolder(myAppName: myAppName, componentKind: "slack"))/\(slugify(agentName))"
+        "\(myAppFolder(myAppName: myAppName))/\(slackAgentSubfolder(agentName: agentName))"
     }
 
-    /// Relative path within an app-scoped `MemoryStore` for a named Slack
-    /// agent: `slack/<agentNameSlug>` (e.g. `"slack/marketing"`).
+    /// Relative path within an app-scoped `MemoryStore` for a named subagent:
+    /// `pupa/agents/<agentNameSlug>` (e.g. `"pupa/agents/marketing"`).
     public static func slackAgentSubfolder(agentName: String) -> String {
-        "slack/\(slugify(agentName))"
+        "pupa/agents/\(slugify(agentName))"
     }
 
     /// Lower-case alphanumerics + hyphens, no consecutive hyphens, capped at
@@ -376,8 +402,11 @@ public final class MemoryStore {
                 throw MemoryError.notFound(path)
             }
         }
-        if mustBeFile && !normalised.lowercased().hasSuffix(".md") {
-            throw MemoryError.invalidPath("\(path) — files must end in .md")
+        if mustBeFile {
+            let ext = (normalised as NSString).pathExtension.lowercased()
+            guard Self.writableExtensions.contains(ext) else {
+                throw MemoryError.invalidPath("\(path) — files must end in .md or .json")
+            }
         }
         return candidate
     }

@@ -173,10 +173,10 @@ struct JobSearchExampleTests {
         let appRoot = tmpBase.appendingPathComponent("example-job-search", isDirectory: true)
 
         let agentsPaths = [
-            "AGENTS.md",
-            "slack/coach/AGENTS.md",
-            "slack/challenger/AGENTS.md",
-            "slack/scout/AGENTS.md",
+            "pupa/AGENTS.md",
+            "pupa/agents/coach/AGENTS.md",
+            "pupa/agents/challenger/AGENTS.md",
+            "pupa/agents/scout/AGENTS.md",
         ]
 
         // First run — all four files are absent → seeder writes all four.
@@ -189,11 +189,11 @@ struct JobSearchExampleTests {
         // Content is non-empty + carries section headers a casual reader
         // would expect — guards against silent truncation of the seed
         // strings.
-        let appMd = try String(contentsOf: appRoot.appendingPathComponent("AGENTS.md"), encoding: .utf8)
+        let appMd = try String(contentsOf: appRoot.appendingPathComponent("pupa/AGENTS.md"), encoding: .utf8)
         #expect(appMd.contains("Components"))
         #expect(appMd.count > 300)
         for agentSlug in ["coach", "challenger", "scout"] {
-            let url = appRoot.appendingPathComponent("slack/\(agentSlug)/AGENTS.md")
+            let url = appRoot.appendingPathComponent("pupa/agents/\(agentSlug)/AGENTS.md")
             let body = try String(contentsOf: url, encoding: .utf8)
             #expect(body.contains("Persona"), "\(agentSlug)/AGENTS.md missing Persona section")
             #expect(body.count > 300, "\(agentSlug)/AGENTS.md suspiciously short")
@@ -202,7 +202,7 @@ struct JobSearchExampleTests {
         // Second run — idempotent: doesn't throw, doesn't clobber user
         // edits. Mutate one of the files and verify it survives the
         // second seed call.
-        let coachUrl = appRoot.appendingPathComponent("slack/coach/AGENTS.md")
+        let coachUrl = appRoot.appendingPathComponent("pupa/agents/coach/AGENTS.md")
         try "# User-edited\n".write(to: coachUrl, atomically: true, encoding: .utf8)
         JobSearchExample.seedAgentsMd(globalMemory: global, appRootOverride: appRoot)
         let coachAfter = try String(contentsOf: coachUrl, encoding: .utf8)

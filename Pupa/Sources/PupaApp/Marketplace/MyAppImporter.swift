@@ -166,7 +166,8 @@ public enum MyAppImporter {
 
         // Stage 5 — memories (last). Re-rooted under the new name; every write
         // goes through `MemoryStore.writeFile`, whose `resolve` blocks `..`,
-        // absolute paths and non-`.md` files.
+        // absolute paths and any extension outside the `.md` / `.json` allowlist
+        // (so an imported bundle can't drop, say, a `.py` into the sandbox).
         writeMemories(bundle.memories, appName: newName, memory: memory)
 
         return ImportResult(myAppId: id, warnings: warnings)
@@ -271,8 +272,9 @@ public enum MyAppImporter {
         let scoped = memory.appScopedStore(forAppNamed: appName)
         for file in capped {
             guard file.content.utf8.count <= maxMemoryFileBytes else { continue }
-            // writeFile's resolve() rejects `..`, absolute paths and non-.md;
-            // a hostile path simply fails to write rather than escaping.
+            // writeFile's resolve() rejects `..`, absolute paths and any
+            // extension outside the `.md` / `.json` allowlist; a hostile path
+            // simply fails to write rather than escaping.
             try? scoped.writeFile(path: file.path, content: file.content)
         }
     }

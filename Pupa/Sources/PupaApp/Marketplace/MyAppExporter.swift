@@ -86,9 +86,11 @@ public enum MyAppExporter {
             // Drop a deselected component kind's whole subtree (e.g. `slack/`).
             if let top = path.split(separator: "/").first.map(String.init),
                droppedKinds.contains(top) { return false }
-            // Memories off ⇒ keep only agent prompt files.
+            // Memories off ⇒ keep the whole `pupa/` config subtree (agent +
+            // subagent prompts, skills, SETUP) — that's app capability, not
+            // user data. Everything else (user notes, records) is dropped.
             if !options.includeMemories {
-                return path.split(separator: "/").last.map(String.init) == "AGENTS.md"
+                return path.hasPrefix("pupa/")
             }
             return true
         }
