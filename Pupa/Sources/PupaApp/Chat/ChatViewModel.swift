@@ -188,6 +188,18 @@ public final class ChatViewModel {
     /// valid resolution is the bubble's Submit / Approve / Deny, which keeps
     /// the live AGUIKit loop intact so it can POST the resume.
     public var isAwaitingHumanInput: Bool { hasPendingQuestion || hasPendingShellApproval }
+    /// True while a tool-round bubble has at least one entry still `.pending` —
+    /// i.e. the tool-round "Calling N tools…" spinner is on screen.
+    public var isToolRunning: Bool {
+        bubbles.contains { $0.role == .toolRound && $0.toolEntries.contains { $0.state == .pending } }
+    }
+    /// True while the model itself is generating and nothing else already shows
+    /// activity: streaming, not parked on a human interrupt, and no tool-round
+    /// spinner up. Drives the transcript's "model working" spinner, which the
+    /// tool spinner replaces once a tool round opens.
+    public var isModelWorking: Bool {
+        isStreaming && !isAwaitingHumanInput && !isToolRunning
+    }
     /// True iff every pending answer has been filled in (non-empty after
     /// trimming whitespace). The bubble's Submit button reads this to
     /// decide whether the user can submit yet.
