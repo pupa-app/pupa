@@ -227,8 +227,8 @@ public struct MyAppSidebarView: View {
                 // user-triggered restore writes any that are
                 // missing (idempotent — user edits stick).
                 example.seedAgentsMd(globalMemory: memory, appRootOverride: nil)
-                selection = .myApp(id)
-                onSelectionChange(.myApp(id))
+                selection = .myAppHome(id)
+                onSelectionChange(.myAppHome(id))
                 settingsSheetPresented = false
             },
             onStartTour: {
@@ -249,8 +249,8 @@ public struct MyAppSidebarView: View {
             stats: stats,
             modelCatalog: modelCatalog,
             onImported: { id in
-                selection = .myApp(id)
-                onSelectionChange(.myApp(id))
+                selection = .myAppHome(id)
+                onSelectionChange(.myAppHome(id))
                 settingsSheetPresented = false
             }
         )

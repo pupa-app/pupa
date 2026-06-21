@@ -117,6 +117,17 @@ public struct ChatPanel: View {
                                 }
                             ).id(bubble.id)
                         }
+                        if viewModel.isModelWorking {
+                            HStack(spacing: 6) {
+                                ProgressView().controlSize(.small)
+                                Text("Working…")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal, 12)
+                            .id("modelWorkingSpinner")
+                            .transition(.opacity)
+                        }
                         if let error = viewModel.lastError {
                             Text(error)
                                 .font(.caption)

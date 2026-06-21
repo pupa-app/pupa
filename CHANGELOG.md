@@ -3,6 +3,24 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.29] — 2026-06-21
+
+### Fixed
+
+- **Opening a MyApp lands on its home page.** Importing a `.pupaapp`
+  (in-app, externally-opened, or via the export sheet) and restoring an
+  example now route to the MyApp home overview instead of dropping
+  straight onto a component canvas — matching the sidebar menu, which
+  already opened home. (`PupaApp` `0.0.120`)
+
+### Added
+
+- **"Working…" spinner while the model is generating.** The chat
+  transcript shows a small spinner whenever the model is running and no
+  tool-round spinner is up; the tool-round spinner replaces it once a tool
+  batch starts. Gives a clear signal the agent is active before the first
+  token or between tool rounds. (`PupaApp` `0.0.120`)
+
 ## [0.0.28] — 2026-06-21
 
 ### Added

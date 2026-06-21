@@ -714,8 +714,8 @@ public struct AppView: View {
         do {
             let result = try MyAppImporter.importBundle(pending.data, into: store, memory: memory)
             detailPath = []
-            selection = .myApp(result.myAppId)
-            dispatchSelection(.myApp(result.myAppId))
+            selection = .myAppHome(result.myAppId)
+            dispatchSelection(.myAppHome(result.myAppId))
             if !result.warnings.isEmpty {
                 importNotice = ImportNotice(message: result.warnings.joined(separator: "\n"))
             }
