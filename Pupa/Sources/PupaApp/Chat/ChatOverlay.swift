@@ -126,9 +126,33 @@ struct ChatOverlay: View {
             }
             .frame(width: iconSize, height: iconSize)
             .shadow(color: .black.opacity(0.25), radius: 8, x: 0, y: 3)
+            .overlay(alignment: .topTrailing) {
+                // Aggregate status across the scope's threads — surfaces a
+                // background run that needs attention while chat is collapsed.
+                // A live stream (this scope's own chat or an orchestrator
+                // sub-run bumping `busyMyApps`) shows the spinner.
+                if status != .idle {
+                    StatusBadge(status: status, size: 16)
+                        .padding(2)
+                }
+            }
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Open chat")
+        .accessibilityValue(status.accessibilityDescription ?? "")
+    }
+
+    /// Folded status for the collapsed circle: the highest-priority thread in
+    /// this scope, upgraded to `.running` whenever the scope has an in-flight
+    /// stream (covers orchestrator sub-runs that bump `busyMyApps` without a
+    /// foreground session).
+    private var status: ChatActivityStatus {
+        let base = coordinator.aggregateStatus(for: scope)
+        if base == .idle, case .myApp(let id) = scope,
+           coordinator.busyMyApps.contains(id) {
+            return .running
+        }
+        return base
     }
 
     private func card(in containerSize: CGSize) -> some View {

@@ -159,6 +159,11 @@ public final class ChatViewModel {
     public private(set) var bubbles: [ChatBubble] = []
     public private(set) var isStreaming = false
     public private(set) var lastError: String?
+    /// True when a turn finished while this thread was not on screen — drives
+    /// the "unviewed answer" badge on the pupa circle / thread lists. Set when
+    /// a real turn settles (see `setStreaming`); cleared by `markViewed()` when
+    /// the thread becomes visible (`ChatPanel` appear / completion onChange).
+    public private(set) var hasUnviewedCompletion = false
     /// For memory sessions only — the file path the user is currently viewing
     /// in the sidebar. Read into per-turn agent context so the model knows
     /// which file is in focus. The coordinator updates this when the user
@@ -207,6 +212,24 @@ public final class ChatViewModel {
         guard hasPendingQuestion else { return false }
         return !pendingAnswers.isEmpty &&
             pendingAnswers.allSatisfy { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+    }
+
+    /// At-a-glance state for the pupa-circle / thread-list badges. Priority
+    /// order matches `ChatActivityStatus.priority`: a parked interrupt outranks
+    /// an error, which outranks an unviewed answer, which outranks an in-flight
+    /// stream.
+    public var activityStatus: ChatActivityStatus {
+        if isAwaitingHumanInput { return .actionRequired }
+        if lastError != nil { return .error }
+        if hasUnviewedCompletion { return .unviewedAnswer }
+        if isStreaming { return .running }
+        return .idle
+    }
+
+    /// Clear the unviewed-answer flag. Called when this thread is on screen so
+    /// the badge never shows for the conversation the user is actually reading.
+    public func markViewed() {
+        hasUnviewedCompletion = false
     }
 
     /// Mutable so the session can be swapped when `SettingsStore.backendURL`
@@ -1145,6 +1168,13 @@ public final class ChatViewModel {
     private func setStreaming(_ value: Bool) {
         guard isStreaming != value else { return }
         isStreaming = value
+        // A genuine turn just settled (stream ended, not parked on an
+        // interrupt) → flag it unviewed so the badge surfaces it for a thread
+        // the user isn't currently looking at. The visible thread clears this
+        // immediately via `markViewed()`.
+        if !value && !isAwaitingHumanInput {
+            hasUnviewedCompletion = true
+        }
         onStreamingChange?(value)
     }
 

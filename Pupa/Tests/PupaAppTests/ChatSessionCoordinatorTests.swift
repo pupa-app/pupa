@@ -75,6 +75,24 @@ struct ChatSessionCoordinatorTests {
         #expect(original !== rebuilt)
     }
 
+    @Test("status/aggregateStatus are .idle when no live session exists or the session is fresh")
+    func statusIdleByDefault() {
+        let (store, ids) = makeStore()
+        let coord = makeCoordinator(store: store)
+        let tid = store.currentThreadId(for: .myApp(ids[0]))
+
+        // No session opened yet for this scope/thread.
+        #expect(coord.status(for: .myApp(ids[0]), threadId: tid) == .idle)
+        #expect(coord.aggregateStatus(for: .myApp(ids[0])) == .idle)
+
+        // A freshly-built session (never streamed) is still idle.
+        _ = coord.session(for: .myApp(ids[0]), threadId: tid)
+        #expect(coord.status(for: .myApp(ids[0]), threadId: tid) == .idle)
+        #expect(coord.aggregateStatus(for: .myApp(ids[0])) == .idle)
+        // A different scope with no sessions stays idle too.
+        #expect(coord.aggregateStatus(for: .myApp(ids[1])) == .idle)
+    }
+
     @Test("busyMyApps starts empty and discardSession is safe to call on a never-streamed session")
     func busySpacesEmptyAndDiscardSafe() {
         let (store, ids) = makeStore()
