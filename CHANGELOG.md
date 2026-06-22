@@ -3,6 +3,19 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.30] — 2026-06-22
+
+### Added
+
+- **Chat status badges on the pupa circle + thread lists.** The collapsed
+  chat circle and the thread dropdown / Agents dashboard now badge a
+  conversation that needs attention: an **amber** exclamation when a run is
+  blocked on you (approve a bash command / answer a question), **red** when
+  it errored, and a **blue** exclamation when it finished answering but you
+  haven't viewed it yet. A live run still shows a spinner. The badge clears
+  for whichever thread is on screen. Highest-priority state wins:
+  action-required > error > unviewed > running. (`PupaApp` `0.0.121`)
+
 ## [0.0.29] — 2026-06-21
 
 ### Fixed

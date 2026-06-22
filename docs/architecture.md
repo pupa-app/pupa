@@ -122,6 +122,19 @@ The conversation dropdown (`ChatPanel.threadDropdown`) lists threads newest-firs
 When 2+ threads exist each entry is a submenu with "Open" and "Delete" so any
 thread can be deleted without switching to it first.
 
+**Status badges.** `ChatActivityStatus` (`Chat/ChatActivityStatus.swift`) is a
+per-thread state derived live from each `ChatViewModel`: `actionRequired`
+(parked on a shell-approval / question interrupt) > `error` (`lastError`) >
+`unviewedAnswer` (a turn settled while the thread was off-screen) > `running` >
+`idle`. The VM tracks `hasUnviewedCompletion` (set when a real turn settles in
+`setStreaming`, cleared by `markViewed()` whenever a `ChatPanel` for that thread
+is on screen). `ChatSessionCoordinator.status(for:threadId:)` exposes one
+thread's status and `aggregateStatus(for:)` folds a scope's threads to the
+highest. The shared `StatusBadge` view renders an amber / red / blue
+exclamation (or a spinner while `running`) on the collapsed `ChatOverlay`
+circle (scope aggregate, upgraded to `running` when `busyMyApps` covers the
+scope), the thread dropdown rows + label, and the Agents dashboard thread rows.
+
 ## Launch sequence
 
 `RootView` is the scene root (`PupaApp`, demo, host all mount it). It owns

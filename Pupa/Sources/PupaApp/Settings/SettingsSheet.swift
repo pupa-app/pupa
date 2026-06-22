@@ -37,6 +37,8 @@ public struct SettingsSheet: View {
     /// Live LLM model registry backing the Agents overview's model pickers.
     /// When nil (e.g. previews) the Agents row is hidden.
     var modelCatalog: ModelCatalogStore?
+    /// Live session owner, for the Agents overview's per-thread status dots.
+    var coordinator: ChatSessionCoordinator?
     /// Called after a successful import with the new app's id (select + dismiss).
     var onImported: ((UUID) -> Void)?
     /// Shared guided-tour store. On iOS a `.sheet` renders above the AppView
@@ -69,6 +71,7 @@ public struct SettingsSheet: View {
         memory: MemoryStore? = nil,
         stats: AgentStatsStore? = nil,
         modelCatalog: ModelCatalogStore? = nil,
+        coordinator: ChatSessionCoordinator? = nil,
         onImported: ((UUID) -> Void)? = nil
     ) {
         self.settings = settings
@@ -79,6 +82,7 @@ public struct SettingsSheet: View {
         self.memory = memory
         self.stats = stats
         self.modelCatalog = modelCatalog
+        self.coordinator = coordinator
         self.onImported = onImported
     }
 
@@ -247,7 +251,7 @@ public struct SettingsSheet: View {
                 Form { agentsSection }.navigationTitle("Agent-to-agent")
             case .agentsOverview:
                 if let store, let memory, let stats, let modelCatalog {
-                    AgentsOverviewView(store: store, settings: settings, memory: memory, stats: stats, modelCatalog: modelCatalog)
+                    AgentsOverviewView(store: store, settings: settings, memory: memory, stats: stats, modelCatalog: modelCatalog, coordinator: coordinator)
                 }
             case .notifications:
                 PendingNotificationsList().navigationTitle("Notifications")

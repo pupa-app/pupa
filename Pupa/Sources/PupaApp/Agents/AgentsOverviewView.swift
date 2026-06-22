@@ -17,6 +17,9 @@ public struct AgentsOverviewView: View {
     let memory: MemoryStore
     let stats: AgentStatsStore
     let modelCatalog: ModelCatalogStore
+    /// Live session owner, for per-thread status dots. Optional so previews /
+    /// callers without a coordinator render no badges.
+    let coordinator: ChatSessionCoordinator?
 
     /// Per-thread token + cost, fetched on appear from `POST /db/threads/usage`.
     /// Local to this view — usage is shown nowhere else.
@@ -27,13 +30,15 @@ public struct AgentsOverviewView: View {
         settings: SettingsStore,
         memory: MemoryStore,
         stats: AgentStatsStore,
-        modelCatalog: ModelCatalogStore
+        modelCatalog: ModelCatalogStore,
+        coordinator: ChatSessionCoordinator? = nil
     ) {
         self.store = store
         self.settings = settings
         self.memory = memory
         self.stats = stats
         self.modelCatalog = modelCatalog
+        self.coordinator = coordinator
     }
 
     private var sortedApps: [MyApp] {
@@ -267,9 +272,15 @@ public struct AgentsOverviewView: View {
     /// conversation isn't meaningful from a Settings overview.
     private func threadRow(_ thread: ChatThread, scope: ChatScope) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(thread.title.isEmpty ? "New conversation" : thread.title)
-                .font(.callout)
-                .foregroundStyle(thread.title.isEmpty ? .secondary : .primary)
+            HStack(spacing: 6) {
+                Text(thread.title.isEmpty ? "New conversation" : thread.title)
+                    .font(.callout)
+                    .foregroundStyle(thread.title.isEmpty ? .secondary : .primary)
+                let s = coordinator?.status(for: scope, threadId: thread.id) ?? .idle
+                if s != .idle {
+                    StatusBadge(status: s, size: 12)
+                }
+            }
             Text(thread.createdAt.formatted(date: .abbreviated, time: .shortened))
                 .font(.caption2)
                 .foregroundStyle(.secondary)

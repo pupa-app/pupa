@@ -50,6 +50,21 @@ struct ChatViewModelLifecycleTests {
         #expect(vm.lastError == nil)
         #expect(vm.pinnedScope == .myApp(myApp.id))
         #expect(vm.threadId == store.currentThreadId(for: .myApp(myApp.id)))
+        // A fresh VM is idle with nothing unviewed.
+        #expect(vm.hasUnviewedCompletion == false)
+        #expect(vm.activityStatus == .idle)
+    }
+
+    @Test("markViewed() clears the unviewed-answer flag and is safe on a fresh VM")
+    func markViewedClears() {
+        MyAppTypeRegistry.shared.registerBuiltins()
+        let myApp = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
+        let store = MyAppStore(initial: ([myApp], myApp.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(myApp.id))
+
+        vm.markViewed()
+        #expect(vm.hasUnviewedCompletion == false)
+        #expect(vm.activityStatus == .idle)
     }
 
     @Test("newThread() on a myApp scope adds a thread to the store and makes it current — other scopes untouched")

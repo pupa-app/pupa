@@ -175,6 +175,22 @@ public final class ChatSessionCoordinator {
         session(for: scope, threadId: store.currentThreadId(for: scope))
     }
 
+    /// Live status of one conversation, for the thread-list badges. Threads
+    /// that never opened a session have no VM → `.idle` (no badge).
+    public func status(for scope: ChatScope, threadId: String) -> ChatActivityStatus {
+        sessions[SessionKey(scope: scope, threadId: threadId)]?.activityStatus ?? .idle
+    }
+
+    /// Highest-priority status across all live threads of a scope. Drives the
+    /// collapsed pupa-circle badge. Reads `@Observable` storage (`sessions` +
+    /// each VM's tracked properties) so a SwiftUI body that calls this
+    /// re-renders when any contributing thread changes.
+    public func aggregateStatus(for scope: ChatScope) -> ChatActivityStatus {
+        sessions.reduce(ChatActivityStatus.idle) { acc, kv in
+            kv.key.scope == scope ? .max(acc, kv.value.activityStatus) : acc
+        }
+    }
+
     private func makeSession(for scope: ChatScope, threadId: String) -> ChatViewModel {
         let registry = ToolRegistry()
         // Each session gets its own scoped MemoryStore so `lsMemories` /

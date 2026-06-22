@@ -41,6 +41,10 @@ public struct ChatPanel: View {
     /// Called with a thread id when the user deletes a conversation. `nil`
     /// when only one thread exists (delete is not offered).
     let onDeleteThread: ((String) -> Void)?
+    /// Live status for any thread id — drives the per-row dots in the dropdown
+    /// and the aggregate badge on the collapsed dropdown label. Defaults to
+    /// `.idle` (no badge) for previews / callers that don't wire it.
+    let status: (String) -> ChatActivityStatus
     @State private var showThreadList: Bool = false
     @State private var showAgentList: Bool = false
     /// Shared guided-tour store. The chat / slash steps park a prefill in
@@ -71,7 +75,8 @@ public struct ChatPanel: View {
         onSwitchAgent: @escaping (ChatScope) -> Void,
         onSelectThread: @escaping (String) -> Void = { _ in },
         onAddThread: (() -> Void)? = nil,
-        onDeleteThread: ((String) -> Void)? = nil
+        onDeleteThread: ((String) -> Void)? = nil,
+        status: @escaping (String) -> ChatActivityStatus = { _ in .idle }
     ) {
         self.viewModel = viewModel
         self.threads = threads
@@ -81,6 +86,7 @@ public struct ChatPanel: View {
         self.onSelectThread = onSelectThread
         self.onAddThread = onAddThread
         self.onDeleteThread = onDeleteThread
+        self.status = status
     }
 
     public var body: some View {
@@ -161,6 +167,12 @@ public struct ChatPanel: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.cardBackground)
+        // This thread is on screen → never badge it as unviewed. Clear on
+        // appear and again whenever a turn settles or errors while visible, so
+        // the badge only ever shows for threads the user isn't reading.
+        .onAppear { viewModel.markViewed() }
+        .onChange(of: viewModel.isStreaming) { viewModel.markViewed() }
+        .onChange(of: viewModel.lastError) { viewModel.markViewed() }
         .onAppear {
             // First chat opened after onboarding: pre-fill the composer with a
             // suggested message so the user's first action is a single tap.
@@ -289,6 +301,11 @@ public struct ChatPanel: View {
     @ViewBuilder
     private var threadDropdown: some View {
         let currentTitle = threads.first(where: { $0.id == currentThreadId })?.title ?? ""
+        // Fold the OTHER threads' statuses so a collapsed dropdown hints that a
+        // conversation the user isn't reading needs attention.
+        let otherStatus = threads
+            .filter { $0.id != currentThreadId }
+            .reduce(ChatActivityStatus.idle) { .max($0, status($1.id)) }
         Button { showThreadList = true } label: {
             HStack(spacing: 4) {
                 Text(currentTitle.isEmpty ? "New chat" : currentTitle)
@@ -296,6 +313,9 @@ public struct ChatPanel: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                if otherStatus != .idle {
+                    StatusBadge(status: otherStatus, size: 11)
+                }
                 Image(systemName: "chevron.down")
                     .font(.caption2)
                     .foregroundStyle(.secondary.opacity(0.7))
@@ -324,9 +344,15 @@ public struct ChatPanel: View {
                         onSelectThread(thread.id)
                         showThreadList = false
                     } label: {
-                        Text(thread.title.isEmpty ? "New chat" : thread.title)
-                            .lineLimit(1)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        HStack(spacing: 6) {
+                            Text(thread.title.isEmpty ? "New chat" : thread.title)
+                                .lineLimit(1)
+                            let s = status(thread.id)
+                            if s != .idle {
+                                StatusBadge(status: s, size: 12)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .buttonStyle(.plain)
                     if let onDeleteThread {
