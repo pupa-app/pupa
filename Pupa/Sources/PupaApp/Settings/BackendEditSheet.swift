@@ -22,6 +22,7 @@ struct BackendEditSheet: View {
     @State private var certFingerprintDraft: String
     @State private var pairCodeDraft: String = ""
     @State private var pairState: PairState = .idle
+    @State private var pairOutcome: PairOutcome? = nil
     @State private var devicesLoad: DevicesLoadState = .idle
     @State private var revokingDeviceID: String? = nil
     @State private var isUnpairing: Bool = false
@@ -33,6 +34,13 @@ struct BackendEditSheet: View {
         case idle
         case pairing
         case failed(String)
+    }
+
+    /// Transient result banner shown after a pairing attempt: green tick on
+    /// success, red cross on failure. Auto-dismisses.
+    private enum PairOutcome: Equatable {
+        case success
+        case failure(String)
     }
 
     private enum DevicesLoadState {
@@ -106,6 +114,14 @@ struct BackendEditSheet: View {
                     }
                 }
             }
+            .overlay(alignment: .top) {
+                if let pairOutcome {
+                    pairOutcomeBanner(pairOutcome)
+                        .padding(.top, 8)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .zIndex(1)
+                }
+            }
             .navigationTitle(title)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -161,6 +177,36 @@ struct BackendEditSheet: View {
             }
             #endif
         }
+    }
+
+    @ViewBuilder
+    private func pairOutcomeBanner(_ outcome: PairOutcome) -> some View {
+        let isSuccess = outcome == .success
+        HStack(spacing: 10) {
+            Image(systemName: isSuccess ? "checkmark.circle.fill" : "xmark.circle.fill")
+                .font(.title3)
+                .foregroundStyle(isSuccess ? .green : .red)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(isSuccess ? "Paired" : "Pairing failed")
+                    .font(.subheadline.weight(.semibold))
+                if case .failure(let reason) = outcome {
+                    Text(reason)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder((isSuccess ? Color.green : Color.red).opacity(0.4), lineWidth: 1)
+        )
+        .shadow(radius: 8, y: 4)
+        .padding(.horizontal, 16)
     }
 
     // MARK: - Sections
@@ -451,10 +497,26 @@ struct BackendEditSheet: View {
             try settings.markPaired(backendID: initialEntry.id, deviceID: result.deviceID, token: result.token)
             pairCodeDraft = ""
             pairState = .idle
+            showOutcome(.success)
         } catch let pairingError as PairingError {
             pairState = .failed(pairingError.description)
+            showOutcome(.failure(pairingError.description))
         } catch {
-            pairState = .failed("Keychain refused to store the token: \(error.localizedDescription)")
+            let reason = "Keychain refused to store the token: \(error.localizedDescription)"
+            pairState = .failed(reason)
+            showOutcome(.failure(reason))
+        }
+    }
+
+    /// Show the result banner, then auto-dismiss after a short delay.
+    @MainActor
+    private func showOutcome(_ outcome: PairOutcome) {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            pairOutcome = outcome
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(outcome == .success ? 2 : 3))
+            withAnimation(.easeOut(duration: 0.25)) { pairOutcome = nil }
         }
     }
 

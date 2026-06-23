@@ -57,7 +57,7 @@ public final class MemoryStore {
     public func writeFile(path: String, content: String) throws -> Int {
         let url = try resolve(path, requireExists: false, mustBeFile: true)
         try ensureParent(of: url)
-        try content.data(using: .utf8)!.write(to: url, options: .atomic)
+        try CloudDocument.write(content.data(using: .utf8)!, to: url)
         rescan()
         return content.utf8.count
     }
@@ -66,16 +66,9 @@ public final class MemoryStore {
     public func appendFile(path: String, content: String) throws -> Int {
         let url = try resolve(path, requireExists: false, mustBeFile: true)
         try ensureParent(of: url)
-        if FileManager.default.fileExists(atPath: url.path) {
-            let handle = try FileHandle(forWritingTo: url)
-            try handle.seekToEnd()
-            if let data = content.data(using: .utf8) {
-                try handle.write(contentsOf: data)
-            }
-            try handle.close()
-        } else {
-            try content.data(using: .utf8)!.write(to: url, options: .atomic)
-        }
+        // Coordinated read-modify-write so appends are iCloud-safe.
+        let existing = CloudDocument.read(url) ?? Data()
+        try CloudDocument.write(existing + (content.data(using: .utf8) ?? Data()), to: url)
         rescan()
         let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
         return (attrs?[.size] as? Int) ?? content.utf8.count
@@ -94,7 +87,12 @@ public final class MemoryStore {
         guard !oldString.isEmpty else { throw MemoryError.invalidEdit("oldString is empty") }
         guard oldString != newString else { throw MemoryError.invalidEdit("oldString == newString") }
         let url = try resolve(path, requireExists: true, mustBeFile: true)
-        let original = try String(contentsOf: url, encoding: .utf8)
+        let original: String
+        if let data = CloudDocument.read(url), let text = String(data: data, encoding: .utf8) {
+            original = text
+        } else {
+            original = try String(contentsOf: url, encoding: .utf8)
+        }
         let occurrences = countOccurrences(of: oldString, in: original)
         guard occurrences > 0 else { throw MemoryError.editNotFound(path) }
         if !replaceAll && occurrences > 1 {
@@ -113,7 +111,7 @@ public final class MemoryStore {
             }
             replacements = 1
         }
-        try updated.data(using: .utf8)!.write(to: url, options: .atomic)
+        try CloudDocument.write(updated.data(using: .utf8)!, to: url)
         rescan()
         return replacements
     }
@@ -157,8 +155,7 @@ public final class MemoryStore {
     public func move(from: String, to: String) throws {
         let src = try resolve(from, requireExists: true)
         let dst = try resolve(to, requireExists: false)
-        try ensureParent(of: dst)
-        try FileManager.default.moveItem(at: src, to: dst)
+        try CloudDocument.move(from: src, to: dst)
         rescan()
     }
 
@@ -171,7 +168,7 @@ public final class MemoryStore {
                 throw MemoryError.folderNotEmpty(path)
             }
         }
-        try FileManager.default.removeItem(at: url)
+        CloudDocument.delete(url)
         rescan()
     }
 
@@ -223,10 +220,10 @@ public final class MemoryStore {
 
     // MARK: - Private
 
+    /// Memories live under the active storage root (iCloud container when
+    /// available, else local Application Support) — see `PupaStorage`.
     private static func defaultRoot() -> URL {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        return support.appendingPathComponent("pupa/memories", isDirectory: true)
+        PupaStorage.memoriesRoot
     }
 
     // MARK: - Path helpers for structured namespace
@@ -336,6 +333,10 @@ public final class MemoryStore {
         tree = Self.scan(root: root)
         onDidMutate?()
     }
+
+    /// Rebuild the tree from disk. Called by the iCloud watcher when remote
+    /// edits land so the sidebar refreshes live.
+    public func reloadFromDisk() { rescan() }
 
     private static func scan(root: URL) -> MemoryNode {
         let children = readChildren(at: root, prefix: "")

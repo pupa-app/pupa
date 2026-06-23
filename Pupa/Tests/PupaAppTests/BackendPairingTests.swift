@@ -12,6 +12,8 @@ import Testing
 @Suite("Backend pairing", .serialized)
 struct BackendPairingTests {
 
+    init() { TestStorage.activate() }
+
     // MARK: - InMemoryCredentialStore
 
     @Test("InMemory credential store round-trips per-backend tokens")

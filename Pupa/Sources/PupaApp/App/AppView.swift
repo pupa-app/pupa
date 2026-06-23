@@ -22,6 +22,9 @@ public struct AppView: View {
     @State private var modelCatalog = ModelCatalogStore()
     @State private var coordinator: ChatSessionCoordinator
     @State private var screenShare: ScreenShareViewModel
+    /// Watches the iCloud container for remote edits; reloads the synced
+    /// stores so changes from another device appear live. Nil until started.
+    @State private var cloudWatcher: CloudWatcher?
     @State private var selection: SidebarSelection?
     #if os(iOS)
     /// Whether the slide-in sidebar/menu is open. Persisted so the app opens to
@@ -79,6 +82,10 @@ public struct AppView: View {
         // Install the UNUserNotificationCenter delegate before any agent
         // turn can call `sendNotification`. Idempotent.
         NotificationCenterCoordinator.shared.bootstrap()
+        // Lift any offline-created local data into iCloud before the stores
+        // load (covers demo/preview entry that bypasses `PupaApp`). No-op when
+        // iCloud is inactive or already promoted.
+        PupaStorage.promoteLocalIfNeeded()
         let store = MyAppStore()
         let memory = MemoryStore()
         // Idempotent: writes each example's AGENTS.md persona files on
@@ -148,6 +155,22 @@ public struct AppView: View {
                 if active { applyTourStep() }
             }
             .onChange(of: tour.index) { _, _ in applyTourStep() }
+            // Live iCloud sync: reload the stores when another device's edits
+            // land in the container. No-op when iCloud is inactive.
+            .task { startCloudWatcher() }
+    }
+
+    /// Start watching the iCloud container for remote changes, reloading each
+    /// synced store so the UI reflects edits made on another device. Idempotent.
+    private func startCloudWatcher() {
+        guard cloudWatcher == nil else { return }
+        let watcher = CloudWatcher {
+            store.reloadFromDisk()
+            memory.reloadFromDisk()
+            settings.reloadFromDisk()
+        }
+        watcher.start()
+        cloudWatcher = watcher
     }
 
     /// Auto-start the interactive tour exactly once: after onboarding finishes
