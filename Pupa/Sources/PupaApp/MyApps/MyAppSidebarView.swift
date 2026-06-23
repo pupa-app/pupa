@@ -215,9 +215,9 @@ public struct MyAppSidebarView: View {
             }
         } header: {
             HStack(spacing: 6) {
-                Text("Your projects")
+                Text("MyApps")
                 InfoBadge(
-                    title: "Your projects",
+                    title: "MyApps",
                     message: "Each myapp is a separate canvas with its own chat, thread, and tool surface. Open one to browse its components, memories, and history from its home page and bottom bar."
                 )
                 Spacer()
@@ -253,9 +253,6 @@ public struct MyAppSidebarView: View {
                     .controlSize(.small)
                     .accessibilityLabel("Streaming")
             }
-            Image(systemName: "chevron.right")
-                .font(.footnote)
-                .foregroundStyle(.tertiary)
         }
         .tag(SidebarSelection.myAppHome(myApp.id))
         .contextMenu {

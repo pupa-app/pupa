@@ -36,9 +36,13 @@ public enum SidebarSelection: Hashable, Sendable {
     /// the file content in the detail pane.
     case myAppMemoryFile(UUID, String)
     /// The myApp's memory browse page — a folder tree of all its notes.
-    /// Reached from the dock's Memories button; files inside push
+    /// Reached from the bottom bar's Memories button; files inside push
     /// `.myAppMemoryFile`.
     case myAppMemories(UUID)
+    /// The orchestrator's memory browse page — a folder tree of its shared
+    /// notes. Mirror of `.myAppMemories` but orchestrator-scoped (reuses
+    /// `MyAppMemoriesView`); files inside push `.memoryFile`.
+    case orchestratorMemories
     /// A memory file in the orchestrator's tree. Routes to the memory/
     /// orchestrator chat and sets `memoryFocusedPath`.
     case memoryFile(String)

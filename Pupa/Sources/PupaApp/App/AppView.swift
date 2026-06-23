@@ -481,7 +481,7 @@ public struct AppView: View {
                 memory: memory,
                 settings: settings,
                 modelCatalog: modelCatalog,
-                myAppId: id,
+                subject: .myApp(id),
                 onNavigate: { nav in
                     // Push onto the navigation stack instead of replacing
                     // selection — Back from the destination returns to the
@@ -522,7 +522,17 @@ public struct AppView: View {
             MyAppMemoriesView(
                 store: store,
                 memory: memory,
-                myAppId: id,
+                subject: .myApp(id),
+                onNavigate: { nav in
+                    dispatchSelection(nav)
+                    detailPath.append(nav)
+                }
+            )
+        case .orchestratorMemories:
+            MyAppMemoriesView(
+                store: store,
+                memory: memory,
+                subject: .orchestrator,
                 onNavigate: { nav in
                     dispatchSelection(nav)
                     detailPath.append(nav)
@@ -545,8 +555,12 @@ public struct AppView: View {
                 }
             }
         case .orchestrator:
-            OrchestratorHomeView(
+            MyAppHomeView(
                 store: store,
+                memory: memory,
+                settings: settings,
+                modelCatalog: modelCatalog,
+                subject: .orchestrator,
                 onNavigate: { nav in
                     dispatchSelection(nav)
                     detailPath.append(nav)
@@ -576,10 +590,10 @@ public struct AppView: View {
         detailPath.last ?? selection ?? .myApp(store.activeMyAppId)
     }
 
-    /// Whether the per-MyApp bottom bar is showing — also gates whether
-    /// `ChatOverlay` renders its own fallback launcher.
+    /// Whether the bottom bar is showing — also gates whether `ChatOverlay`
+    /// renders its own fallback launcher.
     private var bottomBarVisible: Bool {
-        barPage(for: effectiveSelection) != nil
+        barSubject(for: effectiveSelection) != nil && barPage(for: effectiveSelection) != nil
     }
 
     /// Folded chat status for the current scope — mirrors `ChatOverlay.status`
@@ -601,12 +615,12 @@ public struct AppView: View {
     @ViewBuilder
     private var myAppBottomBar: some View {
         let effective = effectiveSelection
-        if let id = effective.myAppId, let page = barPage(for: effective) {
+        if let subject = barSubject(for: effective), let page = barPage(for: effective) {
             MyAppBottomBar(
                 store: store,
-                myAppId: id,
+                subject: subject,
                 currentPage: page,
-                appColor: .color(atIndex: store.colorIndex(for: id)),
+                appColor: barColor(for: subject),
                 chatStatus: chatStatus,
                 chatOpen: chatOpen,
                 onSelect: { nav in
@@ -614,7 +628,7 @@ public struct AppView: View {
                     selection = nav
                     dispatchSelection(nav)
                 },
-                onShowHistory: { historySheet = .forMyApp(myAppId: id) },
+                onShowHistory: { id in historySheet = .forMyApp(myAppId: id) },
                 onToggleChat: {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                         chatOpen.toggle()
@@ -624,14 +638,35 @@ public struct AppView: View {
         }
     }
 
+    /// The bar's subject for a selection, or `nil` for pages that shouldn't
+    /// show the bar (agents, agent detail, screen share, settings).
+    private func barSubject(for sel: SidebarSelection) -> MyAppHomeView.Subject? {
+        switch sel {
+        case .myAppHome(let id), .myApp(let id), .myAppComponent(let id, _),
+             .myAppMemories(let id), .myAppMemoryFile(let id, _):
+            return .myApp(id)
+        case .orchestrator, .orchestratorMemories, .memoryFile:
+            return .orchestrator
+        default:
+            return nil
+        }
+    }
+
+    private func barColor(for subject: MyAppHomeView.Subject) -> Color {
+        switch subject {
+        case .myApp(let id): return .color(atIndex: store.colorIndex(for: id))
+        case .orchestrator: return .orchestratorColor
+        }
+    }
+
     /// Maps a selection to the bar's active page, or `nil` for pages that
-    /// shouldn't show the bar (agents, orchestrator, …). The Memories browse
-    /// page and any memory file within it both highlight the Memories button.
+    /// shouldn't show the bar. Memory browse pages + files highlight Memories.
     private func barPage(for sel: SidebarSelection) -> MyAppBottomBar.Page? {
         switch sel {
-        case .myAppHome, .myApp: return .home
+        case .myAppHome, .myApp, .orchestrator: return .home
         case .myAppComponent(_, let componentId): return .component(componentId)
-        case .myAppMemories, .myAppMemoryFile: return .memories
+        case .myAppMemories, .myAppMemoryFile, .orchestratorMemories, .memoryFile:
+            return .memories
         default: return nil
         }
     }
@@ -664,7 +699,7 @@ public struct AppView: View {
         case .memoryFile(let path):
             coordinator.session(for: .memory).memoryFocusedPath = path
             chatScope = .memory
-        case .orchestrator, .orchestratorAgentDetail:
+        case .orchestrator, .orchestratorAgentDetail, .orchestratorMemories:
             coordinator.session(for: .memory).memoryFocusedPath = ""
             chatScope = .memory
         case .screenShare:

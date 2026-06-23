@@ -3,7 +3,7 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
-## [0.0.31] — 2026-06-22
+## [0.0.31] — 2026-06-23
 
 ### Changed
 
@@ -17,6 +17,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   ⋯ (jump to any component). The chat launcher now lives in that bar on MyApp
   pages; on other pages (orchestrator, agents, screen share) it stays a floating
   pupa circle so chat is always reachable. (`PupaApp` `0.0.122`)
+- **Orchestrator uses the MyApp home layout + bottom bar.** Opening the
+  Orchestrator now shows the same page style as a myapp — an **Outline**
+  describing what it coordinates plus the myapps it can drive, an empty
+  **Components** panel, and its **Agent** — and the same persistent bottom bar
+  (Home · Memories · Pupa chat · ⋯ jump-to-myapp; History is myapp-only). The
+  Memories browser is the same view, reused for both scopes. Replaces the
+  bespoke orchestrator page. (`PupaApp` `0.0.123`)
 
 ## [0.0.30] — 2026-06-22
 

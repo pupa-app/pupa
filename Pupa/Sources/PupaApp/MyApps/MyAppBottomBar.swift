@@ -1,15 +1,14 @@
 import SwiftUI
 
-/// Persistent bottom bar for a myApp — the per-app "tab bar". Always visible
-/// (mounted via `.safeAreaInset` so page content insets above it) on a myApp's
-/// home / component / memories pages. Fixed destinations on the left, the chat
-/// launcher in the middle-right, and a `⋯` menu that jumps to any component:
+/// Persistent bottom bar for a myApp or the orchestrator — the per-subject
+/// "tab bar". Always visible (mounted via `.safeAreaInset`) on a myApp's home /
+/// component / memories pages and on the orchestrator's home / memories pages.
 ///
-///   Home · Memories · History · Pupa(chat) · ⋯(components)
+///   myApp:        Home · Memories · History · Pupa(chat) · ⋯(components)
+///   orchestrator: Home · Memories ·           Pupa(chat) · ⋯(jump to myapps)
 ///
-/// Icons are tinted in the app's color; the pupa keeps its own look. Hidden on
-/// non-myApp pages (orchestrator, agents, screen share) — there the
-/// `ChatOverlay`'s own floating launcher takes over.
+/// (The orchestrator has no canvas change-log, so it omits History.) Icons are
+/// tinted in the subject's color; the pupa keeps its own look.
 public struct MyAppBottomBar: View {
     /// Which page the bar should mark as active.
     public enum Page: Equatable {
@@ -20,31 +19,33 @@ public struct MyAppBottomBar: View {
     }
 
     let store: MyAppStore
-    let myAppId: UUID
+    let subject: MyAppHomeView.Subject
     let currentPage: Page
     let appColor: Color
-    /// Folded chat status for the scope — surfaces a background run on the
-    /// pupa button while chat is closed.
+    /// Folded chat status for the scope — surfaces a background run on the pupa
+    /// button while chat is closed.
     let chatStatus: ChatActivityStatus
     /// Whether the chat card is currently open (drives the pupa button's label).
     let chatOpen: Bool
     let onSelect: (SidebarSelection) -> Void
-    let onShowHistory: () -> Void
+    /// Open the Change History sheet for a myApp. Only wired for `.myApp`; the
+    /// orchestrator hides the History button.
+    let onShowHistory: (UUID) -> Void
     let onToggleChat: () -> Void
 
     public init(
         store: MyAppStore,
-        myAppId: UUID,
+        subject: MyAppHomeView.Subject,
         currentPage: Page,
         appColor: Color,
         chatStatus: ChatActivityStatus,
         chatOpen: Bool,
         onSelect: @escaping (SidebarSelection) -> Void,
-        onShowHistory: @escaping () -> Void,
+        onShowHistory: @escaping (UUID) -> Void,
         onToggleChat: @escaping () -> Void
     ) {
         self.store = store
-        self.myAppId = myAppId
+        self.subject = subject
         self.currentPage = currentPage
         self.appColor = appColor
         self.chatStatus = chatStatus
@@ -54,19 +55,39 @@ public struct MyAppBottomBar: View {
         self.onToggleChat = onToggleChat
     }
 
-    private var app: MyApp? { store.myApps.first { $0.id == myAppId } }
+    private var myAppId: UUID? {
+        if case .myApp(let id) = subject { return id }
+        return nil
+    }
+
+    private var app: MyApp? {
+        guard let id = myAppId else { return nil }
+        return store.myApps.first { $0.id == id }
+    }
+
+    private var homeSelection: SidebarSelection {
+        myAppId.map { .myAppHome($0) } ?? .orchestrator
+    }
+
+    private var memoriesSelection: SidebarSelection {
+        myAppId.map { .myAppMemories($0) } ?? .orchestratorMemories
+    }
 
     public var body: some View {
         HStack(spacing: 0) {
             barButton(system: "house", active: currentPage == .home, help: "Home") {
-                onSelect(.myAppHome(myAppId))
+                onSelect(homeSelection)
             }
             barButton(system: "brain", active: currentPage == .memories, help: "Memories") {
-                onSelect(.myAppMemories(myAppId))
+                onSelect(memoriesSelection)
             }
-            barButton(system: "clock", active: false, help: "History", action: onShowHistory)
+            if let id = myAppId {
+                barButton(system: "clock", active: false, help: "History") {
+                    onShowHistory(id)
+                }
+            }
             pupaButton
-            componentsMenu
+            ellipsisMenu
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 6)
@@ -127,19 +148,32 @@ public struct MyAppBottomBar: View {
         .accessibilityValue(chatStatus.accessibilityDescription ?? "")
     }
 
-    /// Jump-to-component menu — the component navigator that used to be the
-    /// dock's icon row.
-    private var componentsMenu: some View {
+    /// `⋯` jump menu: a myApp lists its components; the orchestrator lists the
+    /// myapps it can drive.
+    private var ellipsisMenu: some View {
         Menu {
-            let components = app?.components ?? []
-            if components.isEmpty {
-                Text("No components yet")
+            if let app {
+                if app.components.isEmpty {
+                    Text("No components yet")
+                } else {
+                    ForEach(app.components) { component in
+                        Button {
+                            onSelect(.myAppComponent(app.id, component.id))
+                        } label: {
+                            Label(component.name, systemImage: component.iconSystemName)
+                        }
+                    }
+                }
             } else {
-                ForEach(components) { component in
-                    Button {
-                        onSelect(.myAppComponent(myAppId, component.id))
-                    } label: {
-                        Label(component.name, systemImage: component.iconSystemName)
+                if store.myApps.isEmpty {
+                    Text("No myapps yet")
+                } else {
+                    ForEach(store.myApps) { myApp in
+                        Button {
+                            onSelect(.myAppHome(myApp.id))
+                        } label: {
+                            Label(myApp.name, systemImage: myApp.iconSystemName)
+                        }
                     }
                 }
             }
@@ -153,7 +187,7 @@ public struct MyAppBottomBar: View {
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .help("Components")
-        .accessibilityLabel("Components")
+        .help(myAppId == nil ? "Myapps" : "Components")
+        .accessibilityLabel(myAppId == nil ? "Myapps" : "Components")
     }
 }
