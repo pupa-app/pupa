@@ -42,9 +42,12 @@ public struct AppView: View {
     /// inside `MyAppHomeView` pushes onto this path so Back returns to the
     /// landing page instead of clearing the whole detail pane.
     @State private var detailPath: [SidebarSelection] = []
-    /// iOS: bumped when the page behind the dock is scrolled, telling
-    /// `MyAppDock` to tuck away. See the `simultaneousGesture` in `iOSBody`.
-    @State private var dockDismissSignal = 0
+    /// Whether the chat card is open. Owned here so the per-MyApp bottom bar's
+    /// pupa button and the guided tour can both drive it, and `ChatOverlay`
+    /// renders the card vs. its fallback launcher accordingly.
+    @State private var chatOpen = false
+    /// Drives the Change History sheet opened from the bottom bar.
+    @State private var historySheet: ChangeHistorySheetDestination?
     /// Set when the user skipped backend pairing during onboarding. Drives the
     /// dismissible reminder banner until a backend is paired.
     @AppStorage(OnboardingKeys.backendSkipped) private var backendSkipped = false
@@ -117,6 +120,12 @@ public struct AppView: View {
                     onImport: { confirmImport(pending) },
                     onCancel: { pendingImport = nil }
                 )
+            }
+            .sheet(item: $historySheet) { dest in
+                switch dest {
+                case .forMyApp(let id):
+                    ChangeHistorySheet(store: store, myAppId: id) { historySheet = nil }
+                }
             }
             .alert(item: $importNotice) { note in
                 Alert(title: Text("Import"), message: Text(note.message),
@@ -314,20 +323,17 @@ public struct AppView: View {
                                 }
                         }
                 }
-                // Scrolling the page dismisses the dock. `simultaneousGesture`
-                // recognizes alongside the child ScrollView's pan, so the page
-                // still scrolls while the drag bumps the dismiss signal.
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 12)
-                        .onChanged { _ in dockDismissSignal += 1 }
-                )
-                myAppDock(for: selection ?? .myApp(store.activeMyAppId))
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    myAppBottomBar
+                }
                 ChatOverlay(
                     scope: chatScope,
                     coordinator: coordinator,
                     store: store,
                     agents: agentPickerEntries,
-                    onSwitchAgent: switchAgent
+                    onSwitchAgent: switchAgent,
+                    isOpen: $chatOpen,
+                    launcherVisible: !bottomBarVisible
                 )
             }
 
@@ -386,13 +392,17 @@ public struct AppView: View {
             }
             // Route `pupa://` links inside pushed memory notes in-app too.
             .environment(\.openURL, chatLinkAction)
-            myAppDock(for: selection ?? .myApp(store.activeMyAppId))
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                myAppBottomBar
+            }
             ChatOverlay(
                 scope: chatScope,
                 coordinator: coordinator,
                 store: store,
                 agents: agentPickerEntries,
-                onSwitchAgent: switchAgent
+                onSwitchAgent: switchAgent,
+                isOpen: $chatOpen,
+                launcherVisible: !bottomBarVisible
             )
             // Intercept `pupa://` links the agent embeds in chat markdown —
             // route them in-app instead of to the browser. Scoped to the
@@ -560,34 +570,64 @@ public struct AppView: View {
         }
     }
 
-    /// Bottom quick-switch dock, shown only on a myApp's home/component pages.
-    /// The effective page is `detailPath.last ?? rootSelection` so a
-    /// homepage→component push still marks the component as active. Taps reuse
-    /// the same flat-switch as the notification handler: reset the stack, set
-    /// the root selection, and run `dispatchSelection` so the chat scope follows.
+    /// The selection driving the detail pane right now: the top of the pushed
+    /// stack if any, else the sidebar root, else the active myApp's canvas.
+    private var effectiveSelection: SidebarSelection {
+        detailPath.last ?? selection ?? .myApp(store.activeMyAppId)
+    }
+
+    /// Whether the per-MyApp bottom bar is showing — also gates whether
+    /// `ChatOverlay` renders its own fallback launcher.
+    private var bottomBarVisible: Bool {
+        barPage(for: effectiveSelection) != nil
+    }
+
+    /// Folded chat status for the current scope — mirrors `ChatOverlay.status`
+    /// so the bar's pupa button shows the same badge the floating circle would.
+    private var chatStatus: ChatActivityStatus {
+        let base = coordinator.aggregateStatus(for: chatScope)
+        if base == .idle, case .myApp(let id) = chatScope,
+           coordinator.busyMyApps.contains(id) {
+            return .running
+        }
+        return base
+    }
+
+    /// Persistent per-MyApp bottom bar, shown on a myApp's home / component /
+    /// memories pages. The effective page is `detailPath.last ?? selection` so
+    /// a home→component push still marks the component active. Taps reset the
+    /// stack, set the root selection, and run `dispatchSelection` so the chat
+    /// scope follows.
     @ViewBuilder
-    private func myAppDock(for rootSelection: SidebarSelection) -> some View {
-        let effective = detailPath.last ?? rootSelection
-        if let id = effective.myAppId, let page = dockPage(for: effective) {
-            MyAppDock(
+    private var myAppBottomBar: some View {
+        let effective = effectiveSelection
+        if let id = effective.myAppId, let page = barPage(for: effective) {
+            MyAppBottomBar(
                 store: store,
                 myAppId: id,
                 currentPage: page,
                 appColor: .color(atIndex: store.colorIndex(for: id)),
-                dismissSignal: dockDismissSignal,
+                chatStatus: chatStatus,
+                chatOpen: chatOpen,
                 onSelect: { nav in
                     detailPath = []
                     selection = nav
                     dispatchSelection(nav)
+                },
+                onShowHistory: { historySheet = .forMyApp(myAppId: id) },
+                onToggleChat: {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                        chatOpen.toggle()
+                    }
                 }
             )
         }
     }
 
-    /// Maps a selection to the dock's active page, or `nil` for pages that
-    /// shouldn't show a dock (agents, orchestrator, …). The Memories browse
+    /// Maps a selection to the bar's active page, or `nil` for pages that
+    /// shouldn't show the bar (agents, orchestrator, …). The Memories browse
     /// page and any memory file within it both highlight the Memories button.
-    private func dockPage(for sel: SidebarSelection) -> MyAppDock.Page? {
+    private func barPage(for sel: SidebarSelection) -> MyAppBottomBar.Page? {
         switch sel {
         case .myAppHome, .myApp: return .home
         case .myAppComponent(_, let componentId): return .component(componentId)

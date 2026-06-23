@@ -3,6 +3,21 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.31] — 2026-06-22
+
+### Changed
+
+- **Restructured navigation.** The sidebar now lists MyApps as compact,
+  non-expanding rows (tap → home); the **Orchestrator** moved into the sidebar
+  footer next to **Screen share** and **Settings**. Each MyApp's home is leaner
+  — **Outline** (the agent-written summaries), a **Components** grid (tap a tile
+  to open it, "Add" picks a kind and creates one, right-click a tile to rename /
+  change its icon), and **Agents** — with Memories and History moved onto a new
+  **persistent bottom bar** per MyApp: Home · Memories · History · Pupa (chat) ·
+  ⋯ (jump to any component). The chat launcher now lives in that bar on MyApp
+  pages; on other pages (orchestrator, agents, screen share) it stays a floating
+  pupa circle so chat is always reachable. (`PupaApp` `0.0.122`)
+
 ## [0.0.30] — 2026-06-22
 
 ### Added
