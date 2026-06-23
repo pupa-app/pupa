@@ -3,6 +3,23 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.32] — 2026-06-23
+
+### Added
+
+- **iCloud sync across your devices.** MyApps, memories, and settings now
+  follow your Apple ID — create a tracker on iPhone, see it on Mac. Data
+  lives in the app's iCloud container when available and falls back to local
+  storage when iCloud is off (no change in behaviour there). Chat history was
+  already shared by the backend; device tokens stay on-device in the Keychain.
+  Edits on one device appear live on the others. (`PupaApp` `0.0.124`)
+- Storage moved from monolithic `UserDefaults` blobs to **per-file** state
+  (one file per MyApp; memories already per-file), so only what changed syncs
+  — minimal traffic, and a foundation for per-app snapshots. Clean break:
+  existing local data is not migrated. Enabling iCloud requires the
+  CloudDocuments capability (see `PupaHost/Config.xcconfig`). (`PupaApp`
+  `0.0.124`)
+
 ## [0.0.31] — 2026-06-23
 
 ### Changed

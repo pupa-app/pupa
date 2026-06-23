@@ -44,7 +44,9 @@ public struct BackendEntry: Identifiable, Codable, Equatable, Sendable {
 
 /// Persistent user-controlled toggles surfaced in the Settings sheet.
 ///
-/// Persistence is a single JSON blob under `pupa.settings.v1`.
+/// Persistence is a JSON file `state/settings.json` under the active storage
+/// root (iCloud container when available, else local) — see `PupaStorage`.
+/// Device tokens are excluded: they stay in the Keychain, unsynced.
 ///
 /// Stored:
 ///   - `disabledBackendTools` — which backend tools the user has muted; pushed
@@ -59,6 +61,9 @@ public struct BackendEntry: Identifiable, Codable, Equatable, Sendable {
 @MainActor
 @Observable
 public final class SettingsStore {
+    /// Legacy UserDefaults key. No longer the persistence backend (state moved
+    /// to `state/settings.json`); retained only for onboarding's existing-user
+    /// probe in `OnboardingMigration`.
     public static let storageKey = "pupa.settings.v1"
 
     public static let defaultBackendURL = URL(string: "http://localhost:8004/")!
@@ -333,7 +338,13 @@ public final class SettingsStore {
             a2aMaxTurnsPerPair: a2aMaxTurnsPerPair
         )
         guard let data = try? JSONEncoder().encode(snap) else { return }
-        UserDefaults.standard.set(data, forKey: Self.storageKey)
+        try? CloudDocument.write(data, to: Self.settingsURL)
+    }
+
+    /// `state/settings.json` under the active storage root. Device tokens are
+    /// **not** here — they stay in the Keychain, unsynced (see `credentials`).
+    static var settingsURL: URL {
+        PupaStorage.stateRoot.appendingPathComponent("settings.json")
     }
 
     /// On-disk shape. Backwards-compatible for two old shapes:
@@ -371,7 +382,7 @@ public final class SettingsStore {
     }
 
     private static func load() -> Loaded {
-        guard let data = UserDefaults.standard.data(forKey: storageKey),
+        guard let data = CloudDocument.read(settingsURL),
               let snap = try? JSONDecoder().decode(Snapshot.self, from: data)
         else {
             let entry = BackendEntry(label: defaultBackendLabel, url: defaultBackendURL)
@@ -414,7 +425,21 @@ public final class SettingsStore {
     }
 
     public static func clearStorage() {
-        UserDefaults.standard.removeObject(forKey: storageKey)
+        CloudDocument.delete(settingsURL)
+    }
+
+    /// Reload settings from disk and republish. Called by the iCloud watcher
+    /// when a remote edit lands. Keychain-held tokens are untouched.
+    public func reloadFromDisk() {
+        let loaded = Self.load()
+        disabledBackendTools = loaded.disabledTools
+        backends = loaded.backends
+        activeBackendID = loaded.activeBackendID
+        shellApprovalDisabled = loaded.shellApprovalDisabled
+        orchestratorLLMProvider = loaded.orchestratorLLMProvider
+        orchestratorLLMModel = loaded.orchestratorLLMModel
+        a2aMaxChainDepth = loaded.a2aMaxChainDepth
+        a2aMaxTurnsPerPair = loaded.a2aMaxTurnsPerPair
     }
 }
 

@@ -56,6 +56,7 @@ struct AgentDispatcherTests {
 @Suite("OrchestratorPolicy")
 @MainActor
 struct OrchestratorPolicyTests {
+    init() { TestStorage.activate() }
 
     @Test("canInvoke returns true for nil caller (user)")
     func canInvokeUser() {
@@ -115,6 +116,7 @@ struct OrchestratorPolicyTests {
 @Suite("MyAppPolicy")
 @MainActor
 struct MyAppPolicyTests {
+    init() { TestStorage.activate() }
 
     @Test("canInvoke returns true for all callers by default")
     func canInvokeAll() {
@@ -183,6 +185,7 @@ struct MyAppPolicyTests {
 @Suite("AgentPolicy scoping isolation")
 @MainActor
 struct AgentPolicyScopingTests {
+    init() { TestStorage.activate() }
 
     @Test("Orchestrator and MyApp read from different memory roots")
     func differentRoots() async {

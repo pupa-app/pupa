@@ -5,9 +5,12 @@ import Observation
 /// `CanvasState` — every canvas mutation routes through here against the
 /// active myapp.
 ///
-/// Persistence is a single JSON blob under `pupa.myapps.v1`. On first
-/// launch under a fresh install (or upgrade from any earlier `Space`-era
-/// storage), `load()` seeds the pre-populated "Example: Wellbeing Coach"
+/// Persistence is **per-file** under the active storage root's `state/`
+/// folder (`PupaStorage`): one `apps/<uuid>.json` per MyApp plus an
+/// `index.json` (active id, order, orchestrator threads, audit log). One
+/// mutation rewrites only the touched file, so iCloud syncs minimal traffic
+/// and per-app snapshots stay cheap. On first launch under a fresh install
+/// (no `state/`), `load()` seeds the pre-populated "Example: Wellbeing Coach"
 /// workspace via `WellbeingCoachExample.make()` — a working demo of the
 /// full canvas instead of an empty placeholder. Users can add any example
 /// any time from Settings → Examples. The spaces→myapps rename in project
@@ -19,7 +22,10 @@ import Observation
 @MainActor
 @Observable
 public final class MyAppStore {
-    public static let storageKey = "pupa.myapps.v1"
+    /// Per-app encoded-blob hashes; lets `persist()` skip unchanged files so
+    /// only the mutated MyApp re-syncs.
+    private var lastAppHash: [UUID: Int] = [:]
+    private var lastIndexHash: Int?
 
     public private(set) var myApps: [MyApp]
     public private(set) var activeMyAppId: UUID
@@ -43,12 +49,15 @@ public final class MyAppStore {
             self.memoryThreads = [first]
             self.memoryCurrentThreadId = first.id
         } else {
-            let snapshot = Self.load()
-            self.myApps = snapshot.myApps
-            self.activeMyAppId = snapshot.activeId
-            self.memoryThreads = snapshot.memoryThreads
-            self.memoryCurrentThreadId = snapshot.memoryCurrentThreadId
-            self.itemEventLog = snapshot.itemEventLog
+            let loaded = Self.load()
+            self.myApps = loaded.myApps
+            self.activeMyAppId = loaded.activeId
+            self.memoryThreads = loaded.memoryThreads
+            self.memoryCurrentThreadId = loaded.memoryCurrentThreadId
+            self.itemEventLog = loaded.itemEventLog
+            // Seed disk on fresh install; otherwise prime hashes so the first
+            // mutation only writes the app that actually changed.
+            if loaded.fromDisk { primeHashes() } else { persist() }
         }
     }
 
@@ -2765,58 +2774,123 @@ public final class MyAppStore {
         persist()
     }
 
-    private func persist() {
-        let snapshot = Snapshot(
-            myApps: myApps,
-            activeId: activeMyAppId,
-            memoryThreads: memoryThreads,
-            memoryCurrentThreadId: memoryCurrentThreadId,
-            itemEventLog: itemEventLog
-        )
-        guard let data = try? JSONEncoder().encode(snapshot) else { return }
-        UserDefaults.standard.set(data, forKey: Self.storageKey)
+    // MARK: - Per-file persistence
+
+    private static var stateRoot: URL { PupaStorage.stateRoot }
+    private static var appsDir: URL { stateRoot.appendingPathComponent("apps", isDirectory: true) }
+    private static var indexURL: URL { stateRoot.appendingPathComponent("index.json") }
+    private static func appURL(_ id: UUID) -> URL {
+        appsDir.appendingPathComponent("\(id.uuidString).json")
     }
 
-    private struct Snapshot: Codable {
-        var myApps: [MyApp]
+    /// `index.json` — everything that isn't a single MyApp body.
+    private struct IndexFile: Codable {
+        var order: [UUID]
         var activeId: UUID
         var memoryThreads: [ChatThread]
         var memoryCurrentThreadId: String
         var itemEventLog: ItemEventLog?
     }
 
-    private static func load() -> (myApps: [MyApp], activeId: UUID, memoryThreads: [ChatThread], memoryCurrentThreadId: String, itemEventLog: ItemEventLog) {
-        let defaults = UserDefaults.standard
+    /// Write only the files whose encoded bytes changed; delete files for
+    /// removed apps. Each write is `NSFileCoordinator`-coordinated for iCloud.
+    private func persist() {
+        let enc = JSONEncoder()
+        var live = Set<UUID>()
+        for app in myApps {
+            live.insert(app.id)
+            guard let data = try? enc.encode(app) else { continue }
+            let h = data.hashValue
+            if lastAppHash[app.id] == h { continue }
+            try? CloudDocument.write(data, to: Self.appURL(app.id))
+            lastAppHash[app.id] = h
+        }
+        for gone in Set(lastAppHash.keys).subtracting(live) {
+            CloudDocument.delete(Self.appURL(gone))
+            lastAppHash[gone] = nil
+        }
+        let index = IndexFile(
+            order: myApps.map(\.id),
+            activeId: activeMyAppId,
+            memoryThreads: memoryThreads,
+            memoryCurrentThreadId: memoryCurrentThreadId,
+            itemEventLog: itemEventLog
+        )
+        if let data = try? enc.encode(index), data.hashValue != lastIndexHash {
+            try? CloudDocument.write(data, to: Self.indexURL)
+            lastIndexHash = data.hashValue
+        }
+    }
 
-        if let data = defaults.data(forKey: storageKey),
-           let snap = try? JSONDecoder().decode(Snapshot.self, from: data),
-           !snap.myApps.isEmpty {
-            let active = snap.myApps.contains(where: { $0.id == snap.activeId }) ? snap.activeId : snap.myApps[0].id
-            var log = snap.itemEventLog ?? ItemEventLog()
-            log.prune()
-            return (snap.myApps, active, snap.memoryThreads, snap.memoryCurrentThreadId, log)
+    /// Fill the dirty-hash caches from current state without writing, so the
+    /// next mutation only re-encodes/uploads the file that changed.
+    private func primeHashes() {
+        let enc = JSONEncoder()
+        for app in myApps {
+            if let data = try? enc.encode(app) { lastAppHash[app.id] = data.hashValue }
+        }
+        let index = IndexFile(
+            order: myApps.map(\.id), activeId: activeMyAppId,
+            memoryThreads: memoryThreads, memoryCurrentThreadId: memoryCurrentThreadId,
+            itemEventLog: itemEventLog)
+        lastIndexHash = (try? enc.encode(index))?.hashValue
+    }
+
+    private struct Loaded {
+        var myApps: [MyApp]
+        var activeId: UUID
+        var memoryThreads: [ChatThread]
+        var memoryCurrentThreadId: String
+        var itemEventLog: ItemEventLog
+        var fromDisk: Bool
+    }
+
+    private static func load() -> Loaded {
+        let dec = JSONDecoder()
+        if let data = CloudDocument.read(indexURL),
+           let index = try? dec.decode(IndexFile.self, from: data) {
+            // Read app files in index order; tolerate missing/corrupt ones.
+            let apps: [MyApp] = index.order.compactMap { id in
+                CloudDocument.read(appURL(id)).flatMap { try? dec.decode(MyApp.self, from: $0) }
+            }
+            if !apps.isEmpty {
+                let active = apps.contains(where: { $0.id == index.activeId }) ? index.activeId : apps[0].id
+                var log = index.itemEventLog ?? ItemEventLog()
+                log.prune()
+                return Loaded(myApps: apps, activeId: active, memoryThreads: index.memoryThreads,
+                              memoryCurrentThreadId: index.memoryCurrentThreadId,
+                              itemEventLog: log, fromDisk: true)
+            }
         }
 
         // Fresh install: seed the Wellbeing Coach (default, active) plus the
         // Home Buying example so the calculator/chart demo is present out of
-        // the box. Both are restorable from Settings if deleted.
+        // the box. Both are restorable from Settings if deleted. The caller
+        // writes these to disk via `persist()`.
         let myApp = WellbeingCoachExample.make()
         let homeBuying = HomeBuyingExample.make()
         let firstThread = ChatThread()
-        let snap = Snapshot(
-            myApps: [myApp, homeBuying],
-            activeId: myApp.id,
-            memoryThreads: [firstThread],
-            memoryCurrentThreadId: firstThread.id
-        )
-        if let data = try? JSONEncoder().encode(snap) {
-            defaults.set(data, forKey: storageKey)
-        }
-        return (snap.myApps, snap.activeId, snap.memoryThreads, snap.memoryCurrentThreadId, ItemEventLog())
+        return Loaded(myApps: [myApp, homeBuying], activeId: myApp.id,
+                      memoryThreads: [firstThread], memoryCurrentThreadId: firstThread.id,
+                      itemEventLog: ItemEventLog(), fromDisk: false)
+    }
+
+    /// Reload all state from disk and republish. Called by the iCloud watcher
+    /// when a remote edit lands so the UI reflects the other device.
+    public func reloadFromDisk() {
+        let loaded = Self.load()
+        guard loaded.fromDisk else { return }
+        myApps = loaded.myApps
+        activeMyAppId = loaded.activeId
+        memoryThreads = loaded.memoryThreads
+        memoryCurrentThreadId = loaded.memoryCurrentThreadId
+        itemEventLog = loaded.itemEventLog
+        lastAppHash.removeAll()
+        primeHashes()
     }
 
     public static func clearStorage() {
-        UserDefaults.standard.removeObject(forKey: storageKey)
+        try? FileManager.default.removeItem(at: stateRoot)
     }
 }
 

@@ -299,16 +299,34 @@ Full reference: [skills.md](skills.md).
 
 ## Persistence
 
-- **Canvas + MyApps state** → `UserDefaults` blob `pupa.myapps.v1`.
-- **Settings** → `UserDefaults` blob `pupa.settings.v1` (backend URL,
-  optional API key, disabled backend tools, A2A guardrails). The Settings
+Synced data lives under one **storage root**, resolved per launch by
+`PupaStorage`: the iCloud ubiquity container's `Documents/` when iCloud is
+available, else local `~/Library/Application Support/pupa` (current
+behaviour when iCloud is off — no crash, just no sync). The same Apple ID's
+devices therefore share MyApps, memories, and settings. All synced file IO
+goes through `CloudDocument` (`NSFileCoordinator`-wrapped); a `CloudWatcher`
+(`NSMetadataQuery`) reloads the stores live when another device's edit lands.
+Conflicts resolve last-writer-wins, **per file**. There is no migration from
+the pre-iCloud single-blob storage — a new build seeds fresh. iCloud needs
+the CloudDocuments entitlement (`PupaHost.entitlements`, container
+`iCloud.app.pupa.ios` = `PupaStorage.containerID`).
+
+- **Canvas + MyApps state** → **per-file** under `state/`: one
+  `apps/<uuid>.json` per MyApp plus `index.json` (active id, order,
+  orchestrator threads, audit log). One mutation rewrites only the touched
+  file (dirty-hashed in `MyAppStore`), so iCloud syncs minimal traffic and
+  per-app snapshots stay cheap.
+- **Settings** → JSON file `state/settings.json` (backend list,
+  disabled backend tools, A2A guardrails). Device tokens are **excluded** —
+  they stay in the Keychain, unsynced. The Settings
   sheet groups these into drill-down categories: Backend, Tools (shell
   approval + backend tool toggles), Agent-to-agent (the `AgentInvocationGate`
   conversation-rounds + chain-depth limits), **Agents** (the
   `AgentsOverviewView` — see below), Notifications (lists/cancels
   pending scheduled notifications), and Examples.
 - **Agent activity stats** → `UserDefaults` blob `pupa.agentstats.v1`,
-  owned by `AgentStatsStore`. Deliberately schema-free: a flat
+  owned by `AgentStatsStore`. Device-local, **not** iCloud-synced (advisory
+  counters only). Deliberately schema-free: a flat
   `[agentKey: AgentStat]` bag whose `counters` are an open `[String: Int]`,
   keyed by `AgentInvocationKey.statKey` (opaque string, never a struct
   shape) so it survives as agent kinds grow. Counters are bumped at the one
@@ -323,9 +341,9 @@ Full reference: [skills.md](skills.md).
   the orchestrator is a top-level agent dropdown) showing these counters +
   per-agent conversation counts (derived live from `MyAppStore.threads`),
   plus a threads collection grouped by agent.
-- **Memories** → markdown files under
-  `~/Library/Application Support/pupa/memories/` (per-agent namespaces
-  under `agents/<agentId>/`). Survive "New session".
+- **Memories** → markdown files under `<storage root>/memories/`
+  (per-agent namespaces under `agents/<agentId>/`). Survive "New session".
+  Each file syncs individually via iCloud.
 - **Chat history** → owned by the *backend* checkpointer, keyed by
   `threadId`. The client reloads old conversations from
   `GET /db/threads/{threadId}/messages` after relaunch. Unset DB config

@@ -9,3 +9,11 @@
 // The `#include?` below is optional: builds still succeed without the file
 // (e.g. on CI), they just won't be code-signed for a specific team.
 #include? "Local.xcconfig"
+
+// iCloud Documents sync (PupaHost.entitlements). Commented out by default:
+// enabling it makes signing require the `iCloud.app.pupa.ios` container be
+// registered to your team in the Apple Developer portal (Xcode → Signing &
+// Capabilities → + iCloud → CloudDocuments creates it via automatic signing).
+// Uncomment once the container exists, or archives will fail to sign. The id
+// must stay in sync with `PupaStorage.containerID`.
+// CODE_SIGN_ENTITLEMENTS = PupaHost/PupaHost.entitlements

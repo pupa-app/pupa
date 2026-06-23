@@ -6,12 +6,14 @@ import Testing
 /// and tool-toggle persistence. Pre-Phase-3b api-key tests have been
 /// removed alongside the field itself — paired-device tokens are the only
 /// client-side credential now (see [`BackendPairingTests`](BackendPairingTests.swift)).
-/// Persistence shares the `pupa.settings.v1` UserDefaults key with
-/// `disabledBackendTools`, so we still pin that the two concerns coexist
-/// after a save/load cycle.
+/// Persistence is the `state/settings.json` file (redirected to a temp dir by
+/// `TestStorage`); `disabledBackendTools` and the backend list share it, so we
+/// pin that the two concerns coexist after a save/load cycle.
 @MainActor
-@Suite("SettingsStore persistence")
+@Suite("SettingsStore persistence", .serialized)
 struct SettingsStorePersistenceTests {
+
+    init() { TestStorage.activate() }
 
     private func freshStore() -> SettingsStore {
         SettingsStore.clearStorage()
@@ -131,10 +133,10 @@ struct SettingsStorePersistenceTests {
         #expect(edited.url.absoluteString == "https://new.example.com/")
     }
 
-    @Test("Pre-Phase-3b snapshot with per-entry apiKey decodes cleanly (key dropped)")
+    @Test("settings.json with a per-entry apiKey decodes cleanly (unknown key dropped)")
     func preParingApiKey_silentlyDropped() throws {
         SettingsStore.clearStorage()
-        // Hand-write a Phase A–era snapshot (multi-backend list, per-entry apiKey).
+        // Hand-write a settings file carrying a stale per-entry apiKey field.
         let id = UUID()
         let legacy: [String: Any] = [
             "disabledBackendTools": [],
@@ -150,7 +152,7 @@ struct SettingsStorePersistenceTests {
             "shellApprovalDisabled": false,
         ]
         let data = try JSONSerialization.data(withJSONObject: legacy)
-        UserDefaults.standard.set(data, forKey: SettingsStore.storageKey)
+        try CloudDocument.write(data, to: SettingsStore.settingsURL)
 
         let store = SettingsStore(credentials: InMemoryCredentialStore())
         #expect(store.backends.count == 1)
