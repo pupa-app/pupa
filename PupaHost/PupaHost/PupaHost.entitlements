@@ -2,10 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- iCloud Documents sync for app state + memories. The container id must
-	     match PupaStorage.containerID and be registered to the signing team in
-	     the Apple Developer portal (Xcode automatic signing creates it). Until
-	     then this file is NOT referenced by the build — see Config.xcconfig. -->
 	<key>com.apple.developer.icloud-container-identifiers</key>
 	<array>
 		<string>iCloud.app.pupa.ios</string>

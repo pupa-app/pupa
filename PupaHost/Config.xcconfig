@@ -10,10 +10,10 @@
 // (e.g. on CI), they just won't be code-signed for a specific team.
 #include? "Local.xcconfig"
 
-// iCloud Documents sync (PupaHost.entitlements). Commented out by default:
-// enabling it makes signing require the `iCloud.app.pupa.ios` container be
-// registered to your team in the Apple Developer portal (Xcode → Signing &
-// Capabilities → + iCloud → CloudDocuments creates it via automatic signing).
-// Uncomment once the container exists, or archives will fail to sign. The id
-// must stay in sync with `PupaStorage.containerID`.
-// CODE_SIGN_ENTITLEMENTS = PupaHost/PupaHost.entitlements
+// iCloud Documents sync is enabled via the target's Signing & Capabilities
+// (iCloud → CloudDocuments, container `iCloud.app.pupa.ios`), which sets
+// CODE_SIGN_ENTITLEMENTS + PupaHost/PupaHost/PupaHost.entitlements in the
+// project. The container id must stay in sync with `PupaStorage.containerID`.
+// Each dev needs that container provisioned to their team (paid membership);
+// without it, device/archive signing fails — simulator builds fall back to
+// local storage and are unaffected.
