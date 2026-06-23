@@ -57,7 +57,7 @@ handlers.
 | [`Canvas/`](../Pupa/Sources/PupaApp/Canvas/) | `CanvasState` + the per-shape SwiftUI views (`TrackerView`, `CalendarView`, `ChecklistView`, `KanbanView`, `SlackView`) and the cross-component link picker. |
 | [`Chat/`](../Pupa/Sources/PupaApp/Chat/) | `ChatViewModel`, `ChatSessionCoordinator` (drives `AgentSession`), `ChatPanel` + thread-selector dropdown (`ConversationPager`), slash commands, transcript mapping. The composer attaches one image — from the photo library, the camera (`CameraPicker`, iOS), or drag-and-drop — all funnelled through `ImagePreparer` into a `PickedImage`. |
 | [`Tools/`](../Pupa/Sources/PupaApp/Tools/) | `AppTools.swift` — registers every frontend tool against the `ToolRegistry`. |
-| [`Memory/`](../Pupa/Sources/PupaApp/Memory/) | `MemoryStore` — sandboxed markdown filesystem; orchestrator home. |
+| [`Memory/`](../Pupa/Sources/PupaApp/Memory/) | `MemoryStore` — sandboxed markdown filesystem. |
 | [`Agents/`](../Pupa/Sources/PupaApp/Agents/) | Per-agent policies, the agent overview/detail pages, `ModelCatalogStore` (live backend model list) + `KnownLLMModelCatalog` (offline fallback). |
 | [`Slack/`](../Pupa/Sources/PupaApp/Slack/) | `SlackInvoker` — multi-agent room invocation policy. |
 | [`ScreenShare/`](../Pupa/Sources/PupaApp/ScreenShare/) | WebRTC viewer + signalling client for the backend's `/screenshare/ws` broker. |
@@ -66,15 +66,24 @@ handlers.
 `AppView` lays this out as a fixed-width `HStack` split (sidebar `Divider`
 detail) on macOS and a custom slide-in drawer on iOS. (macOS deliberately
 avoids `NavigationSplitView`: its sidebar fails to render in the unbundled
-`swift run` PupaDemo binary, leaving an empty column. The macOS sidebar also
-uses one merged `List` — MyApps + Orchestrator — since the iOS dual-`List`
-layout doesn't apply without the split view.) The drawer fills most of a
-compact (iPhone-portrait)
-screen but stays a slim fixed width on a regular width class (iPad, large
-iPhone landscape). The chat lives in a floating, user-resizable `ChatOverlay`
-card anchored bottom-trailing of the detail pane; on iOS it does its own
-keyboard avoidance (it tracks the keyboard height and lifts/shrinks the card)
-so the composer stays visible above the keyboard in any orientation. A
+`swift run` PupaDemo binary, leaving an empty column.) The sidebar lists the
+MyApps as compact, **non-expanding** rows (tap a row → its home; components,
+memories, and history are reached from the MyApp home + its bottom bar, not the
+sidebar); a footer menu holds the global **Orchestrator**, the **Screen share**
+viewer, and **Settings**. The Orchestrator opens the same home layout as a
+MyApp (`MyAppHomeView` with `subject: .orchestrator`) — an Outline explaining
+what it coordinates plus the myapps it can drive, an empty Components panel, and
+its agent — plus the same bottom bar (Home · Memories · Pupa · ⋯), rather than a
+bespoke page. The drawer fills most of a compact
+(iPhone-portrait) screen but stays a slim fixed width on a regular width class
+(iPad, large iPhone landscape).
+
+The chat lives in a user-resizable `ChatOverlay` card anchored bottom-trailing
+of the detail pane. Its launcher lives in the per-MyApp bottom bar (below); on
+pages without that bar (orchestrator, agents, screen share) `ChatOverlay` shows
+its own fallback pupa circle so chat stays reachable everywhere. On iOS the card
+does its own keyboard avoidance (it tracks the keyboard height and lifts/shrinks
+the card) so the composer stays visible above the keyboard in any orientation. A
 full-screen expand/restore button (⤢) in the card header fills the detail pane
 edge-to-edge (no inset, flush corners); the resize grip is hidden while
 full-screen is active.
@@ -87,25 +96,27 @@ selectable on every platform and expose a **Copy** context-menu action
 (`ChatClipboard`, right-click on macOS / long-press on iOS) that copies the
 whole bubble.
 
-On a myApp's home/component pages the detail pane also hosts a **bottom dock**
-(`MyApps/MyAppDock.swift`): an icon-only quick-switcher — one icon per
-component, then (after a hairline) the app-level nav pair **Home** (`house`)
-and **Memories** (`brain`). Memories opens `MyAppMemoriesView`, a browse page
-showing the app's note tree (folders drill in, files push `.myAppMemoryFile`);
-viewing any note keeps the Memories button highlighted. All tinted the app's
-color (creation-order index via `MyAppStore.colorIndex(for:)`), current page
-highlighted. It reveals on
-*approach* — macOS slides it up while the pointer is near the bottom edge; iOS
-peeks a handle you tap to expand. On iOS the dock never covers the page (no
-scrim), so the page stays scrollable; scrolling dismisses the dock (`AppView`
-bumps a `dockDismissSignal` via a non-blocking `simultaneousGesture` on the
-content `NavigationStack`), and a 5s inactivity timer fades it otherwise. When
-the icons exceed the width the row scrolls horizontally (`ViewThatFits`). The
-capsule centers within the width minus a trailing gutter (`chatLauncherGutter`)
-so it never slides under the floating chat launcher pinned bottom-trailing.
-`AppView` hosts it once below `ChatOverlay`, gated to `.myAppHome`/`.myApp`/
-`.myAppComponent`/`.myAppMemoryFile`; taps flat-switch the root selection (reset
-`detailPath`, set `selection`, run `dispatchSelection`).
+On a myApp's home / component / memories pages — and the orchestrator's home /
+memories pages — the detail pane hosts a persistent **bottom bar**
+(`MyApps/MyAppBottomBar.swift`) — the per-subject "tab bar", mounted via
+`.safeAreaInset(edge: .bottom)` so the page content insets above it instead of
+hiding under a floating overlay. It's keyed by `MyAppHomeView.Subject`
+(`.myApp(id)` / `.orchestrator`). Left to right: **Home** (`house`), **Memories**
+(`brain`, opens `MyAppMemoriesView` — a browse page of the subject's note tree;
+folders drill in, files push `.myAppMemoryFile` / `.memoryFile`), **History**
+(`clock`, presents `ChangeHistorySheet` — **myApp only**; the orchestrator has no
+canvas change-log so it omits this), the **Pupa** chat launcher (toggles
+`AppView.chatOpen`, carrying the scope's `StatusBadge`), and a **⋯** menu that
+jumps to any component (myApp) or any myapp (orchestrator). Glyphs are tinted the
+subject's color (a myApp's creation-order index via
+`MyAppStore.colorIndex(for:)`; `orchestratorColor` for the orchestrator), the
+current page highlighted; the pupa keeps its own look. `AppView` gates the bar
+via `barSubject` + `barPage`; taps flat-switch the root selection (reset
+`detailPath`, set `selection`, run `dispatchSelection`). Because the bar owns the
+chat launcher on these pages, `ChatOverlay` hides its fallback circle there
+(`launcherVisible`). `MyAppMemoriesView` + `MemoryLandingRow` are
+subject-generalized (a path→selection closure), so one browse view + row serve
+both scopes.
 
 **In-app links (`pupa://`).** The agent can embed tappable navigation links in
 chat markdown; `Chat/ChatLink.swift` maps a `pupa://` URL to a
@@ -131,9 +142,10 @@ per-thread state derived live from each `ChatViewModel`: `actionRequired`
 is on screen). `ChatSessionCoordinator.status(for:threadId:)` exposes one
 thread's status and `aggregateStatus(for:)` folds a scope's threads to the
 highest. The shared `StatusBadge` view renders an amber / red / blue
-exclamation (or a spinner while `running`) on the collapsed `ChatOverlay`
-circle (scope aggregate, upgraded to `running` when `busyMyApps` covers the
-scope), the thread dropdown rows + label, and the Agents dashboard thread rows.
+exclamation (or a spinner while `running`) on the bottom bar's **Pupa** button
+(and `ChatOverlay`'s fallback circle on pages without the bar) — scope
+aggregate, upgraded to `running` when `busyMyApps` covers the scope — plus the
+thread dropdown rows + label and the Agents dashboard thread rows.
 
 ## Launch sequence
 
@@ -191,10 +203,9 @@ All canvas / item mutation goes through **`MyAppStore`**
 `mutate(myAppId:byComponentId:_:)` (explicit component). Views never
 mutate state directly; they read it and call store methods or registered
 tools. Every mutation records a typed inverse in `ItemEventLog` so
-`undo(eventId:)` can reverse it. This log is surfaced both via the
-sidebar's per-MyApp **History** sheet and a **History** panel on the
-MyApp landing page (`MyAppHomeView`, below Memories) — recent events
-inline, "View all" opening the same sheet.
+`undo(eventId:)` can reverse it. This log is surfaced via the per-MyApp
+bottom bar's **History** button, which presents the full `ChangeHistorySheet`
+(newest-first, grouped by day, per-row Undo).
 
 ## Shapes
 
@@ -211,8 +222,9 @@ A `Component`'s `id` is permanent (the key every cross-component ref, active
 selection, and tool dispatch resolves by), but its `name`, `iconSystemName`,
 and LLM-facing `summary` are mutable. `MyAppStore.updateComponentMeta` edits
 them in place, exposed to the agent as the `setComponentMeta` tool and to the
-user via the sidebar component row's **Rename / icon…** sheet — so relabelling
-never means delete-and-re-add (which would lose the component's data).
+user via the MyApp home Components grid's per-tile **Rename / icon…** context
+menu — so relabelling never means delete-and-re-add (which would lose the
+component's data).
 
 The **calculator** shape is a live numeric model: tunable variable rows,
 tracker-aggregate rows (sum/avg/min/max/count with a category filter),

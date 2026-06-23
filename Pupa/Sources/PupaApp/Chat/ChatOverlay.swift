@@ -1,10 +1,11 @@
 import SwiftUI
 
-/// Floating chat overlay. Collapsed by default as a circular pupa
-/// button bottom-trailing of the detail pane; tapping expands it into a
-/// floating card (defaulting to roughly half the available space) that hosts
-/// a `ConversationPager` — the `ChatPanel` for the active scope's current
-/// conversation, with a header dropdown for switching threads. The card is
+/// Floating chat overlay. `isOpen` (owned by `AppView`) drives the expanded
+/// floating card hosting a `ConversationPager` — the `ChatPanel` for the active
+/// scope's current conversation, with a header dropdown for switching threads.
+/// On MyApp pages the per-MyApp bottom bar's pupa button toggles `isOpen`; on
+/// other pages (orchestrator, agents, screen share) `launcherVisible` is true
+/// so a fallback circular pupa launcher keeps chat reachable. The card is
 /// user-resizable via a grip on its top-leading corner. The chosen size
 /// survives expand/collapse within a session but resets each launch.
 struct ChatOverlay: View {
@@ -13,8 +14,14 @@ struct ChatOverlay: View {
     let store: MyAppStore
     let agents: [AgentPickerEntry]
     let onSwitchAgent: (ChatScope) -> Void
+    /// Whether the chat card is open. Owned by `AppView` so the per-MyApp
+    /// bottom bar's pupa button — and the guided tour — can toggle it.
+    @Binding var isOpen: Bool
+    /// Show the fallback floating launcher circle. `false` on pages that
+    /// already carry the bar's pupa button (MyApp pages); `true` elsewhere so
+    /// chat stays reachable.
+    var launcherVisible: Bool = true
 
-    @State private var isExpanded: Bool = false
     @State private var isFullscreen: Bool = false
     /// Shared guided-tour store. The chat / slash-command steps raise
     /// `wantChatOpen` to expand this overlay so the coach card has the live
@@ -46,13 +53,13 @@ struct ChatOverlay: View {
                 height: max(0, geo.size.height - overlap)
             )
             ZStack(alignment: .bottomTrailing) {
-                if isExpanded {
+                if isOpen {
                     card(in: available)
                         .transition(
                             .scale(scale: 0.6, anchor: .bottomTrailing)
                             .combined(with: .opacity)
                         )
-                } else {
+                } else if launcherVisible {
                     iconButton
                         .transition(
                             .scale(scale: 0.6, anchor: .bottomTrailing)
@@ -72,7 +79,7 @@ struct ChatOverlay: View {
         // never fights normal use.
         .onChange(of: tour.wantChatOpen) { _, want in
             withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                isExpanded = want
+                isOpen = want
                 if !want { isFullscreen = false }
             }
         }
@@ -107,7 +114,7 @@ struct ChatOverlay: View {
     private var iconButton: some View {
         Button {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                isExpanded = true
+                isOpen = true
             }
         } label: {
             ZStack {
@@ -248,7 +255,7 @@ struct ChatOverlay: View {
 
     private func collapse() {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-            isExpanded = false
+            isOpen = false
             isFullscreen = false
         }
     }
