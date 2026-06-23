@@ -63,11 +63,11 @@ case .widget(let data):
 
 [Pupa/Sources/PupaApp/MyApps/MyAppType.swift](../Pupa/Sources/PupaApp/MyApps/MyAppType.swift)
 
-In `MyAppType.tracker` (the default `MyAppType` every MyApp currently uses):
+In `MyAppType.tracker` (the default `MyAppType` every MyApp currently uses), add **one** `ComponentKindSpec` entry to the `kinds` dictionary, keyed `"widget"`. That single entry is the whole per-kind surface — `supportedComponentKinds`, `toolNamesByKind`, and `promptFragmentsByKind` all derive from it, so there are no parallel maps to keep in sync. Its three fields:
 
-- Add `"widget"` to `supportedComponentKinds`. **Without this, the agent's `addComponent` tool will reject the kind** — its JSON Schema `enum` is derived from this set ([AppTools.swift:1057-1080](../Pupa/Sources/PupaApp/Tools/AppTools.swift)).
-- Add an entry to `toolNamesByKind["widget"]` listing every Widget tool name. Tools listed here are only advertised on rounds where at least one `.widget` component exists in the MyApp.
-- Add a paragraph to `promptFragmentsByKind["widget"]` describing the mental model — when to choose this shape, what its `summary` slot is for, how state surfaces. Don't enumerate tool names; they're forwarded as proper tool definitions.
+- `tools:` — every Widget tool name. Advertised only on rounds where at least one `.widget` component exists. (Being absent from this set is also what makes `addComponent` reject the kind — the tool's JSON Schema `enum` derives from `kinds.keys`.)
+- `promptFragment:` — a paragraph on the mental model: when to choose this shape, what its `summary` slot is for, how state surfaces. Rides context only while a `.widget` component is present. Don't enumerate tool names; they're forwarded as proper tool definitions.
+- `catalogBlurb:` — a single phrase (no leading kind label) for the always-on `addComponent` catalog menu, e.g. `"a small live status widget"`. This is the *only* per-kind prose the agent sees **before** a widget exists, so it's what lets the model decide to create one. Keep it distinct from `promptFragment` — the menu must read as one clean line.
 
 ## 5b. Marketplace export policy
 

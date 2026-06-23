@@ -48,6 +48,8 @@ public struct MyAppHomeView: View {
     @State private var componentsExpanded: Bool = true
     /// The component whose name + icon the user is editing, or `nil`.
     @State private var editingComponent: EditingComponentRef?
+    /// The component pending delete confirmation, or `nil`.
+    @State private var deletingComponent: EditingComponentRef?
 
     private let componentColumns = [GridItem(.adaptive(minimum: 92), spacing: 12)]
 
@@ -109,6 +111,26 @@ public struct MyAppHomeView: View {
                 } onCancel: {
                     editingComponent = nil
                 }
+            }
+        }
+        .alert(
+            "Delete component?",
+            isPresented: Binding(
+                get: { deletingComponent != nil },
+                set: { if !$0 { deletingComponent = nil } }
+            ),
+            presenting: deletingComponent
+        ) { ref in
+            Button("Delete", role: .destructive) {
+                store.removeComponent(componentId: ref.componentId, myAppId: ref.myAppId)
+                deletingComponent = nil
+            }
+            Button("Cancel", role: .cancel) { deletingComponent = nil }
+        } message: { ref in
+            if let name = store.myApps
+                .first(where: { $0.id == ref.myAppId })?
+                .components.first(where: { $0.id == ref.componentId })?.name {
+                Text("\"\(name)\" and its contents will be removed. This can't be undone.")
             }
         }
     }
@@ -229,6 +251,14 @@ public struct MyAppHomeView: View {
                 editingComponent = EditingComponentRef(myAppId: app.id, componentId: component.id)
             } label: {
                 Label("Rename / icon…", systemImage: "pencil")
+            }
+            // Last component can't be deleted (store guards count > 1).
+            if app.components.count > 1 {
+                Button(role: .destructive) {
+                    deletingComponent = EditingComponentRef(myAppId: app.id, componentId: component.id)
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
             }
         }
     }
