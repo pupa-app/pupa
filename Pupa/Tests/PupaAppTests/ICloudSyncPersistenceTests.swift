@@ -72,4 +72,59 @@ struct ICloudSyncPersistenceTests {
         let reader = MemoryStore(rootOverride: root)
         #expect(try reader.readFile(path: "notes/diet.md").content == "kale")
     }
+
+    // MARK: - Efficiency: only the changed file re-syncs
+
+    /// Mutating one MyApp must rewrite **only** that app's file — unchanged
+    /// app files are left byte-for-byte untouched (dirty-hash skip), so iCloud
+    /// uploads the minimum. Proven via modification dates: pre-stamp every file
+    /// to the distant past, mutate one app, then assert only that file moved.
+    @Test("A mutation rewrites only the changed app file, not the others")
+    func dirtyHashWritesOnlyChangedFile() throws {
+        MyAppStore.clearStorage()
+        let store = MyAppStore()
+        let a = store.addMyApp(typeId: "tracker", name: "Alpha", iconSystemName: "a.circle")
+        let b = store.addMyApp(typeId: "tracker", name: "Bravo", iconSystemName: "b.circle")
+
+        func appURL(_ id: UUID) -> URL {
+            PupaStorage.stateRoot.appendingPathComponent("apps")
+                .appendingPathComponent("\(id.uuidString).json")
+        }
+        let fm = FileManager.default
+        // Stamp both app files to the distant past so any rewrite is unambiguous.
+        let old = Date(timeIntervalSince1970: 0)
+        for id in [a, b] {
+            try fm.setAttributes([.modificationDate: old], ofItemAtPath: appURL(id).path)
+        }
+
+        // Mutate only Bravo.
+        store.renameMyApp(b, to: "Bravo-2")
+
+        let aDate = try fm.attributesOfItem(atPath: appURL(a).path)[.modificationDate] as! Date
+        let bDate = try fm.attributesOfItem(atPath: appURL(b).path)[.modificationDate] as! Date
+        #expect(aDate == old)          // Alpha untouched — not re-uploaded.
+        #expect(bDate > old)           // Bravo rewritten — the only sync.
+    }
+
+    /// A persist that changes nothing rewrites nothing (idempotent, no churn).
+    @Test("Re-selecting the active app with no change rewrites no app file")
+    func noOpPersistWritesNothing() throws {
+        MyAppStore.clearStorage()
+        let store = MyAppStore()
+        let a = store.addMyApp(typeId: "tracker", name: "Alpha", iconSystemName: "a.circle")
+
+        func appURL(_ id: UUID) -> URL {
+            PupaStorage.stateRoot.appendingPathComponent("apps")
+                .appendingPathComponent("\(id.uuidString).json")
+        }
+        let fm = FileManager.default
+        let old = Date(timeIntervalSince1970: 0)
+        try fm.setAttributes([.modificationDate: old], ofItemAtPath: appURL(a).path)
+
+        // setActive to the already-active app: state is identical → no app write.
+        store.setActive(a)
+
+        let aDate = try fm.attributesOfItem(atPath: appURL(a).path)[.modificationDate] as! Date
+        #expect(aDate == old)
+    }
 }

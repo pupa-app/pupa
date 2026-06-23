@@ -83,9 +83,13 @@ of the detail pane. Its launcher lives in the per-MyApp bottom bar (below); on
 pages without that bar (orchestrator, agents, screen share) `ChatOverlay` shows
 its own fallback pupa circle so chat stays reachable everywhere. On iOS the card
 does its own keyboard avoidance (it tracks the keyboard height and lifts/shrinks
-the card) so the composer stays visible above the keyboard in any orientation. A
-full-screen expand/restore button (⤢) in the card header fills the detail pane
-edge-to-edge (no inset, flush corners); the resize grip is hidden while
+the card) so the composer stays visible above the keyboard in any orientation.
+The bottom bar's `.safeAreaInset` is applied to the ZStack enclosing **both** the
+detail `NavigationStack` and `ChatOverlay`, so it reserves space for the page
+content and lifts the floating card above the bar for free — collapsed, resized,
+and full-screen — instead of letting the card cover it. A full-screen
+expand/restore button (⤢) in the card header fills the detail pane edge-to-edge
+(no inset, flush corners; still above the bar); the resize grip is hidden while
 full-screen is active.
 
 The composer is a floating, translucent rounded pill overlaid on the bottom of
@@ -214,8 +218,15 @@ data model, plus render + mutator frontend tools, registered on
 `MyAppType.supportedComponentKinds`. Built-ins: `tracker`, `calendar`,
 `checklist`, `kanban`, `slack`, `calculator`, `chart`. The agent's `addComponent`
 tool derives its JSON-Schema `kind` enum from `supportedComponentKinds` at
-registration time — a new kind not added there is silently rejected.
-Full recipe in
+registration time — a new kind not added there is silently rejected. The
+resolved system-prompt fragment also carries a `kindCatalogLine` menu
+(one `kind — blurb` per supported kind, from each kind's dedicated
+`ComponentKindSpec.catalogBlurb`) so the agent knows what each kind is *for*
+before any component of that kind exists — the full per-kind `promptFragment`
+only rides context once the kind is present. Each kind is declared once as a
+`ComponentKindSpec` in `MyAppType.kinds` (tools + prompt fragment + catalog
+blurb); `supportedComponentKinds`, `toolNamesByKind`, and
+`promptFragmentsByKind` all derive from it. Full recipe in
 [docs/adding-a-component.md](adding-a-component.md).
 
 A `Component`'s `id` is permanent (the key every cross-component ref, active

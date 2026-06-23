@@ -47,7 +47,9 @@ struct ChatOverlay: View {
             // Portion of the keyboard overlapping the card's content area (the
             // home-indicator inset is already excluded from `geo.size`).
             let overlap = max(0, keyboardHeight - geo.safeAreaInsets.bottom)
-            // Space the card may occupy once the keyboard is up.
+            // Space the card may occupy once the keyboard is up. The bottom bar
+            // is reserved by a `.safeAreaInset` on the enclosing stack, so `geo`
+            // already excludes it — the card floats above the bar for free.
             let available = CGSize(
                 width: geo.size.width,
                 height: max(0, geo.size.height - overlap)

@@ -381,6 +381,22 @@ struct ToolGatingTests {
         #expect(!baseOnly.contains("CALENDAR —"))
         #expect(!baseOnly.contains("CHECKLIST —"))
 
+        // The kind catalog menu is always present — even with no component of
+        // a kind yet, the agent sees a one-line capability blurb per supported
+        // kind so it knows it can `addComponent(kind:…)` to grow into one.
+        #expect(baseOnly.contains("COMPONENT KINDS you can"))
+        for kind in type.supportedComponentKinds {
+            #expect(baseOnly.contains("\(kind) — "),
+                    "catalog must list supported kind \(kind) before it is present")
+        }
+
+        // Each catalog blurb comes from its kind's dedicated
+        // `ComponentKindSpec.catalogBlurb` (one definition site per kind), kept
+        // separate from the full `promptFragment` so the menu is one clean line.
+        let calcSpec = type.kinds["calculator"]
+        #expect(calcSpec?.catalogBlurb == "live numeric model with tunable inputs + formula rows")
+        #expect(baseOnly.contains("calculator — live numeric model with tunable inputs + formula rows"))
+
         // Add a tracker → tracker prose appears.
         store.addComponent(kind: "tracker", name: "Books", iconSystemName: "book", myAppId: myApp.id)
         let trackerOnly = ChatViewModel.activeSystemPromptFragment(

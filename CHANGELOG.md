@@ -3,6 +3,34 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.35] — 2026-06-23
+
+### Changed
+
+- **Chat card floats above the bottom bar.** The floating chat overlay now
+  reserves the per-MyApp bottom bar's height, so the card and composer always
+  sit above the bar — collapsed, resized, and fullscreen — instead of covering
+  it. The bottom bar is also a touch thinner. (`PupaApp` `0.0.127`)
+
+## [0.0.34] — 2026-06-23
+
+### Added
+
+- **Component-kind menu in every agent turn.** The agent now sees a short
+  capability line per supported component kind (e.g. `calculator — live
+  numeric model…`) before any component of that kind exists, so it knows it
+  can grow a MyApp into a calculator/chart/etc. Previously the rich per-kind
+  guidance only appeared once a component of that kind was already on the
+  canvas. (`PupaApp` `0.0.126`)
+
+## [0.0.33] — 2026-06-23
+
+### Added
+
+- **Delete a component** from a MyApp home: long-press a component tile and
+  pick "Delete" (with a confirm). The last component can't be removed — a
+  MyApp always keeps at least one. (`PupaApp` `0.0.125`)
+
 ## [0.0.32] — 2026-06-23
 
 ### Added

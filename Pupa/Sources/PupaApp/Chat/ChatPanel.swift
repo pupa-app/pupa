@@ -212,6 +212,14 @@ public struct ChatPanel: View {
         )
     }
 
+    /// Agent name for the header, hard-capped so it never wraps to a second
+    /// line — the icon + chevron stay on one row regardless of name length.
+    private var agentHeaderLabel: String {
+        let name = viewModel.agentDisplayName
+        let maxChars = 14
+        return name.count > maxChars ? name.prefix(maxChars - 1) + "…" : name
+    }
+
     private var header: some View {
         HStack(spacing: 8) {
             agentDropdown
@@ -245,9 +253,12 @@ public struct ChatPanel: View {
                     Image(systemName: icon)
                         .foregroundStyle(viewModel.agentColor)
                 }
-                Text(viewModel.agentDisplayName)
+                Text(agentHeaderLabel)
                     .font(.subheadline).bold()
                     .foregroundStyle(viewModel.agentColor)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .fixedSize(horizontal: true, vertical: false)
                 Image(systemName: "chevron.down")
                     .font(.caption2)
                     .foregroundStyle(viewModel.agentColor.opacity(0.7))

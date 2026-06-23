@@ -33,6 +33,11 @@ public struct MyAppBottomBar: View {
     let onShowHistory: (UUID) -> Void
     let onToggleChat: () -> Void
 
+    /// Row height for each bar button.
+    static let rowHeight: CGFloat = 30
+    /// Vertical padding above/below the row.
+    static let verticalPadding: CGFloat = 4
+
     public init(
         store: MyAppStore,
         subject: MyAppHomeView.Subject,
@@ -90,7 +95,7 @@ public struct MyAppBottomBar: View {
             ellipsisMenu
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 6)
+        .padding(.vertical, Self.verticalPadding)
         .background(.regularMaterial)
         .overlay(alignment: .top) { Divider() }
     }
@@ -106,7 +111,7 @@ public struct MyAppBottomBar: View {
                 .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(active ? appColor : appColor.opacity(0.55))
                 .frame(maxWidth: .infinity)
-                .frame(height: 34)
+                .frame(height: Self.rowHeight)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -132,15 +137,15 @@ public struct MyAppBottomBar: View {
                         .foregroundStyle(.white)
                 }
             }
-            .frame(width: 36, height: 36)
-            .shadow(color: .black.opacity(0.2), radius: 4, y: 1)
+            .frame(width: 30, height: 30)
+            .shadow(color: .black.opacity(0.1), radius: 2, y: 0.5)
             .overlay(alignment: .topTrailing) {
                 if chatStatus != .idle {
                     StatusBadge(status: chatStatus, size: 12)
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 34)
+            .frame(height: Self.rowHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -182,7 +187,7 @@ public struct MyAppBottomBar: View {
                 .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(appColor.opacity(0.7))
                 .frame(maxWidth: .infinity)
-                .frame(height: 34)
+                .frame(height: Self.rowHeight)
                 .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)

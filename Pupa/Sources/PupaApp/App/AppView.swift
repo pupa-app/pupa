@@ -346,9 +346,6 @@ public struct AppView: View {
                                 }
                         }
                 }
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    myAppBottomBar
-                }
                 ChatOverlay(
                     scope: chatScope,
                     coordinator: coordinator,
@@ -358,6 +355,12 @@ public struct AppView: View {
                     isOpen: $chatOpen,
                     launcherVisible: !bottomBarVisible
                 )
+            }
+            // Inset on the ZStack (not the NavigationStack) so the bar reserves
+            // space for the content AND lifts the floating `ChatOverlay` above
+            // it — collapsed, resized, and fullscreen.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                myAppBottomBar
             }
 
             if showSidebar {
@@ -415,9 +418,6 @@ public struct AppView: View {
             }
             // Route `pupa://` links inside pushed memory notes in-app too.
             .environment(\.openURL, chatLinkAction)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                myAppBottomBar
-            }
             ChatOverlay(
                 scope: chatScope,
                 coordinator: coordinator,
@@ -435,6 +435,12 @@ public struct AppView: View {
             if tour.isActive {
                 GuidedTourView(tour: tour)
             }
+        }
+        // Inset on the ZStack (not the NavigationStack) so the bar reserves
+        // space for the content AND lifts the floating `ChatOverlay` above it —
+        // collapsed, resized, and fullscreen.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            myAppBottomBar
         }
         // Sidebar tap replaces the stack root, so any drilled-in landing-page
         // pushes are stale — reset the path so we don't leave a phantom Back
