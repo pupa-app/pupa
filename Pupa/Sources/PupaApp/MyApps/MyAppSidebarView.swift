@@ -117,11 +117,14 @@ public struct MyAppSidebarView: View {
                 onSelectionChange(.orchestrator)
             } label: {
                 Label("Orchestrator", systemImage: "square.stack.3d.up.fill")
-                    .foregroundStyle(Color.orchestratorColor)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .imageScale(.large)
+                    .font(.title3)
             }
+            .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
             .accessibilityLabel("Open Orchestrator")
+
+            Spacer()
 
             Button {
                 selection = .screenShare
