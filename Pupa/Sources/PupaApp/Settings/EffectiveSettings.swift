@@ -61,6 +61,7 @@ public enum SettingValue: Codable, Hashable, Sendable {
     case string(String)
     case int(Int)
     case double(Double)
+    case stringArray([String])
 
     // MARK: Codable
 
@@ -70,10 +71,11 @@ public enum SettingValue: Codable, Hashable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let type = try c.decode(String.self, forKey: .type)
         switch type {
-        case "bool":   self = .bool(try c.decode(Bool.self, forKey: .value))
-        case "string": self = .string(try c.decode(String.self, forKey: .value))
-        case "int":    self = .int(try c.decode(Int.self, forKey: .value))
-        case "double": self = .double(try c.decode(Double.self, forKey: .value))
+        case "bool":        self = .bool(try c.decode(Bool.self, forKey: .value))
+        case "string":      self = .string(try c.decode(String.self, forKey: .value))
+        case "int":         self = .int(try c.decode(Int.self, forKey: .value))
+        case "double":      self = .double(try c.decode(Double.self, forKey: .value))
+        case "stringArray": self = .stringArray(try c.decode([String].self, forKey: .value))
         default: throw DecodingError.dataCorruptedError(forKey: .type, in: c,
                    debugDescription: "Unknown SettingValue type '\(type)'")
         }
@@ -82,10 +84,11 @@ public enum SettingValue: Codable, Hashable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         switch self {
-        case .bool(let v):   try c.encode("bool",   forKey: .type); try c.encode(v, forKey: .value)
-        case .string(let v): try c.encode("string", forKey: .type); try c.encode(v, forKey: .value)
-        case .int(let v):    try c.encode("int",    forKey: .type); try c.encode(v, forKey: .value)
-        case .double(let v): try c.encode("double", forKey: .type); try c.encode(v, forKey: .value)
+        case .bool(let v):        try c.encode("bool",        forKey: .type); try c.encode(v, forKey: .value)
+        case .string(let v):      try c.encode("string",      forKey: .type); try c.encode(v, forKey: .value)
+        case .int(let v):         try c.encode("int",         forKey: .type); try c.encode(v, forKey: .value)
+        case .double(let v):      try c.encode("double",      forKey: .type); try c.encode(v, forKey: .value)
+        case .stringArray(let v): try c.encode("stringArray", forKey: .type); try c.encode(v, forKey: .value)
         }
     }
 }
@@ -193,10 +196,11 @@ extension SettingsKey {
     /// Returns `nil` when the stored type doesn't match.
     static func extract(_ sv: SettingValue) -> Value? {
         switch sv {
-        case .bool(let b)   where Value.self == Bool.self:   return b as? Value
-        case .string(let s) where Value.self == String.self: return s as? Value
-        case .int(let i)    where Value.self == Int.self:    return i as? Value
-        case .double(let d) where Value.self == Double.self: return d as? Value
+        case .bool(let b)        where Value.self == Bool.self:     return b as? Value
+        case .string(let s)      where Value.self == String.self:   return s as? Value
+        case .int(let i)         where Value.self == Int.self:      return i as? Value
+        case .double(let d)      where Value.self == Double.self:   return d as? Value
+        case .stringArray(let a) where Value.self == [String].self: return a as? Value
         default: return nil
         }
     }

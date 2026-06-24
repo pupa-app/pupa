@@ -4,7 +4,7 @@
 
 # Pupa
 
-[![Pupa](https://img.shields.io/badge/Pupa-0.0.124-000000?logo=apple&logoColor=white)](Pupa/Sources/PupaApp/Version.swift)
+[![Pupa](https://img.shields.io/badge/Pupa-0.0.131-000000?logo=apple&logoColor=white)](Pupa/Sources/PupaApp/Version.swift)
 [![AGUIKit](https://img.shields.io/badge/AGUIKit-0.0.20-f05138?logo=swift&logoColor=white)](AGUIKit/Sources/AGUIKit/Version.swift)
 
 Native iOS / macOS client for the Pupa agent: a SwiftUI canvas that

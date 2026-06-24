@@ -33,6 +33,13 @@ public struct AgentDescriptor: Identifiable, Sendable, Hashable {
     /// Optional one-liner shown under the name in the list (e.g. a
     /// Slack agent's role).
     public let subtitle: String?
+    /// Glanceable model label for the list row (e.g. "Sonnet 4.6" or
+    /// "Backend default"). Derived in `AgentRegistry` so the list view never
+    /// reaches into `properties`.
+    public let modelSummary: String
+    /// Glanceable tool-count caption for the list row (e.g. "12 tools" or
+    /// "12 tools · 2 off").
+    public let toolSummary: String
     public let properties: [AgentProperty]
 
     public init(
@@ -42,6 +49,8 @@ public struct AgentDescriptor: Identifiable, Sendable, Hashable {
         iconSystemName: String,
         myAppId: UUID?,
         subtitle: String? = nil,
+        modelSummary: String,
+        toolSummary: String,
         properties: [AgentProperty]
     ) {
         self.id = id
@@ -50,6 +59,8 @@ public struct AgentDescriptor: Identifiable, Sendable, Hashable {
         self.iconSystemName = iconSystemName
         self.myAppId = myAppId
         self.subtitle = subtitle
+        self.modelSummary = modelSummary
+        self.toolSummary = toolSummary
         self.properties = properties
     }
 }
@@ -88,6 +99,13 @@ public enum AgentPropertyValue: Sendable, Hashable {
     /// grouped by component). Rendered as a collapsed DisclosureGroup —
     /// the row header shows a summary, expanding reveals the sections.
     case sections(summary: String, groups: [AgentPropertySection])
+    /// Editable tool surface — same grouping as `.sections`, but each tool
+    /// gets an on/off toggle. `disabled` is the agent's current per-agent
+    /// disabled set; a tool in it renders off. Flipping a toggle routes a
+    /// `(toolName, enabled)` callback (passed separately to `AgentPropertyRow`
+    /// so this case stays Hashable). Off = added to the agent's disabled set,
+    /// unioned with the global Settings → Tools set at send time.
+    case toolToggles(summary: String, groups: [AgentPropertySection], disabled: Set<String>)
     /// Editable model selector. `selectedId` is the currently-chosen
     /// `KnownLLMModel.id`, or `KnownLLMModelCatalog.backendDefaultId` when
     /// no per-agent override is set. `options` is the catalog entries to

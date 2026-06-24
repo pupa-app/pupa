@@ -135,6 +135,49 @@ public final class MyAppStore {
         return (provider, model)
     }
 
+    // MARK: - Per-agent disabled tools
+
+    /// Storage key for the main agent's per-MyApp disabled tool names. Stored
+    /// under `MyApp.settings` as a `.stringArray`. Unioned with the global
+    /// `disabledBackendTools` set at send time — never an override.
+    public static let disabledToolsSettingsKey = "tools.disabled"
+
+    /// Write (or clear) the main agent's per-MyApp disabled tool set. Empty
+    /// clears the key.
+    public func setMyAppDisabledTools(_ names: Set<String>, for myAppId: UUID) {
+        guard let idx = myApps.firstIndex(where: { $0.id == myAppId }) else { return }
+        if names.isEmpty {
+            myApps[idx].settings.removeValue(forKey: Self.disabledToolsSettingsKey)
+        } else {
+            myApps[idx].settings[Self.disabledToolsSettingsKey] = .stringArray(names.sorted())
+        }
+        persist()
+    }
+
+    /// Read the main agent's per-MyApp disabled tool set. Empty when unset.
+    public func myAppDisabledTools(for myAppId: UUID) -> Set<String> {
+        guard let myApp = myApps.first(where: { $0.id == myAppId }),
+              case .stringArray(let names) = myApp.settings[Self.disabledToolsSettingsKey] else { return [] }
+        return Set(names)
+    }
+
+    /// Write (or clear) a Slack sub-agent's disabled tool set. Mutates the
+    /// targeted SlackAgent in place via the by-component mutator.
+    public func setSlackAgentDisabledTools(
+        _ names: Set<String>,
+        componentId: String,
+        agentId: String,
+        myAppId: UUID
+    ) {
+        mutate(myAppId: myAppId, byComponentId: componentId) { canvas in
+            guard case .slack(var s) = canvas,
+                  let aIdx = s.agents.firstIndex(where: { $0.id == agentId }) else { return false }
+            s.agents[aIdx].disabledTools = names.isEmpty ? nil : names.sorted()
+            canvas = .slack(s)
+            return true
+        }
+    }
+
     /// Write (or clear) the per-SlackAgent LLM override. The SlackAgent lives
     /// inside its parent `SlackData` — mutated in place via the by-component
     /// mutator so we touch only the targeted agent.
