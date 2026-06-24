@@ -49,8 +49,6 @@ public struct AppView: View {
     /// pupa button and the guided tour can both drive it, and `ChatOverlay`
     /// renders the card vs. its fallback launcher accordingly.
     @State private var chatOpen = false
-    /// Drives the Change History sheet opened from the bottom bar.
-    @State private var historySheet: ChangeHistorySheetDestination?
     /// Set when the user skipped backend pairing during onboarding. Drives the
     /// dismissible reminder banner until a backend is paired.
     @AppStorage(OnboardingKeys.backendSkipped) private var backendSkipped = false
@@ -127,12 +125,6 @@ public struct AppView: View {
                     onImport: { confirmImport(pending) },
                     onCancel: { pendingImport = nil }
                 )
-            }
-            .sheet(item: $historySheet) { dest in
-                switch dest {
-                case .forMyApp(let id):
-                    ChangeHistorySheet(store: store, myAppId: id) { historySheet = nil }
-                }
             }
             .alert(item: $importNotice) { note in
                 Alert(title: Text("Import"), message: Text(note.message),
@@ -557,6 +549,8 @@ public struct AppView: View {
                     detailPath.append(nav)
                 }
             )
+        case .myAppHistory(let id):
+            ChangeHistoryView(store: store, myAppId: id)
         case .orchestratorMemories:
             MyAppMemoriesView(
                 store: store,
@@ -657,7 +651,7 @@ public struct AppView: View {
                     selection = nav
                     dispatchSelection(nav)
                 },
-                onShowHistory: { id in historySheet = .forMyApp(myAppId: id) },
+                onShowHistory: { id in detailPath.append(.myAppHistory(id)) },
                 onToggleChat: {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                         chatOpen.toggle()
@@ -672,9 +666,12 @@ public struct AppView: View {
     private func barSubject(for sel: SidebarSelection) -> MyAppHomeView.Subject? {
         switch sel {
         case .myAppHome(let id), .myApp(let id), .myAppComponent(let id, _),
-             .myAppMemories(let id), .myAppMemoryFile(let id, _):
+             .myAppMemories(let id), .myAppMemoryFile(let id, _),
+             .myAppHistory(let id),
+             .myAppAgents(let id), .myAppAgentDetail(let id, _):
             return .myApp(id)
-        case .orchestrator, .orchestratorMemories, .memoryFile:
+        case .orchestrator, .orchestratorMemories, .memoryFile,
+             .orchestratorAgentDetail:
             return .orchestrator
         default:
             return nil
@@ -696,6 +693,9 @@ public struct AppView: View {
         case .myAppComponent(_, let componentId): return .component(componentId)
         case .myAppMemories, .myAppMemoryFile, .orchestratorMemories, .memoryFile:
             return .memories
+        case .myAppAgents, .myAppAgentDetail, .orchestratorAgentDetail:
+            return .agents
+        case .myAppHistory: return .history
         default: return nil
         }
     }
@@ -716,7 +716,7 @@ public struct AppView: View {
             // canvas + kind-targeted mutators agree on what's focused.
             _ = store.setActiveComponent(componentId: componentId, myAppId: id)
             chatScope = .myApp(id)
-        case .myAppMemoryFile(let id, _), .myAppMemories(let id):
+        case .myAppMemoryFile(let id, _), .myAppMemories(let id), .myAppHistory(let id):
             store.setActive(id)
             chatScope = .myApp(id)
         case .myAppAgents(let id), .myAppAgentDetail(let id, _):

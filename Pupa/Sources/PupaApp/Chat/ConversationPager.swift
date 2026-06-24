@@ -15,8 +15,6 @@ struct ConversationPager: View {
     let scope: ChatScope
     let coordinator: ChatSessionCoordinator
     let store: MyAppStore
-    let agents: [AgentPickerEntry]
-    let onSwitchAgent: (ChatScope) -> Void
 
     var body: some View {
         let threads = store.threads(for: scope)
@@ -26,8 +24,6 @@ struct ConversationPager: View {
             viewModel: vm,
             threads: threads,
             currentThreadId: currentId,
-            agents: agents,
-            onSwitchAgent: onSwitchAgent,
             onSelectThread: { id in
                 guard id != store.currentThreadId(for: scope) else { return }
                 store.setCurrentThread(id, for: scope)

@@ -39,6 +39,9 @@ public enum SidebarSelection: Hashable, Sendable {
     /// Reached from the bottom bar's Memories button; files inside push
     /// `.myAppMemoryFile`.
     case myAppMemories(UUID)
+    /// The myApp's change-history page — a newest-first list of `ItemEvent`s
+    /// with per-row Undo. Pushed from the bottom bar's History button.
+    case myAppHistory(UUID)
     /// The orchestrator's memory browse page — a folder tree of its shared
     /// notes. Mirror of `.myAppMemories` but orchestrator-scoped (reuses
     /// `MyAppMemoriesView`); files inside push `.memoryFile`.
@@ -59,6 +62,7 @@ public enum SidebarSelection: Hashable, Sendable {
         switch self {
         case .myAppHome(let id), .myApp(let id), .myAppComponent(let id, _),
              .myAppMemoryFile(let id, _), .myAppMemories(let id),
+             .myAppHistory(let id),
              .myAppAgents(let id), .myAppAgentDetail(let id, _): return id
         default: return nil
         }

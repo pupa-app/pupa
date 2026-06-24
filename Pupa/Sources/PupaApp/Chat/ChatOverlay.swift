@@ -169,9 +169,19 @@ struct ChatOverlay: View {
             ? containerSize
             : sizing.resolvedSize(user: userSize, in: containerSize)
 
+        let currentId = store.currentThreadId(for: scope)
+        let vm = coordinator.session(for: scope, threadId: currentId)
+
         return ZStack(alignment: .topLeading) {
             VStack(spacing: 0) {
                 HStack(spacing: 0) {
+                    AgentDropdown(
+                        viewModel: vm,
+                        agents: agents,
+                        onSwitchAgent: onSwitchAgent
+                    )
+                    // Clear the resize grip pinned to the top-leading corner.
+                    .padding(.leading, isFullscreen ? 4 : 28)
                     Spacer()
                     Button {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
@@ -203,9 +213,7 @@ struct ChatOverlay: View {
                 ConversationPager(
                     scope: scope,
                     coordinator: coordinator,
-                    store: store,
-                    agents: agents,
-                    onSwitchAgent: onSwitchAgent
+                    store: store
                 )
             }
             if !isFullscreen {

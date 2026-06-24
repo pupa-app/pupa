@@ -4,8 +4,8 @@ import SwiftUI
 /// "tab bar". Always visible (mounted via `.safeAreaInset`) on a myApp's home /
 /// component / memories pages and on the orchestrator's home / memories pages.
 ///
-///   myApp:        Home · Memories · History · Pupa(chat) · ⋯(components)
-///   orchestrator: Home · Memories ·           Pupa(chat) · ⋯(jump to myapps)
+///   myApp:        Home · Agents · Memories · History · Pupa(chat) · ⋯(components)
+///   orchestrator: Home · Agents · Memories ·           Pupa(chat) · ⋯(jump to myapps)
 ///
 /// (The orchestrator has no canvas change-log, so it omits History.) Icons are
 /// tinted in the subject's color; the pupa keeps its own look.
@@ -16,6 +16,10 @@ public struct MyAppBottomBar: View {
         case component(String)
         /// The memory browse page or any memory file within it.
         case memories
+        /// The agents overview or any agent detail page.
+        case agents
+        /// The change-history page.
+        case history
     }
 
     let store: MyAppStore
@@ -78,16 +82,23 @@ public struct MyAppBottomBar: View {
         myAppId.map { .myAppMemories($0) } ?? .orchestratorMemories
     }
 
+    private var agentsSelection: SidebarSelection {
+        myAppId.map { .myAppAgents($0) } ?? .orchestratorAgentDetail
+    }
+
     public var body: some View {
         HStack(spacing: 0) {
             barButton(system: "house", active: currentPage == .home, help: "Home") {
                 onSelect(homeSelection)
             }
+            barButton(system: "person.2", active: currentPage == .agents, help: "Agents") {
+                onSelect(agentsSelection)
+            }
             barButton(system: "brain", active: currentPage == .memories, help: "Memories") {
                 onSelect(memoriesSelection)
             }
             if let id = myAppId {
-                barButton(system: "clock", active: false, help: "History") {
+                barButton(system: "clock", active: currentPage == .history, help: "History") {
                     onShowHistory(id)
                 }
             }
@@ -108,10 +119,14 @@ public struct MyAppBottomBar: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: system)
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(active ? appColor : appColor.opacity(0.55))
-                .frame(maxWidth: .infinity)
+                .font(.system(size: 18, weight: active ? .semibold : .regular))
+                .foregroundStyle(active ? appColor : appColor.opacity(0.4))
                 .frame(height: Self.rowHeight)
+                .padding(.horizontal, 14)
+                .background(
+                    Capsule().fill(active ? appColor.opacity(0.16) : .clear)
+                )
+                .frame(maxWidth: .infinity)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
