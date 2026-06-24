@@ -90,7 +90,7 @@ public struct SettingsSheet: View {
     /// category's real controls (the existing section builders, re-hosted in
     /// their own `Form`).
     private enum SettingsCategory: Hashable {
-        case backend, tools, agents, agentsOverview, notifications, examples, sharing
+        case profile, backend, tools, agents, agentsOverview, notifications, examples, sharing
     }
 
     /// True when the Import & Export screen can be shown (stores wired in).
@@ -102,6 +102,12 @@ public struct SettingsSheet: View {
     public var body: some View {
         NavigationStack(path: $path) {
             List {
+                Section {
+                    NavigationLink(value: SettingsCategory.profile) {
+                        categoryRow(icon: "person.crop.circle", title: "Account",
+                                    caption: "iCloud sync & device")
+                    }
+                }
                 NavigationLink(value: SettingsCategory.backend) {
                     categoryRow(icon: "network", title: "Backend",
                                 caption: "Server URL, API key, pairing")
@@ -239,6 +245,8 @@ public struct SettingsSheet: View {
     private func categoryDetail(_ category: SettingsCategory) -> some View {
         Group {
             switch category {
+            case .profile:
+                ProfileSettingsView(settings: settings, store: store, memory: memory)
             case .backend:
                 Form { backendSection }.navigationTitle("Backend")
             case .tools:

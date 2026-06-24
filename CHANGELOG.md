@@ -3,6 +3,16 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.38] — 2026-06-24
+
+### Added
+
+- **Account screen in Settings.** A new read-only **Account** row at the top of
+  the Settings sheet shows iCloud sync status, this device, a data overview
+  (MyApps / memories / backends) and the app version. Honest by design: Pupa has
+  no login of its own, so there's no editable name, email or device list — only
+  what iCloud and the app actually know. (`PupaApp` `0.0.130`)
+
 ## [0.0.37] — 2026-06-24
 
 ### Changed
