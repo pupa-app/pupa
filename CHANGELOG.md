@@ -3,6 +3,16 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.40] — 2026-06-24
+
+### Fixed
+
+- **Re-tapping a MyApp in the iOS drawer now reopens it.** A selected MyApp row
+  stayed highlighted after navigating back, and tapping it again did nothing —
+  you had to pick a different app first. The drawer's `List(selection:)` never
+  reset, so SwiftUI swallowed the identical re-tap. Selection now clears after
+  each tap. (`PupaApp` `0.0.132`)
+
 ## [0.0.39] — 2026-06-24
 
 ### Added
