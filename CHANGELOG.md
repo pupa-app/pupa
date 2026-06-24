@@ -3,6 +3,14 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.44] — 2026-06-24
+
+### Changed
+
+- **Bottom bars match in height.** The sidebar menu bar is slimmer and the
+  MyApp bottom bar is taller so the two read as the same weight. (`PupaApp`
+  `0.0.140`)
+
 ## [0.0.43] — 2026-06-24
 
 ### Fixed

@@ -40,7 +40,7 @@ public struct MyAppBottomBar: View {
     /// Row height for each bar button.
     static let rowHeight: CGFloat = 30
     /// Vertical padding above/below the row.
-    static let verticalPadding: CGFloat = 4
+    static let verticalPadding: CGFloat = 7
 
     public init(
         store: MyAppStore,
