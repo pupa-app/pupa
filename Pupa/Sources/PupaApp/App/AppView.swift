@@ -392,8 +392,15 @@ public struct AppView: View {
         }
         .animation(.spring(duration: 0.3), value: showSidebar)
         .onChange(of: selection) { _, new in
-            detailPath = []
-            guard new != nil else { return }      // ignore our own clear-to-nil
+            // Ignore our own clear-to-nil (below) so it doesn't wipe a freshly
+            // pushed page.
+            guard let new else { return }
+            // A MyApp selection resolves through the active-myApp home once
+            // `selection` clears, so it needs no pushed stack. Orchestrator /
+            // screen-share have no such fallback — push them onto `detailPath`
+            // so they actually navigate instead of dropping back to the active
+            // MyApp canvas.
+            detailPath = new.myAppId == nil ? [new] : []
             withAnimation(.spring(duration: 0.3)) { showSidebar = false }
             // List(selection:) won't re-fire onChange for an identical value, so a
             // re-tap of the same row is dropped. Reset the highlight after the tap

@@ -52,8 +52,6 @@ public struct MyAppSidebarView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            brandHeader
-            Divider()
             // Compact, non-expanding MyApp rows. Tapping a row lands on its
             // home; components, memories, and history are reached from the
             // MyApp home + its bottom bar (not the sidebar). `selection` is
@@ -114,16 +112,21 @@ public struct MyAppSidebarView: View {
     /// global agent, not one of "your projects".
     private var bottomMenu: some View {
         HStack(spacing: 8) {
+            Spacer()
+
             Button {
                 selection = .orchestrator
                 onSelectionChange(.orchestrator)
             } label: {
                 Label("Orchestrator", systemImage: "square.stack.3d.up.fill")
-                    .foregroundStyle(Color.orchestratorColor)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .imageScale(.large)
+                    .font(.title3)
             }
+            .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
             .accessibilityLabel("Open Orchestrator")
+
+            Spacer()
 
             Button {
                 selection = .screenShare
@@ -137,6 +140,8 @@ public struct MyAppSidebarView: View {
             .buttonStyle(.borderless)
             .accessibilityLabel("Open Screen share")
 
+            Spacer()
+
             Button {
                 settingsSheetPresented = true
             } label: {
@@ -147,6 +152,8 @@ public struct MyAppSidebarView: View {
             .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
             .accessibilityLabel("Open Settings")
+
+            Spacer()
         }
         .padding(12)
     }
@@ -189,23 +196,6 @@ public struct MyAppSidebarView: View {
                 settingsSheetPresented = false
             }
         )
-    }
-
-    private var brandHeader: some View {
-        HStack(spacing: 10) {
-            if let icon = AppIcon.swiftUIImage {
-                icon
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: 28, height: 28)
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            }
-            Text("Pupa")
-                .font(.headline)
-            Spacer()
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
     }
 
     private var myAppsSection: some View {

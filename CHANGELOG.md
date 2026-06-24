@@ -3,6 +3,24 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.41] — 2026-06-24
+
+### Changed
+
+- **New app icon, and the sidebar drops its brand header.** The iOS drawer
+  now opens straight onto MyApps without the redundant "Pupa" header row.
+- **Sidebar footer is now three evenly-spaced, centered icons.** Orchestrator,
+  screen-share, and Settings render at the same size and tint — Orchestrator
+  was a wide tinted text label before. (`PupaApp` `0.0.133`)
+
+### Fixed
+
+- **The footer's Orchestrator and Screen-share buttons now open their pages on
+  iOS.** They set a selection with no active-MyApp fallback, so once the drawer
+  cleared the selection after a tap they dropped back to the active MyApp's
+  canvas. Selections without a MyApp now push onto the navigation stack.
+  (`PupaApp` `0.0.133`)
+
 ## [0.0.40] — 2026-06-24
 
 ### Fixed
