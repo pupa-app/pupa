@@ -391,9 +391,14 @@ public struct AppView: View {
             }
         }
         .animation(.spring(duration: 0.3), value: showSidebar)
-        .onChange(of: selection) { _, _ in
+        .onChange(of: selection) { _, new in
             detailPath = []
+            guard new != nil else { return }      // ignore our own clear-to-nil
             withAnimation(.spring(duration: 0.3)) { showSidebar = false }
+            // List(selection:) won't re-fire onChange for an identical value, so a
+            // re-tap of the same row is dropped. Reset the highlight after the tap
+            // is dispatched; the active MyApp drives `content` while nil.
+            DispatchQueue.main.async { selection = nil }
         }
     }
     #endif
@@ -473,19 +478,9 @@ public struct AppView: View {
 
     @ViewBuilder
     private var content: some View {
-        if let sel = selection {
-            detailView(for: sel)
-        } else {
-            // Transient state on iOS compact between Back-tap and next row
-            // tap; macOS only sees this if something programmatically clears
-            // selection. Show the active MyApp's canvas so the detail pane
-            // never goes blank.
-            CanvasView(
-                store: store,
-                selection: .myApp(store.activeMyAppId),
-                coordinator: coordinator
-            )
-        }
+        // Transient nil on iOS between a tap and the highlight reset, or after
+        // the drawer is dismissed without a pick — resolve to the active home.
+        detailView(for: .detailRoot(for: selection, activeMyAppId: store.activeMyAppId))
     }
 
     /// Renders the detail view for a given selection. Used for both the

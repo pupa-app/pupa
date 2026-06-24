@@ -57,6 +57,14 @@ public enum SidebarSelection: Hashable, Sendable {
     /// screenshare broker and renders the incoming WebRTC video track.
     case screenShare
 
+    /// Detail-pane root for an optional sidebar selection. `nil` falls back to
+    /// the active MyApp's home — the iOS drawer clears `selection` after each
+    /// tap (so re-tapping the same row re-fires `List.onChange`), and the home
+    /// is where a tap lands, so the fallback matches with no visible flip.
+    public static func detailRoot(for selection: SidebarSelection?, activeMyAppId: UUID) -> SidebarSelection {
+        selection ?? .myAppHome(activeMyAppId)
+    }
+
     /// MyApp id the selection belongs to, if any.
     public var myAppId: UUID? {
         switch self {
