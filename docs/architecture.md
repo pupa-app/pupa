@@ -183,9 +183,10 @@ bottom bar walked left to right — Home, Agents, Memories, History — followed
 chat, agents & threads, the Orchestrator introduced from its sidebar-menu button
 then opened (prefilled "create a new myapp"), slash commands, screen share (rings
 its sidebar button), Share a MyApp (rings the Settings button — Import & Export
-lives inside), and a closing "add an example" card whose button drops a second
-example MyApp (Home Buying) in to explore (`addsExampleNamed` → `AppView`'s
-`addTourExample` → `MyAppStore.restoreExample`). It is
+lives inside), and a closing "add an example" card that deep-links to
+Settings · Examples (`settingsPage: .examples`) and rings the example list
+(`highlight: .settingsExamples`), so the user taps **Restore** on whichever
+example they like to drop a workspace in to explore. It is
 **route-driven, not pixel-anchored**, so it survives UI redesigns: a shared
 `@Observable GuidedTourStore.shared` (mirroring `OnboardingHandoff.shared`)
 holds the step list (`TourContent`, pure data) + current index. Each `TourStep`

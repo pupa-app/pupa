@@ -9,13 +9,14 @@ enum CardPlacement {
 }
 
 /// Which page inside the Settings sheet a tour step lands on. `.root` shows the
-/// category list (so the step can describe the entries); `.backend` and
-/// `.sharing` deep-link straight to the Backend / Import & Export screens.
-/// Mirrors a subset of `SettingsSheet`'s internal navigation.
+/// category list (so the step can describe the entries); `.backend`, `.sharing`
+/// and `.examples` deep-link straight to those screens. Mirrors a subset of
+/// `SettingsSheet`'s internal navigation.
 enum TourSettingsPage: Equatable {
     case root
     case backend
     case sharing
+    case examples
 }
 
 /// One stop on the guided tour. Pure data — reorder / add / remove entries in
@@ -51,10 +52,6 @@ struct TourStep: Identifiable, Equatable {
     /// describing). `nil` leaves no highlight. Resolved to live bounds by
     /// `TourHighlightOverlay` via the `.tourAnchor` tags, never pixel-pinned.
     var highlight: TourHighlight?
-    /// When set, the coach card shows a primary button that adds this example
-    /// MyApp by name (resolved via `ExampleRegistry`) — used by the final step
-    /// to drop a second workspace in to explore. `nil` for ordinary steps.
-    var addsExampleNamed: String?
 
     init(
         id: String,
@@ -66,8 +63,7 @@ struct TourStep: Identifiable, Equatable {
         settingsPage: TourSettingsPage? = nil,
         opensChat: Bool = false,
         chatPrefill: String? = nil,
-        highlight: TourHighlight? = nil,
-        addsExampleNamed: String? = nil
+        highlight: TourHighlight? = nil
     ) {
         self.id = id
         self.title = title
@@ -79,7 +75,6 @@ struct TourStep: Identifiable, Equatable {
         self.opensChat = opensChat
         self.chatPrefill = chatPrefill
         self.highlight = highlight
-        self.addsExampleNamed = addsExampleNamed
     }
 }
 
@@ -143,7 +138,9 @@ enum TourContent {
                 id: "myapp-memories",
                 title: "Memories",
                 body: "Long-term memory for this MyApp — markdown notes the agent writes "
-                    + "and reads back across sessions, so it remembers what matters to you.",
+                    + "and reads back across sessions, so it remembers what matters to you. "
+                    + "Moreover the pupa folder is the equivalent of a .claude folder, where "
+                    + "custom prompts, configurations and skills are managed.",
                 placement: .bottom,
                 selection: .myAppMemories(activeMyAppId),
                 highlight: .bottomBarMemories
@@ -235,11 +232,12 @@ enum TourContent {
             TourStep(
                 id: "add-example",
                 title: "Add one to explore",
-                body: "That's the tour. Want more to play with? Add the Home Buying example "
-                    + "— a live mortgage calculator and price chart you can chat with. You "
-                    + "can add the rest anytime from Settings · Examples.",
+                body: "That's the tour. The best way to get a feel for Pupa is to play with "
+                    + "a ready-made workspace — tap **Restore** on any example below to drop "
+                    + "it into your sidebar, then poke around and chat with it.",
                 placement: .bottom,
-                addsExampleNamed: HomeBuyingExample.name
+                settingsPage: .examples,
+                highlight: .settingsExamples
             ),
         ]
     }

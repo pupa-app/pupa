@@ -234,14 +234,13 @@ struct GuidedTourStoreTests {
         #expect(menuIndex < openIndex)
     }
 
-    @Test("The final step is the add-an-example card")
-    func finalStepAddsExample() {
+    @Test("The final step lands on Settings · Examples and rings the list")
+    func finalStepOpensExamples() {
         let steps = TourContent.steps(activeMyAppId: UUID(), isPaired: true)
         let last = steps.last!
         #expect(last.id == "add-example")
-        #expect(last.addsExampleNamed == HomeBuyingExample.name)
-        // No other step offers to add an example.
-        #expect(steps.filter { $0.addsExampleNamed != nil }.count == 1)
+        #expect(last.settingsPage == .examples)
+        #expect(last.highlight == .settingsExamples)
     }
 }
 

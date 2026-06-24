@@ -181,9 +181,12 @@ public struct SettingsSheet: View {
         // moves between settings pages while open.
         .onAppear { applyTourPage(tour.wantSettingsPage) }
         .onChange(of: tour.wantSettingsPage) { _, page in applyTourPage(page) }
-        // The Settings tour step's coach card lives in AppView, but on iOS this
-        // `.sheet` renders above that ZStack and would hide it — so re-render
-        // the same card here for that one step. Both sites read the one store.
+        // The Settings tour step's coach card + highlight ring live in AppView,
+        // but on iOS this `.sheet` renders above that ZStack and would hide them
+        // — so re-render the ring and card here for the Settings steps. Both
+        // sites read the one store; the ring only resolves when the active step
+        // tags a control inside this sheet (e.g. the Examples list).
+        .tourHighlightLayer(tour)
         .overlay {
             if tour.isActive, tour.wantSettingsOpen {
                 GuidedTourView(tour: tour)
@@ -408,6 +411,7 @@ public struct SettingsSheet: View {
             ForEach(ExampleRegistry.all.indices, id: \.self) { i in
                 exampleRow(ExampleRegistry.all[i])
             }
+            .tourAnchor(.settingsExamples)
         } header: {
             Text("Examples")
         } footer: {
@@ -508,6 +512,7 @@ public struct SettingsSheet: View {
         case .root: path = []
         case .backend: path = [.backend]
         case .sharing: path = [.sharing]
+        case .examples: path = [.examples]
         case nil: break
         }
     }

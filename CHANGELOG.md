@@ -5,6 +5,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
 
 ## [0.0.43] — 2026-06-24
 
+### Changed
+
+- **Guided tour's closing card opens Settings · Examples.** Instead of a single
+  "Add Home Buying" button, the final step deep-links to the Examples list and
+  rings it, inviting you to tap Restore on whichever example you like and
+  explore it. (`PupaApp` `0.0.136`)
+
 ### Removed
 
 - **"Devices on backend" list dropped from Connect backend.** The sheet no

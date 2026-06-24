@@ -17,9 +17,6 @@ import SwiftUI
 /// store.
 struct GuidedTourView: View {
     @Bindable var tour: GuidedTourStore
-    /// Adds the named example MyApp (the final "explore" step's button). Wired
-    /// by `AppView` to `MyAppStore.restoreExample`.
-    var onAddExample: ((String) -> Void)?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Committed drag offset from the step's anchor position. Reset to `.zero`
@@ -96,19 +93,9 @@ struct GuidedTourView: View {
                         .buttonStyle(.bordered)
                 }
                 Spacer()
-                if let example = step.addsExampleNamed {
-                    // Final step: add the example, then close out the tour.
-                    Button("Add \(example)") {
-                        onAddExample?(example)
-                        tour.next()
-                    }
+                Button(tour.isLastStep ? "Finish" : "Next") { tour.next() }
                     .buttonStyle(.borderedProminent)
                     .tint(.brandColor)
-                } else {
-                    Button(tour.isLastStep ? "Finish" : "Next") { tour.next() }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.brandColor)
-                }
             }
         }
         .padding(16)

@@ -177,19 +177,6 @@ public struct AppView: View {
         )
     }
 
-    /// Add the example MyApp the final tour step offers, then land on its home
-    /// so the freshly-added workspace is what the user sees as the tour ends.
-    private func addTourExample(_ name: String) {
-        guard let example = ExampleRegistry.example(named: name) else { return }
-        let id = store.restoreExample(example)
-        detailPath = []
-        selection = nil
-        dispatchSelection(.myAppHome(id))
-        #if os(iOS)
-        withAnimation(.spring(duration: 0.3)) { showSidebar = false }
-        #endif
-    }
-
     /// Reconcile the whole app to the active tour step. Each step's composable
     /// intents fully define the intended UI state — every host-facing flag is
     /// written here (set or cleared) so transitions are deterministic
@@ -263,7 +250,7 @@ public struct AppView: View {
         .tourHighlightLayer(tour)
         .overlay {
             if tour.isActive {
-                GuidedTourView(tour: tour, onAddExample: addTourExample)
+                GuidedTourView(tour: tour)
             }
         }
         .onChange(of: store.myApps) { _, apps in
@@ -428,7 +415,7 @@ public struct AppView: View {
         // step keeps it visible while the menu is open.
         .overlay {
             if tour.isActive {
-                GuidedTourView(tour: tour, onAddExample: addTourExample)
+                GuidedTourView(tour: tour)
             }
         }
         .animation(.spring(duration: 0.3), value: showSidebar)
