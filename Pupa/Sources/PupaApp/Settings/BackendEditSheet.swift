@@ -23,8 +23,6 @@ struct BackendEditSheet: View {
     @State private var pairCodeDraft: String = ""
     @State private var pairState: PairState = .idle
     @State private var pairOutcome: PairOutcome? = nil
-    @State private var devicesLoad: DevicesLoadState = .idle
-    @State private var revokingDeviceID: String? = nil
     @State private var isUnpairing: Bool = false
     #if os(iOS)
     @State private var presentingScanner: Bool = false
@@ -42,14 +40,6 @@ struct BackendEditSheet: View {
         case success
         case failure(String)
     }
-
-    private enum DevicesLoadState {
-        case idle
-        case loading
-        case loaded([PairedDeviceInfo])
-        case failed(String)
-    }
-
 
     init(
         title: String,
@@ -99,11 +89,6 @@ struct BackendEditSheet: View {
                     pairSection
                 }
 
-                if currentlyPaired && isEditMode {
-                    devicesSection
-                }
-
-
                 if let onDelete {
                     Section {
                         Button(role: .destructive) {
@@ -145,10 +130,6 @@ struct BackendEditSheet: View {
                     }
                     .disabled(!canSave)
                 }
-            }
-            .task(id: currentlyPaired) {
-                guard currentlyPaired else { devicesLoad = .idle; return }
-                await loadDevices()
             }
             #if os(macOS)
             .frame(minWidth: 360, idealWidth: 420, minHeight: 320, idealHeight: 420)
@@ -342,74 +323,6 @@ struct BackendEditSheet: View {
         }
     }
 
-    @ViewBuilder
-    private var devicesSection: some View {
-        Section {
-            switch devicesLoad {
-            case .idle, .loading:
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Loading paired devices…")
-                        .foregroundStyle(.secondary)
-                }
-            case .failed(let message):
-                Label(message, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-            case .loaded(let devices):
-                if devices.isEmpty {
-                    Text("No active devices.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(devices) { device in
-                        deviceRow(device)
-                    }
-                }
-            }
-        } header: {
-            Text("Devices on backend")
-        } footer: {
-            Text("All devices registered with this backend. Revoke any you no longer trust — the device gets 401 on the next request.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    @ViewBuilder
-    private func deviceRow(_ device: PairedDeviceInfo) -> some View {
-        let isThisDevice = device.id == initialEntry.deviceID?.uuidString
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(device.label)
-                    if isThisDevice {
-                        Text("this device")
-                            .font(.caption2)
-                            .foregroundStyle(.tint)
-                            .padding(.horizontal, 4)
-                            .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
-                    }
-                }
-                Text(String(device.id.prefix(8)) + "…")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            if revokingDeviceID == device.id {
-                ProgressView().controlSize(.small)
-            } else {
-                Button(role: .destructive) {
-                    Task { await revokeDevice(device) }
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(.borderless)
-            }
-        }
-    }
-
     // MARK: - Actions
 
     @MainActor
@@ -424,42 +337,9 @@ struct BackendEditSheet: View {
         do {
             try settings?.clearPairing(backendID: initialEntry.id)
             pairState = .idle
-            devicesLoad = .idle
         } catch {
             pairState = .failed("Couldn't clear local credential: \(error)")
         }
-    }
-
-    @MainActor
-    private func loadDevices() async {
-        guard let client = makeDevicesClient() else { return }
-        devicesLoad = .loading
-        do {
-            let devices = try await client.listDevices()
-            devicesLoad = .loaded(devices)
-        } catch {
-            devicesLoad = .failed(String(describing: error))
-        }
-    }
-
-    @MainActor
-    private func revokeDevice(_ device: PairedDeviceInfo) async {
-        guard let client = makeDevicesClient() else { return }
-        revokingDeviceID = device.id
-        do {
-            try await client.revokeDevice(id: device.id)
-            // If we revoked our own device, clear local Keychain too.
-            if device.id == initialEntry.deviceID?.uuidString {
-                try? settings?.clearPairing(backendID: initialEntry.id)
-                revokingDeviceID = nil
-                devicesLoad = .idle
-                return
-            }
-        } catch {
-            // Fall through to refresh regardless.
-        }
-        revokingDeviceID = nil
-        await loadDevices()
     }
 
     private func makeDevicesClient() -> BackendDevicesClient? {

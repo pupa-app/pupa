@@ -209,7 +209,7 @@ struct GuidedTourStoreTests {
         // The chat step opens the overlay and parks its example prefill.
         let chat = steps.first { $0.id == "chat" }!
         #expect(chat.opensChat)
-        #expect(chat.chatPrefill == "Add a prep task for my Friday interview")
+        #expect(chat.chatPrefill == "Can you prepare my daily briefing while I get my coffee?")
     }
 
     @Test("Menu steps open the sidebar and ring the right footer action, in order")

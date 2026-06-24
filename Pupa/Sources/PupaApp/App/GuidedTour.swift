@@ -169,7 +169,7 @@ enum TourContent {
                 placement: .top,
                 selection: .myAppHome(activeMyAppId),
                 opensChat: true,
-                chatPrefill: "Add a prep task for my Friday interview",
+                chatPrefill: "Can you prepare my daily briefing while I get my coffee?",
                 highlight: .bottomBarChat
             ),
             TourStep(
@@ -207,7 +207,7 @@ enum TourContent {
                 title: "Slash commands",
                 body: "Type \"/\" in the composer for quick commands — /help lists them all, "
                     + "/tools shows what the agent can do, and /reset starts a fresh "
-                    + "conversation.",
+                    + "conversation. Also skills created by the agent can be invoked here.",
                 placement: .top,
                 opensChat: true,
                 chatPrefill: "/"
@@ -216,8 +216,8 @@ enum TourContent {
                 id: "screen-share",
                 title: "Screen share",
                 body: "Next to it, screen share lets the agent see what's on your screen "
-                    + "while you work — handy when you want it to react to something "
-                    + "outside Pupa.",
+                    + "in your backend — handy when you want to see what the backend agent "
+                    + "is cooking.",
                 placement: .top,
                 opensSidebar: true,
                 highlight: .sidebarScreenShare

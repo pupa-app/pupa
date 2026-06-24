@@ -212,7 +212,7 @@ public struct OnboardingFlowView: View {
         // Only pre-seed a first message when chatting will actually work —
         // a prompt the user can't send (no backend) is a dead end, not a win.
         if isPaired {
-            OnboardingHandoff.shared.suggestedPrompt = "Add a prep task for my Friday interview"
+            OnboardingHandoff.shared.suggestedPrompt = "Can you prepare my daily briefing while I get my coffee?"
         }
         onFinish()
     }

@@ -3,6 +3,16 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.43] — 2026-06-24
+
+### Removed
+
+- **"Devices on backend" list dropped from Connect backend.** The sheet no
+  longer lists/revokes other devices registered with a backend — the route is
+  operator-only (needs `PUPA_API_KEY`), so paired-device tokens always got a
+  403. Pairing and Unpair (which still revokes this device) are unaffected.
+  (`PupaApp` `0.0.135`)
+
 ## [0.0.42] — 2026-06-24
 
 ### Added
