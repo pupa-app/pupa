@@ -27,6 +27,34 @@ extension Color {
         #endif
     }
 
+    // MARK: - Base app chrome
+
+    /// Neutral warm grey driving the base app chrome (sidebar `+`, footer
+    /// glyphs, Settings) — everything that isn't inside a MyApp, which keeps
+    /// its own per-app accent. Replaces the default system blue so the shell
+    /// reads as quiet/neutral. Themed around `DCDAD6`: that light tone is the
+    /// surface (`appBaseSurface`); the tint is a darker shade of the same warm
+    /// family so glyphs stay legible on white, and lifts toward `DCDAD6` in
+    /// dark mode.
+    static let appBase: Color = {
+        #if os(macOS)
+        Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? NSColor(red: 0.86, green: 0.85, blue: 0.84, alpha: 1.0)
+                : NSColor(red: 0.42, green: 0.41, blue: 0.39, alpha: 1.0)
+        })
+        #else
+        Color(uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 0.86, green: 0.85, blue: 0.84, alpha: 1.0)
+                : UIColor(red: 0.42, green: 0.41, blue: 0.39, alpha: 1.0)
+        })
+        #endif
+    }()
+
+    /// The light `DCDAD6` warm grey itself — a base-chrome surface tone.
+    static let appBaseSurface: Color = Color(red: 0.863, green: 0.855, blue: 0.839)
+
     // MARK: - Brand + agent color coding
 
     /// Soft purple used for the splash gradient, onboarding surfaces, and

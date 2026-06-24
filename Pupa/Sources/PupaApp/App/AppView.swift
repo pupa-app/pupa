@@ -204,14 +204,10 @@ public struct AppView: View {
             // The iOS body resets `selection` to nil right after it changes (so
             // a sidebar re-tap re-fires), which collapses any non-home page back
             // to the active MyApp home. So drive navigation through `detailPath`
-            // — the same persistent push `openFromChat` uses — instead of the
+            // — the same persistent push the bottom bar uses — instead of the
             // transient `selection`. Home is the stack root (empty path).
             selection = nil
-            if case .myAppHome = sel {
-                detailPath = []
-            } else {
-                detailPath = [sel]
-            }
+            detailPath = sel.iOSDetailStack
             #else
             detailPath = []
             selection = sel
@@ -423,12 +419,15 @@ public struct AppView: View {
             // Ignore our own clear-to-nil (below) so it doesn't wipe a freshly
             // pushed page.
             guard let new else { return }
-            // A MyApp selection resolves through the active-myApp home once
-            // `selection` clears, so it needs no pushed stack. Orchestrator /
-            // screen-share have no such fallback — push them onto `detailPath`
-            // so they actually navigate instead of dropping back to the active
-            // MyApp canvas.
-            detailPath = new.myAppId == nil ? [new] : []
+            // Only the active MyApp's home / canvas resolves through
+            // `activeMyAppId` once `selection` clears; every other page must be
+            // pushed onto `detailPath` (which survives the clear-to-nil below)
+            // so it doesn't bounce back to the canvas. See `iOSDetailStack`.
+            // Single source of truth for the stack — the bottom bar / sidebar
+            // only set `selection`; this replaces the stack wholesale so a tab
+            // switch from a non-home page doesn't clear-then-refill (which
+            // blanks `NavigationStack`).
+            detailPath = SidebarSelection.detailStack(picking: new, from: detailPath)
             withAnimation(.spring(duration: 0.3)) { showSidebar = false }
             // List(selection:) won't re-fire onChange for an identical value, so a
             // re-tap of the same row is dropped. Reset the highlight after the tap
@@ -674,7 +673,10 @@ public struct AppView: View {
                 chatStatus: chatStatus,
                 chatOpen: chatOpen,
                 onSelect: { nav in
-                    detailPath = []
+                    // Only set `selection`; the `onChange(of: selection)` driver
+                    // owns `detailPath`. Writing it here too would clear-then-
+                    // refill across two transactions and blank `NavigationStack`
+                    // when switching tabs from a non-home page.
                     selection = nav
                     dispatchSelection(nav)
                 },

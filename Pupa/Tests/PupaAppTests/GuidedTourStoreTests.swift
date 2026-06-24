@@ -242,6 +242,24 @@ struct GuidedTourStoreTests {
         #expect(last.settingsPage == .examples)
         #expect(last.highlight == .settingsExamples)
     }
+
+    @Test("Walking the tour reaches the example card, then finishing completes it")
+    func walkReachesExampleCardThenFinishes() {
+        let defaults = freshDefaults()
+        let store = startedStore(defaults: defaults)
+        // Advance to the last step.
+        while !store.isLastStep { store.next() }
+        // The closing card is the add-an-example deep-link to Settings.
+        #expect(store.currentStep?.id == "add-example")
+        #expect(store.currentStep?.settingsPage == .examples)
+        #expect(store.currentStep?.highlight == .settingsExamples)
+        #expect(store.isActive)
+        // Finishing from the last step tears the tour down and persists, so it
+        // never replays.
+        store.next()
+        #expect(!store.isActive)
+        #expect(defaults.bool(forKey: OnboardingKeys.tourCompleted))
+    }
 }
 
 /// Migration back-fill: a pre-existing user (with a persisted settings

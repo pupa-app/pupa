@@ -5,8 +5,35 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
 
 ## [0.0.43] — 2026-06-24
 
+### Fixed
+
+- **Tapping a MyApp in the iOS sidebar lands on the right app every time.**
+  Rows relied on `List(selection:)`, which only tap-selects in edit mode on
+  iOS, so taps updated the binding unreliably and routed to a stale MyApp. Rows
+  now drive selection from an explicit full-row tap. (`PupaApp` `0.0.138`)
+- **Bottom-bar Agents / Memories / component tabs no longer bounce back to
+  Home on iOS.** Tapping them flashed the page then dropped straight back to the
+  canvas: the drawer clears `selection` to nil after each tap, and every MyApp
+  page was treated as "resolves to the home", so only Home and History (pushed
+  separately) survived. Non-home pages now push onto the navigation stack
+  (`SidebarSelection.iOSDetailStack`), like History already did. (`PupaApp`
+  `0.0.137`)
+- **Switching iOS bottom-bar tabs from a non-home page no longer blanks the
+  page.** Once non-home pages were pushed, tapping a tab while already on one
+  (e.g. Agents → Memories) flashed the target then landed on a blank page: the
+  bottom bar cleared `detailPath` to empty *and* the selection `onChange`
+  re-pushed it, two stack mutations across transactions that glitched
+  `NavigationStack`. The `onChange` is now the sole stack driver
+  (`SidebarSelection.detailStack(picking:from:)`); the bar only sets
+  `selection`. (`PupaApp` `0.0.139`)
+
 ### Changed
 
+- **Neutral grey base-app chrome; MyApp names no longer coloured.** Base chrome
+  (sidebar `+`, footer glyphs, Settings) reads a warm neutral grey (`appBase`,
+  themed around `DCDAD6`) instead of system blue. In the sidebar only the MyApp
+  icon carries its per-app colour — the name is now default text. (`PupaApp`
+  `0.0.138`)
 - **Guided tour's closing card opens Settings · Examples.** Instead of a single
   "Add Home Buying" button, the final step deep-links to the Examples list and
   rings it, inviting you to tap Restore on whichever example you like and
