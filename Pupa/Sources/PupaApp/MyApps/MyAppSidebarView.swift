@@ -112,6 +112,8 @@ public struct MyAppSidebarView: View {
     /// global agent, not one of "your projects".
     private var bottomMenu: some View {
         HStack(spacing: 8) {
+            Spacer()
+
             Button {
                 selection = .orchestrator
                 onSelectionChange(.orchestrator)
@@ -138,6 +140,8 @@ public struct MyAppSidebarView: View {
             .buttonStyle(.borderless)
             .accessibilityLabel("Open Screen share")
 
+            Spacer()
+
             Button {
                 settingsSheetPresented = true
             } label: {
@@ -148,6 +152,8 @@ public struct MyAppSidebarView: View {
             .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
             .accessibilityLabel("Open Settings")
+
+            Spacer()
         }
         .padding(12)
     }
