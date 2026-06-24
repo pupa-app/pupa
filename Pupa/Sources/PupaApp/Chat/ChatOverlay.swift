@@ -182,6 +182,7 @@ struct ChatOverlay: View {
                     )
                     // Clear the resize grip pinned to the top-leading corner.
                     .padding(.leading, isFullscreen ? 4 : 28)
+                    .tourAnchor(.chatHeader)
                     Spacer()
                     Button {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {

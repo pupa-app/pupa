@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import PupaApp
 
-/// Pins the shape of the seeded "Example: Daily Briefing" workspace: the
+/// Pins the shape of the seeded "Daily Briefing" workspace: the
 /// component graph, the Today's-Briefing→Sources link graph, the live feed
 /// chart source, evergreen calendar dates, and a clean export → import
 /// round-trip.

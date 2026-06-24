@@ -1,6 +1,6 @@
 import Foundation
 
-/// Seeded "Example: Dev Workspace" MyApp.
+/// Seeded "Dev Workspace" MyApp.
 ///
 /// Demonstrates the shell-tool + visualisation combination: with
 /// `SHELL_TOOL_ENABLED=1` the agent runs real shell commands
@@ -12,7 +12,7 @@ import Foundation
 /// The AGENTS.md prominently explains the shell-tool requirement and
 /// trust model so users understand the capability boundary.
 enum DevWorkspaceExample: ExampleMyApp {
-    static let name = "Example: Dev Workspace"
+    static let name = "Dev Workspace"
     static let iconSystemName = "laptopcomputer"
     static let tagline = "Laptop storage + process audit with shell access, visual kanban report, and cleanup checklist"
 

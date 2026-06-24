@@ -1,6 +1,6 @@
 import Foundation
 
-/// Seeded "Example: Home Buying" MyApp.
+/// Seeded "Home Buying" MyApp.
 ///
 /// Demonstrates the linked-field calculator: a tracker of candidate houses
 /// feeding a mortgage model that pulls each input off ONE selected house via
@@ -16,7 +16,7 @@ import Foundation
 ///   cost, and total interest. A `linkedCompare` row + bar chart compares
 ///   every house on total monthly cost.
 enum HomeBuyingExample: ExampleMyApp {
-    static let name = "Example: Home Buying"
+    static let name = "Home Buying"
     static let iconSystemName = "house"
     static let tagline = "Compare mortgages by linking houses into a live calculator — swap the house, the model updates"
 

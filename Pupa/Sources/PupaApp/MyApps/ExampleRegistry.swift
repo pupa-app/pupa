@@ -30,9 +30,10 @@ public protocol ExampleMyApp {
 /// Centralised registry of all seeded examples. Add a new conformance here
 /// to make it appear in the Settings picker and in the first-launch seed.
 public enum ExampleRegistry {
-    // Wellbeing Coach is first so it's both the default first-launch seed and
+    // Daily Briefing is first so it's both the default first-launch seed and
     // the Settings picker's default selection.
     public nonisolated(unsafe) static let all: [any ExampleMyApp.Type] = [
+        DailyBriefingExample.self,
         WellbeingCoachExample.self,
         JobSearchExample.self,
         ContentStudioExample.self,
@@ -40,7 +41,6 @@ public enum ExampleRegistry {
         FashionCompanionExample.self,
         HomeBuyingExample.self,
         ResearchTrackerExample.self,
-        DailyBriefingExample.self,
     ]
 
     /// Write every example's AGENTS.md files. Called once at app launch so

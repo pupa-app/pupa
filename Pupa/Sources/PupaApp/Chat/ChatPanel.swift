@@ -48,6 +48,14 @@ public struct ChatPanel: View {
     /// `chatPrefill`; we drop it into the composer so the coach card can point
     /// at a ready-to-send message (or surface the `SlashCommandPalette` on "/").
     @State private var tour = GuidedTourStore.shared
+    /// In-flight typewriter task for a streamed tour prefill, cancelled when the
+    /// panel disappears or the user starts typing.
+    @State private var prefillTask: Task<Void, Never>?
+    /// The exact composer text the last tour prefill wrote (full or partial).
+    /// Lets a later step's prefill replace its own parked example while never
+    /// clobbering anything the user typed.
+    @State private var streamedDraft: String = ""
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var draft: String = ""
     @State private var pickerItem: PhotosPickerItem?
     @State private var pickedImage: PickedImage?
@@ -175,9 +183,9 @@ public struct ChatPanel: View {
                 draft = suggested
             }
             // Guided tour: the chat step opens this overlay, so the prefill is
-            // already parked before the panel mounts — adopt it on appear.
+            // already parked before the panel mounts — type it in on appear.
             if let prefill = tour.chatPrefill, !prefill.isEmpty {
-                draft = prefill
+                streamPrefill(prefill)
             }
         }
         // Guided tour with the overlay already open (the slash-commands step
@@ -185,7 +193,50 @@ public struct ChatPanel: View {
         // SlashCommandPalette surfaces without re-mounting the panel.
         .onChange(of: tour.chatPrefill) { _, prefill in
             if let prefill, !prefill.isEmpty {
-                draft = prefill
+                streamPrefill(prefill)
+            }
+        }
+        .onDisappear { prefillTask?.cancel() }
+    }
+
+    /// Type a tour prefill into the composer with a brief lead-in then a
+    /// character-by-character reveal, so the coach card's example looks typed
+    /// rather than pasted. Reduce Motion (and single-char prefills like "/",
+    /// which must surface the `SlashCommandPalette` at once) drop straight to
+    /// the full string. Cancels any prior run and bails the moment the user
+    /// starts typing, so a stream never fights real input.
+    private func streamPrefill(_ text: String) {
+        prefillTask?.cancel()
+        // Replace an empty composer or our own previously-parked prefill; bail
+        // the moment it holds something the user typed.
+        guard draft.isEmpty || draft == streamedDraft else { return }
+        // A single-char prefill ("/" for the slash step) can't be "typed", but
+        // still wait a beat so the composer is settled and the palette's appear
+        // animation reads clearly rather than popping in on arrival.
+        let isShort = text.count <= 1
+        if reduceMotion && !isShort {
+            draft = text
+            streamedDraft = text
+            return
+        }
+        prefillTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(isShort ? 300 : 400))
+            // Re-check after the lead-in — the user may have started typing.
+            guard !Task.isCancelled, draft.isEmpty || draft == streamedDraft else { return }
+            if isShort {
+                draft = text
+                streamedDraft = text
+                return
+            }
+            var typed = ""
+            draft = ""
+            streamedDraft = ""
+            for ch in text {
+                if Task.isCancelled || draft != streamedDraft { return }
+                typed.append(ch)
+                draft = typed
+                streamedDraft = typed
+                try? await Task.sleep(for: .milliseconds(24))
             }
         }
     }
@@ -208,6 +259,7 @@ public struct ChatPanel: View {
     private var header: some View {
         HStack(spacing: 8) {
             threadDropdown
+                .tourAnchor(.chatHeader)
             Spacer()
             if let add = onAddThread {
                 Button(action: add) {

@@ -88,17 +88,21 @@ public struct MyAppBottomBar: View {
 
     public var body: some View {
         HStack(spacing: 0) {
-            barButton(system: "house", active: currentPage == .home, help: "Home") {
+            barButton(system: "house", active: currentPage == .home, help: "Home",
+                      highlight: .bottomBarHome) {
                 onSelect(homeSelection)
             }
-            barButton(system: "person.2", active: currentPage == .agents, help: "Agents") {
+            barButton(system: "person.2", active: currentPage == .agents, help: "Agents",
+                      highlight: .bottomBarAgents) {
                 onSelect(agentsSelection)
             }
-            barButton(system: "brain", active: currentPage == .memories, help: "Memories") {
+            barButton(system: "brain", active: currentPage == .memories, help: "Memories",
+                      highlight: .bottomBarMemories) {
                 onSelect(memoriesSelection)
             }
             if let id = myAppId {
-                barButton(system: "clock", active: currentPage == .history, help: "History") {
+                barButton(system: "clock", active: currentPage == .history, help: "History",
+                          highlight: .bottomBarHistory) {
                     onShowHistory(id)
                 }
             }
@@ -115,6 +119,7 @@ public struct MyAppBottomBar: View {
         system: String,
         active: Bool,
         help: String,
+        highlight: TourHighlight? = nil,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -132,6 +137,7 @@ public struct MyAppBottomBar: View {
         .buttonStyle(.plain)
         .help(help)
         .accessibilityLabel(help)
+        .tourAnchorIfPresent(highlight)
     }
 
     /// Chat launcher. Keeps the pupa's current look (app-icon image on the
@@ -166,6 +172,7 @@ public struct MyAppBottomBar: View {
         .buttonStyle(.plain)
         .accessibilityLabel(chatOpen ? "Close chat" : "Open chat")
         .accessibilityValue(chatStatus.accessibilityDescription ?? "")
+        .tourAnchor(.bottomBarChat)
     }
 
     /// `⋯` jump menu: a myApp lists its components; the orchestrator lists the

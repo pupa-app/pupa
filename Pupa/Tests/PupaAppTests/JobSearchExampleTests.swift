@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import PupaApp
 
-/// Pins the shape of the seeded "Example: Job Search" workspace so an
+/// Pins the shape of the seeded "Job Search" workspace so an
 /// accidental edit to the factory doesn't silently strip an
 /// onboarding-critical component, change a stable component id the
 /// agent addresses by name, or break the cross-component link graph

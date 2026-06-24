@@ -10,8 +10,8 @@ import Observation
 /// `index.json` (active id, order, orchestrator threads, audit log). One
 /// mutation rewrites only the touched file, so iCloud syncs minimal traffic
 /// and per-app snapshots stay cheap. On first launch under a fresh install
-/// (no `state/`), `load()` seeds the pre-populated "Example: Wellbeing Coach"
-/// workspace via `WellbeingCoachExample.make()` — a working demo of the
+/// (no `state/`), `load()` seeds the pre-populated "Daily Briefing"
+/// workspace via `DailyBriefingExample.make()` — a working demo of the
 /// full canvas instead of an empty placeholder. Users can add any example
 /// any time from Settings → Examples. The spaces→myapps rename in project
 /// `0.0.26` is a clean break with no migration of older
@@ -249,7 +249,7 @@ public final class MyAppStore {
         persist()
     }
 
-    /// Re-insert the seeded "Example: Job Search" workspace if the user
+    /// Re-insert the seeded "Job Search" workspace if the user
     /// has deleted it. If a MyApp with `JobSearchExample.name` is already
     /// present, just makes it the active one — no duplicate is inserted.
     /// Wired into Settings → Examples → "Restore example MyApp".
@@ -2906,14 +2906,13 @@ public final class MyAppStore {
             }
         }
 
-        // Fresh install: seed the Wellbeing Coach (default, active) plus the
-        // Home Buying example so the calculator/chart demo is present out of
-        // the box. Both are restorable from Settings if deleted. The caller
-        // writes these to disk via `persist()`.
-        let myApp = WellbeingCoachExample.make()
-        let homeBuying = HomeBuyingExample.make()
+        // Fresh install: seed just the Daily Briefing (default, active). The
+        // guided tour offers to add a second example (Home Buying) at the end,
+        // and every example is restorable from Settings. The caller writes this
+        // to disk via `persist()`.
+        let myApp = DailyBriefingExample.make()
         let firstThread = ChatThread()
-        return Loaded(myApps: [myApp, homeBuying], activeId: myApp.id,
+        return Loaded(myApps: [myApp], activeId: myApp.id,
                       memoryThreads: [firstThread], memoryCurrentThreadId: firstThread.id,
                       itemEventLog: ItemEventLog(), fromDisk: false)
     }

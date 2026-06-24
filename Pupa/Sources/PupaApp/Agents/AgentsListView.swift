@@ -63,15 +63,7 @@ public struct AgentsListView: View {
     }
 
     private func header(_ app: MyApp) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: "person.2.fill")
-                .font(.title2)
-                .foregroundStyle(appColor)
-            Text("\(app.name) — Agents")
-                .font(.title)
-                .fontWeight(.semibold)
-            Spacer()
-        }
+        MyAppPageHeader(page: "Agents", name: app.name, icon: "person.2.fill", color: appColor)
     }
 
     private var agentsPanel: some View {

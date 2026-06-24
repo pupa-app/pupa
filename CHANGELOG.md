@@ -3,6 +3,51 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.43] — 2026-06-24
+
+### Changed
+
+- **Guided tour's closing card opens Settings · Examples.** Instead of a single
+  "Add Home Buying" button, the final step deep-links to the Examples list and
+  rings it, inviting you to tap Restore on whichever example you like and
+  explore it. (`PupaApp` `0.0.136`)
+
+### Removed
+
+- **"Devices on backend" list dropped from Connect backend.** The sheet no
+  longer lists/revokes other devices registered with a backend — the route is
+  operator-only (needs `PUPA_API_KEY`), so paired-device tokens always got a
+  403. Pairing and Unpair (which still revokes this device) are unaffected.
+  (`PupaApp` `0.0.135`)
+
+## [0.0.42] — 2026-06-24
+
+### Added
+
+- **Each MyApp page labels itself.** Home, Agents, Memories and History now show
+  a small tinted page name above the MyApp name, so it's always clear which page
+  you're on. (`PupaApp` `0.0.134`)
+
+### Changed
+
+- **Daily Briefing is the default example.** A fresh install now opens on a
+  single Daily Briefing workspace; the guided tour ends with a card that adds a
+  second example (Home Buying) to explore, and every example stays restorable
+  from Settings → Examples. (`PupaApp` `0.0.134`)
+- **Example workspaces drop the "Example:" prefix.** They now read as plain
+  names (Daily Briefing, Home Buying, …) in the sidebar and Settings.
+  (`PupaApp` `0.0.134`)
+- **Guided tour walks the MyApp bottom bar in order.** The tour now steps
+  through Home → Agents → Memories → History → Pupa left to right, opening each
+  page and ringing the tab as it describes it; the agents & threads step rings
+  the chat's agent switcher + thread picker. It then introduces the Orchestrator
+  from its menu button before opening it, and points out screen share and
+  Import & Export by ringing their sidebar icons. The example chat message types
+  itself into the composer with a short lead-in instead of appearing all at
+  once. The highlight ring never blocks input — you can tap what it points at —
+  and the coach card lifts clear of the bar so it never covers the ring. Reduce
+  Motion keeps the ring static and the prefill instant. (`PupaApp` `0.0.134`)
+
 ## [0.0.41] — 2026-06-24
 
 ### Changed

@@ -136,15 +136,7 @@ public struct MyAppHomeView: View {
     }
 
     private func header(name: String, icon: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: icon)
-                .font(.title2)
-                .foregroundStyle(appColor)
-            Text(name)
-                .font(.title)
-                .fontWeight(.semibold)
-            Spacer()
-        }
+        MyAppPageHeader(page: "Home", name: name, icon: icon, color: appColor)
     }
 
     /// Renamed from "Summary": the agent-written per-component summaries, the

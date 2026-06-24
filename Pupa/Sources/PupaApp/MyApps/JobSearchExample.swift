@@ -1,6 +1,6 @@
 import Foundation
 
-/// Seeded "Example: Job Search" MyApp used to onboard new users.
+/// Seeded "Job Search" MyApp used to onboard new users.
 ///
 /// Demonstrates a coherent use case across every component kind plus
 /// the cross-component reference graph + AGENTS.md memory layer:
@@ -32,7 +32,7 @@ enum JobSearchExample: ExampleMyApp {
     /// Display name used both as the seed's `MyApp.name` and as the
     /// idempotency key for `restoreExampleMyApp()` (a MyApp with this
     /// exact name is treated as the example workspace).
-    static let name = "Example: Job Search"
+    static let name = "Job Search"
     static let iconSystemName = "briefcase"
     static let tagline = "Interview prep with cross-linked skills, stories, and a multi-agent Prep Room"
 

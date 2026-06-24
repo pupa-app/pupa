@@ -197,10 +197,25 @@ public struct AppView: View {
         tour.wantSettingsOpen = step.settingsPage != nil
         tour.wantChatOpen = step.opensChat
         tour.chatPrefill = step.chatPrefill
+        tour.wantHighlight = step.highlight
         if let sel = step.selection {
+            dispatchSelection(sel)
+            #if os(iOS)
+            // The iOS body resets `selection` to nil right after it changes (so
+            // a sidebar re-tap re-fires), which collapses any non-home page back
+            // to the active MyApp home. So drive navigation through `detailPath`
+            // — the same persistent push `openFromChat` uses — instead of the
+            // transient `selection`. Home is the stack root (empty path).
+            selection = nil
+            if case .myAppHome = sel {
+                detailPath = []
+            } else {
+                detailPath = [sel]
+            }
+            #else
             detailPath = []
             selection = sel
-            dispatchSelection(sel)
+            #endif
         }
     }
 
@@ -230,6 +245,14 @@ public struct AppView: View {
             detail
         }
         .frame(minWidth: 560, idealWidth: 1300, minHeight: 600, idealHeight: 720)
+        // Ring the active step's target across the whole window (sidebar footer,
+        // bottom-bar tab, or chat header), under the coach card, non-blocking.
+        .tourHighlightLayer(tour)
+        .overlay {
+            if tour.isActive {
+                GuidedTourView(tour: tour)
+            }
+        }
         .onChange(of: store.myApps) { _, apps in
             for app in apps { coordinator.ensureMyAppMemory(app) }
         }
@@ -383,9 +406,14 @@ public struct AppView: View {
                 .shadow(radius: 10)
                 .transition(.move(edge: .leading))
             }
-
-            // Coach card sits above the sidebar drawer + chat so the welcome
-            // step (which opens the menu) keeps the card visible on top.
+        }
+        // Ring the control the active step describes (sidebar footer, bottom-bar
+        // tab, or chat header) — over the drawer + canvas, under the coach card,
+        // never blocking input.
+        .tourHighlightLayer(tour)
+        // Coach card sits on top of everything (incl. the ring) so the welcome
+        // step keeps it visible while the menu is open.
+        .overlay {
             if tour.isActive {
                 GuidedTourView(tour: tour)
             }
@@ -436,9 +464,6 @@ public struct AppView: View {
             // overlay subtree so it doesn't hijack the canvas's own openURL
             // handlers (e.g. Slack mentions). Real http(s) URLs fall through.
             .environment(\.openURL, chatLinkAction)
-            if tour.isActive {
-                GuidedTourView(tour: tour)
-            }
         }
         // Inset on the ZStack (not the NavigationStack) so the bar reserves
         // space for the content AND lifts the floating `ChatOverlay` above it —

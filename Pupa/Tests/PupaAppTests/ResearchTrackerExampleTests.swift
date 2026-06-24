@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import PupaApp
 
-/// Pins the shape of the seeded "Example: Research Tracker" workspace: the
+/// Pins the shape of the seeded "Research Tracker" workspace: the
 /// component graph the agent addresses by id, the Findings→Watchlist link
 /// graph the demo's value depends on, the chart's live source, and a clean
 /// export → import round-trip (the marketplace acceptance criterion).

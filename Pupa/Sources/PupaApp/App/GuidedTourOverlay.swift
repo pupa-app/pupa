@@ -41,6 +41,10 @@ struct GuidedTourView: View {
                 if step.placement == .top { Spacer(minLength: 0) }
             }
             .padding(20)
+            // A bottom card ringing the bottom bar would otherwise sit right on
+            // top of the ring — and the control it points at. Lift it clear so
+            // the highlight stays visible and the user can actually tap the tab.
+            .padding(.bottom, bottomLift(for: step))
             .onChange(of: tour.index) { _, _ in
                 // New step → snap back to its designed anchor.
                 withAnimation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.85)) {
@@ -53,6 +57,14 @@ struct GuidedTourView: View {
             .animation(reduceMotion ? nil : .spring(response: 0.4, dampingFraction: 0.85),
                        value: tour.index)
         }
+    }
+
+    /// Extra bottom inset for a bottom-anchored card so it sits clear of the
+    /// bottom bar — and, when the step rings a bar tab, clear of the glow ring
+    /// too. Lifts every bottom card off the very edge; zero for top cards.
+    private func bottomLift(for step: TourStep) -> CGFloat {
+        guard step.placement == .bottom else { return 0 }
+        return MyAppBottomBar.rowHeight + MyAppBottomBar.verticalPadding * 2 + 28
     }
 
     private func card(_ step: TourStep) -> some View {
