@@ -1,21 +1,12 @@
 import SwiftUI
 
-/// Routes for the Change History sheet presented from the sidebar's
-/// per-MyApp "History" row.
-public enum ChangeHistorySheetDestination: Identifiable, Hashable {
-    case forMyApp(myAppId: UUID)
-
-    public var id: UUID {
-        switch self { case .forMyApp(let id): return id }
-    }
-}
-
-/// Sheet body — shows a newest-first list of `ItemEvent`s for a given
+/// Change-history page — a newest-first list of `ItemEvent`s for a given
 /// MyApp, grouped by calendar day, with an Undo button per reversible row.
-public struct ChangeHistorySheet: View {
+/// Pushed onto the detail `NavigationStack` from the bottom bar's History
+/// button (the parent stack supplies the nav bar + back button).
+public struct ChangeHistoryView: View {
     @Bindable var store: MyAppStore
     let myAppId: UUID
-    var onClose: () -> Void
 
     private let cal = Calendar.autoupdatingCurrent
     private let relFmt: RelativeDateTimeFormatter = {
@@ -45,45 +36,38 @@ public struct ChangeHistorySheet: View {
     }
 
     public var body: some View {
-        NavigationStack {
-            Group {
-                if events.isEmpty {
-                    ContentUnavailableView(
-                        "No changes yet",
-                        systemImage: "clock",
-                        description: Text("Changes made through the app or agent will appear here.")
-                    )
-                } else {
-                    List {
-                        ForEach(groupedByDay, id: \.label) { group in
-                            Section(group.label) {
-                                ForEach(group.events) { event in
-                                    ChangeHistoryRow(
-                                        event: event,
-                                        summary: store.changeSummary(for: event),
-                                        relFmt: relFmt
-                                    ) {
-                                        _ = store.undo(eventId: event.id)
-                                    }
+        Group {
+            if events.isEmpty {
+                ContentUnavailableView(
+                    "No changes yet",
+                    systemImage: "clock",
+                    description: Text("Changes made through the app or agent will appear here.")
+                )
+            } else {
+                List {
+                    ForEach(groupedByDay, id: \.label) { group in
+                        Section(group.label) {
+                            ForEach(group.events) { event in
+                                ChangeHistoryRow(
+                                    event: event,
+                                    summary: store.changeSummary(for: event),
+                                    relFmt: relFmt
+                                ) {
+                                    _ = store.undo(eventId: event.id)
                                 }
                             }
                         }
                     }
-                    #if os(iOS)
-                    .listStyle(.insetGrouped)
-                    #endif
                 }
-            }
-            .navigationTitle("History")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { onClose() }
-                }
+                #if os(iOS)
+                .listStyle(.insetGrouped)
+                #endif
             }
         }
+        .navigationTitle("History")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 
     private func dayLabel(for date: Date) -> String {

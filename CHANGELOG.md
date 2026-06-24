@@ -3,6 +3,26 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.37] — 2026-06-24
+
+### Changed
+
+- **Agent pages keep the bottom bar; History is now a full page.** The bottom
+  bar gains a dedicated **Agents** tab (order: Home · Agents · Memories ·
+  History · chat · ⋯), so agent pages show the bar instead of reverting to the
+  old floating chat bubble. History opens as a pushed page with a back button
+  instead of a slide-up sheet, consistent with the rest of the app.
+  (`PupaApp` `0.0.129`)
+
+## [0.0.36] — 2026-06-24
+
+### Changed
+
+- **Agent name moves to the chat card's top bar.** The agent selector now sits
+  on the card's top row next to the resize / expand / close controls — reading
+  as the card title — while the conversation (thread) dropdown and its `+` stay
+  on the row below. (`PupaApp` `0.0.128`)
+
 ## [0.0.35] — 2026-06-23
 
 ### Changed

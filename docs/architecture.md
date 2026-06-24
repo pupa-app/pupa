@@ -73,14 +73,14 @@ sidebar); a footer menu holds the global **Orchestrator**, the **Screen share**
 viewer, and **Settings**. The Orchestrator opens the same home layout as a
 MyApp (`MyAppHomeView` with `subject: .orchestrator`) — an Outline explaining
 what it coordinates plus the myapps it can drive, an empty Components panel, and
-its agent — plus the same bottom bar (Home · Memories · Pupa · ⋯), rather than a
+its agent — plus the same bottom bar (Home · Agents · Memories · Pupa · ⋯), rather than a
 bespoke page. The drawer fills most of a compact
 (iPhone-portrait) screen but stays a slim fixed width on a regular width class
 (iPad, large iPhone landscape).
 
 The chat lives in a user-resizable `ChatOverlay` card anchored bottom-trailing
 of the detail pane. Its launcher lives in the per-MyApp bottom bar (below); on
-pages without that bar (orchestrator, agents, screen share) `ChatOverlay` shows
+pages without that bar (screen share, settings) `ChatOverlay` shows
 its own fallback pupa circle so chat stays reachable everywhere. On iOS the card
 does its own keyboard avoidance (it tracks the keyboard height and lifts/shrinks
 the card) so the composer stays visible above the keyboard in any orientation.
@@ -100,16 +100,17 @@ selectable on every platform and expose a **Copy** context-menu action
 (`ChatClipboard`, right-click on macOS / long-press on iOS) that copies the
 whole bubble.
 
-On a myApp's home / component / memories pages — and the orchestrator's home /
-memories pages — the detail pane hosts a persistent **bottom bar**
-(`MyApps/MyAppBottomBar.swift`) — the per-subject "tab bar", mounted via
-`.safeAreaInset(edge: .bottom)` so the page content insets above it instead of
-hiding under a floating overlay. It's keyed by `MyAppHomeView.Subject`
-(`.myApp(id)` / `.orchestrator`). Left to right: **Home** (`house`), **Memories**
+On a myApp's home / component / memories / agents / history pages — and the
+orchestrator's home / memories / agent pages — the detail pane hosts a persistent
+**bottom bar** (`MyApps/MyAppBottomBar.swift`) — the per-subject "tab bar",
+mounted via `.safeAreaInset(edge: .bottom)` so the page content insets above it
+instead of hiding under a floating overlay. It's keyed by `MyAppHomeView.Subject`
+(`.myApp(id)` / `.orchestrator`). Left to right: **Home** (`house`), **Agents**
+(`person.2`, opens `AgentsListView` / `AgentDetailView`), **Memories**
 (`brain`, opens `MyAppMemoriesView` — a browse page of the subject's note tree;
 folders drill in, files push `.myAppMemoryFile` / `.memoryFile`), **History**
-(`clock`, presents `ChangeHistorySheet` — **myApp only**; the orchestrator has no
-canvas change-log so it omits this), the **Pupa** chat launcher (toggles
+(`clock`, pushes `ChangeHistoryView` via `.myAppHistory` — **myApp only**; the
+orchestrator has no canvas change-log so it omits this), the **Pupa** chat launcher (toggles
 `AppView.chatOpen`, carrying the scope's `StatusBadge`), and a **⋯** menu that
 jumps to any component (myApp) or any myapp (orchestrator). Glyphs are tinted the
 subject's color (a myApp's creation-order index via
@@ -133,9 +134,13 @@ to the current chat scope (a myApp → `.myAppMemoryFile`, the orchestrator →
 `pupa://myapp/<uuid>/memory/<path>` form is for cross-scope links. Distinct from
 Slack's `pupa-mention://` and the `.pupaapp` file type.
 
-The conversation dropdown (`ChatPanel.threadDropdown`) lists threads newest-first.
-When 2+ threads exist each entry is a submenu with "Open" and "Delete" so any
-thread can be deleted without switching to it first.
+The card header is split across two rows. The **agent selector** (`AgentDropdown`)
+sits in the card's top bar — alongside the resize / expand / close controls — so
+the active agent's name and colour read as the card title; switching agents calls
+`onSwitchAgent`. The **conversation dropdown** (`ChatPanel.threadDropdown`) plus
+its `+` (new thread) stay one row below, inside `ChatPanel`. The thread dropdown
+lists threads newest-first. When 2+ threads exist each entry is a submenu with
+"Open" and "Delete" so any thread can be deleted without switching to it first.
 
 **Status badges.** `ChatActivityStatus` (`Chat/ChatActivityStatus.swift`) is a
 per-thread state derived live from each `ChatViewModel`: `actionRequired`
@@ -208,8 +213,8 @@ All canvas / item mutation goes through **`MyAppStore`**
 mutate state directly; they read it and call store methods or registered
 tools. Every mutation records a typed inverse in `ItemEventLog` so
 `undo(eventId:)` can reverse it. This log is surfaced via the per-MyApp
-bottom bar's **History** button, which presents the full `ChangeHistorySheet`
-(newest-first, grouped by day, per-row Undo).
+bottom bar's **History** button, which pushes the full `ChangeHistoryView`
+page (newest-first, grouped by day, per-row Undo).
 
 ## Shapes
 

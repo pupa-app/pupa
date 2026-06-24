@@ -31,8 +31,6 @@ public struct ChatPanel: View {
     /// The id of the thread currently shown in this panel — checkmarked in the
     /// dropdown.
     let currentThreadId: String
-    let agents: [AgentPickerEntry]
-    let onSwitchAgent: (ChatScope) -> Void
     /// Called with a thread id when the user picks a different conversation
     /// from the dropdown.
     let onSelectThread: (String) -> Void
@@ -46,7 +44,6 @@ public struct ChatPanel: View {
     /// `.idle` (no badge) for previews / callers that don't wire it.
     let status: (String) -> ChatActivityStatus
     @State private var showThreadList: Bool = false
-    @State private var showAgentList: Bool = false
     /// Shared guided-tour store. The chat / slash steps park a prefill in
     /// `chatPrefill`; we drop it into the composer so the coach card can point
     /// at a ready-to-send message (or surface the `SlashCommandPalette` on "/").
@@ -71,8 +68,6 @@ public struct ChatPanel: View {
         viewModel: ChatViewModel,
         threads: [ChatThread] = [],
         currentThreadId: String = "",
-        agents: [AgentPickerEntry],
-        onSwitchAgent: @escaping (ChatScope) -> Void,
         onSelectThread: @escaping (String) -> Void = { _ in },
         onAddThread: (() -> Void)? = nil,
         onDeleteThread: ((String) -> Void)? = nil,
@@ -81,8 +76,6 @@ public struct ChatPanel: View {
         self.viewModel = viewModel
         self.threads = threads
         self.currentThreadId = currentThreadId
-        self.agents = agents
-        self.onSwitchAgent = onSwitchAgent
         self.onSelectThread = onSelectThread
         self.onAddThread = onAddThread
         self.onDeleteThread = onDeleteThread
@@ -212,20 +205,8 @@ public struct ChatPanel: View {
         )
     }
 
-    /// Agent name for the header, hard-capped so it never wraps to a second
-    /// line — the icon + chevron stay on one row regardless of name length.
-    private var agentHeaderLabel: String {
-        let name = viewModel.agentDisplayName
-        let maxChars = 14
-        return name.count > maxChars ? name.prefix(maxChars - 1) + "…" : name
-    }
-
     private var header: some View {
         HStack(spacing: 8) {
-            agentDropdown
-            Text("·")
-                .font(.caption)
-                .foregroundStyle(.secondary)
             threadDropdown
             Spacer()
             if let add = onAddThread {
@@ -240,68 +221,6 @@ public struct ChatPanel: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-    }
-
-    @ViewBuilder
-    private var agentDropdown: some View {
-        let current = agents.first(where: { $0.scope == viewModel.pinnedScope })
-        // Custom popover (not a native `Menu`) so each agent row keeps its
-        // own color — system menus ignore per-row text/icon tints.
-        Button { showAgentList = true } label: {
-            HStack(spacing: 4) {
-                if let icon = current?.icon {
-                    Image(systemName: icon)
-                        .foregroundStyle(viewModel.agentColor)
-                }
-                Text(agentHeaderLabel)
-                    .font(.subheadline).bold()
-                    .foregroundStyle(viewModel.agentColor)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .fixedSize(horizontal: true, vertical: false)
-                Image(systemName: "chevron.down")
-                    .font(.caption2)
-                    .foregroundStyle(viewModel.agentColor.opacity(0.7))
-            }
-        }
-        .buttonStyle(.plain)
-        .popover(isPresented: $showAgentList) {
-            agentListPopover
-                .presentationCompactAdaptation(.popover)
-        }
-    }
-
-    @ViewBuilder
-    private var agentListPopover: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(agents.enumerated()), id: \.element.id) { idx, entry in
-                if idx > 0 { Divider() }
-                Button {
-                    onSwitchAgent(entry.scope)
-                    showAgentList = false
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "checkmark")
-                            .font(.caption)
-                            .foregroundStyle(entry.color)
-                            .opacity(entry.scope == viewModel.pinnedScope ? 1 : 0)
-                            .frame(width: 16)
-                        Image(systemName: entry.icon)
-                            .foregroundStyle(entry.color)
-                            .frame(width: 20)
-                        Text(entry.name)
-                            .font(.subheadline)
-                            .foregroundStyle(entry.color)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .frame(minWidth: 180)
     }
 
     /// Conversation selector. Tapping the label opens a popover listing all
