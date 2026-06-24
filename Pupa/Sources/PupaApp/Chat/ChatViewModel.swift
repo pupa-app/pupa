@@ -1223,7 +1223,16 @@ public final class ChatViewModel {
         store: MyAppStore
     ) async -> AnyJSON {
         await MainActor.run {
-            let disabled = settings.disabledBackendTools.sorted().map { AnyJSON.string($0) }
+            // Union the global Settings → Tools set with the per-agent disabled
+            // set for the active scope (main agent → per-MyApp; orchestrator →
+            // global orchestrator override). Per-agent is additive, never an
+            // override — see `MyAppStore.myAppDisabledTools`.
+            var disabledSet = settings.disabledBackendTools
+            switch scope {
+            case .myApp(let id): disabledSet.formUnion(store.myAppDisabledTools(for: id))
+            case .memory:        disabledSet.formUnion(settings.orchestratorDisabledTools)
+            }
+            let disabled = disabledSet.sorted().map { AnyJSON.string($0) }
             var entries: [String: AnyJSON] = ["disabled_tools": .array(disabled)]
             // Resolve shellApprovalDisabled through the settings hierarchy:
             // per-myApp override (if any) beats the global toggle.

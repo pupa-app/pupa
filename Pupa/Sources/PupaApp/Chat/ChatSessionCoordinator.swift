@@ -348,7 +348,9 @@ public final class ChatSessionCoordinator {
         }
         let state: @Sendable () async -> AnyJSON = {
             await MainActor.run {
-                let disabled = settings.disabledBackendTools.sorted().map { AnyJSON.string($0) }
+                // Global Settings → Tools set ∪ this MyApp's per-agent overrides.
+                let disabledSet = settings.disabledBackendTools.union(store.myAppDisabledTools(for: myAppId))
+                let disabled = disabledSet.sorted().map { AnyJSON.string($0) }
                 var entries: [String: AnyJSON] = ["disabled_tools": .array(disabled)]
                 let effective = EffectiveSettings(
                     globalSource: GlobalSettingsSource(shellApprovalDisabled: settings.shellApprovalDisabled),
@@ -360,6 +362,10 @@ public final class ChatSessionCoordinator {
                 return AnyJSON.object(entries)
             }
         }
+        // Forward the per-MyApp model selection so the sub-agent runs on the
+        // model configured for it (not the backend env default). Same shape as
+        // ChatViewModel's main-agent turn.
+        let modelProps = await MainActor.run { Self.llmForwardedProps(store.myAppLLM(for: myAppId)) }
         // Light up the sidebar spinner for the duration of the sub-run. The
         // refcount drops on every exit path — normal completion, thrown
         // error (incl. cancellation), or task-cancellation mid-stream — via
@@ -375,7 +381,8 @@ public final class ChatSessionCoordinator {
             prompt,
             context: context,
             toolFilter: toolFilter,
-            state: state
+            state: state,
+            forwardedProps: modelProps
         ) {
             switch event {
             case .assistantMessageEnd(_, let text):
@@ -593,9 +600,12 @@ public final class ChatSessionCoordinator {
                 history: historySnapshot
             )
         }
+        let agentDisabledTools = Set(agent.disabledTools ?? [])
         let state: @Sendable () async -> AnyJSON = {
             await MainActor.run {
-                let disabled = settings.disabledBackendTools.sorted().map { AnyJSON.string($0) }
+                // Global Settings → Tools set ∪ this sub-agent's per-agent overrides.
+                let disabledSet = settings.disabledBackendTools.union(agentDisabledTools)
+                let disabled = disabledSet.sorted().map { AnyJSON.string($0) }
                 var entries: [String: AnyJSON] = ["disabled_tools": .array(disabled)]
                 let effective = EffectiveSettings(
                     globalSource: GlobalSettingsSource(shellApprovalDisabled: settings.shellApprovalDisabled),
@@ -607,6 +617,10 @@ public final class ChatSessionCoordinator {
                 return AnyJSON.object(entries)
             }
         }
+        // Per-agent model selection (falls back to MyApp's, then backend default).
+        let agentModel = agent.llmProvider.flatMap { p in agent.llmModel.map { (provider: p, model: $0) } }
+            ?? store.myAppLLM(for: myAppId)
+        let modelProps = Self.llmForwardedProps(agentModel)
         let scope: ChatScope = .myApp(myAppId)
         let toolFilter: @Sendable () async -> Set<String> = { [store, slackToolGateState] in
             await MainActor.run { ChatViewModel.allowedToolNames(scope: scope, store: store, toolGateState: slackToolGateState) }
@@ -622,7 +636,8 @@ public final class ChatSessionCoordinator {
                 prompt,
                 context: context,
                 toolFilter: toolFilter,
-                state: state
+                state: state,
+                forwardedProps: modelProps
             ) {
                 switch event {
                 case .assistantMessageEnd(_, let text):
@@ -753,6 +768,20 @@ public final class ChatSessionCoordinator {
                 await MainActor.run { self?.slackInvoker.markMessagePosted(agentId: agentId) }
             }
         )
+    }
+
+    /// Build the `forwardedProps` LLM payload — `{"llm":{provider,model}}` —
+    /// from an optional per-agent selection. Empty object when unset, so the
+    /// backend falls back to its env-configured default. Mirrors the shape
+    /// `ChatViewModel.forwardedPropsJSON` ships for the main-agent turn.
+    static func llmForwardedProps(_ selection: (provider: String, model: String)?) -> AnyJSON {
+        guard let (provider, model) = selection else { return .object([:]) }
+        return .object([
+            "llm": .object([
+                "provider": .string(provider),
+                "model": .string(model),
+            ])
+        ])
     }
 
     /// Pretty-print an `AnyJSON` payload for live tool-call display

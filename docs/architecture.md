@@ -286,6 +286,22 @@ is now only the offline fallback (backend unreachable, old backend, not
 paired). The selected `{provider, model}` is forwarded per turn in
 `RunAgentInput.forwardedProps["llm"]`.
 
+**Per-agent overrides.** Model and tool gating are configured per agent on the
+Agents page. `AgentRegistry` builds an `AgentDescriptor` per agent carrying a
+glanceable `modelSummary` + `toolSummary` (shown on `AgentsListView` rows) and,
+in `AgentDetailView`, an editable model picker plus a toggleable tool surface.
+Storage parallels the existing per-agent LLM storage: the main agent uses
+`MyApp.settings` (`llm.*`, `tools.disabled` as a `SettingValue.stringArray`),
+Slack sub-agents use the `SlackAgent` struct (`llmProvider/llmModel/disabledTools`),
+and the orchestrator uses global `SettingsStore` fields. Each agent's disabled
+set is **unioned** with the global Settings → Tools set (`disabledBackendTools`)
+and sent every turn as `state.disabled_tools`, which the backend
+`ToolGatingMiddleware` drops from the model's tool list. The three send paths —
+the main-agent chat turn (`ChatViewModel`), orchestrator→MyApp sub-runs and
+Slack sub-runs (`ChatSessionCoordinator`, via `llmForwardedProps`) — all forward
+the resolved per-agent model and disabled union, so a sub-agent runs on its own
+configured model rather than the backend default.
+
 ## Skills & the `pupa/` config folder
 
 Each MyApp keeps its driving config in a visible `pupa/` subfolder of its

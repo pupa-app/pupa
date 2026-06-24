@@ -110,7 +110,8 @@ public struct AgentDetailView: View {
                 AgentPropertyRow(
                     property: property,
                     onNavigate: onNavigate,
-                    onSelectModel: { newId in selectModel(newId, for: descriptor) }
+                    onSelectModel: { newId in selectModel(newId, for: descriptor) },
+                    onToggleTool: { name, enabled in toggleTool(name, enabled: enabled, for: descriptor) }
                 )
                 Divider()
             }
@@ -165,6 +166,42 @@ public struct AgentDetailView: View {
             settings.setOrchestratorLLM(provider: provider, model: modelId)
         }
     }
+
+    /// Enable/disable one tool for whichever agent this view shows. Routes by
+    /// `descriptor.kind` exactly like `selectModel`: main → `MyApp.settings`,
+    /// Slack → the SlackAgent struct (id unwound via `AgentRegistry.slackAgentId`),
+    /// orchestrator → global settings. The current disabled set is recovered
+    /// from the rendered `.toolToggles` property so we mutate the live value.
+    private func toggleTool(_ name: String, enabled: Bool, for descriptor: AgentDescriptor) {
+        var disabled = currentDisabledTools(in: descriptor)
+        if enabled { disabled.remove(name) } else { disabled.insert(name) }
+
+        switch descriptor.kind {
+        case .myApp:
+            guard let myAppId = descriptor.myAppId else { return }
+            store.setMyAppDisabledTools(disabled, for: myAppId)
+        case .slack:
+            guard let myAppId = descriptor.myAppId else { return }
+            let parts = descriptor.id.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
+            guard parts.count == 3, parts[0] == "slack" else { return }
+            store.setSlackAgentDisabledTools(
+                disabled,
+                componentId: String(parts[1]),
+                agentId: String(parts[2]),
+                myAppId: myAppId
+            )
+        case .orchestrator:
+            settings.setOrchestratorDisabledTools(disabled)
+        }
+    }
+
+    /// Pull the agent's current disabled set out of its `.toolToggles` property.
+    private func currentDisabledTools(in descriptor: AgentDescriptor) -> Set<String> {
+        for property in descriptor.properties {
+            if case .toolToggles(_, _, let disabled) = property.value { return disabled }
+        }
+        return []
+    }
 }
 
 /// One row on the agent details page. Single switch on
@@ -178,6 +215,9 @@ private struct AgentPropertyRow: View {
     /// `KnownLLMModelCatalog.backendDefaultId` to clear the override).
     /// Ignored for non-picker rows.
     var onSelectModel: (String) -> Void
+    /// Called when the user flips a tool toggle in a `.toolToggles` row.
+    /// Receives the tool name and its new enabled state. Ignored for other rows.
+    var onToggleTool: (String, Bool) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -243,6 +283,13 @@ private struct AgentPropertyRow: View {
                 .buttonStyle(.plain)
             case .sections(let summary, let groups):
                 SectionsDisclosure(summary: summary, groups: groups)
+            case .toolToggles(let summary, let groups, let disabled):
+                ToolTogglesDisclosure(
+                    summary: summary,
+                    groups: groups,
+                    disabled: disabled,
+                    onToggle: onToggleTool
+                )
             case .modelPicker(let selectedId, let options):
                 ModelPickerRow(
                     selectedId: selectedId,
@@ -370,6 +417,49 @@ private struct SectionsDisclosure: View {
                                     .font(.callout.monospaced())
                                     .textSelection(.enabled)
                             }
+                        }
+                    }
+                }
+            }
+            .padding(.top, 6)
+        } label: {
+            Text(summary)
+                .font(.callout)
+        }
+    }
+}
+
+/// Editable variant of `SectionsDisclosure`: each tool row carries a `Toggle`
+/// bound to its enabled state (off ⇒ in the agent's disabled set). Flipping
+/// one calls `onToggle(name, enabled)`. Closed by default like its read-only
+/// sibling — the grouped list is long.
+private struct ToolTogglesDisclosure: View {
+    let summary: String
+    let groups: [AgentPropertySection]
+    let disabled: Set<String>
+    var onToggle: (String, Bool) -> Void
+    @State private var expanded: Bool = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $expanded) {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(groups, id: \.label) { group in
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(group.label)
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                        ForEach(group.items, id: \.self) { name in
+                            Toggle(isOn: Binding(
+                                get: { !disabled.contains(name) },
+                                set: { onToggle(name, $0) }
+                            )) {
+                                Text(name)
+                                    .font(.callout.monospaced())
+                            }
+                            .toggleStyle(.switch)
+                            .controlSize(.mini)
                         }
                     }
                 }

@@ -135,6 +135,21 @@ public struct AgentsListView: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
                     }
+                    HStack(spacing: 6) {
+                        Text(descriptor.modelSummary)
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .foregroundStyle(appColor)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(appColor.opacity(0.12))
+                            )
+                        Text(descriptor.toolSummary)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 Spacer()
                 Image(systemName: "chevron.right")

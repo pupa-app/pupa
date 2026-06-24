@@ -443,6 +443,11 @@ public struct SlackAgent: Codable, Hashable, Sendable, Identifiable {
     public var llmProvider: String?
     /// Per-agent logical LLM model id (e.g. `"claude-sonnet-4-6"`). See `llmProvider`.
     public var llmModel: String?
+    /// Per-agent disabled tool names. Unioned with the global
+    /// `disabledBackendTools` set when this agent runs — sent as
+    /// `state.disabled_tools` so the backend drops them from the model's tool
+    /// list. `nil`/empty means "no per-agent overrides".
+    public var disabledTools: [String]?
 
     public init(
         id: String = UUID().uuidString,
@@ -450,7 +455,8 @@ public struct SlackAgent: Codable, Hashable, Sendable, Identifiable {
         role: String,
         systemPromptAddition: String,
         llmProvider: String? = nil,
-        llmModel: String? = nil
+        llmModel: String? = nil,
+        disabledTools: [String]? = nil
     ) {
         self.id = id
         self.name = name
@@ -458,15 +464,16 @@ public struct SlackAgent: Codable, Hashable, Sendable, Identifiable {
         self.systemPromptAddition = systemPromptAddition
         self.llmProvider = llmProvider
         self.llmModel = llmModel
+        self.disabledTools = disabledTools
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, role, systemPromptAddition, llmProvider, llmModel
+        case id, name, role, systemPromptAddition, llmProvider, llmModel, disabledTools
     }
 
-    /// Backward-compatible decoder — `llmProvider` / `llmModel` were added
-    /// later, so any persisted SlackAgent blob lacking them decodes cleanly
-    /// with `nil` for both.
+    /// Backward-compatible decoder — `llmProvider` / `llmModel` /
+    /// `disabledTools` were added later, so any persisted SlackAgent blob
+    /// lacking them decodes cleanly with `nil`.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try c.decode(String.self, forKey: .id)
@@ -475,6 +482,7 @@ public struct SlackAgent: Codable, Hashable, Sendable, Identifiable {
         self.systemPromptAddition = try c.decode(String.self, forKey: .systemPromptAddition)
         self.llmProvider = try c.decodeIfPresent(String.self, forKey: .llmProvider)
         self.llmModel = try c.decodeIfPresent(String.self, forKey: .llmModel)
+        self.disabledTools = try c.decodeIfPresent([String].self, forKey: .disabledTools)
     }
 }
 

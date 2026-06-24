@@ -42,6 +42,7 @@ public enum AgentRegistry {
                         myApp: myApp,
                         component: component,
                         agent: agent,
+                        store: store,
                         settings: settings,
                         catalog: catalog
                     ))
@@ -73,9 +74,11 @@ public enum AgentRegistry {
             scope: .myApp(myApp.id),
             store: store
         )
+        let currentSelection = store.myAppLLM(for: myApp.id)
+        let disabled = store.myAppDisabledTools(for: myApp.id)
 
         var properties: [AgentProperty] = []
-        properties.append(modelProperty(currentSelection: store.myAppLLM(for: myApp.id), catalog: catalog))
+        properties.append(modelProperty(currentSelection: currentSelection, catalog: catalog))
         properties.append(permissionsProperty(settings: settings))
         properties.append(AgentProperty(
             id: "prompt",
@@ -97,11 +100,12 @@ public enum AgentRegistry {
         properties.append(AgentProperty(
             id: "tools",
             label: "Tool surface",
-            value: .sections(
-                summary: "\(allowedTools.count) tools currently exposed",
-                groups: toolGroups
+            value: .toolToggles(
+                summary: toolSummaryText(allowed: allowedTools.count, disabled: disabled.count),
+                groups: toolGroups,
+                disabled: disabled
             ),
-            note: "Resolved from the MyApp type and the components currently on the canvas. Expand to see the full list grouped like `/tools`."
+            note: "Resolved from the MyApp type and the components currently on the canvas. Toggle a tool off to hide it from this agent (unioned with the global Settings → Tools set)."
         ))
 
         return AgentDescriptor(
@@ -111,6 +115,8 @@ public enum AgentRegistry {
             iconSystemName: myApp.iconSystemName,
             myAppId: myApp.id,
             subtitle: "Main agent",
+            modelSummary: modelSummaryText(currentSelection: currentSelection, catalog: catalog),
+            toolSummary: toolSummaryText(allowed: allowedTools.count, disabled: disabled.count),
             properties: properties
         )
     }
@@ -136,9 +142,12 @@ public enum AgentRegistry {
             store: store,
             toolGateState: ToolGateState()
         )
+        let toolGroups = groupToolNames(allowed: allowedTools, scope: .memory, store: store)
+        let currentSelection = settings.orchestratorLLM()
+        let disabled = settings.orchestratorDisabledTools
 
         var properties: [AgentProperty] = []
-        properties.append(modelProperty(currentSelection: settings.orchestratorLLM(), catalog: catalog))
+        properties.append(modelProperty(currentSelection: currentSelection, catalog: catalog))
         properties.append(permissionsProperty(settings: settings))
         properties.append(AgentProperty(
             id: "prompt",
@@ -154,8 +163,12 @@ public enum AgentRegistry {
         properties.append(AgentProperty(
             id: "tools",
             label: "Tool surface",
-            value: .list(allowedTools.sorted()),
-            note: "Resolved from `ChatViewModel.allowedToolNames(scope: .memory, …)` — the same set the orchestrator sees on every memory-mode turn."
+            value: .toolToggles(
+                summary: toolSummaryText(allowed: allowedTools.count, disabled: disabled.count),
+                groups: toolGroups,
+                disabled: disabled
+            ),
+            note: "The set the orchestrator sees on every memory-mode turn. Toggle a tool off to hide it (unioned with the global Settings → Tools set)."
         ))
 
         return AgentDescriptor(
@@ -165,6 +178,8 @@ public enum AgentRegistry {
             iconSystemName: "square.stack.3d.up.fill",
             myAppId: nil,
             subtitle: "Cross-MyApp meta-agent",
+            modelSummary: modelSummaryText(currentSelection: currentSelection, catalog: catalog),
+            toolSummary: toolSummaryText(allowed: allowedTools.count, disabled: disabled.count),
             properties: properties
         )
     }
@@ -176,6 +191,7 @@ public enum AgentRegistry {
         myApp: MyApp,
         component: Component,
         agent: SlackAgent,
+        store: MyAppStore,
         settings: SettingsStore,
         catalog: ModelCatalogStore
     ) -> AgentDescriptor {
@@ -194,6 +210,14 @@ public enum AgentRegistry {
         } else {
             agentSelection = nil
         }
+        let allowedTools = ChatViewModel.allowedToolNames(
+            scope: .myApp(myApp.id),
+            store: store,
+            toolGateState: ToolGateState()
+        )
+        let toolGroups = groupToolNames(allowed: allowedTools, scope: .myApp(myApp.id), store: store)
+        let disabled = Set(agent.disabledTools ?? [])
+
         properties.append(modelProperty(currentSelection: agentSelection, catalog: catalog))
         properties.append(permissionsProperty(settings: settings))
         properties.append(AgentProperty(
@@ -214,6 +238,16 @@ public enum AgentRegistry {
             note: "Appended to the parent MyApp's system prompt for each invocation."
         ))
         properties.append(AgentProperty(
+            id: "tools",
+            label: "Tool surface",
+            value: .toolToggles(
+                summary: toolSummaryText(allowed: allowedTools.count, disabled: disabled.count),
+                groups: toolGroups,
+                disabled: disabled
+            ),
+            note: "Inherits the parent MyApp's tool surface. Toggle a tool off to hide it from this sub-agent only."
+        ))
+        properties.append(AgentProperty(
             id: "component",
             label: "Component",
             value: .list(["\(component.name) (\(component.kindString))"]),
@@ -227,6 +261,8 @@ public enum AgentRegistry {
             iconSystemName: "person.crop.circle",
             myAppId: myApp.id,
             subtitle: agent.role.isEmpty ? nil : agent.role,
+            modelSummary: modelSummaryText(currentSelection: agentSelection, catalog: catalog),
+            toolSummary: toolSummaryText(allowed: allowedTools.count, disabled: disabled.count),
             properties: properties
         )
     }
@@ -334,7 +370,27 @@ public enum AgentRegistry {
             id: "permissions",
             label: "Permissions",
             value: .list([shell]),
-            note: "Resolved at the global scope today. Per-agent overrides are planned (TODO) — the `SettingsScope.component(myAppId:componentId:)` stub in EffectiveSettings.swift is the future hook point."
+            note: "Shell approval is resolved at the global scope. (Model and tool overrides are per-agent — see the rows above.)"
         )
+    }
+
+    /// Glanceable model label for the list row. Mirrors the picker's
+    /// "Backend default" sentinel when no per-agent override resolves.
+    @MainActor
+    static func modelSummaryText(
+        currentSelection: (provider: String, model: String)?,
+        catalog: ModelCatalogStore
+    ) -> String {
+        if let (provider, model) = currentSelection,
+           let known = catalog.model(provider: provider, modelId: model) {
+            return known.label
+        }
+        return "Backend default"
+    }
+
+    /// Glanceable tool-count caption, e.g. "12 tools" or "12 tools · 2 off".
+    static func toolSummaryText(allowed: Int, disabled: Int) -> String {
+        let base = "\(allowed) tool\(allowed == 1 ? "" : "s")"
+        return disabled > 0 ? "\(base) · \(disabled) off" : base
     }
 }

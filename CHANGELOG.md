@@ -3,6 +3,18 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.39] — 2026-06-24
+
+### Added
+
+- **Per-agent model + tool overrides, glanceable on the Agents page.** Each
+  agent row now shows its model and tool count at a glance, without opening the
+  detail page. Inside, the tool surface is editable: toggle any tool off to hide
+  it from that agent only (unioned with the global Settings → Tools set and sent
+  as `disabled_tools` per turn). Fixes a gap where a sub-agent's stored model was
+  never forwarded — Slack/orchestrated sub-runs now run on their configured
+  model instead of the backend default. (`PupaApp` `0.0.131`)
+
 ## [0.0.38] — 2026-06-24
 
 ### Added
