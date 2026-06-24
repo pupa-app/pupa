@@ -105,6 +105,9 @@ public struct MyAppSidebarView: View {
                 renamingMyAppId = nil
             }
         }
+        // Base app chrome reads neutral grey, not system blue. MyApp rows keep
+        // their per-app icon color (set explicitly in `myAppRow`).
+        .tint(.appBase)
     }
 
     /// Footer actions: the global Orchestrator, the screen-share viewer, and
@@ -233,13 +236,15 @@ public struct MyAppSidebarView: View {
     }
 
     private func myAppRow(_ myApp: MyApp) -> some View {
-        HStack(spacing: 8) {
+        let tag = SidebarSelection.myAppHome(myApp.id)
+        return HStack(spacing: 8) {
             Label {
                 Text(myApp.name).lineLimit(1)
+                    .foregroundStyle(.primary)
             } icon: {
                 Image(systemName: myApp.iconSystemName)
+                    .foregroundStyle(Color.color(atIndex: colorIndex(for: myApp)))
             }
-            .foregroundStyle(Color.color(atIndex: colorIndex(for: myApp)))
             Spacer(minLength: 0)
             if busyMyApps.contains(myApp.id) {
                 ProgressView()
@@ -247,7 +252,15 @@ public struct MyAppSidebarView: View {
                     .accessibilityLabel("Streaming")
             }
         }
-        .tag(SidebarSelection.myAppHome(myApp.id))
+        .tag(tag)
+        // iOS `List(selection:)` only tap-selects rows in edit mode, so plain
+        // taps landed on the binding unreliably — routing to the wrong (stale)
+        // MyApp. Drive selection explicitly from a full-row tap; macOS keeps
+        // using `List(selection:)` via the `.tag` above for its row highlight.
+        #if os(iOS)
+        .contentShape(Rectangle())
+        .onTapGesture { selection = tag }
+        #endif
         .contextMenu {
             Button {
                 renamingMyAppId = myApp.id
