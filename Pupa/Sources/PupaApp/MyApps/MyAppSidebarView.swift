@@ -52,8 +52,6 @@ public struct MyAppSidebarView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            brandHeader
-            Divider()
             // Compact, non-expanding MyApp rows. Tapping a row lands on its
             // home; components, memories, and history are reached from the
             // MyApp home + its bottom bar (not the sidebar). `selection` is
@@ -189,23 +187,6 @@ public struct MyAppSidebarView: View {
                 settingsSheetPresented = false
             }
         )
-    }
-
-    private var brandHeader: some View {
-        HStack(spacing: 10) {
-            if let icon = AppIcon.swiftUIImage {
-                icon
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: 28, height: 28)
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            }
-            Text("Pupa")
-                .font(.headline)
-            Spacer()
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
     }
 
     private var myAppsSection: some View {
