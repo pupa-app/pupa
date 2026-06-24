@@ -493,7 +493,7 @@ struct BackendEditSheet: View {
         let session = settings.session(for: currentEntry)
         let client = BackendPairingClient(backendURL: url, session: session)
         do {
-            let result = try await client.pair(code: trimmed, label: deviceLabel())
+            let result = try await client.pair(code: trimmed, label: DeviceInfo.localName)
             try settings.markPaired(backendID: initialEntry.id, deviceID: result.deviceID, token: result.token)
             pairCodeDraft = ""
             pairState = .idle
@@ -520,15 +520,6 @@ struct BackendEditSheet: View {
         }
     }
 
-    private func deviceLabel() -> String {
-        #if os(iOS)
-        return UIDevice.current.name
-        #elseif os(macOS)
-        return Host.current().localizedName ?? "Mac"
-        #else
-        return "Pupa"
-        #endif
-    }
 }
 
 #if os(iOS)

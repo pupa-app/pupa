@@ -335,7 +335,9 @@ the CloudDocuments entitlement (`PupaHost.entitlements`, container
 - **Settings** → JSON file `state/settings.json` (backend list,
   disabled backend tools, A2A guardrails). Device tokens are **excluded** —
   they stay in the Keychain, unsynced. The Settings
-  sheet groups these into drill-down categories: Backend, Tools (shell
+  sheet groups these into drill-down categories: **Account** (the read-only
+  `ProfileSettingsView` — iCloud sync status, this device via `DeviceInfo`,
+  data overview, version; no auth/login of its own), Backend, Tools (shell
   approval + backend tool toggles), Agent-to-agent (the `AgentInvocationGate`
   conversation-rounds + chain-depth limits), **Agents** (the
   `AgentsOverviewView` — see below), Notifications (lists/cancels
