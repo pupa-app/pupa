@@ -47,6 +47,14 @@ struct TourStep: Identifiable, Equatable {
     /// Pre-fill the chat composer (only meaningful with `opensChat`). "/"
     /// surfaces the live `SlashCommandPalette`.
     var chatPrefill: String?
+    /// Ring this control while the step is active (the bottom-bar button it's
+    /// describing). `nil` leaves no highlight. Resolved to live bounds by
+    /// `TourHighlightOverlay` via the `.tourAnchor` tags, never pixel-pinned.
+    var highlight: TourHighlight?
+    /// When set, the coach card shows a primary button that adds this example
+    /// MyApp by name (resolved via `ExampleRegistry`) — used by the final step
+    /// to drop a second workspace in to explore. `nil` for ordinary steps.
+    var addsExampleNamed: String?
 
     init(
         id: String,
@@ -57,7 +65,9 @@ struct TourStep: Identifiable, Equatable {
         opensSidebar: Bool = false,
         settingsPage: TourSettingsPage? = nil,
         opensChat: Bool = false,
-        chatPrefill: String? = nil
+        chatPrefill: String? = nil,
+        highlight: TourHighlight? = nil,
+        addsExampleNamed: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -68,6 +78,8 @@ struct TourStep: Identifiable, Equatable {
         self.settingsPage = settingsPage
         self.opensChat = opensChat
         self.chatPrefill = chatPrefill
+        self.highlight = highlight
+        self.addsExampleNamed = addsExampleNamed
     }
 }
 
@@ -107,17 +119,47 @@ enum TourContent {
                 settingsPage: .backend
             ),
             TourStep(
-                id: "myapp",
-                title: "A MyApp",
+                id: "myapp-home",
+                title: "Home",
                 body: "Each MyApp is a canvas of components, like trackers, calendars, "
-                    + "checklists, that the agent reads and edits as you chat. This is one "
-                    + "of your example apps.",
+                    + "checklists, that the agent reads and edits as you chat. The bar "
+                    + "below is how you move around one — let's walk it left to right, "
+                    + "starting here on Home.",
                 placement: .bottom,
-                selection: .myAppHome(activeMyAppId)
+                selection: .myAppHome(activeMyAppId),
+                highlight: .bottomBarHome
+            ),
+            TourStep(
+                id: "myapp-agents",
+                title: "Agents",
+                body: "Every MyApp has its own main agent. Here you can see the tools it "
+                    + "can call, open its AGENTS.md persona file, and review the components "
+                    + "it manages.",
+                placement: .bottom,
+                selection: .myAppAgents(activeMyAppId),
+                highlight: .bottomBarAgents
+            ),
+            TourStep(
+                id: "myapp-memories",
+                title: "Memories",
+                body: "Long-term memory for this MyApp — markdown notes the agent writes "
+                    + "and reads back across sessions, so it remembers what matters to you.",
+                placement: .bottom,
+                selection: .myAppMemories(activeMyAppId),
+                highlight: .bottomBarMemories
+            ),
+            TourStep(
+                id: "myapp-history",
+                title: "History",
+                body: "Every change the agent makes to the canvas is logged here, so you "
+                    + "can see what happened and when. Tap the clock anytime to review it.",
+                placement: .bottom,
+                selection: .myAppHistory(activeMyAppId),
+                highlight: .bottomBarHistory
             ),
             TourStep(
                 id: "chat",
-                title: "Chat",
+                title: "Pupa",
                 body: isPaired
                     ? "This is your agent. Ask it to add, change, or explain anything on the "
                         + "canvas — we've parked an example message you can send with one tap."
@@ -125,8 +167,10 @@ enum TourContent {
                         + "explain anything on the canvas. We've parked an example message in "
                         + "the composer to show the idea.",
                 placement: .top,
+                selection: .myAppHome(activeMyAppId),
                 opensChat: true,
-                chatPrefill: "Add a prep task for my Friday interview"
+                chatPrefill: "Add a prep task for my Friday interview",
+                highlight: .bottomBarChat
             ),
             TourStep(
                 id: "agents-threads",
@@ -135,26 +179,28 @@ enum TourContent {
                     + "to and pick — or start — a conversation thread. Every MyApp and the "
                     + "orchestrator keeps its own history.",
                 placement: .top,
-                opensChat: true
+                opensChat: true,
+                highlight: .chatHeader
+            ),
+            TourStep(
+                id: "orchestrator-menu",
+                title: "The Orchestrator",
+                body: "Open the menu and you'll find the Orchestrator down here — a "
+                    + "meta-agent that spans every MyApp. Tap it to start a cross-app "
+                    + "conversation.",
+                placement: .top,
+                opensSidebar: true,
+                highlight: .sidebarOrchestrator
             ),
             TourStep(
                 id: "orchestrator",
                 title: "Orchestrator",
-                body: "The orchestrator is a meta-agent that spans every MyApp. Ask it for "
-                    + "cross-app work — even spinning up a whole new MyApp. We've parked an "
-                    + "example you can send.",
+                body: "Here it is. Ask it for cross-app work — even spinning up a whole new "
+                    + "MyApp. We've parked an example you can send.",
                 placement: .top,
                 selection: .orchestrator,
                 opensChat: true,
                 chatPrefill: "Create a new myapp to organise my books"
-            ),
-            TourStep(
-                id: "agent-settings",
-                title: "Agent settings",
-                body: "Every MyApp has its own main agent. Here you can see the tools it can call, "
-                    + "open its AGENTS.md persona file, and review the components it manages.",
-                placement: .bottom,
-                selection: .myAppAgentDetail(activeMyAppId, agentId: AgentRegistry.mainAgentId)
             ),
             TourStep(
                 id: "slash-commands",
@@ -167,13 +213,33 @@ enum TourContent {
                 chatPrefill: "/"
             ),
             TourStep(
+                id: "screen-share",
+                title: "Screen share",
+                body: "Next to it, screen share lets the agent see what's on your screen "
+                    + "while you work — handy when you want it to react to something "
+                    + "outside Pupa.",
+                placement: .top,
+                opensSidebar: true,
+                highlight: .sidebarScreenShare
+            ),
+            TourStep(
                 id: "share-myapp",
                 title: "Share a MyApp",
-                body: "Export any MyApp as a bundle to share it, then import one a friend "
-                    + "sent you — components, agent prompts, and memories travel with it. "
-                    + "Find it under Settings · Import & Export.",
+                body: "Inside Settings is Import & Export — send any MyApp as a bundle, or "
+                    + "import one a friend shared. Components, agent prompts, and memories "
+                    + "all travel with it.",
+                placement: .top,
+                opensSidebar: true,
+                highlight: .sidebarSettings
+            ),
+            TourStep(
+                id: "add-example",
+                title: "Add one to explore",
+                body: "That's the tour. Want more to play with? Add the Home Buying example "
+                    + "— a live mortgage calculator and price chart you can chat with. You "
+                    + "can add the rest anytime from Settings · Examples.",
                 placement: .bottom,
-                settingsPage: .sharing
+                addsExampleNamed: HomeBuyingExample.name
             ),
         ]
     }
@@ -211,6 +277,8 @@ final class GuidedTourStore {
     var wantSettingsPage: TourSettingsPage?
     var wantChatOpen: Bool = false
     var chatPrefill: String?
+    /// The control the active step rings, or `nil`. Read by `TourHighlightOverlay`.
+    var wantHighlight: TourHighlight?
 
     /// `UserDefaults` the completion flag is written to. Injectable so tests can
     /// run hermetically against an isolated suite; `.shared` uses `.standard`,
@@ -287,5 +355,6 @@ final class GuidedTourStore {
         wantSettingsPage = nil
         wantChatOpen = false
         chatPrefill = nil
+        wantHighlight = nil
     }
 }

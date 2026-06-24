@@ -1,6 +1,6 @@
 import Foundation
 
-/// Seeded "Example: Daily Briefing" MyApp.
+/// Seeded "Daily Briefing" MyApp.
 ///
 /// A morning-briefing workspace: a Briefing Sources tracker naming the MCP /
 /// skill each feed uses, a Today's Briefing card list the agent rewrites each
@@ -12,7 +12,7 @@ import Foundation
 /// that dependency explicit and degrades a source to Off when its tool is
 /// absent.
 enum DailyBriefingExample: ExampleMyApp {
-    static let name = "Example: Daily Briefing"
+    static let name = "Daily Briefing"
     static let iconSystemName = "sun.horizon"
     static let tagline = "Morning briefing — weather, agenda, top AI news, and GitHub, pulled by MCP feeds and pushed at 7am"
 

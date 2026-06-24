@@ -125,6 +125,7 @@ public struct MyAppSidebarView: View {
             .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
             .accessibilityLabel("Open Orchestrator")
+            .tourAnchor(.sidebarOrchestrator)
 
             Spacer()
 
@@ -139,6 +140,7 @@ public struct MyAppSidebarView: View {
             .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
             .accessibilityLabel("Open Screen share")
+            .tourAnchor(.sidebarScreenShare)
 
             Spacer()
 
@@ -152,6 +154,7 @@ public struct MyAppSidebarView: View {
             .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
             .accessibilityLabel("Open Settings")
+            .tourAnchor(.sidebarSettings)
 
             Spacer()
         }

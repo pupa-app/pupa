@@ -1,6 +1,6 @@
 import Foundation
 
-/// Seeded "Example: Wellbeing Coach" MyApp.
+/// Seeded "Wellbeing Coach" MyApp.
 ///
 /// Demonstrates deep personalisation: the agent builds bespoke
 /// questionnaires as tracker rows mid-conversation, tracks mood and
@@ -9,7 +9,7 @@ import Foundation
 /// session notes and pattern observations so the agent genuinely knows
 /// the user over time.
 enum WellbeingCoachExample: ExampleMyApp {
-    static let name = "Example: Wellbeing Coach"
+    static let name = "Wellbeing Coach"
     static let iconSystemName = "heart.text.square"
     static let tagline = "Mood log, habit tracking, personalised practices, and session check-ins — grows with you over time"
 

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Seeded "Example: Research Tracker" MyApp.
+/// Seeded "Research Tracker" MyApp.
 ///
 /// A competitive-intelligence workspace: a Watchlist kanban of rival apps, a
 /// dated Findings Log appended once per weekly sweep, a live signal-trend
@@ -11,7 +11,7 @@ import Foundation
 /// seeded from Pupa's own companion-app landscape so the demo is real intel,
 /// not placeholder rows.
 enum ResearchTrackerExample: ExampleMyApp {
-    static let name = "Example: Research Tracker"
+    static let name = "Research Tracker"
     static let iconSystemName = "chart.line.uptrend.xyaxis.circle"
     static let tagline = "Competitive intelligence — watchlist, weekly findings log, signal-trend chart, and a multi-agent Research Room"
 

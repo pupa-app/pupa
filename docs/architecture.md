@@ -115,7 +115,10 @@ orchestrator has no canvas change-log so it omits this), the **Pupa** chat launc
 jumps to any component (myApp) or any myapp (orchestrator). Glyphs are tinted the
 subject's color (a myApp's creation-order index via
 `MyAppStore.colorIndex(for:)`; `orchestratorColor` for the orchestrator), the
-current page highlighted; the pupa keeps its own look. `AppView` gates the bar
+current page highlighted; the pupa keeps its own look. Every page these reach
+shares a `MyAppPageHeader` (`MyApps/MyAppPageHeader.swift`): a tinted page-name
+eyebrow (Home / Agents / Memories / History) above the subject's icon + name, so
+the active page is always self-labelling. `AppView` gates the bar
 via `barSubject` + `barPage`; taps flat-switch the root selection (reset
 `detailPath`, set `selection`, run `dispatchSelection`). Because the bar owns the
 chat launcher on these pages, `ChatOverlay` hides its fallback circle there
@@ -174,25 +177,43 @@ sets a flag that surfaces a dismissible "connect your backend" banner in
 Once onboarding finishes, an **interactive guided tour** runs once
 (`App/GuidedTour.swift` + `App/GuidedTourOverlay.swift`). A floating *coach
 card* explains each step while the tour programmatically navigates the **real**
-app to that surface — ten steps: welcome (opens the sidebar menu), Settings
-overview (the category list), Settings · Backend (deep-linked), a MyApp, chat,
-agents & threads, the orchestrator (prefilled "create a new myapp"), agent
-settings, slash commands, and Share a MyApp (deep-links Settings · Import &
-Export). It is
+app to that surface — fifteen steps: welcome (opens the sidebar menu), Settings
+overview (the category list), Settings · Backend (deep-linked), then the MyApp
+bottom bar walked left to right — Home, Agents, Memories, History — followed by
+chat, agents & threads, the Orchestrator introduced from its sidebar-menu button
+then opened (prefilled "create a new myapp"), slash commands, screen share (rings
+its sidebar button), Share a MyApp (rings the Settings button — Import & Export
+lives inside), and a closing "add an example" card whose button drops a second
+example MyApp (Home Buying) in to explore (`addsExampleNamed` → `AppView`'s
+`addTourExample` → `MyAppStore.restoreExample`). It is
 **route-driven, not pixel-anchored**, so it survives UI redesigns: a shared
 `@Observable GuidedTourStore.shared` (mirroring `OnboardingHandoff.shared`)
 holds the step list (`TourContent`, pure data) + current index. Each `TourStep`
 carries **composable, independent intents** (a step may navigate *and* open the
 chat with a prefill) — `selection`, `opensSidebar`, `settingsPage`, `opensChat`,
-`chatPrefill` — that target the stable routing layer, never geometry.
+`chatPrefill`, `highlight` — that target the stable routing layer, never
+geometry.
 `AppView.applyTourStep()` reconciles them: it routes `selection`/`detailPath`
 (via `dispatchSelection`, so the chat scope follows), opens the sidebar, and
 writes the store's intent flags (`wantSettingsOpen` / `wantSettingsPage` /
-`wantChatOpen` / `chatPrefill`). Host views then mirror those declaratively:
+`wantChatOpen` / `chatPrefill` / `wantHighlight`). Host views then mirror those
+declaratively:
 `MyAppSidebarView` drives the Settings sheet, `SettingsSheet` deep-links its
 `NavigationStack` path, `ChatOverlay` expands/collapses to match `wantChatOpen`,
 and `ChatPanel` adopts `chatPrefill` (including "/" to surface the
-`SlashCommandPalette`). The card is gated on `tour.isActive` and rendered above
+`SlashCommandPalette`). A tour chat prefill is **typed in** — `ChatPanel`
+streams it character by character after a short lead-in (instant under Reduce
+Motion or for single-char "/"). `wantHighlight` names a control
+(`TourHighlight`: a bottom-bar tab, the chat header, or a sidebar-footer action);
+`TourHighlight.swift` provides a `.tourAnchor` preference those views publish
+(several views may share a role — the chat header rings the agent + thread
+pickers as one union) and a `TourHighlightOverlay` glow ring drawn by the
+`tourHighlightLayer` modifier `AppView` applies once per platform body, above the
+sidebar + canvas and under the coach card. This is the tour's one use of view
+geometry, but it's resolved through preferences at render time (not pixel-pinned)
+and sits behind `.allowsHitTesting(false)`, so it tracks layout changes and never
+blocks the control it points at. The card is gated on
+`tour.isActive` and rendered above
 the sidebar + chat; because an iOS `.sheet` covers that ZStack, `SettingsSheet`
 re-renders the same card as its own overlay during the Settings steps. (That
 sheet is hosted by the conditionally-mounted sidebar, so `applyTourStep` keeps

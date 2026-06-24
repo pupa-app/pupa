@@ -35,7 +35,7 @@ struct GuidedTourStoreTests {
         let store = startedStore(defaults: freshDefaults())
         #expect(store.isActive)
         #expect(store.index == 0)
-        #expect(store.steps.count == 10)
+        #expect(store.steps.count == 15)
         #expect(store.isFirstStep)
         #expect(!store.isLastStep)
         #expect(store.currentStep?.id == "welcome")
@@ -136,8 +136,8 @@ struct GuidedTourStoreTests {
         store.start(activeMyAppId: id, isPaired: true)
         // Welcome step has no navigation.
         #expect(store.desiredSelection == nil)
-        // Walk to the MyApp step (.navigate(.myAppHome(id))).
-        let myAppStepIndex = store.steps.firstIndex { $0.id == "myapp" }!
+        // Walk to the Home step (.navigate(.myAppHome(id))).
+        let myAppStepIndex = store.steps.firstIndex { $0.id == "myapp-home" }!
         while store.index < myAppStepIndex { store.next() }
         #expect(store.desiredSelection == .myAppHome(id))
     }
@@ -171,19 +171,77 @@ struct GuidedTourStoreTests {
         let overviewIndex = steps.firstIndex { $0.id == "settings-overview" }!
         let backendIndex = steps.firstIndex { $0.id == "settings-backend" }!
         #expect(overviewIndex < backendIndex)
-        // The new agents/threads step keeps the chat open without a prefill.
+        // The agents/threads step keeps the chat open without a prefill and
+        // rings the chat header (agent switcher + thread picker).
         let agentsThreads = steps.first { $0.id == "agents-threads" }!
         #expect(agentsThreads.opensChat)
         #expect(agentsThreads.chatPrefill == nil)
+        #expect(agentsThreads.highlight == .chatHeader)
         // Orchestrator step navigates AND opens the chat with a prefill.
         let orchestrator = steps.first { $0.id == "orchestrator" }!
         #expect(orchestrator.selection == .orchestrator)
         #expect(orchestrator.opensChat)
         #expect(orchestrator.chatPrefill == "Create a new myapp to organise my books")
-        // MyApp + agent-settings cards sit at the bottom so they don't cover
-        // the surface they describe.
-        #expect(steps.first { $0.id == "myapp" }?.placement == .bottom)
-        #expect(steps.first { $0.id == "agent-settings" }?.placement == .bottom)
+    }
+
+    @Test("MyApp steps walk the bottom bar left to right, each ringing its tab")
+    func myAppStepsWalkBottomBar() {
+        let id = UUID()
+        let steps = TourContent.steps(activeMyAppId: id, isPaired: true)
+        // Ordered Home → Agents → Memories → History → Pupa(chat), each
+        // navigating to its page and highlighting the matching bottom-bar
+        // control. The Pupa step returns to the home canvas and opens the chat.
+        let expected: [(String, SidebarSelection?, TourHighlight)] = [
+            ("myapp-home", .myAppHome(id), .bottomBarHome),
+            ("myapp-agents", .myAppAgents(id), .bottomBarAgents),
+            ("myapp-memories", .myAppMemories(id), .bottomBarMemories),
+            ("myapp-history", .myAppHistory(id), .bottomBarHistory),
+            ("chat", .myAppHome(id), .bottomBarChat),
+        ]
+        // Indices are strictly increasing and contiguous in this order.
+        let indices = expected.map { id in steps.firstIndex { $0.id == id.0 }! }
+        #expect(indices == indices.sorted())
+        for (stepId, selection, highlight) in expected {
+            let step = steps.first { $0.id == stepId }!
+            #expect(step.highlight == highlight)
+            if let selection { #expect(step.selection == selection) }
+        }
+        // The chat step opens the overlay and parks its example prefill.
+        let chat = steps.first { $0.id == "chat" }!
+        #expect(chat.opensChat)
+        #expect(chat.chatPrefill == "Add a prep task for my Friday interview")
+    }
+
+    @Test("Menu steps open the sidebar and ring the right footer action, in order")
+    func menuStepsRingSidebarFooter() {
+        let steps = TourContent.steps(activeMyAppId: UUID(), isPaired: true)
+        // The Orchestrator is introduced from its menu button, then opened; then
+        // screen share, then Import & Export — each ringing its sidebar icon.
+        let expected: [(String, TourHighlight)] = [
+            ("orchestrator-menu", .sidebarOrchestrator),
+            ("screen-share", .sidebarScreenShare),
+            ("share-myapp", .sidebarSettings),
+        ]
+        for (stepId, highlight) in expected {
+            let step = steps.first { $0.id == stepId }!
+            #expect(step.opensSidebar)
+            #expect(step.highlight == highlight)
+            #expect(step.selection == nil)
+        }
+        // The menu intro for the Orchestrator comes right before opening it.
+        let menuIndex = steps.firstIndex { $0.id == "orchestrator-menu" }!
+        let openIndex = steps.firstIndex { $0.id == "orchestrator" }!
+        #expect(menuIndex < openIndex)
+    }
+
+    @Test("The final step is the add-an-example card")
+    func finalStepAddsExample() {
+        let steps = TourContent.steps(activeMyAppId: UUID(), isPaired: true)
+        let last = steps.last!
+        #expect(last.id == "add-example")
+        #expect(last.addsExampleNamed == HomeBuyingExample.name)
+        // No other step offers to add an example.
+        #expect(steps.filter { $0.addsExampleNamed != nil }.count == 1)
     }
 }
 

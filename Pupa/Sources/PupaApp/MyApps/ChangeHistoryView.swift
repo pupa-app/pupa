@@ -15,6 +15,9 @@ public struct ChangeHistoryView: View {
         return f
     }()
 
+    private var app: MyApp? { store.myApps.first { $0.id == myAppId } }
+    private var appColor: Color { .color(atIndex: store.colorIndex(for: myAppId)) }
+
     private var events: [ItemEvent] {
         store.itemEventLog.events(forMyApp: myAppId).reversed()
     }
@@ -64,7 +67,21 @@ public struct ChangeHistoryView: View {
                 #endif
             }
         }
-        .navigationTitle("History")
+        // Pinned page header so it's always clear this is a MyApp's History —
+        // matches the eyebrow + name header on the other MyApp pages.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            MyAppPageHeader(
+                page: "History",
+                name: app?.name ?? "History",
+                icon: "clock",
+                color: appColor
+            )
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.bar)
+            .overlay(alignment: .bottom) { Divider() }
+        }
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif

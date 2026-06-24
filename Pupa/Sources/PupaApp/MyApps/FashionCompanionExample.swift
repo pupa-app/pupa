@@ -1,6 +1,6 @@
 import Foundation
 
-/// Seeded "Example: Fashion Companion" MyApp.
+/// Seeded "Fashion Companion" MyApp.
 ///
 /// Demonstrates personalised style learning: a wardrobe tracker becomes
 /// the agent's knowledge base, a style inspiration board collects looks
@@ -9,7 +9,7 @@ import Foundation
 /// Personal Shopper) helps the user learn to dress well and discover new
 /// pieces that complement what they already own.
 enum FashionCompanionExample: ExampleMyApp {
-    static let name = "Example: Fashion Companion"
+    static let name = "Fashion Companion"
     static let iconSystemName = "hanger"
     static let tagline = "Wardrobe inventory, style inspiration board, and a Style Room to learn, shop smarter, and dress with intention"
 

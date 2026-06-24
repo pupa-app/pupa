@@ -1,6 +1,6 @@
 import Foundation
 
-/// Seeded "Example: Content Studio" MyApp.
+/// Seeded "Content Studio" MyApp.
 ///
 /// Demonstrates a personal editorial pipeline: ideas flow through a
 /// kanban from Idea → Published, a Publish Checklist keeps quality
@@ -9,7 +9,7 @@ import Foundation
 /// content. Showcases kanban view mode + local notifications as
 /// publish-day reminders.
 enum ContentStudioExample: ExampleMyApp {
-    static let name = "Example: Content Studio"
+    static let name = "Content Studio"
     static let iconSystemName = "square.and.pencil"
     static let tagline = "Editorial pipeline — kanban board, publish checklist, calendar, and multi-agent Studio Room"
 

@@ -48,7 +48,7 @@ public struct MyAppMemoriesView: View {
                 case .myApp:
                     if let app = myApp {
                         header(
-                            title: "\(app.name) memories",
+                            name: app.name,
                             color: Color.color(atIndex: store.colorIndex(for: app.id))
                         )
                         Divider()
@@ -58,7 +58,7 @@ public struct MyAppMemoriesView: View {
                             .foregroundStyle(.secondary)
                     }
                 case .orchestrator:
-                    header(title: "Orchestrator memories", color: .orchestratorColor)
+                    header(name: "Orchestrator", color: .orchestratorColor)
                     Divider()
                     tree(slug: MemoryStore.orchestratorFolder())
                 }
@@ -70,16 +70,8 @@ public struct MyAppMemoriesView: View {
         .background(Color.canvasBackground)
     }
 
-    private func header(title: String, color: Color) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: "brain")
-                .font(.title2)
-                .foregroundStyle(color)
-            Text(title)
-                .font(.title)
-                .fontWeight(.semibold)
-            Spacer()
-        }
+    private func header(name: String, color: Color) -> some View {
+        MyAppPageHeader(page: "Memories", name: name, icon: "brain", color: color)
     }
 
     private func tree(slug: String) -> some View {
