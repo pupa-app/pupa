@@ -695,7 +695,7 @@ public struct AppView: View {
             return .memories
         case .myAppAgents, .myAppAgentDetail, .orchestratorAgentDetail:
             return .agents
-        case .myAppHistory: return .other
+        case .myAppHistory: return .history
         default: return nil
         }
     }

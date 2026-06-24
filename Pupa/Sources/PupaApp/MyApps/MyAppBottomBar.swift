@@ -18,8 +18,8 @@ public struct MyAppBottomBar: View {
         case memories
         /// The agents overview or any agent detail page.
         case agents
-        /// Pages with no dedicated tab (e.g. History) — highlights nothing.
-        case other
+        /// The change-history page.
+        case history
     }
 
     let store: MyAppStore
@@ -98,7 +98,7 @@ public struct MyAppBottomBar: View {
                 onSelect(memoriesSelection)
             }
             if let id = myAppId {
-                barButton(system: "clock", active: false, help: "History") {
+                barButton(system: "clock", active: currentPage == .history, help: "History") {
                     onShowHistory(id)
                 }
             }
@@ -119,10 +119,14 @@ public struct MyAppBottomBar: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: system)
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(active ? appColor : appColor.opacity(0.55))
-                .frame(maxWidth: .infinity)
+                .font(.system(size: 18, weight: active ? .semibold : .regular))
+                .foregroundStyle(active ? appColor : appColor.opacity(0.4))
                 .frame(height: Self.rowHeight)
+                .padding(.horizontal, 14)
+                .background(
+                    Capsule().fill(active ? appColor.opacity(0.16) : .clear)
+                )
+                .frame(maxWidth: .infinity)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
