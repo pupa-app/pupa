@@ -76,6 +76,16 @@ The `setup` skill in the Content Studio example is a built-in instance —
 seeded as `pupa/skills/setup/SKILL.md`, which is all it takes to provide
 `/setup`.
 
+### Default skills (every app)
+
+`DefaultSkills` (`Pupa/Sources/PupaApp/Skills/DefaultSkills.swift`) seeds skills
+into **every** MyApp — not just examples — idempotently at launch
+(`seedAll`, over current apps + all example types) and on app creation
+(`MyAppStore.addMyApp`). File-exists-guarded, so user/agent edits survive.
+Today the only default is `/to-memory`: it distils durable, app-level learnings
+from the conversation (conventions, preferences, mid-task realignments) into
+`pupa/MEMORIES.md`, which rides the `.pupaapp` export bundle as config.
+
 ## Deferred (not v1)
 
 `allowed-tools`, `model`, `context: fork`, `agent`, `hooks`, `paths`,

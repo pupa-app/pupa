@@ -89,6 +89,9 @@ public struct AppView: View {
         // Idempotent: writes each example's AGENTS.md persona files on
         // launches where any are missing. User edits survive every launch.
         ExampleRegistry.seedAll(globalMemory: memory)
+        // Idempotent: ship the default `/to-memory` skill into every app
+        // (existing apps + example types). Same file-exists-guard contract.
+        DefaultSkills.seedAll(globalMemory: memory, store: store)
         let settings = injectedSettings ?? SettingsStore()
         self._store = State(initialValue: store)
         self._memory = State(initialValue: memory)

@@ -227,6 +227,7 @@ public final class MyAppStore {
             typeId: typeId
         )
         myApps.append(myApp)
+        DefaultSkills.seed(appName: myApp.name)   // ship the default /to-memory skill
         activeMyAppId = myApp.id
         persist()
         return myApp.id
