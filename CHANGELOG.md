@@ -3,6 +3,29 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.46] — 2026-06-29
+
+### Fixed
+
+- **The model picker now reflects the backend's full catalog after pairing or
+  changing the backend URL — no relaunch required.** The catalog only
+  re-fetched `GET /models` on cold launch or when switching to a *different*
+  saved backend entry. Editing a backend's URL in place or completing a pairing
+  mutates the entry without changing its id, so the picker stayed stuck on the
+  static fallback (Anthropic/Bedrock Sonnet only) until the app was force-quit
+  — even though the backend served every registered model. The refresh now keys
+  on the whole active `BackendEntry`, so URL edits and re-pairs re-fetch
+  immediately. (`PupaApp` `0.0.142`)
+
+### Added
+
+- **"Reload models" in the model picker, plus a stale indicator.** A failed
+  `/models` fetch previously fell back to the static catalog silently, looking
+  identical to "the backend only has these models". The picker now shows a
+  spinner while refreshing and an amber warning when the last fetch failed, and
+  offers an explicit "Reload models" action to recover in place. (`PupaApp`
+  `0.0.142`)
+
 ## [0.0.45] — 2026-06-25
 
 ### Added

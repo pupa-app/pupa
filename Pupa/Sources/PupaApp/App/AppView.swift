@@ -131,11 +131,14 @@ public struct AppView: View {
                 Alert(title: Text("Import"), message: Text(note.message),
                       dismissButton: .default(Text("OK")))
             }
-            // Fetch the model catalog from the active backend on launch and
-            // whenever the active backend changes (URL or pairing state).
-            .task { await modelCatalog.refresh(settings: settings) }
-            .onChange(of: settings.activeBackendID) { _, _ in
-                Task { await modelCatalog.refresh(settings: settings) }
+            // Fetch the model catalog from the active backend on launch and on
+            // every change to the active backend. Keying on `activeBackend`
+            // (not just `activeBackendID`) re-fetches when the URL is edited in
+            // place or a pairing completes — both mutate the entry without
+            // changing its id, which previously left the picker stuck on the
+            // stale/fallback list until a cold relaunch.
+            .task(id: settings.activeBackend) {
+                await modelCatalog.refresh(settings: settings)
             }
             // One-time guided tour: evaluate on appear (covers a relaunch where
             // a previous run was abandoned mid-tour) and whenever onboarding

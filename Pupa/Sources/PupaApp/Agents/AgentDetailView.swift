@@ -111,7 +111,10 @@ public struct AgentDetailView: View {
                     property: property,
                     onNavigate: onNavigate,
                     onSelectModel: { newId in selectModel(newId, for: descriptor) },
-                    onToggleTool: { name, enabled in toggleTool(name, enabled: enabled, for: descriptor) }
+                    onToggleTool: { name, enabled in toggleTool(name, enabled: enabled, for: descriptor) },
+                    onReloadModels: { Task { await modelCatalog.refresh(settings: settings) } },
+                    modelsRefreshing: modelCatalog.isRefreshing,
+                    modelsLoadFailed: modelCatalog.lastRefreshFailed
                 )
                 Divider()
             }
@@ -218,6 +221,14 @@ private struct AgentPropertyRow: View {
     /// Called when the user flips a tool toggle in a `.toolToggles` row.
     /// Receives the tool name and its new enabled state. Ignored for other rows.
     var onToggleTool: (String, Bool) -> Void
+    /// Re-fetch the backend model catalog. Wired to the picker's "Reload
+    /// models" item so a stale/failed list is recoverable in-place. Ignored
+    /// for non-picker rows.
+    var onReloadModels: () -> Void
+    /// Whether a catalog refresh is currently in flight / last one failed —
+    /// drives the picker's spinner and stale indicator.
+    var modelsRefreshing: Bool
+    var modelsLoadFailed: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -294,7 +305,10 @@ private struct AgentPropertyRow: View {
                 ModelPickerRow(
                     selectedId: selectedId,
                     options: options,
-                    onSelect: onSelectModel
+                    onSelect: onSelectModel,
+                    onReload: onReloadModels,
+                    isRefreshing: modelsRefreshing,
+                    loadFailed: modelsLoadFailed
                 )
             }
 
@@ -314,6 +328,11 @@ private struct ModelPickerRow: View {
     let selectedId: String
     let options: [KnownLLMModel]
     var onSelect: (String) -> Void
+    /// Re-fetch `GET /models` from the active backend. Exposed as a menu item
+    /// so a stale or failed catalog can be reloaded without relaunching.
+    var onReload: () -> Void
+    var isRefreshing: Bool
+    var loadFailed: Bool
 
     private var currentLabel: String {
         if selectedId == KnownLLMModelCatalog.backendDefaultId {
@@ -366,6 +385,12 @@ private struct ModelPickerRow: View {
                     }
                 }
             }
+            Divider()
+            Button(action: onReload) {
+                Label(isRefreshing ? "Reloading…" : "Reload models",
+                      systemImage: "arrow.clockwise")
+            }
+            .disabled(isRefreshing)
         } label: {
             HStack(spacing: 6) {
                 Text(currentLabel)
@@ -381,6 +406,16 @@ private struct ModelPickerRow: View {
                     Text(secondary)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+                if isRefreshing {
+                    ProgressView()
+                        .controlSize(.mini)
+                } else if loadFailed {
+                    // Couldn't reach the backend — the list may be the static
+                    // fallback rather than the backend's real catalog.
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
                 }
                 Image(systemName: "chevron.down")
                     .font(.caption)
