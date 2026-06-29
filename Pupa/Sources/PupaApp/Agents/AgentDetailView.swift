@@ -334,20 +334,21 @@ private struct ModelPickerRow: View {
     var isRefreshing: Bool
     var loadFailed: Bool
 
+    /// The model the picker rests on. With no explicit override we show the
+    /// catalog's first entry — the registry's primary, i.e. the effective
+    /// backend default — rather than an abstract "Backend default" sentinel,
+    /// so the row always names a concrete model.
+    private var resolvedModel: KnownLLMModel? {
+        options.first(where: { $0.id == selectedId }) ?? options.first
+    }
+
     private var currentLabel: String {
-        if selectedId == KnownLLMModelCatalog.backendDefaultId {
-            return "Backend default"
-        }
-        return options.first(where: { $0.id == selectedId })?.label
-            ?? "Backend default"
+        resolvedModel?.label ?? "Backend default"
     }
 
     private var currentSecondary: String? {
-        if selectedId == KnownLLMModelCatalog.backendDefaultId {
-            return nil
-        }
-        guard let selected = options.first(where: { $0.id == selectedId }) else { return nil }
-        return KnownLLMModelCatalog.providerDisplayName(selected.provider)
+        guard let model = resolvedModel else { return nil }
+        return KnownLLMModelCatalog.providerDisplayName(model.provider)
     }
 
     private var grouped: [(provider: String, items: [KnownLLMModel])] {
@@ -361,15 +362,6 @@ private struct ModelPickerRow: View {
 
     var body: some View {
         Menu {
-            Button {
-                onSelect(KnownLLMModelCatalog.backendDefaultId)
-            } label: {
-                if selectedId == KnownLLMModelCatalog.backendDefaultId {
-                    Label("Backend default", systemImage: "checkmark")
-                } else {
-                    Text("Backend default")
-                }
-            }
             ForEach(grouped, id: \.provider) { group in
                 Section(KnownLLMModelCatalog.providerDisplayName(group.provider)) {
                     ForEach(group.items) { model in

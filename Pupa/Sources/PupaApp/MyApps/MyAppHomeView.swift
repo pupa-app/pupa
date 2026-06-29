@@ -2,9 +2,8 @@ import SwiftUI
 
 /// Detail-pane landing page shown when a sidebar myApp row is tapped. A
 /// minimal overview that leads with structure — an **Outline** (the
-/// agent-written component summaries), the **Components** grid, and the
-/// **Agents** preview. Memories and History live on the per-MyApp bottom bar,
-/// not here.
+/// agent-written component summaries) and the **Components** grid. Agents,
+/// Memories, and History each live on the per-MyApp bottom bar, not here.
 public struct MyAppHomeView: View {
     let store: MyAppStore
     let memory: MemoryStore
@@ -78,7 +77,6 @@ public struct MyAppHomeView: View {
                         Divider()
                         outlinePanel(app)
                         componentsPanel(app)
-                        agentsPanel(app)
                     } else {
                         Text("App not found.")
                             .foregroundStyle(.secondary)
@@ -88,7 +86,6 @@ public struct MyAppHomeView: View {
                     Divider()
                     orchestratorOutlinePanel()
                     orchestratorComponentsPanel()
-                    orchestratorAgentsPanel()
                 }
             }
             .padding(24)
@@ -324,121 +321,6 @@ public struct MyAppHomeView: View {
         }
     }
 
-    /// Compact agent preview — up to three rows, then a "View all" footer
-    /// row. Both routes push `.myAppAgents(app.id)` so the dedicated page
-    /// owns the full list. Built via `AgentRegistry.enumerateAgents` so
-    /// ordering and metadata stay in lockstep with the details page.
-    private func agentsPanel(_ app: MyApp) -> some View {
-        let descriptors = AgentRegistry.enumerateAgents(
-            myApp: app,
-            store: store,
-            settings: settings,
-            catalog: modelCatalog
-        )
-        let preview = Array(descriptors.prefix(3))
-        let extra = descriptors.count - preview.count
-
-        return VStack(alignment: .leading, spacing: 10) {
-            Button {
-                onNavigate(.myAppAgents(app.id))
-            } label: {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("Agents")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.primary)
-                    Spacer()
-                    Text("\(descriptors.count)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            if descriptors.isEmpty {
-                Text("No agents yet.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 8)
-            } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(preview) { descriptor in
-                        agentPreviewRow(app: app, descriptor: descriptor)
-                    }
-                    if extra > 0 {
-                        Button {
-                            onNavigate(.myAppAgents(app.id))
-                        } label: {
-                            HStack {
-                                Text("View all \(descriptors.count) agents")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.caption)
-                                    .foregroundStyle(.tertiary)
-                            }
-                            .padding(.top, 4)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.secondary.opacity(0.06))
-        )
-    }
-
-    private func agentPreviewRow(app: MyApp, descriptor: AgentDescriptor) -> some View {
-        Button {
-            onNavigate(.myAppAgentDetail(app.id, agentId: descriptor.id))
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: descriptor.iconSystemName)
-                    .frame(width: 22)
-                    .foregroundStyle(appColor)
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(descriptor.name)
-                            .font(.callout)
-                            .fontWeight(.medium)
-                        Text(descriptor.kind.displayName)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(
-                                RoundedRectangle(cornerRadius: 4)
-                                    .fill(Color.secondary.opacity(0.12))
-                            )
-                    }
-                    if let subtitle = descriptor.subtitle {
-                        Text(subtitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
     // MARK: Orchestrator variant
 
     /// Orchestrator Outline: why it's special + the myapps it can drive (each
@@ -529,63 +411,6 @@ public struct MyAppHomeView: View {
         )
     }
 
-    /// Orchestrator Agents panel: one row for the orchestrator agent itself,
-    /// mirroring the per-myapp Agents panel; both routes open its detail page.
-    private func orchestratorAgentsPanel() -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Button {
-                onNavigate(.orchestratorAgentDetail)
-            } label: {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("Agents")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.primary)
-                    Spacer()
-                    Text("1")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                onNavigate(.orchestratorAgentDetail)
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "square.stack.3d.up.fill")
-                        .frame(width: 22)
-                        .foregroundStyle(Color.orchestratorColor)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Orchestrator")
-                            .font(.callout)
-                            .fontWeight(.medium)
-                        Text("Model, permissions, prompt, tool surface")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
-                .padding(.vertical, 6)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.secondary.opacity(0.06))
-        )
-    }
 }
 
 /// Recursive memory row used by the `MyAppMemoriesView` browse page (reached

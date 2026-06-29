@@ -3,6 +3,21 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.47] — 2026-06-29
+
+### Changed
+
+- **The per-agent model picker always names a concrete model.** The dropdown no
+  longer offers a "Backend default" entry — it lists only the backend's real
+  models (grouped by provider) plus "Reload models". An agent with no explicit
+  override now shows the catalog's primary model (the effective backend default)
+  instead of an abstract "Backend default" label; the inherited-model note still
+  flags that it isn't an explicit override. (`PupaApp` `0.0.143`)
+- **Removed the Agents preview panel from the MyApp and Orchestrator home
+  pages.** It duplicated the dedicated **Agents** bottom-bar page and was
+  confusing; the home now shows only the Outline and Components. (`PupaApp`
+  `0.0.143`)
+
 ## [0.0.46] — 2026-06-29
 
 ### Fixed
