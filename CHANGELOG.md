@@ -3,6 +3,44 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.47] — 2026-06-29
+
+### Changed
+
+- **The per-agent model picker always names a concrete model.** The dropdown no
+  longer offers a "Backend default" entry — it lists only the backend's real
+  models (grouped by provider) plus "Reload models". An agent with no explicit
+  override now shows the catalog's primary model (the effective backend default)
+  instead of an abstract "Backend default" label; the inherited-model note still
+  flags that it isn't an explicit override. (`PupaApp` `0.0.143`)
+- **Removed the Agents preview panel from the MyApp and Orchestrator home
+  pages.** It duplicated the dedicated **Agents** bottom-bar page and was
+  confusing; the home now shows only the Outline and Components. (`PupaApp`
+  `0.0.143`)
+
+## [0.0.46] — 2026-06-29
+
+### Fixed
+
+- **The model picker now reflects the backend's full catalog after pairing or
+  changing the backend URL — no relaunch required.** The catalog only
+  re-fetched `GET /models` on cold launch or when switching to a *different*
+  saved backend entry. Editing a backend's URL in place or completing a pairing
+  mutates the entry without changing its id, so the picker stayed stuck on the
+  static fallback (Anthropic/Bedrock Sonnet only) until the app was force-quit
+  — even though the backend served every registered model. The refresh now keys
+  on the whole active `BackendEntry`, so URL edits and re-pairs re-fetch
+  immediately. (`PupaApp` `0.0.142`)
+
+### Added
+
+- **"Reload models" in the model picker, plus a stale indicator.** A failed
+  `/models` fetch previously fell back to the static catalog silently, looking
+  identical to "the backend only has these models". The picker now shows a
+  spinner while refreshing and an amber warning when the last fetch failed, and
+  offers an explicit "Reload models" action to recover in place. (`PupaApp`
+  `0.0.142`)
+
 ## [0.0.45] — 2026-06-25
 
 ### Added

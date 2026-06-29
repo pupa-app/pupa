@@ -72,9 +72,10 @@ memories, and history are reached from the MyApp home + its bottom bar, not the
 sidebar); a footer menu holds the global **Orchestrator**, the **Screen share**
 viewer, and **Settings**. The Orchestrator opens the same home layout as a
 MyApp (`MyAppHomeView` with `subject: .orchestrator`) — an Outline explaining
-what it coordinates plus the myapps it can drive, an empty Components panel, and
-its agent — plus the same bottom bar (Home · Agents · Memories · Pupa · ⋯), rather than a
-bespoke page. The drawer fills most of a compact
+what it coordinates plus the myapps it can drive, and an empty Components panel
+— plus the same bottom bar (Home · Agents · Memories · Pupa · ⋯), rather than a
+bespoke page. Both homes leave agents to the **Agents** bottom-bar page; the
+home itself only shows the Outline + Components. The drawer fills most of a compact
 (iPhone-portrait) screen but stays a slim fixed width on a regular width class
 (iPad, large iPhone landscape).
 
@@ -312,6 +313,12 @@ paired). The selected `{provider, model}` is forwarded per turn in
 Agents page. `AgentRegistry` builds an `AgentDescriptor` per agent carrying a
 glanceable `modelSummary` + `toolSummary` (shown on `AgentsListView` rows) and,
 in `AgentDetailView`, an editable model picker plus a toggleable tool surface.
+The picker lists only the catalog's concrete models (grouped by provider) plus
+a "Reload models" action — there is no "Backend default" entry to pick. An agent
+with no override rests on the catalog's first model (the registry's primary, i.e.
+the effective backend default), so the row always names a concrete model rather
+than an abstract sentinel; the "inherits the backend's model" note still flags
+that it isn't an explicit override.
 Storage parallels the existing per-agent LLM storage: the main agent uses
 `MyApp.settings` (`llm.*`, `tools.disabled` as a `SettingValue.stringArray`),
 Slack sub-agents use the `SlackAgent` struct (`llmProvider/llmModel/disabledTools`),
