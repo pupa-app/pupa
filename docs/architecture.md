@@ -420,9 +420,16 @@ them per scope and:
   through `MyAppType.skillToolNames`.
 
 Skills are seeded two ways: per-example (each example's `seedAgentsMd`) and
-universally via `DefaultSkills` (`seedAll` at launch + on `MyAppStore.addMyApp`),
-which ships every app a `/to-memory` skill that records durable, app-level
-learnings into `pupa/MEMORIES.md`. Both are file-exists-guarded.
+universally via `DefaultSkills`, seeded **once at app birth**
+(`MyAppStore.seedBirthFiles` — `addMyApp` / example restore / fresh-install
+default), so user/agent edits *and deletions* survive later launches. Every app
+ships `/to-memory` (records durable learnings into `pupa/MEMORIES.md`) and
+`/pupa-internals` (the object-model + frontend/backend boundary primer, loaded
+on demand via `app_skill_view`). All are file-exists-guarded.
+
+These are **app skills** (on-device `pupa/skills/`, `app_skill_view`), distinct
+from any **backend** skills library (`~/.pupa-backend/skills/`, the backend's
+own `skill_view` tool) the client never touches — see [skills.md](skills.md).
 
 Full reference: [skills.md](skills.md).
 

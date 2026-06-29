@@ -28,9 +28,10 @@ struct DefaultSkillsTests {
     @Test("seed is idempotent — never clobbers an existing file")
     func idempotent() throws {
         let mem = freshStore()
+        #expect(DefaultSkills.seed(into: mem))                     // first seed writes all defaults
         _ = try mem.writeFile(path: "pupa/skills/to-memory/SKILL.md", content: "edited")
 
-        #expect(!DefaultSkills.seed(into: mem))                    // nothing re-written
+        #expect(!DefaultSkills.seed(into: mem))                    // all present — nothing re-written
         let body = try mem.readFile(path: "pupa/skills/to-memory/SKILL.md").content
         #expect(body == "edited")                                 // user/agent edit survives
     }

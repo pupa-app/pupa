@@ -79,12 +79,31 @@ seeded as `pupa/skills/setup/SKILL.md`, which is all it takes to provide
 ### Default skills (every app)
 
 `DefaultSkills` (`Pupa/Sources/PupaApp/Skills/DefaultSkills.swift`) seeds skills
-into **every** MyApp — not just examples — idempotently at launch
-(`seedAll`, over current apps + all example types) and on app creation
-(`MyAppStore.addMyApp`). File-exists-guarded, so user/agent edits survive.
-Today the only default is `/to-memory`: it distils durable, app-level learnings
-from the conversation (conventions, preferences, mid-task realignments) into
-`pupa/MEMORIES.md`, which rides the `.pupaapp` export bundle as config.
+into **every** MyApp — not just examples. Seeding happens **once, at app birth**
+(`MyAppStore.seedBirthFiles`, via `addMyApp` / example restore / the
+fresh-install default app), never on later launches, so a user's or agent's
+edits *and deletions* stick. File-exists-guarded.
+
+Two defaults ship today, both riding the `.pupaapp` export bundle as config:
+
+- **`/to-memory`** — distils durable, app-level learnings from the conversation
+  (conventions, preferences, mid-task realignments) into `pupa/MEMORIES.md` (or
+  the relevant `AGENTS.md`).
+- **`/pupa-internals`** — orients the agent on Pupa's object model (canvas
+  components, memory, skills, `AGENTS.md`) and the app(on-device)/backend
+  boundary, so it writes the right thing in the right place with the right tool.
+  Loaded on demand via `app_skill_view`. Fully user-editable and deletable like
+  any app skill.
+
+## App skills vs the backend skills library
+
+The skills here are **app skills** — on-device markdown under `pupa/skills/`,
+loaded with `app_skill_view` and created with `writeMemoryFile`. They are the
+only skills the user or agent manages from the app. Separately, a **backend**
+may expose its own server-side skills library (`~/.pupa-backend/skills/`, read
+via a backend `skill_view` tool) — a different store the client never touches.
+The `/pupa-internals` default skill spells out this distinction for the agent so
+it doesn't confuse the two.
 
 ## Deferred (not v1)
 
