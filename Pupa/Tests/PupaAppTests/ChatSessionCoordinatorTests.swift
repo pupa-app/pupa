@@ -173,7 +173,11 @@ struct ChatSessionCoordinatorTests {
         let coord = ChatSessionCoordinator(
             store: store,
             memory: MemoryStore(rootOverride: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("pupa-tests-\(UUID().uuidString)")),
-            settings: SettingsStore(backendURL: URL(string: "http://127.0.0.1:1/")!),  // guaranteed unreachable
+            // TEST-NET-1 (RFC 5737) is blackholed: connect() hangs until the
+            // 0.3s timeout rather than RST-ing instantly. That keeps the run
+            // in-flight long enough for the poll below to observe busy — a
+            // refused port (e.g. 127.0.0.1:1) fails before the first sample.
+            settings: SettingsStore(backendURL: URL(string: "http://192.0.2.1/")!),
             urlSession: URLSession(configuration: cfg)
         )
         let target = ids[0]
