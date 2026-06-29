@@ -86,9 +86,10 @@ public struct AppView: View {
         PupaStorage.promoteLocalIfNeeded()
         let store = MyAppStore()
         let memory = MemoryStore()
-        // Idempotent: writes each example's AGENTS.md persona files on
-        // launches where any are missing. User edits survive every launch.
-        ExampleRegistry.seedAll(globalMemory: memory)
+        // Persona AGENTS.md and default skills (the `/to-memory` skill) are
+        // seeded once at app birth (addMyApp / restoreExample / fresh-install)
+        // — never here — so user edits *and deletions* aren't resurrected on
+        // the next launch.
         let settings = injectedSettings ?? SettingsStore()
         self._store = State(initialValue: store)
         self._memory = State(initialValue: memory)

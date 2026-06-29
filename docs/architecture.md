@@ -349,6 +349,11 @@ them per scope and:
 - the agent loads a body on demand with `app_skill_view`, always advertised
   through `MyAppType.skillToolNames`.
 
+Skills are seeded two ways: per-example (each example's `seedAgentsMd`) and
+universally via `DefaultSkills` (`seedAll` at launch + on `MyAppStore.addMyApp`),
+which ships every app a `/to-memory` skill that records durable, app-level
+learnings into `pupa/MEMORIES.md`. Both are file-exists-guarded.
+
 Full reference: [skills.md](skills.md).
 
 ## Persistence

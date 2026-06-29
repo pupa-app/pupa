@@ -61,7 +61,7 @@ enum JobSearchExample: ExampleMyApp {
     /// `SettingsSheet` callback) so this isn't a constraint in
     /// practice.
     @MainActor
-    static func seedAgentsMd(globalMemory: MemoryStore, appRootOverride: URL? = nil) {
+    static func seedAgentsMd(globalMemory: MemoryStore?, appRootOverride: URL? = nil) {
         let appRoot = appRootOverride ?? MemoryStore.appRoot(myAppName: name)
         let appMemory = MemoryStore(rootOverride: appRoot)
         var wroteAny = false
@@ -78,7 +78,7 @@ enum JobSearchExample: ExampleMyApp {
         }
         // The global store caches its tree at init; rescan so the
         // sidebar picks up the new files on next render.
-        if wroteAny { globalMemory.rescan() }
+        if wroteAny { globalMemory?.rescan() }
     }
 
     // MARK: - Builder

@@ -3,6 +3,20 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.45] — 2026-06-25
+
+### Added
+
+- **Every project now ships with a built-in `/to-memory` skill.** New MyApps
+  get `pupa/skills/to-memory/SKILL.md`, a slash command that asks the agent to
+  distil durable, app-level learnings from the conversation (conventions,
+  preferences, and especially mid-task realignments) into `pupa/MEMORIES.md`.
+  The file lives under `pupa/`, so the growing playbook rides the `.pupaapp`
+  export bundle. Seeded **once at app birth** (new app, example restore,
+  fresh install) rather than every launch — together with example persona
+  `AGENTS.md` files — so a user's edits *and deletions* of either stick
+  instead of being resurrected on the next launch. (`PupaApp` `0.0.141`)
+
 ## [0.0.43] — 2026-06-24
 
 ### Fixed

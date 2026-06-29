@@ -22,7 +22,10 @@ test-aguikit:  ## Run AGUIKit unit + e2e tests (use FILTER=Foo to scope)
 	swift test --package-path $(AGUIKIT) $(if $(FILTER),--filter $(FILTER),)
 
 test-pupa:  ## Run Pupa app tests (use FILTER=Foo to scope)
-	swift test --package-path $(PUPA) $(if $(FILTER),--filter $(FILTER),)
+	# --no-parallel: Pupa tests redirect storage to one process-global temp
+	# dir (TestStorage) and share backend singletons, so parallel suites
+	# clobber each other and fail nondeterministically. Serial run is ~3s.
+	swift test --package-path $(PUPA) --no-parallel $(if $(FILTER),--filter $(FILTER),)
 
 mac-demo:  ## Run the native macOS demo (talks AG-UI to a backend on :8004)
 	export AGUIKIT_LOG=1 && cd $(PUPA) && swift run PupaDemo

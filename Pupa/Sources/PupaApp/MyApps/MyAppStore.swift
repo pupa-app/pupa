@@ -56,8 +56,15 @@ public final class MyAppStore {
             self.memoryCurrentThreadId = loaded.memoryCurrentThreadId
             self.itemEventLog = loaded.itemEventLog
             // Seed disk on fresh install; otherwise prime hashes so the first
-            // mutation only writes the app that actually changed.
-            if loaded.fromDisk { primeHashes() } else { persist() }
+            // mutation only writes the app that actually changed. On fresh
+            // install also ship default skills into the seeded app (app-birth
+            // is the only time we seed — see `DefaultSkills`).
+            if loaded.fromDisk {
+                primeHashes()
+            } else {
+                for app in myApps { seedBirthFiles(forAppNamed: app.name) }
+                persist()
+            }
         }
     }
 
@@ -219,6 +226,16 @@ public final class MyAppStore {
 
     // MARK: - Lifecycle
 
+    /// One-time, at-birth seeding for a freshly created/restored app: the
+    /// universal default skills plus (when the name matches an example) its
+    /// persona AGENTS.md. Never run on plain launches, so user edits and
+    /// deletions of these files survive. The chat coordinator rescans the
+    /// global sidebar on the next app-scoped write, so no `globalMemory` here.
+    private func seedBirthFiles(forAppNamed name: String) {
+        DefaultSkills.seed(appName: name)
+        ExampleRegistry.seedAgentsMd(forAppNamed: name)
+    }
+
     @discardableResult
     public func addMyApp(typeId: String, name: String, iconSystemName: String) -> UUID {
         let myApp = MyApp(
@@ -227,6 +244,7 @@ public final class MyAppStore {
             typeId: typeId
         )
         myApps.append(myApp)
+        seedBirthFiles(forAppNamed: myApp.name)
         activeMyAppId = myApp.id
         persist()
         return myApp.id
@@ -272,6 +290,7 @@ public final class MyAppStore {
         }
         let myApp = example.make()
         myApps.append(myApp)
+        seedBirthFiles(forAppNamed: myApp.name)
         activeMyAppId = myApp.id
         persist()
         return myApp.id
