@@ -654,7 +654,7 @@ background disk task crosses a suite boundary.
 
 There is no migration from the pre-iCloud single-blob storage — a new build
 seeds fresh. iCloud needs the CloudDocuments entitlement
-(`PupaHost.entitlements`, container `iCloud.app.pupa.ios` =
+(`PupaHost.entitlements`, container `iCloud.com.pupa-app.client` =
 `PupaStorage.containerID`).
 
 - **Canvas + MyApps state** → **per-file** under `state/`: one
@@ -769,6 +769,8 @@ Then build/run in Xcode as normal (automatic signing). Do **not** set the
 team via Xcode's *Signing & Capabilities* dropdown — that writes
 `DEVELOPMENT_TEAM` back into `project.pbxproj` and re-leaks it.
 
-The app's bundle ID is `app.pupa.ios` (a generic placeholder). The bundle
-ID is permanent once an app record exists in App Store Connect, so settle
-on the final value before creating that record.
+The app's bundle ID is `com.pupa-app.client` (reverse-DNS of the owned
+domain `pupa-app.com`; platform-neutral so one Universal Purchase record
+covers iOS + macOS). Tests/UITests use the `.tests` / `.uitests` suffixes.
+The bundle ID is permanent once an app record exists in App Store Connect,
+so settle on the final value before creating that record.
