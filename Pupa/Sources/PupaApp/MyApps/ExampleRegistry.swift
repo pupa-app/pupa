@@ -6,8 +6,8 @@ import Foundation
 /// writing the optional AGENTS.md memory files that give the example its
 /// agent personas. Both operations are idempotent — `make()` always
 /// allocates fresh UUIDs so restoring never duplicates an existing copy,
-/// and `seedAgentsMd` is file-exists-guarded so user edits survive every
-/// subsequent restore / app launch.
+/// and `seedAgentsMd` runs only at app birth (fresh-install + restore), so a
+/// user's edits — and deletions — to the persona files are never resurrected.
 public protocol ExampleMyApp {
     /// Display name. Also the idempotency key used by `MyAppStore` to
     /// detect whether the example is already present in the sidebar.
@@ -22,9 +22,11 @@ public protocol ExampleMyApp {
 
     /// Write AGENTS.md persona files into the memory tree. No-op for
     /// examples that don't need them. Always `@MainActor` because
-    /// `MemoryStore` is main-actor-isolated.
+    /// `MemoryStore` is main-actor-isolated. `globalMemory` is rescanned when
+    /// non-nil; pass nil from app-birth call sites that have no sidebar store
+    /// (the chat coordinator rescans on the next app-scoped write).
     @MainActor
-    static func seedAgentsMd(globalMemory: MemoryStore, appRootOverride: URL?)
+    static func seedAgentsMd(globalMemory: MemoryStore?, appRootOverride: URL?)
 }
 
 /// Centralised registry of all seeded examples. Add a new conformance here
@@ -43,13 +45,12 @@ public enum ExampleRegistry {
         ResearchTrackerExample.self,
     ]
 
-    /// Write every example's AGENTS.md files. Called once at app launch so
-    /// personas are available regardless of which example the user opens.
+    /// Seed one example's persona AGENTS.md at app birth (restore / fresh
+    /// install). No-op when the named MyApp isn't an example. `globalMemory`
+    /// is rescanned when provided.
     @MainActor
-    public static func seedAll(globalMemory: MemoryStore) {
-        for example in all {
-            example.seedAgentsMd(globalMemory: globalMemory, appRootOverride: nil)
-        }
+    public static func seedAgentsMd(forAppNamed name: String, globalMemory: MemoryStore? = nil) {
+        example(named: name)?.seedAgentsMd(globalMemory: globalMemory, appRootOverride: nil)
     }
 
     /// Look up an example type by its `name`. Returns `nil` when not found.

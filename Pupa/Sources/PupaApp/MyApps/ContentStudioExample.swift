@@ -18,7 +18,7 @@ enum ContentStudioExample: ExampleMyApp {
     }
 
     @MainActor
-    static func seedAgentsMd(globalMemory: MemoryStore, appRootOverride: URL? = nil) {
+    static func seedAgentsMd(globalMemory: MemoryStore?, appRootOverride: URL? = nil) {
         let appRoot = appRootOverride ?? MemoryStore.appRoot(myAppName: name)
         let appMemory = MemoryStore(rootOverride: appRoot)
         var wroteAny = false
@@ -47,7 +47,7 @@ enum ContentStudioExample: ExampleMyApp {
                 wroteAny = true
             }
         }
-        if wroteAny { globalMemory.rescan() }
+        if wroteAny { globalMemory?.rescan() }
     }
 
     // MARK: - Builder

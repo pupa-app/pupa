@@ -1,10 +1,14 @@
 import Foundation
 
 /// Skills every MyApp ships with, independent of which example (if any) it was
-/// created from. Unlike `ExampleRegistry` seeding — which is per-example — these
-/// are universal: written into every app's `pupa/skills/` so the capability
-/// rides the `.pupaapp` export bundle. File-exists-guarded, so a user's or
-/// agent's edits survive every launch.
+/// created from. Universal: written into `pupa/skills/` so the capability rides
+/// the `.pupaapp` export bundle.
+///
+/// Seeded **once, at app birth** — `addMyApp`, `restoreExample`, and the
+/// fresh-install default app. Never on subsequent launches, so the file is the
+/// user's from then on: edits *and deletions* stick (a launch-time reseed would
+/// resurrect anything the user removed). The `fileExists` guard only avoids
+/// clobbering an app that was already seeded.
 enum DefaultSkills {
     /// `(path, body)` pairs written into a MyApp's memory root when missing.
     static let files: [(path: String, body: String)] = [
@@ -24,19 +28,10 @@ enum DefaultSkills {
     }
 
     /// Seed a single app by name (constructs its own scope-rooted store).
+    /// Call once when the app is created — not on every launch.
     @MainActor @discardableResult
     static func seed(appName: String) -> Bool {
         seed(into: MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: appName)))
-    }
-
-    /// Seed every current app plus every example type, once. Rescans the global
-    /// sidebar memory if anything was written. Called once at app launch.
-    @MainActor
-    static func seedAll(globalMemory: MemoryStore, store: MyAppStore) {
-        let names = Set(store.myApps.map(\.name)).union(ExampleRegistry.all.map { $0.name })
-        var wrote = false
-        for name in names where seed(appName: name) { wrote = true }
-        if wrote { globalMemory.rescan() }
     }
 
     // MARK: - Skill bodies
@@ -55,8 +50,9 @@ enum DefaultSkills {
        clarified, preferences stated, gotchas, and anything that needed
        realignment mid-task. Skip one-off task specifics.
     2. Read the existing `pupa/MEMORIES.md` (if present) so you merge, not duplicate.
-    3. Write `pupa/MEMORIES.md` with the merged result — short bullets under clear
-       headings, the new insight integrated in place.
+    3. Write to `pupa/MEMORIES.md` or your AGENTS.md file with the merged result — short bullets under clear
+       headings, the new insight integrated in place. Choose AGENTS.md for info you should always be aware of in every conversation, 
+       while choose MEMORIES.md for info that is not always needed.
     4. Tell the user in one line what you added.
     """
 }
