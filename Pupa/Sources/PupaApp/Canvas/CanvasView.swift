@@ -19,52 +19,18 @@ public struct CanvasView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 if let component = resolvedComponent {
-                    switch component.body {
-                    case .empty:
-                        EmptyComponentHint(kind: component.kindString)
-                    case .tracker(let data):
-                        switch data.viewMode {
-                        case .grid:
-                            TrackerView(
-                                store: store,
-                                data: data,
-                                myAppId: resolvedMyAppId,
-                                componentId: component.id
-                            )
-                        case .kanban:
-                            KanbanView(
-                                store: store,
-                                data: data,
-                                myAppId: resolvedMyAppId,
-                                componentId: component.id
-                            )
-                        }
-                    case .calendar(let data):
-                        CalendarView(store: store, data: data, myAppId: resolvedMyAppId)
-                    case .checklist(let data):
-                        ChecklistView(store: store, data: data, myAppId: resolvedMyAppId)
-                    case .slack(let data):
-                        SlackView(
+                    if component.kindString != "empty" {
+                        // Lock toggle sits on top of the component; when locked,
+                        // the body is disabled (controls inert) but still scrolls.
+                        LockToggle(
                             store: store,
-                            data: data,
                             myAppId: resolvedMyAppId,
                             componentId: component.id,
-                            coordinator: coordinator
-                        )
-                    case .calculator(let data):
-                        CalculatorView(
-                            store: store,
-                            data: data,
-                            myAppId: resolvedMyAppId,
-                            componentId: component.id
-                        )
-                    case .chart(let data):
-                        ChartContainerView(
-                            store: store,
-                            data: data,
-                            myAppId: resolvedMyAppId
+                            isLocked: component.isLocked
                         )
                     }
+                    componentContent(component)
+                        .disabled(component.isLocked)
                 } else {
                     EmptyComponentHint(kind: "empty")
                 }
@@ -74,6 +40,32 @@ public struct CanvasView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.canvasBackground)
         .linkedItemPopupHost(store: store, myAppId: resolvedMyAppId)
+    }
+
+    @ViewBuilder
+    private func componentContent(_ component: Component) -> some View {
+        switch component.body {
+        case .empty:
+            EmptyComponentHint(kind: component.kindString)
+        case .tracker(let data):
+            switch data.viewMode {
+            case .grid:
+                TrackerView(store: store, data: data, myAppId: resolvedMyAppId, componentId: component.id)
+            case .kanban:
+                KanbanView(store: store, data: data, myAppId: resolvedMyAppId, componentId: component.id)
+            }
+        case .calendar(let data):
+            CalendarView(store: store, data: data, myAppId: resolvedMyAppId)
+        case .checklist(let data):
+            ChecklistView(store: store, data: data, myAppId: resolvedMyAppId)
+        case .slack(let data):
+            SlackView(store: store, data: data, myAppId: resolvedMyAppId,
+                      componentId: component.id, coordinator: coordinator)
+        case .calculator(let data):
+            CalculatorView(store: store, data: data, myAppId: resolvedMyAppId, componentId: component.id)
+        case .chart(let data):
+            ChartContainerView(store: store, data: data, myAppId: resolvedMyAppId)
+        }
     }
 
     /// Component the canvas should render. Resolution prefers an explicit
@@ -101,6 +93,35 @@ public struct CanvasView: View {
             return id
         default:
             return store.activeMyAppId
+        }
+    }
+}
+
+/// Lock icon on top of a canvas component. Toggles `Component.isLocked`;
+/// a locked component refuses every mutating tool (agent) and disables its
+/// in-canvas edit controls (user), while reads/scroll still work.
+private struct LockToggle: View {
+    @Bindable var store: MyAppStore
+    let myAppId: UUID
+    let componentId: String
+    let isLocked: Bool
+
+    var body: some View {
+        HStack {
+            Spacer()
+            Button {
+                store.setComponentLocked(componentId: componentId, locked: !isLocked, myAppId: myAppId)
+            } label: {
+                Image(systemName: isLocked ? "lock.fill" : "lock.open")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(isLocked ? Color.orange : Color.secondary)
+                    .padding(7)
+                    .background(.thinMaterial, in: Circle())
+                    .overlay(Circle().strokeBorder(Color.primary.opacity(0.08)))
+            }
+            .buttonStyle(.plain)
+            .help(isLocked ? "Unlock component — allow edits" : "Lock component — block edits")
+            .accessibilityLabel(isLocked ? "Unlock component" : "Lock component")
         }
     }
 }

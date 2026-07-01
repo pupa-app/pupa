@@ -230,6 +230,7 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
             "removeComponent",
             "setActiveComponent",
             "setComponentMeta",
+            "setComponentLocked",
             "clearCanvas",
             "getCanvasState",
             "linkItem",

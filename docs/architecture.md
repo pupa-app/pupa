@@ -265,6 +265,26 @@ is checkpointed first, then the chosen state is applied and recorded as a new
 head — so the pre-restore state stays recoverable and the restore is the newest
 entry.
 
+### Component lock
+
+Each `Component` carries an `isLocked` flag. A locked component refuses every
+non-read operation. Enforcement is layered:
+
+- **Backstop (authoritative):** both `mutate` choke points — plus the direct
+  `removeComponent` / `linkItems` / `unlinkItems` paths — bail when the target
+  component is locked and set `MyAppStore.lastWriteBlockedByLock`. No write
+  (UI, agent, or future caller) can slip through.
+- **Agent message:** every frontend tool declares its intent via
+  `ClientTool.readOnly`. After all tools are registered, `registerMyAppTools`
+  wraps each *mutating* tool (`ToolRegistry.transformAll`): it resets the lock
+  flag, runs the handler, and if a write was blocked returns
+  `{ok:false, locked:true, error:…}` so the model asks the user to unlock.
+  Read-only tools are exempt.
+- **UI:** `CanvasView` shows a lock icon on top of the component and applies
+  `.disabled` to the locked body (controls inert, scrolling intact). The lock
+  toggle itself (and `setComponentLocked`, the agent's lock/unlock tool) edit
+  the flag directly, so unlocking is never gated.
+
 ## Shapes
 
 A "shape" (canvas component kind) is a SwiftUI view backed by a typed

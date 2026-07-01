@@ -34,14 +34,22 @@ public struct ClientTool: Sendable {
     /// mutate shared state (e.g. a canvas) and rely on sequential, in-order
     /// execution to preserve user-visible ordering.
     public let parallelSafe: Bool
+    /// Declares this tool as non-mutating. Read-only tools are exempt from
+    /// host-side write gating (e.g. a locked canvas component); mutating
+    /// tools (the default) are subject to it. AGUIKit itself does not act on
+    /// this flag — the host decides how to gate — but every tool declaring
+    /// its read/write intent keeps that gating declarative and central.
+    public let readOnly: Bool
 
     public init(
         descriptor: ToolDescriptor,
         parallelSafe: Bool = false,
+        readOnly: Bool = false,
         handler: @Sendable @escaping (AnyJSON) async throws -> AnyJSON
     ) {
         self.descriptor = descriptor
         self.parallelSafe = parallelSafe
+        self.readOnly = readOnly
         self.handler = handler
     }
 }

@@ -460,6 +460,7 @@ public final class MyAppStore {
         guard myApps[mIdx].components.count > 1,
               let cIdx = myApps[mIdx].components.firstIndex(where: { $0.id == componentId })
         else { return false }
+        guard !refuseIfLocked(mIdx, cIdx) else { return false }
         myApps[mIdx].components.remove(at: cIdx)
         if myApps[mIdx].activeComponentId == componentId {
             myApps[mIdx].activeComponentId = myApps[mIdx].components.first?.id
@@ -2148,6 +2149,8 @@ public final class MyAppStore {
         /// self-component links (different row in the same component)
         /// are allowed.
         case selfReference
+        /// The source component is locked; mutation refused.
+        case locked
     }
 
     /// Attach a ref from one item (`sourceComponentId`, `sourceItemId`)
@@ -2186,6 +2189,8 @@ public final class MyAppStore {
         // Source component lookup + targeted mutation.
         guard let cIdx = myApps[mIdx].components.firstIndex(where: { $0.id == sourceComponentId }) else {
             return .failure(.unknownSource)
+        }
+        guard !refuseIfLocked(mIdx, cIdx) else { return .failure(.locked)
         }
         let ref = ComponentItemRef(componentId: targetComponentId, itemId: targetItemId)
         var result: Result<Int, LinkMutationError> = .failure(.unknownSourceItem)
@@ -2254,6 +2259,7 @@ public final class MyAppStore {
         guard let cIdx = myApps[mIdx].components.firstIndex(where: { $0.id == sourceComponentId }) else {
             return .failure(.unknownSource)
         }
+        guard !refuseIfLocked(mIdx, cIdx) else { return .failure(.locked) }
         var result: Result<Int, LinkMutationError> = .failure(.unknownSourceItem)
         var bodyVal = myApps[mIdx].components[cIdx].body
         var changed = false
@@ -2398,6 +2404,8 @@ public final class MyAppStore {
         case .linked: return "Linked items"
         case .unlinked: return "Unlinked items"
         case .restored: return "Restored an earlier version"
+        case .locked: return "Locked a component"
+        case .unlocked: return "Unlocked a component"
         }
         let noun: String
         switch componentKind(event.componentId, myAppId: event.myAppId) {
@@ -2483,6 +2491,7 @@ public final class MyAppStore {
         }
 
         guard let cIdx else { return }
+        guard !refuseIfLocked(mIdx, cIdx) else { return }
         var bodyVal = myApps[mIdx].components[cIdx].body
         let changed = body(&bodyVal)
         guard changed else { return }
@@ -2502,11 +2511,55 @@ public final class MyAppStore {
         let target = myAppId ?? activeMyAppId
         guard let mIdx = myApps.firstIndex(where: { $0.id == target }) else { return }
         guard let cIdx = myApps[mIdx].components.firstIndex(where: { $0.id == componentId }) else { return }
+        guard !refuseIfLocked(mIdx, cIdx) else { return }
         var bodyVal = myApps[mIdx].components[cIdx].body
         let changed = body(&bodyVal)
         guard changed else { return }
         myApps[mIdx].components[cIdx].body = bodyVal
         persist()
+    }
+
+    // MARK: - Component lock
+
+    /// Set on any mutation refused because its target component is locked.
+    /// The tool layer reads this to surface a "locked" result to the agent
+    /// (see `AppTools`); reset it before each tool handler runs.
+    public private(set) var lastWriteBlockedByLock = false
+
+    public func resetLockFlag() { lastWriteBlockedByLock = false }
+
+    /// True (and records the block) when component `cIdx` of app `mIdx` is
+    /// locked — the single write backstop shared by both `mutate` variants
+    /// and the structural (remove / link) guards.
+    private func refuseIfLocked(_ mIdx: Int, _ cIdx: Int) -> Bool {
+        guard myApps[mIdx].components[cIdx].isLocked else { return false }
+        lastWriteBlockedByLock = true
+        return true
+    }
+
+    /// Whether a component is locked. `componentId` nil → the app's active
+    /// component. Used by the lock toggle UI and view-layer edit gating.
+    public func isComponentLocked(componentId: String? = nil, myAppId: UUID? = nil) -> Bool {
+        let target = myAppId ?? activeMyAppId
+        guard let m = myApps.first(where: { $0.id == target }) else { return false }
+        let cid = componentId ?? m.activeComponentId
+        return m.components.first(where: { $0.id == cid })?.isLocked ?? false
+    }
+
+    /// Lock or unlock a component. Edits the flag directly (never gated — this
+    /// is the unlock path), persists, and captions the change feed.
+    @discardableResult
+    public func setComponentLocked(componentId: String, locked: Bool, myAppId: UUID? = nil) -> Bool {
+        let target = myAppId ?? activeMyAppId
+        guard let mIdx = myApps.firstIndex(where: { $0.id == target }),
+              let cIdx = myApps[mIdx].components.firstIndex(where: { $0.id == componentId }),
+              myApps[mIdx].components[cIdx].isLocked != locked
+        else { return false }
+        myApps[mIdx].components[cIdx].isLocked = locked
+        persist()
+        emitItemEvent(myAppId: target, componentId: componentId,
+                      kind: locked ? .locked : .unlocked, actor: .user)
+        return true
     }
 
     // MARK: - Per-file persistence

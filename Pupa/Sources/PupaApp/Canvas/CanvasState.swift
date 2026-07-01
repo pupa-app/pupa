@@ -1495,18 +1495,42 @@ public struct Component: Codable, Hashable, Identifiable, Sendable {
     /// leaves the body untouched.
     public var summary: String?
 
+    /// User lock. When true, all non-read (mutating) operations on this
+    /// component are refused — via the `mutate` backstop in `MyAppStore` and
+    /// a "locked" result surfaced to the agent (see `ClientTool.readOnly`).
+    /// Defaults false; older persisted/imported components decode as unlocked.
+    public var isLocked: Bool
+
     public init(
         id: String,
         name: String,
         iconSystemName: String,
         body: CanvasApp,
-        summary: String? = nil
+        summary: String? = nil,
+        isLocked: Bool = false
     ) {
         self.id = id
         self.name = name
         self.iconSystemName = iconSystemName
         self.body = body
         self.summary = summary
+        self.isLocked = isLocked
+    }
+
+    // Custom decode so old / imported components without `isLocked` still
+    // load (defaults to unlocked); `encode` stays synthesized.
+    enum CodingKeys: String, CodingKey {
+        case id, name, iconSystemName, body, summary, isLocked
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(String.self, forKey: .id)
+        self.name = try c.decode(String.self, forKey: .name)
+        self.iconSystemName = try c.decode(String.self, forKey: .iconSystemName)
+        self.body = try c.decode(CanvasApp.self, forKey: .body)
+        self.summary = try c.decodeIfPresent(String.self, forKey: .summary)
+        self.isLocked = try c.decodeIfPresent(Bool.self, forKey: .isLocked) ?? false
     }
 
     /// Convenience: kind string of the component's body, matching the

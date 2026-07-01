@@ -19,6 +19,14 @@ public final class ToolRegistry: @unchecked Sendable {
         byName.removeValue(forKey: name)
     }
 
+    /// Replace every registered tool via `transform`, in place. Hosts use this
+    /// to wrap handlers with cross-cutting gating (e.g. refusing mutating
+    /// tools against a locked target) after all tools are registered.
+    public func transformAll(_ transform: (ClientTool) -> ClientTool) {
+        lock.lock(); defer { lock.unlock() }
+        byName = byName.mapValues(transform)
+    }
+
     public func resolve(_ name: String) -> ClientTool? {
         lock.lock(); defer { lock.unlock() }
         return byName[name]

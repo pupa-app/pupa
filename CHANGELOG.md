@@ -3,6 +3,19 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.49] — 2026-07-01
+
+### Added
+
+- **Component lock.** A lock icon on top of each canvas component toggles a
+  read-only lock. A locked component refuses every mutating operation — its
+  in-canvas edit controls are disabled (reads and scrolling still work), and
+  mutating agent tools return a clear "locked" result asking the user to
+  unlock first. Each frontend tool now declares its read/write intent
+  (`ClientTool.readOnly`); enforcement is centralized in `MyAppStore`'s
+  mutation backstop, so nothing slips through. The agent can lock/unlock on
+  request via `setComponentLocked`. (`PupaApp` `0.0.145`, `AGUIKit` `0.0.22`)
+
 ## [0.0.48] — 2026-07-01
 
 ### Changed

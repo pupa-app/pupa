@@ -4,8 +4,8 @@
 
 # Pupa
 
-[![Pupa](https://img.shields.io/badge/Pupa-0.0.144-000000?logo=apple&logoColor=white)](Pupa/Sources/PupaApp/Version.swift)
-[![AGUIKit](https://img.shields.io/badge/AGUIKit-0.0.21-f05138?logo=swift&logoColor=white)](AGUIKit/Sources/AGUIKit/Version.swift)
+[![Pupa](https://img.shields.io/badge/Pupa-0.0.145-000000?logo=apple&logoColor=white)](Pupa/Sources/PupaApp/Version.swift)
+[![AGUIKit](https://img.shields.io/badge/AGUIKit-0.0.22-f05138?logo=swift&logoColor=white)](AGUIKit/Sources/AGUIKit/Version.swift)
 
 Native iOS / macOS client for the Pupa agent: a SwiftUI canvas that
 moulds into the shape you ask for (tracker, calendar, checklist, slack
