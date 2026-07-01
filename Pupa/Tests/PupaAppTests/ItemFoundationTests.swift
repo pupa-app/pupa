@@ -236,7 +236,6 @@ struct ItemFoundationTests {
             myAppId: UUID(),
             componentId: "tracker-1",
             kind: .linked,
-            payload: "{}".data(using: .utf8)!,
             actor: .agent(toolName: "linkItem")
         )
         let data = try JSONEncoder().encode(event)

@@ -803,12 +803,11 @@ public enum AppTools {
                 name: "listChanges",
                 description: """
                 List recent item and component mutations for this MyApp, newest-first. \
-                Each entry includes: id, kind (added/patched/removed/linked/unlinked), \
+                Each entry: id, kind (added/patched/removed/linked/unlinked/restored), \
                 actor ({kind: user|agent, toolName?}), summary (human-readable one-liner), \
-                reversible (bool — true if undo is currently possible), reason (why not \
-                reversible, if applicable), undone (bool), isUndo (bool), timestamp (ISO-8601). \
-                Supports pagination via offset + limit (default 20, max 100). \
-                Use before calling undoChanges to identify event ids.
+                timestamp (ISO-8601). Supports pagination via offset + limit (default 20, \
+                max 100). This is a read-only change feed; to revert state the user restores \
+                a snapshot from the History page.
                 """,
                 parameters: [
                     "type": "object",
@@ -827,8 +826,6 @@ public enum AppTools {
                     let total = reversed.count
                     let slice = Array(reversed.dropFirst(offset).prefix(limit))
                     let changes: [AnyJSON] = slice.map { event in
-                        let inv = event.inverse()
-                        let reversible = inv != nil && !event.undone && !event.isUndo
                         let actorObj: AnyJSON
                         switch event.actor {
                         case .user:
@@ -836,24 +833,13 @@ public enum AppTools {
                         case .agent(let toolName):
                             actorObj = .object(["kind": .string("agent"), "toolName": .string(toolName)])
                         }
-                        var entry: [String: AnyJSON] = [
+                        return .object([
                             "id": .string(event.id.uuidString),
                             "kind": .string(event.kind.rawValue),
                             "actor": actorObj,
                             "summary": .string(store.changeSummary(for: event)),
-                            "reversible": .bool(reversible),
-                            "undone": .bool(event.undone),
-                            "isUndo": .bool(event.isUndo),
                             "timestamp": .string(ISO8601DateFormatter().string(from: event.timestamp))
-                        ]
-                        if !reversible, event.undone {
-                            entry["reason"] = .string("Already undone.")
-                        } else if !reversible, event.isUndo {
-                            entry["reason"] = .string("Undo events cannot themselves be undone.")
-                        } else if !reversible, inv == nil {
-                            entry["reason"] = .string("No recorded inverse (legacy event).")
-                        }
-                        return .object(entry)
+                        ])
                     }
                     return .object([
                         "ok": .bool(true),
@@ -861,72 +847,6 @@ public enum AppTools {
                         "offset": .int(offset),
                         "limit": .int(limit),
                         "changes": .array(changes)
-                    ])
-                }
-                return result
-            }
-        ))
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "undoChanges",
-                description: """
-                Reverse one or more item/component mutations by event id or by undoing the N \
-                most-recent reversible events. Provide EITHER eventIds OR count — not both. \
-                Returns a per-entry result array; partial success is possible. \
-                Error codes: event_not_found, already_undone, not_reversible, \
-                item_no_longer_exists, component_no_longer_exists, inconsistent_state. \
-                Call listChanges first to identify reversible event ids.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "eventIds": [
-                            "type": "array",
-                            "items": ["type": "string"],
-                            "description": "UUIDs of specific events to undo (newest-first recommended)."
-                        ],
-                        "count": [
-                            "type": "integer",
-                            "description": "Undo the N most-recent reversible events instead of named ids."
-                        ]
-                    ]
-                ]
-            ),
-            handler: { args in
-                let result: AnyJSON = await MainActor.run {
-                    let targetIds: [UUID]
-                    if let idsArg = args["eventIds"]?.arrayValue {
-                        targetIds = idsArg.compactMap { $0.stringValue.flatMap(UUID.init) }
-                    } else if let count = args["count"]?.intValue, count > 0 {
-                        let reversible = store.itemEventLog.events(forMyApp: myAppId)
-                            .reversed()
-                            .filter { !$0.undone && !$0.isUndo && $0.inverse() != nil }
-                            .prefix(count)
-                        targetIds = reversible.map(\.id)
-                    } else {
-                        return .object(["ok": .bool(false), "error": .string("Provide eventIds or count.")])
-                    }
-                    let results: [AnyJSON] = targetIds.map { eventId in
-                        let undoResult = store.undo(eventId: eventId)
-                        switch undoResult {
-                        case .success:
-                            return .object(["eventId": .string(eventId.uuidString), "ok": .bool(true)])
-                        case .failure(let err):
-                            return .object([
-                                "eventId": .string(eventId.uuidString),
-                                "ok": .bool(false),
-                                "error": .string(err.stableCode)
-                            ])
-                        }
-                    }
-                    let allOk = results.allSatisfy {
-                        if case .object(let d) = $0, case .bool(let b) = d["ok"] { return b }
-                        return false
-                    }
-                    return .object([
-                        "ok": .bool(allOk),
-                        "results": .array(results)
                     ])
                 }
                 return result

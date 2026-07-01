@@ -33,13 +33,13 @@ public final class MyAppStore {
     public private(set) var memoryThreads: [ChatThread]
     /// The threadId of the currently-selected Orchestrator conversation.
     public private(set) var memoryCurrentThreadId: String
-    /// Append-only audit trail of item mutations. Persisted in the
-    /// UserDefaults snapshot; live-observable so the History sheet updates.
+    /// Append-only change feed of item mutations. Persisted in `index.json`;
+    /// live-observable so the History sheet updates. Captions the timeline;
+    /// state is restored from `SnapshotStore`, not replayed from this.
     public private(set) var itemEventLog = ItemEventLog()
-    /// Set to `true` while `undo(eventId:)` is executing so all emitted
-    /// events during the inverse carry `isUndo: true` without changes to
-    /// every mutator's public signature.
-    private var undoInProgress = false
+    /// Coalesces bursts of edits into one debounced `SnapshotStore` capture
+    /// per MyApp, keyed by app id.
+    private var pendingSnapshotTasks: [UUID: Task<Void, Never>] = [:]
 
     public init(initial: ([MyApp], UUID)? = nil) {
         if let initial {
@@ -445,8 +445,7 @@ public final class MyAppStore {
         myApps[idx].components.append(component)
         myApps[idx].activeComponentId = id
         persist()
-        emitItemEvent(myAppId: target, componentId: id, kind: .added, actor: .user,
-                      inverse: .componentAdded(componentId: id))
+        emitItemEvent(myAppId: target, componentId: id, kind: .added, actor: .user)
         return id
     }
 
@@ -461,14 +460,12 @@ public final class MyAppStore {
         guard myApps[mIdx].components.count > 1,
               let cIdx = myApps[mIdx].components.firstIndex(where: { $0.id == componentId })
         else { return false }
-        let removedComponent = myApps[mIdx].components[cIdx]
         myApps[mIdx].components.remove(at: cIdx)
         if myApps[mIdx].activeComponentId == componentId {
             myApps[mIdx].activeComponentId = myApps[mIdx].components.first?.id
         }
         persist()
-        emitItemEvent(myAppId: target, componentId: componentId, kind: .removed, actor: .user,
-                      inverse: .componentRemoved(snapshot: removedComponent, index: cIdx))
+        emitItemEvent(myAppId: target, componentId: componentId, kind: .removed, actor: .user)
         return true
     }
 
@@ -635,7 +632,7 @@ public final class MyAppStore {
         }
         if added != nil, let compId {
             emitItemEvent(myAppId: myAppId, componentId: compId, kind: .added, actor: actor,
-                          itemId: item.id, inverse: .trackerAdded(itemId: item.id))
+                          itemId: item.id)
         }
         return added
     }
@@ -651,13 +648,9 @@ public final class MyAppStore {
         // and the cascade to it; otherwise fall back to kind-preference.
         let resolvedCompId: String? = componentId ?? trackerComponentId(myAppId: myAppId)
         var ok = false
-        var removedItem: TrackerItem?
-        var removedIdx: Int?
         let body: (inout CanvasApp) -> Bool = { canvas in
             guard case .tracker(var t) = canvas,
                   let idx = t.items.firstIndex(where: { $0.id == id }) else { return false }
-            removedItem = t.items[idx]
-            removedIdx = idx
             t.items.remove(at: idx)
             canvas = .tracker(t)
             ok = true
@@ -677,11 +670,8 @@ public final class MyAppStore {
                 itemId: id,
                 myAppId: myAppId
             )
-            let inverse: ItemEventInverse? = removedItem.map {
-                .trackerRemoved(snapshot: $0, index: removedIdx ?? 0)
-            }
             emitItemEvent(myAppId: myAppId, componentId: compId, kind: .removed, actor: actor,
-                          itemId: id, inverse: inverse)
+                          itemId: id)
         }
         return ok
     }
@@ -703,8 +693,7 @@ public final class MyAppStore {
                 myAppId: myAppId
             )
             emitItemEvent(myAppId: myAppId, componentId: compId, kind: .removed, actor: actor,
-                          itemId: removedItem.id,
-                          inverse: .trackerRemoved(snapshot: removedItem, index: index))
+                          itemId: removedItem.id)
         }
     }
 
@@ -718,11 +707,9 @@ public final class MyAppStore {
     ) -> Bool {
         let resolvedCompId = componentId ?? trackerComponentId(myAppId: myAppId)
         var ok = false
-        var prior: TrackerItem?
         let body: (inout CanvasApp) -> Bool = { canvas in
             guard case .tracker(var t) = canvas,
                   let idx = t.items.firstIndex(where: { $0.id == id }) else { return false }
-            prior = t.items[idx]
             for (k, v) in patch { t.items[idx].values[k] = v }
             canvas = .tracker(t)
             ok = true
@@ -734,9 +721,8 @@ public final class MyAppStore {
             mutate(myAppId, kind: "tracker", body)
         }
         if ok, let compId = resolvedCompId {
-            let inverse: ItemEventInverse? = prior.map { .trackerPatched(snapshot: $0) }
             emitItemEvent(myAppId: myAppId, componentId: compId, kind: .patched, actor: actor,
-                          itemId: id, inverse: inverse)
+                          itemId: id)
         }
         return ok
     }
@@ -752,9 +738,8 @@ public final class MyAppStore {
             return true
         }
         if let compId {
-            let inverse: ItemEventInverse? = prior.map { .trackerPatched(snapshot: $0) }
             emitItemEvent(myAppId: myAppId, componentId: compId, kind: .patched, actor: actor,
-                          itemId: prior?.id, inverse: inverse)
+                          itemId: prior?.id)
         }
     }
 
@@ -1077,7 +1062,7 @@ public final class MyAppStore {
         }
         if added != nil, let compId {
             emitItemEvent(myAppId: myAppId, componentId: compId, kind: .added, actor: actor,
-                          itemId: event.id, inverse: .calendarAdded(itemId: event.id))
+                          itemId: event.id)
         }
         return added
     }
@@ -1091,11 +1076,9 @@ public final class MyAppStore {
     ) -> CalendarEvent? {
         let resolvedCompId: String? = componentId ?? calendarComponentId(myAppId: myAppId)
         var removed: CalendarEvent?
-        var removedIdx: Int?
         let body: (inout CanvasApp) -> Bool = { canvas in
             guard case .calendar(var c) = canvas,
                   let idx = c.events.firstIndex(where: { $0.id == id }) else { return false }
-            removedIdx = idx
             removed = c.events.remove(at: idx)
             canvas = .calendar(c)
             return true
@@ -1111,11 +1094,8 @@ public final class MyAppStore {
                 itemId: id,
                 myAppId: myAppId
             )
-            let inverse: ItemEventInverse? = removed.map {
-                .calendarRemoved(snapshot: $0, index: removedIdx ?? 0)
-            }
             emitItemEvent(myAppId: myAppId, componentId: compId, kind: .removed, actor: actor,
-                          itemId: id, inverse: inverse)
+                          itemId: id)
         }
         return removed
     }
@@ -1155,12 +1135,10 @@ public final class MyAppStore {
         actor: ItemEventActor = .user
     ) -> CalendarEvent? {
         let resolvedCompId = componentId ?? calendarComponentId(myAppId: myAppId)
-        var before: CalendarEvent?
         var after: CalendarEvent?
         let body: (inout CanvasApp) -> Bool = { canvas in
             guard case .calendar(var c) = canvas,
                   let idx = c.events.firstIndex(where: { $0.id == id }) else { return false }
-            before = c.events[idx]
             if let v = patch.title { c.events[idx].title = v }
             if let v = patch.start { c.events[idx].start = v }
             if let v = patch.end { c.events[idx].end = v }
@@ -1180,9 +1158,8 @@ public final class MyAppStore {
             mutate(myAppId, kind: "calendar", body)
         }
         if after != nil, let compId = resolvedCompId {
-            let inverse: ItemEventInverse? = before.map { .calendarPatched(snapshot: $0) }
             emitItemEvent(myAppId: myAppId, componentId: compId, kind: .patched, actor: actor,
-                          itemId: id, inverse: inverse)
+                          itemId: id)
         }
         return after
     }
@@ -1349,7 +1326,7 @@ public final class MyAppStore {
         }
         if added != nil, let compId {
             emitItemEvent(myAppId: myAppId, componentId: compId, kind: .added, actor: actor,
-                          itemId: item.id, inverse: .checklistAdded(itemId: item.id))
+                          itemId: item.id)
         }
         return added
     }
@@ -1359,21 +1336,18 @@ public final class MyAppStore {
     @discardableResult
     public func toggleChecklistItem(id: UUID, myAppId: UUID? = nil, actor: ItemEventActor = .user) -> Bool? {
         let compId = checklistComponentId(myAppId: myAppId)
-        var prior: ChecklistItem?
         var newValue: Bool?
         mutate(myAppId, kind: "checklist") { canvas in
             guard case .checklist(var cl) = canvas,
                   let idx = cl.items.firstIndex(where: { $0.id == id }) else { return false }
-            prior = cl.items[idx]
             cl.items[idx].done.toggle()
             newValue = cl.items[idx].done
             canvas = .checklist(cl)
             return true
         }
         if newValue != nil, let compId {
-            let inverse: ItemEventInverse? = prior.map { .checklistPatched(snapshot: $0) }
             emitItemEvent(myAppId: myAppId, componentId: compId, kind: .patched, actor: actor,
-                          itemId: id, inverse: inverse)
+                          itemId: id)
         }
         return newValue
     }
@@ -1421,12 +1395,10 @@ public final class MyAppStore {
         actor: ItemEventActor = .user
     ) -> ChecklistItem? {
         let resolvedCompId = componentId ?? checklistComponentId(myAppId: myAppId)
-        var before: ChecklistItem?
         var after: ChecklistItem?
         let body: (inout CanvasApp) -> Bool = { canvas in
             guard case .checklist(var cl) = canvas,
                   let idx = cl.items.firstIndex(where: { $0.id == id }) else { return false }
-            before = cl.items[idx]
             if let v = patch.text { cl.items[idx].text = v }
             if let v = patch.done { cl.items[idx].done = v }
             if let v = patch.linkedItems {
@@ -1443,9 +1415,8 @@ public final class MyAppStore {
             mutate(myAppId, kind: "checklist", body)
         }
         if after != nil, let compId = resolvedCompId {
-            let inverse: ItemEventInverse? = before.map { .checklistPatched(snapshot: $0) }
             emitItemEvent(myAppId: myAppId, componentId: compId, kind: .patched, actor: actor,
-                          itemId: id, inverse: inverse)
+                          itemId: id)
         }
         return after
     }
@@ -1459,11 +1430,9 @@ public final class MyAppStore {
     ) -> ChecklistItem? {
         let resolvedCompId: String? = componentId ?? checklistComponentId(myAppId: myAppId)
         var removed: ChecklistItem?
-        var removedIdx: Int?
         let body: (inout CanvasApp) -> Bool = { canvas in
             guard case .checklist(var cl) = canvas,
                   let idx = cl.items.firstIndex(where: { $0.id == id }) else { return false }
-            removedIdx = idx
             removed = cl.items.remove(at: idx)
             canvas = .checklist(cl)
             return true
@@ -1475,11 +1444,8 @@ public final class MyAppStore {
         }
         if removed != nil, let compId = resolvedCompId {
             cascadeRemoveRefs(toComponentId: compId, itemId: id, myAppId: myAppId)
-            let inverse: ItemEventInverse? = removed.map {
-                .checklistRemoved(snapshot: $0, index: removedIdx ?? 0)
-            }
             emitItemEvent(myAppId: myAppId, componentId: compId, kind: .removed, actor: actor,
-                          itemId: id, inverse: inverse)
+                          itemId: id)
         }
         return removed
     }
@@ -2263,10 +2229,8 @@ public final class MyAppStore {
         }
         myApps[mIdx].components[cIdx].body = bodyVal
         persist()
-        let src = ComponentItemRef(componentId: sourceComponentId, itemId: sourceItemId)
-        let tgt = ComponentItemRef(componentId: targetComponentId, itemId: targetItemId)
         emitItemEvent(myAppId: target, componentId: sourceComponentId, kind: .linked, actor: .user,
-                      itemId: sourceItemId, inverse: .linked(source: src, target: tgt))
+                      itemId: sourceItemId)
         return result
     }
 
@@ -2333,10 +2297,8 @@ public final class MyAppStore {
         if changed {
             myApps[mIdx].components[cIdx].body = bodyVal
             persist()
-            let src = ComponentItemRef(componentId: sourceComponentId, itemId: sourceItemId)
-            let tgt = ComponentItemRef(componentId: targetComponentId, itemId: targetItemId)
             emitItemEvent(myAppId: target, componentId: sourceComponentId, kind: .unlinked, actor: .user,
-                          itemId: sourceItemId, inverse: .unlinked(source: src, target: tgt))
+                          itemId: sourceItemId)
         }
         return result
     }
@@ -2422,308 +2384,29 @@ public final class MyAppStore {
             .kindString
     }
 
-    // MARK: - Undo
-
-    public enum UndoError: Error, Codable, Sendable, Equatable {
-        case eventNotFound
-        case alreadyUndone
-        case notReversible
-        case itemNoLongerExists
-        case componentNoLongerExists
-        case inconsistentState
-
-        public var stableCode: String {
-            switch self {
-            case .eventNotFound: return "event_not_found"
-            case .alreadyUndone: return "already_undone"
-            case .notReversible: return "not_reversible"
-            case .itemNoLongerExists: return "item_no_longer_exists"
-            case .componentNoLongerExists: return "component_no_longer_exists"
-            case .inconsistentState: return "inconsistent_state"
-            }
-        }
-
-        public var reason: String {
-            switch self {
-            case .eventNotFound: return "Event not found in history."
-            case .alreadyUndone: return "Already undone."
-            case .notReversible: return "Event has no recorded inverse (legacy event)."
-            case .itemNoLongerExists: return "The affected item no longer exists."
-            case .componentNoLongerExists: return "The affected component no longer exists."
-            case .inconsistentState: return "Cannot apply inverse: canvas state is inconsistent."
-            }
-        }
-    }
-
-    @discardableResult
-    public func undo(eventId: UUID) -> Result<Void, UndoError> {
-        guard let event = itemEventLog.all.first(where: { $0.id == eventId }) else {
-            return .failure(.eventNotFound)
-        }
-        guard !event.undone else { return .failure(.alreadyUndone) }
-        guard !event.isUndo else { return .failure(.alreadyUndone) }
-        guard let inverse = event.inverse() else { return .failure(.notReversible) }
-
-        undoInProgress = true
-        let result = executeInverse(inverse, myAppId: event.myAppId, componentId: event.componentId)
-        undoInProgress = false
-        if case .failure = result { return result }
-        itemEventLog.markUndone(id: eventId)
-        return .success(())
-    }
-
-    private func executeInverse(
-        _ inverse: ItemEventInverse,
-        myAppId: UUID,
-        componentId: String
-    ) -> Result<Void, UndoError> {
-        switch inverse {
-        case .trackerAdded(let itemId):
-            guard itemExistsInTracker(itemId: itemId, myAppId: myAppId) else {
-                return .failure(.itemNoLongerExists)
-            }
-            removeItem(id: itemId, myAppId: myAppId, componentId: componentId, actor: .user)
-
-        case .trackerRemoved(let snapshot, let index):
-            reinsertTrackerItem(snapshot, at: index, myAppId: myAppId, componentId: componentId)
-
-        case .trackerPatched(let snapshot):
-            guard itemExistsInTracker(itemId: snapshot.id, myAppId: myAppId) else {
-                return .failure(.itemNoLongerExists)
-            }
-            let patch = snapshot.values
-            _ = patchItem(id: snapshot.id, with: patch, myAppId: myAppId, componentId: componentId, actor: .user)
-            // Restore linkedItems too — a patch undo restores the full prior snapshot
-            _ = setTrackerItemLinkedItems(id: snapshot.id, refs: snapshot.linkedItems,
-                                          myAppId: myAppId, componentId: componentId)
-
-        case .calendarAdded(let itemId):
-            guard calendarEventExists(itemId: itemId, myAppId: myAppId) else {
-                return .failure(.itemNoLongerExists)
-            }
-            _ = removeCalendarEvent(id: itemId, myAppId: myAppId, componentId: componentId, actor: .user)
-
-        case .calendarRemoved(let snapshot, let index):
-            reinsertCalendarEvent(snapshot, at: index, myAppId: myAppId, componentId: componentId)
-
-        case .calendarPatched(let snapshot):
-            guard calendarEventExists(itemId: snapshot.id, myAppId: myAppId) else {
-                return .failure(.itemNoLongerExists)
-            }
-            let eventPatch = CalendarEventPatch(
-                title: snapshot.title,
-                start: snapshot.start,
-                end: .some(snapshot.end),
-                location: .some(snapshot.location),
-                notes: .some(snapshot.notes),
-                linkedItems: snapshot.linkedItems
-            )
-            _ = patchCalendarEvent(id: snapshot.id, patch: eventPatch,
-                                   myAppId: myAppId, componentId: componentId, actor: .user)
-
-        case .checklistAdded(let itemId):
-            guard checklistItemExists(itemId: itemId, myAppId: myAppId) else {
-                return .failure(.itemNoLongerExists)
-            }
-            _ = removeChecklistItem(id: itemId, myAppId: myAppId, componentId: componentId, actor: .user)
-
-        case .checklistRemoved(let snapshot, let index):
-            reinsertChecklistItem(snapshot, at: index, myAppId: myAppId, componentId: componentId)
-
-        case .checklistPatched(let snapshot):
-            guard checklistItemExists(itemId: snapshot.id, myAppId: myAppId) else {
-                return .failure(.itemNoLongerExists)
-            }
-            let itemPatch = ChecklistItemPatch(
-                text: snapshot.text,
-                done: snapshot.done,
-                linkedItems: snapshot.linkedItems
-            )
-            _ = patchChecklistItem(id: snapshot.id, patch: itemPatch,
-                                   myAppId: myAppId, componentId: componentId, actor: .user)
-
-        case .linked(let src, let tgt):
-            _ = unlinkItems(sourceComponentId: src.componentId, sourceItemId: src.itemId,
-                            targetComponentId: tgt.componentId, targetItemId: tgt.itemId,
-                            myAppId: myAppId)
-
-        case .unlinked(let src, let tgt):
-            _ = linkItems(sourceComponentId: src.componentId, sourceItemId: src.itemId,
-                          targetComponentId: tgt.componentId, targetItemId: tgt.itemId,
-                          myAppId: myAppId)
-
-        case .componentAdded(let compId):
-            guard componentExists(compId, myAppId: myAppId) else {
-                return .failure(.componentNoLongerExists)
-            }
-            _ = removeComponent(componentId: compId, myAppId: myAppId)
-
-        case .componentRemoved(let snapshot, let index):
-            reinsertComponent(snapshot, at: index, myAppId: myAppId)
-        }
-        return .success(())
-    }
-
-    // MARK: - Undo reinsert helpers
-
-    private func reinsertTrackerItem(_ item: TrackerItem, at index: Int, myAppId: UUID, componentId: String) {
-        var inserted = false
-        mutate(myAppId: myAppId, byComponentId: componentId) { canvas in
-            guard case .tracker(var t) = canvas else { return false }
-            guard !t.items.contains(where: { $0.id == item.id }) else { return false }
-            let insertIdx = min(index, t.items.count)
-            t.items.insert(item, at: insertIdx)
-            canvas = .tracker(t)
-            inserted = true
-            return true
-        }
-        if inserted {
-            emitItemEvent(myAppId: myAppId, componentId: componentId, kind: .added, actor: .user,
-                          itemId: item.id, inverse: .trackerAdded(itemId: item.id))
-        }
-    }
-
-    private func reinsertCalendarEvent(_ event: CalendarEvent, at index: Int, myAppId: UUID, componentId: String) {
-        var inserted = false
-        mutate(myAppId: myAppId, byComponentId: componentId) { canvas in
-            guard case .calendar(var c) = canvas else { return false }
-            guard !c.events.contains(where: { $0.id == event.id }) else { return false }
-            let idx = min(index, c.events.count)
-            c.events.insert(event, at: idx)
-            canvas = .calendar(c)
-            inserted = true
-            return true
-        }
-        if inserted {
-            emitItemEvent(myAppId: myAppId, componentId: componentId, kind: .added, actor: .user,
-                          itemId: event.id, inverse: .calendarAdded(itemId: event.id))
-        }
-    }
-
-    private func reinsertChecklistItem(_ item: ChecklistItem, at index: Int, myAppId: UUID, componentId: String) {
-        var inserted = false
-        mutate(myAppId: myAppId, byComponentId: componentId) { canvas in
-            guard case .checklist(var cl) = canvas else { return false }
-            guard !cl.items.contains(where: { $0.id == item.id }) else { return false }
-            let idx = min(index, cl.items.count)
-            cl.items.insert(item, at: idx)
-            canvas = .checklist(cl)
-            inserted = true
-            return true
-        }
-        if inserted {
-            emitItemEvent(myAppId: myAppId, componentId: componentId, kind: .added, actor: .user,
-                          itemId: item.id, inverse: .checklistAdded(itemId: item.id))
-        }
-    }
-
-    private func reinsertComponent(_ component: Component, at index: Int, myAppId: UUID) {
-        guard let mIdx = myApps.firstIndex(where: { $0.id == myAppId }) else { return }
-        guard !myApps[mIdx].components.contains(where: { $0.id == component.id }) else { return }
-        let idx = min(index, myApps[mIdx].components.count)
-        myApps[mIdx].components.insert(component, at: idx)
-        persist()
-        emitItemEvent(myAppId: myAppId, componentId: component.id, kind: .added, actor: .user,
-                      inverse: .componentAdded(componentId: component.id))
-    }
-
-    // MARK: - Undo existence checks
-
-    private func itemExistsInTracker(itemId: UUID, myAppId: UUID) -> Bool {
-        guard let myApp = myApps.first(where: { $0.id == myAppId }) else { return false }
-        return myApp.components.contains { comp in
-            if case .tracker(let t) = comp.body { return t.items.contains(where: { $0.id == itemId }) }
-            return false
-        }
-    }
-
-    private func calendarEventExists(itemId: UUID, myAppId: UUID) -> Bool {
-        guard let myApp = myApps.first(where: { $0.id == myAppId }) else { return false }
-        return myApp.components.contains { comp in
-            if case .calendar(let c) = comp.body { return c.events.contains(where: { $0.id == itemId }) }
-            return false
-        }
-    }
-
-    private func checklistItemExists(itemId: UUID, myAppId: UUID) -> Bool {
-        guard let myApp = myApps.first(where: { $0.id == myAppId }) else { return false }
-        return myApp.components.contains { comp in
-            if case .checklist(let cl) = comp.body { return cl.items.contains(where: { $0.id == itemId }) }
-            return false
-        }
-    }
-
-    private func componentExists(_ componentId: String, myAppId: UUID) -> Bool {
-        myApps.first(where: { $0.id == myAppId })?.components.contains(where: { $0.id == componentId }) ?? false
-    }
-
     // MARK: - Change summary
 
-    /// Human-readable one-line description for an event. Used by both the
-    /// History sheet and the `listChanges` agent tool so they stay in sync.
+    /// Human-readable one-line label for a change-feed event. Snapshots are
+    /// the restore unit now, so this is a lightweight timeline caption
+    /// (verb + component-kind noun), not a reversible descriptor.
     public func changeSummary(for event: ItemEvent) -> String {
-        let kindLabel: String
+        let verb: String
         switch event.kind {
-        case .added: kindLabel = "Added"
-        case .patched: kindLabel = "Updated"
-        case .removed: kindLabel = "Removed"
-        case .linked: kindLabel = "Linked"
-        case .unlinked: kindLabel = "Unlinked"
+        case .added: verb = "Added"
+        case .patched: verb = "Updated"
+        case .removed: verb = "Removed"
+        case .linked: return "Linked items"
+        case .unlinked: return "Unlinked items"
+        case .restored: return "Restored an earlier version"
         }
-
-        guard let inverse = event.inverse() else {
-            return "\(kindLabel) item"
+        let noun: String
+        switch componentKind(event.componentId, myAppId: event.myAppId) {
+        case "tracker": noun = "row"
+        case "calendar": noun = "event"
+        case "checklist", "slack": noun = "item"
+        default: noun = event.itemId == nil ? "component" : "item"
         }
-
-        switch inverse {
-        case .trackerAdded, .trackerRemoved, .trackerPatched:
-            if let snap = trackerSnapshotName(from: inverse) {
-                return "\(kindLabel) \"\(snap)\""
-            }
-            return "\(kindLabel) row"
-        case .calendarAdded, .calendarRemoved, .calendarPatched:
-            if let snap = calendarSnapshotName(from: inverse) {
-                return "\(kindLabel) \"\(snap)\""
-            }
-            return "\(kindLabel) event"
-        case .checklistAdded, .checklistRemoved, .checklistPatched:
-            if let snap = checklistSnapshotName(from: inverse) {
-                return "\(kindLabel) \"\(snap)\""
-            }
-            return "\(kindLabel) item"
-        case .linked(_, let tgt):
-            return "Linked -> \(tgt.componentId)"
-        case .unlinked(_, let tgt):
-            return "Unlinked from \(tgt.componentId)"
-        case .componentAdded(let id):
-            return "Added component \(id)"
-        case .componentRemoved(let snap, _):
-            return "Removed component \"\(snap.name)\""
-        }
-    }
-
-    private func trackerSnapshotName(from inverse: ItemEventInverse) -> String? {
-        switch inverse {
-        case .trackerRemoved(let snap, _): return snap.displayName
-        case .trackerPatched(let snap): return snap.displayName
-        default: return nil
-        }
-    }
-
-    private func calendarSnapshotName(from inverse: ItemEventInverse) -> String? {
-        switch inverse {
-        case .calendarRemoved(let snap, _): return snap.displayName
-        case .calendarPatched(let snap): return snap.displayName
-        default: return nil
-        }
-    }
-
-    private func checklistSnapshotName(from inverse: ItemEventInverse) -> String? {
-        switch inverse {
-        case .checklistRemoved(let snap, _): return snap.displayName
-        case .checklistPatched(let snap): return snap.displayName
-        default: return nil
-        }
+        return "\(verb) \(noun)"
     }
 
     // MARK: - Event log
@@ -2739,27 +2422,17 @@ public final class MyAppStore {
         componentId: String,
         kind: ItemEventKind,
         actor: ItemEventActor,
-        itemId: UUID? = nil,
-        inverse: ItemEventInverse? = nil,
-        isUndo: Bool = false
+        itemId: UUID? = nil
     ) {
         let target = myAppId ?? activeMyAppId
         let threadId = myApps.first(where: { $0.id == target })?.currentThreadId
-        let payload: Data
-        if let inverse, let data = try? JSONEncoder().encode(inverse) {
-            payload = data
-        } else {
-            payload = Data()
-        }
         itemEventLog.append(ItemEvent(
             myAppId: target,
             componentId: componentId,
             kind: kind,
-            payload: payload,
             actor: actor,
             itemId: itemId,
-            threadId: threadId,
-            isUndo: isUndo || undoInProgress
+            threadId: threadId
         ))
     }
 
@@ -2866,9 +2539,14 @@ public final class MyAppStore {
             if lastAppHash[app.id] == h { continue }
             try? CloudDocument.write(data, to: Self.appURL(app.id))
             lastAppHash[app.id] = h
+            // Coalesce this edit into a debounced snapshot for History.
+            scheduleSnapshot(app.id)
         }
         for gone in Set(lastAppHash.keys).subtracting(live) {
             CloudDocument.delete(Self.appURL(gone))
+            SnapshotStore.deleteAll(gone)
+            pendingSnapshotTasks[gone]?.cancel()
+            pendingSnapshotTasks[gone] = nil
             lastAppHash[gone] = nil
         }
         let index = IndexFile(
@@ -2938,7 +2616,18 @@ public final class MyAppStore {
 
     /// Reload all state from disk and republish. Called by the iCloud watcher
     /// when a remote edit lands so the UI reflects the other device.
+    ///
+    /// Before overwriting local state we (1) checkpoint any dirty in-memory
+    /// MyApp that hasn't been persisted, and (2) capture + resolve any iCloud
+    /// `NSFileVersion` conflicts — snapshotting every side so no offline edit
+    /// is ever silently lost (issue #82).
     public func reloadFromDisk() {
+        let enc = JSONEncoder()
+        for app in myApps where (try? enc.encode(app))?.hashValue != lastAppHash[app.id] {
+            SnapshotStore.record(app, reason: .preReload)
+        }
+        resolveConflictsCapturingSnapshots()
+
         let loaded = Self.load()
         guard loaded.fromDisk else { return }
         myApps = loaded.myApps
@@ -2949,6 +2638,105 @@ public final class MyAppStore {
         lastAppHash.removeAll()
         primeHashes()
     }
+
+    // MARK: - Snapshot history
+
+    /// Debounce a snapshot capture for `appId`, collapsing a burst of edits
+    /// into one history entry.
+    private func scheduleSnapshot(_ appId: UUID) {
+        pendingSnapshotTasks[appId]?.cancel()
+        pendingSnapshotTasks[appId] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            guard !Task.isCancelled else { return }
+            self?.captureSnapshot(appId, reason: .edit)
+        }
+    }
+
+    private func captureSnapshot(_ appId: UUID, reason: SnapshotReason) {
+        pendingSnapshotTasks[appId] = nil
+        guard let app = myApps.first(where: { $0.id == appId }) else { return }
+        SnapshotStore.record(app, reason: reason)
+    }
+
+    /// History entries for a MyApp, newest-first, for the History timeline.
+    public func snapshots(forMyApp myAppId: UUID) -> [SnapshotMeta] {
+        SnapshotStore.metas(myAppId)
+    }
+
+    /// Restore a MyApp to an earlier snapshot. Non-destructive / append-only
+    /// (git-`revert`, not `git reset`): the current state is checkpointed
+    /// first (so it stays recoverable), then the restored state is applied
+    /// and recorded as the new head. Returns false if the snapshot can't be
+    /// resolved.
+    @discardableResult
+    public func restore(myAppId: UUID, snapshotId: UUID) -> Bool {
+        guard let idx = myApps.firstIndex(where: { $0.id == myAppId }),
+              let restored = SnapshotStore.restoredApp(myAppId, id: snapshotId)
+        else { return false }
+        // Checkpoint the pre-restore state so the user can jump back to it,
+        // then record the restored state as a strictly-newer head.
+        let now = Date()
+        SnapshotStore.record(myApps[idx], reason: .edit, now: now)
+        myApps[idx] = restored
+        SnapshotStore.record(restored, reason: .restored, now: now.addingTimeInterval(0.01))
+        persist()
+        emitItemEvent(myAppId: myAppId,
+                      componentId: restored.activeComponentId ?? "",
+                      kind: .restored, actor: .user)
+        return true
+    }
+
+    /// Capture + resolve iCloud conflict versions for every app file. Each
+    /// side (current + every unresolved `NSFileVersion`) is snapshotted; the
+    /// live file is resolved to the newest side and lingering versions are
+    /// marked resolved.
+    private func resolveConflictsCapturingSnapshots() {
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: Self.appsDir, includingPropertiesForKeys: nil) else { return }
+        for file in files where file.pathExtension == "json" {
+            let versions = CloudDocument.conflictVersions(at: file)
+            guard !versions.isEmpty else { continue }
+            let liveData = CloudDocument.read(file)
+            let liveDate = (try? file.resourceValues(forKeys: [.contentModificationDateKey])
+                .contentModificationDate) ?? .distantPast
+            let alternates: [(data: Data, date: Date)] = versions.compactMap { v in
+                CloudDocument.readVersion(v).map { ($0, v.modificationDate ?? .distantPast) }
+            }
+            if let winner = captureConflict(
+                liveData: liveData, liveDate: liveDate, versions: alternates) {
+                try? CloudDocument.write(winner, to: file)
+            }
+            CloudDocument.resolveConflicts(at: file)
+        }
+    }
+
+    /// Snapshot the live + every conflicting version of one app file and
+    /// return the newest side's data. Pure over its inputs so the
+    /// keep-both + newest-wins logic is unit-testable without `NSFileVersion`.
+    func captureConflict(
+        liveData: Data?, liveDate: Date, versions: [(data: Data, date: Date)]
+    ) -> Data? {
+        let dec = JSONDecoder()
+        if let liveData, let app = try? dec.decode(MyApp.self, from: liveData) {
+            SnapshotStore.record(app, reason: .conflict)
+        }
+        var winner = liveData
+        var winnerDate = liveDate
+        for (data, date) in versions {
+            if let app = try? dec.decode(MyApp.self, from: data) {
+                SnapshotStore.record(app, reason: .conflict)
+            }
+            if date > winnerDate { winner = data; winnerDate = date }
+        }
+        return winner
+    }
+
+    #if DEBUG
+    /// Test hook: capture the pending debounced snapshot immediately.
+    func captureSnapshotNowForTesting(_ appId: UUID, reason: SnapshotReason = .edit) {
+        captureSnapshot(appId, reason: reason)
+    }
+    #endif
 
     public static func clearStorage() {
         try? FileManager.default.removeItem(at: stateRoot)

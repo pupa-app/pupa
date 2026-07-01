@@ -3,6 +3,20 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.48] — 2026-07-01
+
+### Changed
+
+- **History is now git-style snapshots instead of per-command undo.** Each
+  MyApp keeps a diff-chained snapshot timeline (`SnapshotStore`, syncing via
+  iCloud like the rest of state); the **History** page lists restore points
+  and every older entry has a **Restore** button. Restore is append-only — the
+  current state is snapshotted first, so you can always switch back and nothing
+  is ever lost. Snapshots are captured on a debounced edit, before a remote
+  sync overwrites local changes, and on iCloud conflicts (every side is kept).
+  The old per-command Undo (and the agent's `undoChanges` tool) is removed.
+  (`PupaApp` `0.0.144`, `AGUIKit` `0.0.21`)
+
 ## [0.0.47] — 2026-06-29
 
 ### Changed

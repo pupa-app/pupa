@@ -53,7 +53,7 @@ handlers.
 | Area | What it owns |
 |---|---|
 | [`App/`](../Pupa/Sources/PupaApp/App/) | `RootView` (launch coordinator), `SplashView`, first-install onboarding (`OnboardingFlowView` + slides), `AppView` (root split view), `PupaApp` scene, app icon. |
-| [`MyApps/`](../Pupa/Sources/PupaApp/MyApps/) | `MyApp` model + `MyAppStore` (the single mutation surface), `MyAppType` (kind registry), example apps, `ItemEventLog` (reversible change log). |
+| [`MyApps/`](../Pupa/Sources/PupaApp/MyApps/) | `MyApp` model + `MyAppStore` (the single mutation surface), `MyAppType` (kind registry), example apps, `ItemEventLog` (change feed captioning History). |
 | [`Canvas/`](../Pupa/Sources/PupaApp/Canvas/) | `CanvasState` + the per-shape SwiftUI views (`TrackerView`, `CalendarView`, `ChecklistView`, `KanbanView`, `SlackView`) and the cross-component link picker. |
 | [`Chat/`](../Pupa/Sources/PupaApp/Chat/) | `ChatViewModel`, `ChatSessionCoordinator` (drives `AgentSession`), `ChatPanel` + thread-selector dropdown (`ConversationPager`), slash commands, transcript mapping. The composer attaches one image — from the photo library, the camera (`CameraPicker`, iOS), or drag-and-drop — all funnelled through `ImagePreparer` into a `PickedImage`. |
 | [`Tools/`](../Pupa/Sources/PupaApp/Tools/) | `AppTools.swift` — registers every frontend tool against the `ToolRegistry`. |
@@ -234,10 +234,36 @@ All canvas / item mutation goes through **`MyAppStore`**
 — either via `mutate(_:kind:_:)` (kind-routed) or
 `mutate(myAppId:byComponentId:_:)` (explicit component). Views never
 mutate state directly; they read it and call store methods or registered
-tools. Every mutation records a typed inverse in `ItemEventLog` so
-`undo(eventId:)` can reverse it. This log is surfaced via the per-MyApp
-bottom bar's **History** button, which pushes the full `ChangeHistoryView`
-page (newest-first, grouped by day, per-row Undo).
+tools. Each mutation appends a lightweight `ItemEvent` to `ItemEventLog`
+that captions the History timeline (verb + component-kind noun); the log
+no longer drives undo.
+
+### History = snapshots (not per-command undo)
+
+State is versioned by **`SnapshotStore`**
+([Sync/SnapshotStore.swift](../Pupa/Sources/PupaApp/Sync/SnapshotStore.swift)):
+git-style, per-MyApp snapshots at `state/snapshots/<appId>/<snapshotId>.json`,
+riding the same `CloudDocument`/`PupaStorage` seam so history syncs across
+devices. Each snapshot stores either a full `base` state or a `JSONPatch`
+delta from its parent (`AGUIKit/JSONDiff`), diff-chained with a full base at
+the root and every ~20 links, so history keeps only what changed. Consecutive
+identical edits dedup by content hash; `prune` bounds each app (cap + TTL,
+mirroring `ItemEventLog.prune`) and re-bases the oldest survivor so eviction
+never breaks a chain.
+
+Snapshots are captured at three hook points in `MyAppStore`: a **debounced
+edit** capture in `persist()`, a **pre-reload checkpoint** before a remote
+iCloud reload overwrites dirty local state, and **conflict capture** — on
+`reloadFromDisk` any unresolved `NSFileVersion` conflict has every side
+snapshotted before the live file is resolved newest-wins, so no offline edit
+is ever silently lost.
+
+`ChangeHistoryView` (per-MyApp bottom bar **History**) lists the snapshots
+newest-first, grouped by day, with a **Restore** button per older entry.
+Restore is **append-only** (git-`revert`, not `git reset`): the current state
+is checkpointed first, then the chosen state is applied and recorded as a new
+head — so the pre-restore state stays recoverable and the restore is the newest
+entry.
 
 ## Shapes
 
