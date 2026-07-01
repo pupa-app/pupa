@@ -3,6 +3,21 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.50] — 2026-07-01
+
+### Added
+
+- **Per-thread model.** Each conversation thread can pin its own LLM,
+  overriding the agent's default. A compact model dropdown sits beside the
+  thread-name selector in the chat header. A pinned thread is independent of
+  the general default — changing the default later leaves it untouched; an
+  untouched thread follows the default until you pin one. Pick the backend
+  default to clear a pin. (`PupaApp` `0.0.146`)
+- **Thread IDs in the Agents overview.** Each thread row under Settings →
+  Agents → Threads now shows its backend LangGraph `threadId` (monospaced,
+  selectable, long-press / right-click to copy) for debugging.
+  (`PupaApp` `0.0.147`)
+
 ## [0.0.49] — 2026-07-01
 
 ### Added

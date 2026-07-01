@@ -384,6 +384,7 @@ public final class ChatViewModel {
         let session = session
         let previewTracker = previewTracker
         let toolGateState = toolGateState
+        let vmThreadId = threadId
         Task { [weak self] in
             let context = await Self.contextEntries(
                 store: store,
@@ -397,7 +398,7 @@ public final class ChatViewModel {
                 .filter { allowed.contains($0.name) }
                 .sorted { $0.name < $1.name }
             let state = await Self.stateJSON(settings: settings, scope: scope, store: store)
-            let forwardedProps = await MainActor.run { Self.forwardedPropsJSON(scope: scope, store: store, settings: settings) }
+            let forwardedProps = await MainActor.run { Self.forwardedPropsJSON(scope: scope, threadId: vmThreadId, store: store, settings: settings) }
             let threadId = await session.threadId
 
             let scopeString: String = {
@@ -867,7 +868,7 @@ public final class ChatViewModel {
         // of the turn (AgentSession merges it with the resume payload).
         // No override (or the orchestrator scope) → empty object → backend
         // uses its env-configured default.
-        let baseForwardedProps = Self.forwardedPropsJSON(scope: scope, store: store, settings: settings)
+        let baseForwardedProps = Self.forwardedPropsJSON(scope: scope, threadId: threadId, store: store, settings: settings)
         let stream = session.send(
             text,
             image: imagePayload,
@@ -1180,28 +1181,41 @@ public final class ChatViewModel {
 
     // MARK: - State (per-turn agent state, distinct from `context`)
 
-    /// Build the `RunAgentInput.forwardedProps` payload sent at the start of
-    /// every turn (and merged into resume rounds by `AgentSession`).
-    /// Currently carries only the per-agent LLM selection — the resolved
-    /// `(provider, model)` for the active scope:
-    /// - `.myApp(id)`: from `MyAppStore.myAppLLM(for: id)`.
-    /// - `.memory`: from `SettingsStore.orchestratorLLM()` (the orchestrator
-    ///   has no MyApp parent, so its selection is stored globally).
-    /// Empty object → backend uses its env-configured default model.
+    /// Resolve the model for a turn. Single home for the selection precedence
+    /// — the chat send path (`forwardedPropsJSON`) and the header chip's
+    /// resting selection (`ConversationPager`) both call this so they can't
+    /// drift. Precedence:
+    /// 1. per-thread pin (`MyAppStore.threadLLM`) — set from the header chip;
+    /// 2. per-agent default for the scope: `MyAppStore.myAppLLM(for: id)` for
+    ///    `.myApp`, `SettingsStore.orchestratorLLM()` for `.memory` (the
+    ///    orchestrator has no MyApp parent, so its selection is global);
+    /// 3. `nil` → caller falls back to the backend's env-configured default.
     @MainActor
-    private static func forwardedPropsJSON(
+    static func effectiveLLM(
         scope: ChatScope,
+        threadId: String,
+        store: MyAppStore,
+        settings: SettingsStore
+    ) -> (provider: String, model: String)? {
+        if let pin = store.threadLLM(threadId: threadId, for: scope) { return pin }
+        switch scope {
+        case .myApp(let id): return store.myAppLLM(for: id)
+        case .memory:        return settings.orchestratorLLM()
+        }
+    }
+
+    /// Build the `RunAgentInput.forwardedProps` payload sent at the start of
+    /// every turn (and merged into resume rounds by `AgentSession`). Wraps
+    /// `effectiveLLM` as `{"llm": {provider, model}}`, or an empty object when
+    /// unresolved → backend uses its env-configured default model.
+    @MainActor
+    static func forwardedPropsJSON(
+        scope: ChatScope,
+        threadId: String,
         store: MyAppStore,
         settings: SettingsStore
     ) -> AnyJSON {
-        let selection: (provider: String, model: String)?
-        switch scope {
-        case .myApp(let id):
-            selection = store.myAppLLM(for: id)
-        case .memory:
-            selection = settings.orchestratorLLM()
-        }
-        guard let (provider, model) = selection else {
+        guard let (provider, model) = effectiveLLM(scope: scope, threadId: threadId, store: store, settings: settings) else {
             return .object([:])
         }
         return .object([

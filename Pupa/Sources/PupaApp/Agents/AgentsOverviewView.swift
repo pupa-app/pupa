@@ -289,6 +289,21 @@ public struct AgentsOverviewView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
+            // Backend LangGraph threadId — surfaced for debugging. Selectable,
+            // and long-press / right-click copies it.
+            Text(thread.id)
+                .font(.caption2.monospaced())
+                .foregroundStyle(.tertiary)
+                .textSelection(.enabled)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .contextMenu {
+                    Button {
+                        ChatClipboard.copy(thread.id)
+                    } label: {
+                        Label("Copy thread ID", systemImage: "doc.on.doc")
+                    }
+                }
         }
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {

@@ -15,6 +15,8 @@ struct ConversationPager: View {
     let scope: ChatScope
     let coordinator: ChatSessionCoordinator
     let store: MyAppStore
+    let settings: SettingsStore
+    let modelCatalog: ModelCatalogStore
 
     var body: some View {
         let threads = store.threads(for: scope)
@@ -34,9 +36,36 @@ struct ConversationPager: View {
                 coordinator.discardSession(for: scope, threadId: id)
                 store.removeThread(id, for: scope)
             } : nil,
-            status: { id in coordinator.status(for: scope, threadId: id) }
+            status: { id in coordinator.status(for: scope, threadId: id) },
+            modelOptions: modelCatalog.models,
+            selectedModelId: selectedModelId(threadId: currentId),
+            onSelectModel: { id in selectModel(id, threadId: currentId) }
         )
         // Load history when the visible thread changes (and on first appear).
         .task(id: currentId) { await MainActor.run { vm.loadHistoryIfNeeded() } }
+    }
+
+    /// The catalog id the header chip rests on: the same effective model the
+    /// send path resolves (`ChatViewModel.effectiveLLM` — thread pin → scope
+    /// default), mapped to the live catalog. Falls back to the backend-default
+    /// sentinel when the effective model isn't in the catalog (or nothing is
+    /// set). Mirrors `AgentRegistry.modelProperty`.
+    private func selectedModelId(threadId: String) -> String {
+        let effective = ChatViewModel.effectiveLLM(scope: scope, threadId: threadId, store: store, settings: settings)
+        if let (provider, model) = effective,
+           let known = modelCatalog.model(provider: provider, modelId: model) {
+            return known.id
+        }
+        return KnownLLMModelCatalog.backendDefaultId
+    }
+
+    /// Write the picked model as the thread's override — the backend-default
+    /// sentinel clears it so the thread re-inherits the scope default.
+    private func selectModel(_ id: String, threadId: String) {
+        if id == KnownLLMModelCatalog.backendDefaultId {
+            store.setThreadLLM(provider: nil, model: nil, threadId: threadId, for: scope)
+        } else if let model = modelCatalog.model(forId: id) {
+            store.setThreadLLM(provider: model.provider, model: model.modelId, threadId: threadId, for: scope)
+        }
     }
 }

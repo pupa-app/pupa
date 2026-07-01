@@ -379,6 +379,21 @@ Slack sub-runs (`ChatSessionCoordinator`, via `llmForwardedProps`) — all forwa
 the resolved per-agent model and disabled union, so a sub-agent runs on its own
 configured model rather than the backend default.
 
+**Per-thread model.** Each conversation thread can pin its own model,
+overriding the agent default. A compact `ModelPickerRow(compact:)` chip sits
+beside the thread-name dropdown in the chat header
+([Chat/ChatPanel.swift](../Pupa/Sources/PupaApp/Chat/ChatPanel.swift),
+wired via [Chat/ConversationPager.swift](../Pupa/Sources/PupaApp/Chat/ConversationPager.swift)).
+The pin lives on `ChatThread.llmProvider/llmModel`
+(`MyAppStore.setThreadLLM/threadLLM`), so it persists with the thread and is
+independent of the agent default — changing the default later doesn't move a
+pinned thread. Resolution precedence at send time
+(`ChatViewModel.forwardedPropsJSON`): **thread pin → agent default → backend
+env default**. An untouched thread rests on the agent default and follows it;
+picking a model pins the thread, and picking the backend-default sentinel
+clears the pin (re-inherits). No backend change — the resolved `{provider,
+model}` still rides `forwardedProps["llm"]`.
+
 ## Skills & the `pupa/` config folder
 
 Each MyApp keeps its driving config in a visible `pupa/` subfolder of its

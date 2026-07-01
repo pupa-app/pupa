@@ -96,4 +96,76 @@ struct PerAgentOverrideTests {
         #expect(AgentRegistry.toolSummaryText(allowed: 12, disabled: 2) == "12 tools · 2 off")
         #expect(AgentRegistry.toolSummaryText(allowed: 1, disabled: 0) == "1 tool")
     }
+
+    // MARK: - Per-thread model override
+
+    @Test("Per-thread LLM override round-trips and clears atomically")
+    func threadLLMRoundTrip() {
+        let (store, myApp) = freshStore()
+        let scope: ChatScope = .myApp(myApp.id)
+        let tid = store.addThread(for: scope)
+        #expect(store.threadLLM(threadId: tid, for: scope) == nil)
+
+        store.setThreadLLM(provider: "anthropic", model: "claude-opus-4-8", threadId: tid, for: scope)
+        let got = store.threadLLM(threadId: tid, for: scope)
+        #expect(got?.provider == "anthropic")
+        #expect(got?.model == "claude-opus-4-8")
+
+        // Nil either field clears both.
+        store.setThreadLLM(provider: nil, model: nil, threadId: tid, for: scope)
+        #expect(store.threadLLM(threadId: tid, for: scope) == nil)
+    }
+
+    @Test("forwardedProps prefers the thread pin over the MyApp default, independent of later default changes")
+    func threadOverridePrecedence() {
+        let (store, myApp) = freshStore()
+        let settings = SettingsStore(backendURL: URL(string: "http://localhost:65535/")!)
+        let scope: ChatScope = .myApp(myApp.id)
+        let tid = store.addThread(for: scope)
+
+        func props() -> AnyJSON {
+            ChatViewModel.forwardedPropsJSON(scope: scope, threadId: tid, store: store, settings: settings)
+        }
+        func llm(_ provider: String, _ model: String) -> AnyJSON {
+            .object(["llm": .object(["provider": .string(provider), "model": .string(model)])])
+        }
+
+        // No thread pin → inherits the MyApp default (A).
+        store.setMyAppLLM(provider: "anthropic", model: "claude-sonnet-4-6", for: myApp.id)
+        #expect(props() == llm("anthropic", "claude-sonnet-4-6"))
+
+        // Pin the thread to B → B wins.
+        store.setThreadLLM(provider: "bedrock", model: "claude-opus-4-8", threadId: tid, for: scope)
+        #expect(props() == llm("bedrock", "claude-opus-4-8"))
+
+        // Change the MyApp default to C → pinned thread is unaffected.
+        store.setMyAppLLM(provider: "openai_compatible", model: "gpt-x", for: myApp.id)
+        #expect(props() == llm("bedrock", "claude-opus-4-8"))
+
+        // Clear the pin → re-inherits the current default (C).
+        store.setThreadLLM(provider: nil, model: nil, threadId: tid, for: scope)
+        #expect(props() == llm("openai_compatible", "gpt-x"))
+    }
+
+    @Test("forwardedProps is empty when neither thread nor MyApp sets a model")
+    func threadNoOverrideEmpty() {
+        let (store, myApp) = freshStore()
+        let settings = SettingsStore(backendURL: URL(string: "http://localhost:65535/")!)
+        let scope: ChatScope = .myApp(myApp.id)
+        let tid = store.addThread(for: scope)
+        #expect(ChatViewModel.forwardedPropsJSON(scope: scope, threadId: tid, store: store, settings: settings) == .object([:]))
+    }
+
+    @Test("ChatThread without llm fields decodes to nil (back-compat); with fields round-trips")
+    func chatThreadCodable() throws {
+        let legacy = #"{"id":"t1","title":"Old","createdAt":0}"#.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(ChatThread.self, from: legacy)
+        #expect(decoded.llmProvider == nil)
+        #expect(decoded.llmModel == nil)
+
+        let pinned = ChatThread(id: "t2", title: "X", llmProvider: "anthropic", llmModel: "claude-opus-4-8")
+        let back = try JSONDecoder().decode(ChatThread.self, from: JSONEncoder().encode(pinned))
+        #expect(back.llmProvider == "anthropic")
+        #expect(back.llmModel == "claude-opus-4-8")
+    }
 }

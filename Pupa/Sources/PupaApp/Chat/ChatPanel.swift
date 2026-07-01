@@ -43,6 +43,15 @@ public struct ChatPanel: View {
     /// and the aggregate badge on the collapsed dropdown label. Defaults to
     /// `.idle` (no badge) for previews / callers that don't wire it.
     let status: (String) -> ChatActivityStatus
+    /// Model catalog for the header's per-thread model chip. Empty hides the
+    /// chip (previews / callers that don't wire it).
+    let modelOptions: [KnownLLMModel]
+    /// Catalog id of the current thread's effective model — the thread override
+    /// if pinned, else the scope default. Drives the chip's resting selection.
+    let selectedModelId: String
+    /// Called with a catalog model id when the user picks a model for the
+    /// current thread. The backend-default sentinel clears the override.
+    let onSelectModel: (String) -> Void
     @State private var showThreadList: Bool = false
     /// Shared guided-tour store. The chat / slash steps park a prefill in
     /// `chatPrefill`; we drop it into the composer so the coach card can point
@@ -79,7 +88,10 @@ public struct ChatPanel: View {
         onSelectThread: @escaping (String) -> Void = { _ in },
         onAddThread: (() -> Void)? = nil,
         onDeleteThread: ((String) -> Void)? = nil,
-        status: @escaping (String) -> ChatActivityStatus = { _ in .idle }
+        status: @escaping (String) -> ChatActivityStatus = { _ in .idle },
+        modelOptions: [KnownLLMModel] = [],
+        selectedModelId: String = "",
+        onSelectModel: @escaping (String) -> Void = { _ in }
     ) {
         self.viewModel = viewModel
         self.threads = threads
@@ -88,6 +100,9 @@ public struct ChatPanel: View {
         self.onAddThread = onAddThread
         self.onDeleteThread = onDeleteThread
         self.status = status
+        self.modelOptions = modelOptions
+        self.selectedModelId = selectedModelId
+        self.onSelectModel = onSelectModel
     }
 
     public var body: some View {
@@ -260,6 +275,14 @@ public struct ChatPanel: View {
         HStack(spacing: 8) {
             threadDropdown
                 .tourAnchor(.chatHeader)
+            if !modelOptions.isEmpty {
+                ModelPickerRow(
+                    selectedId: selectedModelId,
+                    options: modelOptions,
+                    onSelect: onSelectModel,
+                    compact: true
+                )
+            }
             Spacer()
             if let add = onAddThread {
                 Button(action: add) {
