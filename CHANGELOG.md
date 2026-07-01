@@ -13,6 +13,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   the general default — changing the default later leaves it untouched; an
   untouched thread follows the default until you pin one. Pick the backend
   default to clear a pin. (`PupaApp` `0.0.146`)
+- **Thread IDs in the Agents overview.** Each thread row under Settings →
+  Agents → Threads now shows its backend LangGraph `threadId` (monospaced,
+  selectable, long-press / right-click to copy) for debugging.
+  (`PupaApp` `0.0.147`)
 
 ## [0.0.49] — 2026-07-01
 
