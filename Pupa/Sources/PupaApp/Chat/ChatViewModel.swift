@@ -1181,15 +1181,33 @@ public final class ChatViewModel {
 
     // MARK: - State (per-turn agent state, distinct from `context`)
 
-    /// Build the `RunAgentInput.forwardedProps` payload sent at the start of
-    /// every turn (and merged into resume rounds by `AgentSession`).
-    /// Carries the resolved LLM selection for the turn. Precedence:
-    /// 1. per-thread override (`MyAppStore.threadLLM`) — pinned in the chat
-    ///    header's model chip;
+    /// Resolve the model for a turn. Single home for the selection precedence
+    /// — the chat send path (`forwardedPropsJSON`) and the header chip's
+    /// resting selection (`ConversationPager`) both call this so they can't
+    /// drift. Precedence:
+    /// 1. per-thread pin (`MyAppStore.threadLLM`) — set from the header chip;
     /// 2. per-agent default for the scope: `MyAppStore.myAppLLM(for: id)` for
     ///    `.myApp`, `SettingsStore.orchestratorLLM()` for `.memory` (the
     ///    orchestrator has no MyApp parent, so its selection is global);
-    /// 3. empty object → backend uses its env-configured default model.
+    /// 3. `nil` → caller falls back to the backend's env-configured default.
+    @MainActor
+    static func effectiveLLM(
+        scope: ChatScope,
+        threadId: String,
+        store: MyAppStore,
+        settings: SettingsStore
+    ) -> (provider: String, model: String)? {
+        if let pin = store.threadLLM(threadId: threadId, for: scope) { return pin }
+        switch scope {
+        case .myApp(let id): return store.myAppLLM(for: id)
+        case .memory:        return settings.orchestratorLLM()
+        }
+    }
+
+    /// Build the `RunAgentInput.forwardedProps` payload sent at the start of
+    /// every turn (and merged into resume rounds by `AgentSession`). Wraps
+    /// `effectiveLLM` as `{"llm": {provider, model}}`, or an empty object when
+    /// unresolved → backend uses its env-configured default model.
     @MainActor
     static func forwardedPropsJSON(
         scope: ChatScope,
@@ -1197,14 +1215,7 @@ public final class ChatViewModel {
         store: MyAppStore,
         settings: SettingsStore
     ) -> AnyJSON {
-        let selection: (provider: String, model: String)? =
-            store.threadLLM(threadId: threadId, for: scope) ?? {
-                switch scope {
-                case .myApp(let id): return store.myAppLLM(for: id)
-                case .memory:        return settings.orchestratorLLM()
-                }
-            }()
-        guard let (provider, model) = selection else {
+        guard let (provider, model) = effectiveLLM(scope: scope, threadId: threadId, store: store, settings: settings) else {
             return .object([:])
         }
         return .object([

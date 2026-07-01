@@ -45,12 +45,13 @@ struct ConversationPager: View {
         .task(id: currentId) { await MainActor.run { vm.loadHistoryIfNeeded() } }
     }
 
-    /// The catalog id the header chip rests on: the thread override if pinned,
-    /// else the scope default, resolved against the live catalog. Falls back to
-    /// the backend-default sentinel when the effective model isn't in the
-    /// catalog (or nothing is set). Mirrors `AgentRegistry.modelProperty`.
+    /// The catalog id the header chip rests on: the same effective model the
+    /// send path resolves (`ChatViewModel.effectiveLLM` — thread pin → scope
+    /// default), mapped to the live catalog. Falls back to the backend-default
+    /// sentinel when the effective model isn't in the catalog (or nothing is
+    /// set). Mirrors `AgentRegistry.modelProperty`.
     private func selectedModelId(threadId: String) -> String {
-        let effective = store.threadLLM(threadId: threadId, for: scope) ?? scopeDefault
+        let effective = ChatViewModel.effectiveLLM(scope: scope, threadId: threadId, store: store, settings: settings)
         if let (provider, model) = effective,
            let known = modelCatalog.model(provider: provider, modelId: model) {
             return known.id
@@ -65,14 +66,6 @@ struct ConversationPager: View {
             store.setThreadLLM(provider: nil, model: nil, threadId: threadId, for: scope)
         } else if let model = modelCatalog.model(forId: id) {
             store.setThreadLLM(provider: model.provider, model: model.modelId, threadId: threadId, for: scope)
-        }
-    }
-
-    /// The scope's per-agent default model, inherited by threads with no pin.
-    private var scopeDefault: (provider: String, model: String)? {
-        switch scope {
-        case .myApp(let id): return store.myAppLLM(for: id)
-        case .memory:        return settings.orchestratorLLM()
         }
     }
 }
