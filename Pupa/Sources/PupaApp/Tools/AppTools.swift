@@ -766,6 +766,7 @@ public enum AppTools {
                 """,
                 parameters: ["type": "object", "properties": [:]]
             ),
+            readOnly: true,
             handler: { _ in
                 return await MainActor.run {
                     .object([
@@ -787,6 +788,67 @@ public enum AppTools {
         registerHistoryTools(on: registry, store: store, myAppId: myAppId)
         if let slack {
             registerSlackTools(on: registry, store: store, myAppId: myAppId, memory: memory, context: slack)
+        }
+
+        registry.register(ClientTool(
+            descriptor: ToolDescriptor(
+                name: "setComponentLocked",
+                description: """
+                Lock or unlock a canvas component. A locked component refuses all \
+                mutating tools until unlocked (reads still work). Use to honor a \
+                user's request to protect a component, or to unlock one they ask you \
+                to edit. Result: {ok, componentId, locked}.
+                """,
+                parameters: [
+                    "type": "object",
+                    "properties": [
+                        "componentId": ["type": "string", "description": "Component to lock/unlock (omit → active component)."],
+                        "locked": ["type": "boolean", "description": "true to lock, false to unlock."],
+                    ],
+                    "required": ["locked"],
+                ]
+            ),
+            handler: { args in
+                await MainActor.run {
+                    guard let locked = args["locked"]?.boolValue else {
+                        return .object(["ok": .bool(false), "error": .string("missing 'locked' boolean")])
+                    }
+                    let cid = args["componentId"]?.stringValue
+                        ?? store.myApps.first(where: { $0.id == myAppId })?.activeComponentId
+                    guard let cid else {
+                        return .object(["ok": .bool(false), "error": .string("no component to lock")])
+                    }
+                    store.setComponentLocked(componentId: cid, locked: locked, myAppId: myAppId)
+                    return .object([
+                        "ok": .bool(true),
+                        "componentId": .string(cid),
+                        "locked": .bool(locked),
+                    ])
+                }
+            }
+        ))
+
+        // Gate every mutating tool: refuse when its target canvas component is
+        // locked, surfacing a clear "locked" result to the agent. Read-only
+        // tools are exempt. Applied last so it wraps every tool above.
+        registry.transformAll { tool in
+            guard !tool.readOnly else { return tool }
+            let inner = tool.handler
+            return ClientTool(
+                descriptor: tool.descriptor,
+                parallelSafe: tool.parallelSafe,
+                readOnly: false
+            ) { args in
+                await MainActor.run { store.resetLockFlag() }
+                let result = try await inner(args)
+                let blocked = await MainActor.run { store.lastWriteBlockedByLock }
+                guard blocked else { return result }
+                return .object([
+                    "ok": .bool(false),
+                    "locked": .bool(true),
+                    "error": .string("That component is locked by the user. Ask them to unlock it before making changes."),
+                ])
+            }
         }
     }
 
@@ -817,6 +879,7 @@ public enum AppTools {
                     ]
                 ]
             ),
+            readOnly: true,
             handler: { args in
                 let offset = max(0, args["offset"]?.intValue ?? 0)
                 let limit = min(100, max(1, args["limit"]?.intValue ?? 20))
@@ -890,6 +953,7 @@ public enum AppTools {
                     ],
                 ]
             ),
+            readOnly: true,
             handler: { args in
                 let componentId = args["componentId"]?.stringValue
                 let offset = max(0, args["offset"]?.intValue ?? 0)
@@ -948,6 +1012,7 @@ public enum AppTools {
                     "required": ["query"],
                 ]
             ),
+            readOnly: true,
             handler: { args in
                 let componentId = args["componentId"]?.stringValue
                 guard let query = args["query"]?.stringValue, !query.isEmpty else {
@@ -1017,6 +1082,7 @@ public enum AppTools {
                     "required": ["itemId"],
                 ]
             ),
+            readOnly: true,
             handler: { args in
                 let componentId = args["componentId"]?.stringValue
                 guard let itemIdString = args["itemId"]?.stringValue,
@@ -1644,6 +1710,7 @@ public enum AppTools {
                     ],
                 ]
             ),
+            readOnly: true,
             handler: { args in
                 let componentId = args["componentId"]?.stringValue
                 let offset = max(0, args["offset"]?.intValue ?? 0)
@@ -1704,6 +1771,7 @@ public enum AppTools {
                     "required": ["eventId"],
                 ]
             ),
+            readOnly: true,
             handler: { args in
                 let componentId = args["componentId"]?.stringValue
                 guard let eventIdString = args["eventId"]?.stringValue,
@@ -2031,6 +2099,7 @@ public enum AppTools {
                     ],
                 ]
             ),
+            readOnly: true,
             handler: { args in
                 let componentId = args["componentId"]?.stringValue
                 let offset = max(0, args["offset"]?.intValue ?? 0)
@@ -2092,6 +2161,7 @@ public enum AppTools {
                     "required": ["itemId"],
                 ]
             ),
+            readOnly: true,
             handler: { args in
                 let componentId = args["componentId"]?.stringValue
                 guard let itemIdString = args["itemId"]?.stringValue,
@@ -2410,6 +2480,7 @@ public enum AppTools {
                     ],
                 ]
             ),
+            readOnly: true,
             handler: { args in
                 let componentId = args["componentId"]?.stringValue
                 let offset = max(0, args["offset"]?.intValue ?? 0)
@@ -2459,6 +2530,7 @@ public enum AppTools {
                     "required": ["key"],
                 ]
             ),
+            readOnly: true,
             handler: { args in
                 let componentId = args["componentId"]?.stringValue
                 guard let key = args["key"]?.stringValue else {
@@ -2961,6 +3033,7 @@ public enum AppTools {
                 """,
                 parameters: ["type": "object", "properties": [:]]
             ),
+            readOnly: true,
             handler: { _ in
                 return await MainActor.run {
                     let entries: [AnyJSON] = store.myApps.map { myApp in
@@ -4238,6 +4311,7 @@ public enum AppTools {
                 description: "Activate the notifications tools. Call once to unlock sendNotification + cancelNotification from the next agent round onward.",
                 parameters: ["type": "object", "properties": [:]]
             ),
+            readOnly: true,
             handler: { [weak toolGateState] _ in
                 guard let toolGateState else {
                     return .object(["ok": .bool(false), "error": .string("tool gate state unavailable")])
@@ -5282,6 +5356,7 @@ public enum AppTools {
                 description: "Activate the memories tools. Call once to unlock \(memCount) memory filesystem tools (lsMemories, readMemoryFile, writeMemoryFile, …) from the next agent round onward.",
                 parameters: ["type": "object", "properties": [:]]
             ),
+            readOnly: true,
             handler: { [weak toolGateState] _ in
                 guard let toolGateState else {
                     return .object(["ok": .bool(false), "error": .string("tool gate state unavailable")])

@@ -8,6 +8,9 @@ public enum ItemEventKind: String, Codable, Sendable {
     case unlinked
     /// The MyApp was reverted to an earlier snapshot (see `SnapshotStore`).
     case restored
+    /// A component was locked / unlocked by the user.
+    case locked
+    case unlocked
 }
 
 /// Who triggered an item mutation — a human gesture or an agent tool call.
