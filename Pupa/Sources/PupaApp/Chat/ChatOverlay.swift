@@ -12,6 +12,11 @@ struct ChatOverlay: View {
     let scope: ChatScope
     let coordinator: ChatSessionCoordinator
     let store: MyAppStore
+    /// Scope default resolver for the header model chip (`.memory` reads the
+    /// orchestrator default here).
+    let settings: SettingsStore
+    /// Backend model catalog for the header per-thread model chip.
+    let modelCatalog: ModelCatalogStore
     let agents: [AgentPickerEntry]
     let onSwitchAgent: (ChatScope) -> Void
     /// Whether the chat card is open. Owned by `AppView` so the per-MyApp
@@ -214,7 +219,9 @@ struct ChatOverlay: View {
                 ConversationPager(
                     scope: scope,
                     coordinator: coordinator,
-                    store: store
+                    store: store,
+                    settings: settings,
+                    modelCatalog: modelCatalog
                 )
             }
             if !isFullscreen {

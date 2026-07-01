@@ -373,6 +373,44 @@ public final class MyAppStore {
         persist()
     }
 
+    /// Write (or clear) a thread's per-thread LLM override atomically. Pass
+    /// `nil` for either field to clear both — the pair only ever applies
+    /// together. A cleared thread re-inherits its scope's default. Locates the
+    /// thread in `memoryThreads` / `myApps[…].threads` like `setThreadTitle`.
+    public func setThreadLLM(provider: String?, model: String?, threadId: String, for scope: ChatScope) {
+        let pair: (String, String)? = {
+            if let provider, let model, !provider.isEmpty, !model.isEmpty { return (provider, model) }
+            return nil
+        }()
+        switch scope {
+        case .memory:
+            guard let idx = memoryThreads.firstIndex(where: { $0.id == threadId }) else { return }
+            memoryThreads[idx].llmProvider = pair?.0
+            memoryThreads[idx].llmModel = pair?.1
+        case .myApp(let id):
+            guard let mIdx = myApps.firstIndex(where: { $0.id == id }),
+                  let tIdx = myApps[mIdx].threads.firstIndex(where: { $0.id == threadId }) else { return }
+            myApps[mIdx].threads[tIdx].llmProvider = pair?.0
+            myApps[mIdx].threads[tIdx].llmModel = pair?.1
+        }
+        persist()
+    }
+
+    /// Read a thread's per-thread LLM override. Returns `nil` when either field
+    /// is missing — callers fall back to the scope default, then the backend
+    /// env default.
+    public func threadLLM(threadId: String, for scope: ChatScope) -> (provider: String, model: String)? {
+        let thread: ChatThread?
+        switch scope {
+        case .memory:
+            thread = memoryThreads.first(where: { $0.id == threadId })
+        case .myApp(let id):
+            thread = myApps.first(where: { $0.id == id })?.threads.first(where: { $0.id == threadId })
+        }
+        guard let provider = thread?.llmProvider, let model = thread?.llmModel else { return nil }
+        return (provider, model)
+    }
+
     /// Remove a thread. Picks a neighbour as current. Never leaves a scope with
     /// zero threads — auto-creates one if the last thread is removed.
     public func removeThread(_ threadId: String, for scope: ChatScope) {
