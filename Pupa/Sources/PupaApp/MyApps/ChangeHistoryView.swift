@@ -1,12 +1,16 @@
 import SwiftUI
 
-/// Change-history page — a newest-first list of `ItemEvent`s for a given
-/// MyApp, grouped by calendar day, with an Undo button per reversible row.
+/// Change-history page — a newest-first list of snapshot restore points for a
+/// given MyApp, grouped by calendar day. The newest snapshot is the current
+/// state; every older one has a **Restore** button. Restore is append-only
+/// (the current state is snapshotted first), so nothing is ever lost.
 /// Pushed onto the detail `NavigationStack` from the bottom bar's History
 /// button (the parent stack supplies the nav bar + back button).
 public struct ChangeHistoryView: View {
     @Bindable var store: MyAppStore
     let myAppId: UUID
+
+    @State private var pendingRestore: SnapshotMeta?
 
     private let cal = Calendar.autoupdatingCurrent
     private let relFmt: RelativeDateTimeFormatter = {
@@ -18,20 +22,19 @@ public struct ChangeHistoryView: View {
     private var app: MyApp? { store.myApps.first { $0.id == myAppId } }
     private var appColor: Color { .color(atIndex: store.colorIndex(for: myAppId)) }
 
-    private var events: [ItemEvent] {
-        store.itemEventLog.events(forMyApp: myAppId).reversed()
-    }
+    private var snapshots: [SnapshotMeta] { store.snapshots(forMyApp: myAppId) }
+    private var events: [ItemEvent] { store.itemEventLog.events(forMyApp: myAppId) }
 
-    private var groupedByDay: [(label: String, events: [ItemEvent])] {
-        var result: [(label: String, events: [ItemEvent])] = []
-        var current: (label: String, events: [ItemEvent])? = nil
-        for event in events {
-            let label = dayLabel(for: event.timestamp)
+    private var groupedByDay: [(label: String, snaps: [SnapshotMeta])] {
+        var result: [(label: String, snaps: [SnapshotMeta])] = []
+        var current: (label: String, snaps: [SnapshotMeta])? = nil
+        for snap in snapshots {
+            let label = dayLabel(for: snap.timestamp)
             if current?.label == label {
-                current!.events.append(event)
+                current!.snaps.append(snap)
             } else {
                 if let c = current { result.append(c) }
-                current = (label, [event])
+                current = (label, [snap])
             }
         }
         if let c = current { result.append(c) }
@@ -40,23 +43,25 @@ public struct ChangeHistoryView: View {
 
     public var body: some View {
         Group {
-            if events.isEmpty {
+            if snapshots.isEmpty {
                 ContentUnavailableView(
-                    "No changes yet",
-                    systemImage: "clock",
-                    description: Text("Changes made through the app or agent will appear here.")
+                    "No history yet",
+                    systemImage: "clock.arrow.circlepath",
+                    description: Text("As you and the agent edit this MyApp, restore points appear here.")
                 )
             } else {
                 List {
                     ForEach(groupedByDay, id: \.label) { group in
                         Section(group.label) {
-                            ForEach(group.events) { event in
-                                ChangeHistoryRow(
-                                    event: event,
-                                    summary: store.changeSummary(for: event),
-                                    relFmt: relFmt
+                            ForEach(group.snaps) { snap in
+                                SnapshotRow(
+                                    caption: caption(for: snap),
+                                    reason: snap.reason,
+                                    isCurrent: snap.id == snapshots.first?.id,
+                                    fromThisDevice: snap.device == SnapshotStore.deviceLabel,
+                                    relative: relFmt.localizedString(for: snap.timestamp, relativeTo: Date())
                                 ) {
-                                    _ = store.undo(eventId: event.id)
+                                    pendingRestore = snap
                                 }
                             }
                         }
@@ -66,6 +71,22 @@ public struct ChangeHistoryView: View {
                 .listStyle(.insetGrouped)
                 #endif
             }
+        }
+        .confirmationDialog(
+            "Restore this version?",
+            isPresented: Binding(
+                get: { pendingRestore != nil },
+                set: { if !$0 { pendingRestore = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Restore") {
+                if let snap = pendingRestore { store.restore(myAppId: myAppId, snapshotId: snap.id) }
+                pendingRestore = nil
+            }
+            Button("Cancel", role: .cancel) { pendingRestore = nil }
+        } message: {
+            Text("Your current state is snapshotted first, so you can switch back.")
         }
         // Pinned page header so it's always clear this is a MyApp's History —
         // matches the eyebrow + name header on the other MyApp pages.
@@ -87,6 +108,22 @@ public struct ChangeHistoryView: View {
         #endif
     }
 
+    /// One-line caption for a restore point: reason-driven for sync/conflict/
+    /// restore, else the most recent change-feed summary at that moment.
+    private func caption(for snap: SnapshotMeta) -> String {
+        switch snap.reason {
+        case .conflict: return "Recovered from a sync conflict"
+        case .preReload: return "Before syncing another device"
+        case .restored: return "Restored an earlier version"
+        case .edit:
+            if let e = events.filter({ $0.timestamp <= snap.timestamp })
+                .max(by: { $0.timestamp < $1.timestamp }) {
+                return store.changeSummary(for: e)
+            }
+            return "Edited"
+        }
+    }
+
     private func dayLabel(for date: Date) -> String {
         if cal.isDateInToday(date) { return "Today" }
         if cal.isDateInYesterday(date) { return "Yesterday" }
@@ -97,36 +134,33 @@ public struct ChangeHistoryView: View {
     }
 }
 
-private struct ChangeHistoryRow: View {
-    let event: ItemEvent
-    let summary: String
-    let relFmt: RelativeDateTimeFormatter
-    var onUndo: () -> Void
-
-    private var isReversible: Bool {
-        event.inverse() != nil && !event.undone && !event.isUndo
-    }
+private struct SnapshotRow: View {
+    let caption: String
+    let reason: SnapshotReason
+    let isCurrent: Bool
+    let fromThisDevice: Bool
+    let relative: String
+    var onRestore: () -> Void
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
-            actorGlyph
+            glyph
                 .frame(width: 24, height: 24)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(summary)
+                Text(caption)
                     .font(.subheadline)
-                    .foregroundStyle(event.undone ? .secondary : .primary)
-                    .strikethrough(event.undone)
                 HStack(spacing: 4) {
-                    Text(relFmt.localizedString(for: event.timestamp, relativeTo: Date()))
+                    Text(relative)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
-                    if event.undone {
-                        Text("· undone")
+                    if isCurrent {
+                        Text("· current")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
-                    } else if event.isUndo {
-                        Text("· undo")
+                    }
+                    if !fromThisDevice {
+                        Text("· another device")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -135,8 +169,8 @@ private struct ChangeHistoryRow: View {
 
             Spacer()
 
-            if isReversible {
-                Button("Undo") { onUndo() }
+            if !isCurrent {
+                Button("Restore") { onRestore() }
                     .font(.caption)
                     .buttonStyle(.bordered)
                     .controlSize(.mini)
@@ -146,14 +180,21 @@ private struct ChangeHistoryRow: View {
     }
 
     @ViewBuilder
-    private var actorGlyph: some View {
-        switch event.actor {
-        case .user:
-            Image(systemName: "person.fill")
-                .foregroundStyle(.secondary)
-        case .agent:
-            Image(systemName: "sparkles")
+    private var glyph: some View {
+        switch reason {
+        case .conflict:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+        case .restored:
+            Image(systemName: "arrow.uturn.backward.circle.fill")
                 .foregroundStyle(Color.orchestratorColor)
+        case .preReload:
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .foregroundStyle(.secondary)
+        case .edit:
+            Image(systemName: "circle.fill")
+                .font(.system(size: 8))
+                .foregroundStyle(.secondary)
         }
     }
 }

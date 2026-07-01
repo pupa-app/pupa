@@ -51,6 +51,30 @@ public enum CloudDocument {
             try? FileManager.default.removeItem(at: u)
         }
     }
+
+    // MARK: - iCloud conflict versions
+
+    /// Unresolved `NSFileVersion` conflicts for `url` (the losing sides iCloud
+    /// preserved after a last-writer-wins merge). Empty when there's no
+    /// conflict or iCloud is inactive.
+    public static func conflictVersions(at url: URL) -> [NSFileVersion] {
+        NSFileVersion.unresolvedConflictVersionsOfItem(at: url) ?? []
+    }
+
+    /// Raw bytes of one conflict version.
+    public static func readVersion(_ version: NSFileVersion) -> Data? {
+        try? Data(contentsOf: version.url)
+    }
+
+    /// Mark every conflict version resolved and prune them, so the item no
+    /// longer reports an unresolved conflict. Call after the losing sides
+    /// have been captured (e.g. into `SnapshotStore`).
+    public static func resolveConflicts(at url: URL) {
+        for version in NSFileVersion.unresolvedConflictVersionsOfItem(at: url) ?? [] {
+            version.isResolved = true
+        }
+        try? NSFileVersion.removeOtherVersionsOfItem(at: url)
+    }
 }
 
 /// Watches the iCloud ubiquitous documents scope and fires `onChange` when
