@@ -200,6 +200,7 @@ public struct MyAppHomeView: View {
                     .fontWeight(.semibold)
                     .foregroundStyle(.primary)
                 Spacer()
+                allComponentsLockButton(app)
                 Text("\(app.components.count)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -211,6 +212,26 @@ public struct MyAppHomeView: View {
             RoundedRectangle(cornerRadius: 10)
                 .fill(Color.secondary.opacity(0.06))
         )
+    }
+
+    /// MyApp-level lock: toggles the lock on every component at once. Shows
+    /// locked only when all components are locked. Hidden when the MyApp has
+    /// no components to lock.
+    @ViewBuilder
+    private func allComponentsLockButton(_ app: MyApp) -> some View {
+        if !app.components.isEmpty {
+            let allLocked = store.areAllComponentsLocked(myAppId: app.id)
+            Button {
+                store.setAllComponentsLocked(locked: !allLocked, myAppId: app.id)
+            } label: {
+                Image(systemName: allLocked ? "lock.fill" : "lock.open")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(allLocked ? Color.orange : Color.secondary)
+            }
+            .buttonStyle(.plain)
+            .help(allLocked ? "Unlock all components" : "Lock all components")
+            .accessibilityLabel(allLocked ? "Unlock all components" : "Lock all components")
+        }
     }
 
     private func componentTile(app: MyApp, component: Component) -> some View {

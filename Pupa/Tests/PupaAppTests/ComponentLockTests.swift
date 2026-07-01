@@ -58,6 +58,23 @@ struct ComponentLockTests {
         #expect(last?.kind == .locked)
     }
 
+    @Test("MyApp-level lock toggles every component at once")
+    func lockAllComponents() {
+        let (store, id, _) = freshTrackerStore()
+        store.addComponent(kind: "checklist", name: "List", iconSystemName: "checklist", myAppId: id)
+        #expect(!store.areAllComponentsLocked(myAppId: id))
+
+        #expect(store.setAllComponentsLocked(locked: true, myAppId: id))
+        #expect(store.areAllComponentsLocked(myAppId: id))
+        let allLocked = store.myApps.first { $0.id == id }!.components.allSatisfy { $0.isLocked }
+        #expect(allLocked)
+
+        #expect(store.setAllComponentsLocked(locked: false, myAppId: id))
+        #expect(!store.areAllComponentsLocked(myAppId: id))
+        let noneLocked = store.myApps.first { $0.id == id }!.components.allSatisfy { !$0.isLocked }
+        #expect(noneLocked)
+    }
+
     // MARK: - Tool layer (agent-facing)
 
     @Test("mutating tool on a locked component returns a locked result; reads still work")

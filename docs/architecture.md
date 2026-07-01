@@ -283,7 +283,9 @@ non-read operation. Enforcement is layered:
 - **UI:** `CanvasView` shows a lock icon on top of the component and applies
   `.disabled` to the locked body (controls inert, scrolling intact). The lock
   toggle itself (and `setComponentLocked`, the agent's lock/unlock tool) edit
-  the flag directly, so unlocking is never gated.
+  the flag directly, so unlocking is never gated. The MyApp **home** page adds
+  a lock-all toggle (`setAllComponentsLocked`) that locks/unlocks every
+  component at once.
 
 ## Shapes
 

@@ -2562,6 +2562,32 @@ public final class MyAppStore {
         return true
     }
 
+    /// Lock or unlock every component of a MyApp at once (the MyApp-level
+    /// lock surfaced on the home page). Returns false when nothing changed.
+    @discardableResult
+    public func setAllComponentsLocked(locked: Bool, myAppId: UUID? = nil) -> Bool {
+        let target = myAppId ?? activeMyAppId
+        guard let mIdx = myApps.firstIndex(where: { $0.id == target }) else { return false }
+        var changed = false
+        for i in myApps[mIdx].components.indices where myApps[mIdx].components[i].isLocked != locked {
+            myApps[mIdx].components[i].isLocked = locked
+            changed = true
+        }
+        guard changed else { return false }
+        persist()
+        emitItemEvent(myAppId: target, componentId: myApps[mIdx].components.first?.id ?? "",
+                      kind: locked ? .locked : .unlocked, actor: .user)
+        return true
+    }
+
+    /// Whether every component of a MyApp is locked (drives the home
+    /// lock toggle's state). False for a MyApp with no components.
+    public func areAllComponentsLocked(myAppId: UUID? = nil) -> Bool {
+        let target = myAppId ?? activeMyAppId
+        guard let m = myApps.first(where: { $0.id == target }), !m.components.isEmpty else { return false }
+        return m.components.allSatisfy { $0.isLocked }
+    }
+
     // MARK: - Per-file persistence
 
     private static var stateRoot: URL { PupaStorage.stateRoot }

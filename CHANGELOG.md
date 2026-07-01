@@ -14,7 +14,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   unlock first. Each frontend tool now declares its read/write intent
   (`ClientTool.readOnly`); enforcement is centralized in `MyAppStore`'s
   mutation backstop, so nothing slips through. The agent can lock/unlock on
-  request via `setComponentLocked`. (`PupaApp` `0.0.145`, `AGUIKit` `0.0.22`)
+  request via `setComponentLocked`. The MyApp **home** page also has a
+  lock-all toggle that locks/unlocks every component at once.
+  (`PupaApp` `0.0.145`, `AGUIKit` `0.0.22`)
 
 ## [0.0.48] — 2026-07-01
 
