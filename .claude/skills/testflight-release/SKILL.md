@@ -66,10 +66,11 @@ Nothing is pushed — both branches are aligned locally and the script prints th
      >
      > If the archive still doesn't appear, close and reopen Organizer.
 
-3. **Push both branches.** The script bumped `dev` and fast-forwarded `main` from it, so they share the same history (no realign needed). Push both — a plain fast-forward push, no `--force`:
+3. **Push both branches yourself to conclude the realignment — but only once every step above succeeded** (archive produced + verified, `open` registered it with Organizer). Do not push on any earlier failure. The script bumped `dev` and fast-forwarded `main` from it, so they share the same history (no realign needed). The push is a plain fast-forward, no `--force`, so run it directly without asking:
    ```bash
    git push origin dev main
    ```
+   Confirm both refs advanced to the same SHA, then report the pushed SHA to the user.
 
 If the user wants to skip Organizer and upload via CLI: `xcrun altool --upload-app -f build/Pupa.xcarchive ...` needs an App-Specific Password or API key — out of scope for this skill.
 
@@ -83,6 +84,7 @@ If the user wants to skip Organizer and upload via CLI: `xcrun altool --upload-a
 
 ## Don't
 
-- Don't push to `main` or `dev` from this skill — the script only moves branches *locally* (bump on `dev`, fast-forward `main`); pushing stays the user's call.
+- Don't push *before* the archive succeeds and is verified. The script only moves branches *locally* (bump on `dev`, fast-forward `main`); the push is the final step and happens only after every other step worked.
+- Don't force-push. `dev`→`main` is a fast-forward; if a plain push is rejected, the branches diverged — stop and surface it, never `--force`.
 - Don't upload to App Store Connect from this skill — Organizer step is intentional (avoids credential handling).
 - Don't touch `Version.swift` / `PupaAppVersion` — that bump is part of the project release flow (CHANGELOG), not this skill's job.
