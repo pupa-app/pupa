@@ -72,6 +72,20 @@ public actor AgentSession {
     /// checkpoints and which triggers the duplicate-tool-call spiral.
     private var lastSendSettledCleanly: Bool = true
 
+    /// Highest replay sequence number observed on this thread — the SSE `id:`
+    /// the backend's resumable-SSE layer stamps on every frame. A dropped
+    /// socket re-attaches with `command.reattach.after_seq = lastEventSeq`
+    /// and the backend replays only what was missed. Nil until the first
+    /// sequenced event arrives (older backends never stamp ids, in which
+    /// case re-attach replays the whole buffered turn — events the UI has
+    /// already applied may repeat; acceptable degraded mode). See pupa#103.
+    private var lastEventSeq: Int?
+
+    /// Transport drops mid-round are retried this many times (exponential
+    /// backoff, base 0.5s) before the error is surfaced to the caller.
+    private let maxReattachAttempts = 4
+    private let reattachBaseDelayNanos: UInt64 = 500_000_000
+
     public init(
         client: AgentClient,
         registry: ToolRegistry,
@@ -100,6 +114,7 @@ public actor AgentSession {
         self.lastSendSettledCleanly = true
         if let threadId {
             self.threadId = threadId
+            self.lastEventSeq = nil
             AGUIKitLog.session("AgentSession reset threadId=\(threadId)")
         }
     }
@@ -160,7 +175,98 @@ public actor AgentSession {
         }
     }
 
+    /// Re-attach to a run that may have continued — or finished — on the
+    /// backend while this client was backgrounded, offline, or dead
+    /// (catch-up after app kill). Replays every event after the last seen
+    /// replay seq; if the replayed tail contains a frontend-tool interrupt,
+    /// the tools are dispatched and the run resumed, exactly like `send`'s
+    /// loop, minus a new user message.
+    ///
+    /// Completes immediately (no events, then `.completed`) when the backend
+    /// has nothing buffered for this thread — callers can invoke it
+    /// opportunistically on foreground/launch without special-casing.
+    ///
+    /// Note: resume rounds triggered from here carry no per-turn
+    /// `forwardedProps` (model selection etc.) — the backend falls back to
+    /// its env default for the remainder of the turn. Acceptable for the
+    /// recovery path.
+    public nonisolated func reattach() -> AsyncThrowingStream<SessionEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task { [self] in
+                do {
+                    try await runReattachLoop(yield: { ev in continuation.yield(ev) })
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish(throwing: AgentClientError.cancelled)
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     // MARK: - Internals
+
+    private func runReattachLoop(yield: @Sendable (SessionEvent) -> Void) async throws {
+        // No replay cursor → either the backend never stamped a seq (predates
+        // the replay layer) or this session never streamed. Reattaching would
+        // hit a real agent loop with an empty message list — do nothing.
+        // (Launch-time catch-up after an app kill needs the cursor persisted;
+        // follow-up on pupa#103.)
+        guard lastEventSeq != nil else {
+            AGUIKitLog.session("reattach() skipped — no replay cursor for thread=\(threadId)")
+            yield(.completed)
+            return
+        }
+        AGUIKitLog.session(
+            "reattach() thread=\(threadId) after_seq=\(lastEventSeq.map(String.init) ?? "-1")"
+        )
+        var input = reattachInput()
+        for round in 0..<maxRounds {
+            var state = RoundState()
+            try await consumeRoundStream(client.runSequenced(input), state: &state, yield: yield)
+            finishRound(state: state, yield: yield)
+
+            guard let dispatch = state.outcome.pendingDispatch else {
+                AGUIKitLog.session("reattach round \(round + 1) settled → completed")
+                if state.outcome.hadOutput { lastSendSettledCleanly = true }
+                yield(.completed)
+                return
+            }
+            // The replayed tail ended on a frontend-tool interrupt the app
+            // never serviced (it was backgrounded/dead when it fired).
+            // Dispatch now and resume the parked run — same contract as
+            // `runLoop`, including the mid-turn tool-surface refresh.
+            AGUIKitLog.session(
+                "reattach round \(round + 1) found interrupt → dispatching \(dispatch.calls.count) tool(s)"
+            )
+            let toolResults = await dispatchFrontendTools(calls: dispatch.calls, yield: yield)
+            let toolsAfterRound: [AnyJSON] = registry.descriptors.map { d in
+                .object([
+                    "name": .string(d.name),
+                    "description": .string(d.description),
+                    "parameters": d.parameters,
+                ])
+            }
+            input = RunAgentInput(
+                threadId: threadId,
+                messages: messages,
+                tools: registry.descriptors,
+                context: [],
+                forwardedProps: .object([
+                    "command": .object([
+                        "resume": .object([
+                            "tool_results": .array(toolResults),
+                            "tools_after_round": .array(toolsAfterRound),
+                        ])
+                    ])
+                ])
+            )
+        }
+        AGUIKitLog.session("reattach hit maxRounds=\(maxRounds) → completed")
+        yield(.completed)
+    }
 
     private func runLoop(
         userText: String,
@@ -403,17 +509,98 @@ public actor AgentSession {
         var args: AnyJSON
     }
 
-    private func runOneRound(
-        input: RunAgentInput,
-        yield: @Sendable (SessionEvent) -> Void
-    ) async throws -> RoundOutcome {
+    /// Accumulated per-round decode state. Lives OUTSIDE the stream-consuming
+    /// loop so a transport drop mid-round can re-attach (replaying only unseen
+    /// frames) and keep appending to the same buffers — a text message split
+    /// across the drop still assembles correctly.
+    private struct RoundState {
         var outcome = RoundOutcome()
         var textBuffers: [String: String] = [:]
         var pendingArgs: [String: String] = [:]
         var pendingNames: [String: String] = [:]
+    }
 
-        for try await event in client.run(input) {
-            switch event {
+    /// True for errors worth a re-attach: the socket died (app backgrounded,
+    /// network blip) but the backend run may well still be going. HTTP-level
+    /// errors, malformed events, and user cancellation are NOT re-attachable.
+    private static func isReattachable(_ error: Error) -> Bool {
+        if case AgentClientError.requestFailed = error { return true }
+        return false
+    }
+
+    /// Minimal `POST /` body for the replay layer's re-attach branch. The
+    /// middleware short-circuits it — no agent loop ever sees this input, so
+    /// messages/tools/context stay empty.
+    private func reattachInput() -> RunAgentInput {
+        RunAgentInput(
+            threadId: threadId,
+            messages: [],
+            tools: [],
+            context: [],
+            forwardedProps: .object([
+                "command": .object([
+                    "reattach": .object(["after_seq": .int(lastEventSeq ?? -1)])
+                ])
+            ])
+        )
+    }
+
+    private func runOneRound(
+        input: RunAgentInput,
+        yield: @Sendable (SessionEvent) -> Void
+    ) async throws -> RoundOutcome {
+        var state = RoundState()
+        do {
+            try await consumeRoundStream(client.runSequenced(input), state: &state, yield: yield)
+        } catch let error where Self.isReattachable(error) {
+            try await reattachAfterDrop(originalError: error, state: &state, yield: yield)
+        }
+        finishRound(state: state, yield: yield)
+        return state.outcome
+    }
+
+    /// The socket died mid-round. Re-attach to the backend's replay log with
+    /// exponential backoff, resuming event consumption exactly where the seq
+    /// cursor left off. Throws the last transport error once attempts are
+    /// exhausted (the caller then surfaces it as before this feature existed).
+    private func reattachAfterDrop(
+        originalError: Error,
+        state: inout RoundState,
+        yield: @Sendable (SessionEvent) -> Void
+    ) async throws {
+        // Never seen a replay seq → the backend predates the replay layer
+        // (or this run died before its first frame). A reattach POST would
+        // then reach a real agent loop with an empty message list — worse
+        // than surfacing the drop. Bail to the legacy error path.
+        guard lastEventSeq != nil else { throw originalError }
+        var lastError = originalError
+        for attempt in 1...maxReattachAttempts {
+            try? await Task.sleep(nanoseconds: reattachBaseDelayNanos << (attempt - 1))
+            if Task.isCancelled { throw AgentClientError.cancelled }
+            AGUIKitLog.session(
+                "stream dropped (\(lastError)) — reattach \(attempt)/\(maxReattachAttempts) " +
+                "after_seq=\(lastEventSeq.map(String.init) ?? "-1")"
+            )
+            do {
+                try await consumeRoundStream(client.runSequenced(reattachInput()), state: &state, yield: yield)
+                AGUIKitLog.session("reattach succeeded on attempt \(attempt)")
+                return
+            } catch let error where Self.isReattachable(error) {
+                lastError = error
+            }
+        }
+        AGUIKitLog.session("reattach exhausted after \(maxReattachAttempts) attempts — surfacing error")
+        throw lastError
+    }
+
+    private func consumeRoundStream(
+        _ stream: AsyncThrowingStream<SequencedAgentEvent, Error>,
+        state: inout RoundState,
+        yield: @Sendable (SessionEvent) -> Void
+    ) async throws {
+        for try await sequenced in stream {
+            if let seq = sequenced.seq { lastEventSeq = seq }
+            switch sequenced.event {
             case .runStarted:
                 continue
             case .runFinished(let r):
@@ -421,35 +608,35 @@ public actor AgentSession {
             case .runError(let e):
                 yield(.error(message: e.message, code: e.code))
             case .textMessageStart(let s):
-                textBuffers[s.messageId] = ""
-                outcome.hadOutput = true
+                state.textBuffers[s.messageId] = ""
+                state.outcome.hadOutput = true
                 yield(.assistantMessageStart(messageId: s.messageId))
             case .textMessageContent(let c):
-                textBuffers[c.messageId, default: ""].append(c.delta)
+                state.textBuffers[c.messageId, default: ""].append(c.delta)
                 yield(.assistantMessageDelta(messageId: c.messageId, delta: c.delta))
             case .textMessageEnd(let e):
-                let final = textBuffers[e.messageId] ?? ""
+                let final = state.textBuffers[e.messageId] ?? ""
                 yield(.assistantMessageEnd(messageId: e.messageId, text: final))
             case .toolCallStart(let s):
-                pendingArgs[s.toolCallId] = ""
-                pendingNames[s.toolCallId] = s.toolCallName
-                outcome.observedOrder.append(s.toolCallId)
-                outcome.hadOutput = true
+                state.pendingArgs[s.toolCallId] = ""
+                state.pendingNames[s.toolCallId] = s.toolCallName
+                state.outcome.observedOrder.append(s.toolCallId)
+                state.outcome.hadOutput = true
                 yield(.toolCallStarted(id: s.toolCallId, name: s.toolCallName))
             case .toolCallArgs(let a):
-                pendingArgs[a.toolCallId, default: ""].append(a.delta)
+                state.pendingArgs[a.toolCallId, default: ""].append(a.delta)
             case .toolCallEnd(let e):
-                guard let name = pendingNames[e.toolCallId] else { continue }
-                let argsString = pendingArgs[e.toolCallId] ?? ""
+                guard let name = state.pendingNames[e.toolCallId] else { continue }
+                let argsString = state.pendingArgs[e.toolCallId] ?? ""
                 let parsedArgs: AnyJSON
                 do {
                     parsedArgs = try ToolCallFunction(name: name, arguments: argsString).parsedArguments()
                 } catch {
                     parsedArgs = .object([:])
                 }
-                outcome.observedToolCalls[e.toolCallId] = (name: name, args: parsedArgs)
+                state.outcome.observedToolCalls[e.toolCallId] = (name: name, args: parsedArgs)
             case .toolCallResult(let r):
-                outcome.backendResults[r.toolCallId] = r.content
+                state.outcome.backendResults[r.toolCallId] = r.content
             case .stateSnapshot, .stateDelta, .messagesSnapshot:
                 continue
             case .custom(let c):
@@ -458,27 +645,31 @@ public actor AgentSession {
                 // `CopilotKitMiddlewareWithFrontendInterrupt` is the sole producer in
                 // pupa; its payload carries `frontend_tool_calls`.
                 if c.name == "on_interrupt", let parsed = decodeFrontendDispatch(c.value) {
-                    outcome.pendingDispatch = PendingFrontendDispatch(calls: parsed)
+                    state.outcome.pendingDispatch = PendingFrontendDispatch(calls: parsed)
                 }
                 continue
             case .stepStarted, .stepFinished, .raw, .unknown:
                 continue
             }
         }
+    }
 
-        // Yield `.toolCallFinished` for tool calls the backend executed in
-        // this stream (their results came in via `TOOL_CALL_RESULT`). Tool
-        // calls that the backend ASKED us to dispatch arrive on the
-        // interrupt; their `.toolCallFinished` is yielded later by
-        // `dispatchFrontendTools` so we don't double-fire here.
+    /// Post-stream flush: yield `.toolCallFinished` for tool calls the
+    /// backend executed in this round (their results came in via
+    /// `TOOL_CALL_RESULT`). Tool calls the backend ASKED us to dispatch
+    /// arrive on the interrupt; their `.toolCallFinished` is yielded later
+    /// by `dispatchFrontendTools` so we don't double-fire here.
+    private func finishRound(
+        state: RoundState,
+        yield: @Sendable (SessionEvent) -> Void
+    ) {
+        let outcome = state.outcome
         let dispatchIds: Set<String> = Set(outcome.pendingDispatch?.calls.map(\.id) ?? [])
         for id in outcome.observedOrder where !dispatchIds.contains(id) {
             guard let meta = outcome.observedToolCalls[id] else { continue }
             let result: AnyJSON? = outcome.backendResults[id].map(decodeJSONStringPermissive)
             yield(.toolCallFinished(id: id, name: meta.name, arguments: meta.args, result: result))
         }
-
-        return outcome
     }
 }
 

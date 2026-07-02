@@ -24,6 +24,22 @@ public enum AgentClientError: Error, Sendable, CustomStringConvertible {
     }
 }
 
+/// An `AgentEvent` plus the replay sequence number the backend's resumable-SSE
+/// layer stamped on its frame (the SSE `id:` field). `seq` is nil when the
+/// backend predates the replay middleware or the frame carried no id.
+/// Consumers track the highest seen `seq` so a dropped socket can re-attach
+/// with `forwardedProps.command.reattach.after_seq` and replay only what was
+/// missed. See pupa#103 / pupa-backend#40.
+public struct SequencedAgentEvent: Sendable {
+    public let event: AgentEvent
+    public let seq: Int?
+
+    public init(event: AgentEvent, seq: Int?) {
+        self.event = event
+        self.seq = seq
+    }
+}
+
 /// Low-level AG-UI client. Posts a `RunAgentInput` to the configured endpoint
 /// and yields decoded `AgentEvent`s as they arrive.
 ///
@@ -46,7 +62,32 @@ public struct AgentClient: Sendable {
 
     /// Run one agent round. The returned stream yields events until the
     /// server emits `RUN_FINISHED` (or an error) and the connection closes.
+    ///
+    /// Convenience wrapper over `runSequenced(_:)` for callers that don't
+    /// care about replay sequence numbers.
     public func run(_ input: RunAgentInput) -> AsyncThrowingStream<AgentEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    for try await sequenced in runSequenced(input) {
+                        continuation.yield(sequenced.event)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// Run one agent round, yielding each event together with the replay
+    /// `seq` parsed from its SSE `id:` field (nil when absent).
+    ///
+    /// A `204 No Content` finishes immediately with no events: the backend's
+    /// replay layer answers re-attach requests for unknown/evicted threads
+    /// that way, and "nothing to replay" is a clean outcome, not an error.
+    public func runSequenced(_ input: RunAgentInput) -> AsyncThrowingStream<SequencedAgentEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -77,6 +118,14 @@ public struct AgentClient: Sendable {
                         return
                     }
 
+                    if let http = response as? HTTPURLResponse, http.statusCode == 204 {
+                        // Replay re-attach against an unknown/evicted thread:
+                        // nothing buffered to send. Clean empty round.
+                        AGUIKitLog.client("204 no content (no replay available)")
+                        continuation.finish()
+                        return
+                    }
+
                     if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
                         // Drain the body for diagnostic context.
                         var bodyBytes = Data()
@@ -94,6 +143,18 @@ public struct AgentClient: Sendable {
                     var chunk = Data()
                     chunk.reserveCapacity(4096)
 
+                    func yieldFrame(_ frame: SSEFrame) throws {
+                        guard !frame.data.isEmpty else { return }
+                        guard let data = frame.data.data(using: .utf8) else { return }
+                        do {
+                            let event = try jsonDecoder.decode(AgentEvent.self, from: data)
+                            AGUIKitLog.client("evt \(AGUIKitLog.shortLabel(event))")
+                            continuation.yield(SequencedAgentEvent(event: event, seq: frame.id.flatMap(Int.init)))
+                        } catch {
+                            throw AgentClientError.malformedEvent(frame.data, underlying: error)
+                        }
+                    }
+
                     for try await byte in bytes {
                         if Task.isCancelled {
                             continuation.finish(throwing: AgentClientError.cancelled)
@@ -105,16 +166,7 @@ public struct AgentClient: Sendable {
                             let frames = decoder.feed(chunk)
                             chunk.removeAll(keepingCapacity: true)
                             for frame in frames {
-                                guard !frame.data.isEmpty else { continue }
-                                guard let data = frame.data.data(using: .utf8) else { continue }
-                                do {
-                                    let event = try jsonDecoder.decode(AgentEvent.self, from: data)
-                                    AGUIKitLog.client("evt \(AGUIKitLog.shortLabel(event))")
-                                    continuation.yield(event)
-                                } catch {
-                                    continuation.finish(throwing: AgentClientError.malformedEvent(frame.data, underlying: error))
-                                    return
-                                }
+                                try yieldFrame(frame)
                             }
                         }
                     }
@@ -122,15 +174,7 @@ public struct AgentClient: Sendable {
                     var finalFrames = decoder.feed(chunk)
                     finalFrames.append(contentsOf: decoder.finish())
                     for frame in finalFrames {
-                        guard !frame.data.isEmpty else { continue }
-                        guard let data = frame.data.data(using: .utf8) else { continue }
-                        do {
-                            let event = try jsonDecoder.decode(AgentEvent.self, from: data)
-                            continuation.yield(event)
-                        } catch {
-                            continuation.finish(throwing: AgentClientError.malformedEvent(frame.data, underlying: error))
-                            return
-                        }
+                        try yieldFrame(frame)
                     }
                     continuation.finish()
                 } catch {

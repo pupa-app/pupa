@@ -1,5 +1,8 @@
 import SwiftUI
 import AGUIKit
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Root view. Wires up the myApps store + memory store, hosts the chat
 /// session coordinator, and lays out a sidebar (myApps + memory files) +
@@ -16,6 +19,9 @@ import AGUIKit
 ///     The overlay rebinds to whichever `ChatViewModel` matches the current
 ///     selection — backgrounded sessions keep streaming until they finish.
 public struct AppView: View {
+    /// Drives the resumable-SSE lifecycle hooks (background hold / foreground
+    /// re-attach). See `handleScenePhase`.
+    @Environment(\.scenePhase) private var scenePhase
     @State private var store: MyAppStore
     @State private var memory: MemoryStore
     @State private var settings: SettingsStore
@@ -154,7 +160,50 @@ public struct AppView: View {
             // Live iCloud sync: reload the stores when another device's edits
             // land in the container. No-op when iCloud is inactive.
             .task { startCloudWatcher() }
+            // Resumable SSE lifecycle (pupa#103): ride out short backgrounds
+            // with a UIKit background task so in-flight streams survive, and
+            // on return to foreground re-attach any stream the OS killed —
+            // the backend's replay log serves back what was missed.
+            .onChange(of: scenePhase) { _, phase in
+                handleScenePhase(phase)
+            }
     }
+
+    /// Keeps the process (and its SSE sockets) alive for the ~30s grace
+    /// window iOS grants after backgrounding, but only while a turn is
+    /// actually streaming. `.invalid` whenever no hold is active.
+    #if os(iOS)
+    @State private var streamKeepAlive: UIBackgroundTaskIdentifier = .invalid
+    #endif
+
+    private func handleScenePhase(_ phase: ScenePhase) {
+        #if os(iOS)
+        switch phase {
+        case .background:
+            guard coordinator.anyStreaming, streamKeepAlive == .invalid else { return }
+            streamKeepAlive = UIApplication.shared.beginBackgroundTask(withName: "pupa.sse.stream") {
+                // Expiry: end the hold; the socket dies and the backend's
+                // replay buffer takes over until the next foreground.
+                endStreamKeepAlive()
+            }
+        case .active:
+            endStreamKeepAlive()
+            coordinator.reattachAllAfterForeground()
+        default:
+            break
+        }
+        #else
+        if phase == .active { coordinator.reattachAllAfterForeground() }
+        #endif
+    }
+
+    #if os(iOS)
+    private func endStreamKeepAlive() {
+        guard streamKeepAlive != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(streamKeepAlive)
+        streamKeepAlive = .invalid
+    }
+    #endif
 
     /// Start watching the iCloud container for remote changes, reloading each
     /// synced store so the UI reflects edits made on another device. Idempotent.
