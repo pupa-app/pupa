@@ -13,6 +13,7 @@ enum DefaultSkills {
     /// `(path, body)` pairs written into a MyApp's memory root when missing.
     static let files: [(path: String, body: String)] = [
         ("pupa/skills/to-memory/SKILL.md", toMemorySkillMd),
+        ("pupa/skills/pupa-internals/SKILL.md", pupaInternalsSkillMd),
     ]
 
     /// Write any missing default-skill file into `appMemory`. Returns whether
@@ -54,5 +55,37 @@ enum DefaultSkills {
        headings, the new insight integrated in place. Choose AGENTS.md for info you should always be aware of in every conversation, 
        while choose MEMORIES.md for info that is not always needed.
     4. Tell the user in one line what you added.
+    """
+
+    /// `/pupa-internals` — orient the agent on Pupa's object model and the
+    /// app(frontend)/backend boundary, so it writes the right thing in the right
+    /// place with the right tool. Loaded on demand via `app_skill_view`.
+    private static let pupaInternalsSkillMd = """
+    ---
+    description: How Pupa fits together — the app(on-device)/backend split, the two skill systems, and where standing behaviour lives
+    when_to_use: when unsure whether something belongs in the app or the backend, which skill system you're touching, or how to change your standing behaviour
+    ---
+    This is the map, not the manual: each tool's own description carries the
+    mechanics (which tool, what args, whether to create a component first). What
+    follows is only what those descriptions don't tell you.
+
+    **App vs backend — the boundary.** Everything the user sees — canvas
+    components and their items, memory, skills, `AGENTS.md` — is app state,
+    created and edited **on the user's device** through your frontend tools. The
+    backend only runs you plus a few server-side tools (web search, shell, …) and
+    stores **no app data**. Never write app content to a backend path or via a
+    shell unless explicitly told to; if unsure where something belongs, ask.
+
+    **The object model.** A myapp's canvas holds *components*; data items live
+    **inside** a component. Memory is a *separate* per-app markdown filesystem for
+    durable notes — not canvas data. Two different stores; don't cross them.
+
+    **Two skill systems — don't confuse them.** *App* skills are the on-device
+    `pupa/skills/<name>/SKILL.md` files (this file is one). A backend may
+    separately expose its own read-only `skill_view` library. App skills are always the `pupa/skills/` files.
+
+    **Changing standing behaviour.** Persistent instructions for main agent live at
+    `pupa/AGENTS.md` (subagents: `pupa/agents/<name>/AGENTS.md`). Edit those to
+    change how you or other agents behave permanently — not memory, not a skill.
     """
 }

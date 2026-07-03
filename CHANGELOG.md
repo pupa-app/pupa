@@ -3,6 +3,17 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.51] — 2026-07-03
+
+### Added
+
+- **Every new MyApp ships a `/pupa-internals` skill** that orients the agent on
+  Pupa's object model (canvas components, memory, skills, `AGENTS.md`) and the
+  app(on-device)/backend boundary, so it writes the right thing in the right
+  place with the right tool. Seeded at app birth alongside `/to-memory`, and
+  loadable on demand via `app_skill_view`. Fully user-editable and deletable
+  like any app skill. (`PupaApp` `0.0.148`)
+
 ## [0.0.50] — 2026-07-01
 
 ### Added
