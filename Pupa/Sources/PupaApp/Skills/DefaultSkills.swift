@@ -82,11 +82,10 @@ enum DefaultSkills {
 
     **Two skill systems — don't confuse them.** *App* skills are the on-device
     `pupa/skills/<name>/SKILL.md` files (this file is one). A backend may
-    separately expose its own read-only `skill_view` library — a different store
-    you never write to. App skills are always the `pupa/skills/` files.
+    separately expose its own read-only `skill_view` library. App skills are always the `pupa/skills/` files.
 
-    **Changing standing behaviour.** Persistent instructions live at
+    **Changing standing behaviour.** Persistent instructions for main agent live at
     `pupa/AGENTS.md` (subagents: `pupa/agents/<name>/AGENTS.md`). Edit those to
-    change how you behave permanently — not memory, not a skill.
+    change how you or other agents behave permanently — not memory, not a skill.
     """
 }
