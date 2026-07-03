@@ -191,6 +191,21 @@ public final class ChatSessionCoordinator {
         }
     }
 
+    /// True while any live session is streaming — read by the scenePhase
+    /// hook to decide whether backgrounding needs a UIKit background task
+    /// to keep the SSE socket alive a little longer.
+    public var anyStreaming: Bool {
+        sessions.values.contains { $0.isStreaming }
+    }
+
+    /// Foreground recovery: ask every live session to re-attach to any run
+    /// whose stream died while the app was backgrounded. Each VM no-ops
+    /// unless its last turn was actually interrupted, so calling this on
+    /// every foreground transition is cheap. See pupa#103.
+    public func reattachAllAfterForeground() {
+        for vm in sessions.values { vm.reattachIfNeeded() }
+    }
+
     private func makeSession(for scope: ChatScope, threadId: String) -> ChatViewModel {
         let registry = ToolRegistry()
         // Each session gets its own scoped MemoryStore so `lsMemories` /

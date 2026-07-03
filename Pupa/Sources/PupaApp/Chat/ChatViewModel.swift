@@ -935,6 +935,29 @@ public final class ChatViewModel {
         continuation.resume(returning: (approved: approved, remember: remember))
     }
 
+    /// Foreground recovery for a stream the OS killed while backgrounded.
+    ///
+    /// `AgentSession` already retries transport drops in-flight (re-attach
+    /// with backoff against the backend's replay log); this covers the case
+    /// where those retries were exhausted — or the process was suspended
+    /// before they could run — and the turn surfaced as `lastError`. On
+    /// return to the foreground we re-attach once more: the backend replays
+    /// every missed event (and, if the run parked on a frontend-tool
+    /// interrupt while we were away, the session dispatches it and resumes).
+    ///
+    /// No-op when a stream is still live (short background survived) or the
+    /// last turn settled cleanly. Launch-time catch-up after a full app kill
+    /// additionally needs the replay cursor persisted per thread — tracked as
+    /// follow-up on pupa#103.
+    public func reattachIfNeeded() {
+        guard streamTask == nil else { return }  // stream survived the background
+        guard lastError != nil else { return }   // nothing was interrupted
+        AGUIKitLog.session("foreground reattach: thread=\(threadId)")
+        lastError = nil
+        setStreaming(true)
+        consume(stream: session.reattach())
+    }
+
     /// Shared event-pump for both the initial `send` and the post-interrupt
     /// `resume` streams. Mirrors what was previously inlined in `send`.
     private func consume(stream: AsyncThrowingStream<SessionEvent, Error>) {

@@ -18,12 +18,18 @@ final class MockURLProtocol: URLProtocol, @unchecked Sendable {
     /// span multiple rounds (e.g. mid-turn `toolFilter` refresh) read this
     /// to inspect each round's `RunAgentInput.tools` independently.
     nonisolated(unsafe) static var requestBodies: [Data] = []
+    /// Optional transport-failure injector. Given the 1-based request index
+    /// (the value of `requestCount` for this call), return a `URLError` to make
+    /// the request fail at connect time — mimicking a dropped socket. Returning
+    /// nil falls through to `responder`. Lets re-attach / retry paths be tested.
+    nonisolated(unsafe) static var failer: (@Sendable (Int) -> URLError?)?
 
     static func reset() {
         responder = nil
         requestCount = 0
         lastRequestBody = nil
         requestBodies = []
+        failer = nil
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -48,6 +54,12 @@ final class MockURLProtocol: URLProtocol, @unchecked Sendable {
         } else {
             MockURLProtocol.lastRequestBody = request.httpBody
             MockURLProtocol.requestBodies.append(request.httpBody ?? Data())
+        }
+
+        // Injected connect-time failure (dropped socket) takes precedence.
+        if let failer = MockURLProtocol.failer, let err = failer(MockURLProtocol.requestCount) {
+            client?.urlProtocol(self, didFailWithError: err)
+            return
         }
 
         guard let responder = MockURLProtocol.responder else {
@@ -83,5 +95,16 @@ func makeMockSession() -> URLSession {
 /// Encode a list of JSON event strings as an SSE body (`data: …\n\n`).
 func sseBody(_ events: [String]) -> Data {
     let payload = events.map { "data: \($0)\n\n" }.joined()
+    return Data(payload.utf8)
+}
+
+/// Like `sseBody`, but stamps each frame with an `id:` line — the SSE field the
+/// resumable-replay backend uses to carry the per-event sequence number. The
+/// nth event gets `id: startSeq + n`. Used to exercise `SequencedAgentEvent.seq`
+/// parsing and `AgentSession.lastEventSeq` tracking.
+func sseBodyWithIds(_ events: [String], startSeq: Int = 0) -> Data {
+    let payload = events.enumerated()
+        .map { "id: \(startSeq + $0.offset)\ndata: \($0.element)\n\n" }
+        .joined()
     return Data(payload.utf8)
 }
