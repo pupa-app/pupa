@@ -106,4 +106,32 @@ public enum MyAppExporter {
             includedMemories: options.includeMemories)
         return MyAppBundle(header: header, app: app, memories: memories)
     }
+
+    /// Bundle *every* given app into one `MyAppLibraryBundle` — the multi-app
+    /// export. Each app is exported whole (all components selected) with the
+    /// shared record/memory toggles, reusing `makeBundle`; no new per-app logic.
+    public static func makeLibraryBundle(
+        apps: [MyApp],
+        includeRecords: Bool,
+        includeMemories: Bool,
+        memory: MemoryStore,
+        appVersion: String = PupaAppVersion
+    ) -> MyAppLibraryBundle {
+        let bundles = apps.map { app in
+            makeBundle(
+                app: app,
+                options: .init(
+                    selectedComponentIds: Set(app.components.map(\.id)),
+                    includeRecords: includeRecords,
+                    includeMemories: includeMemories),
+                memory: memory,
+                appVersion: appVersion)
+        }
+        let header = MyAppLibraryBundle.Header(
+            appVersion: appVersion,
+            appCount: bundles.count,
+            includedRecords: includeRecords,
+            includedMemories: includeMemories)
+        return MyAppLibraryBundle(header: header, apps: bundles)
+    }
 }

@@ -873,15 +873,30 @@ public struct AppView: View {
             importNotice = ImportNotice(message: "Couldn't read that file.")
             return
         }
-        guard let bundle = try? MyAppBundle.makeDecoder().decode(MyAppBundle.self, from: data),
-              bundle.header.format == MyAppBundle.formatMagic else {
+        switch MyAppImporter.probeFormat(data) {
+        case .single:
+            guard let bundle = try? MyAppBundle.makeDecoder().decode(MyAppBundle.self, from: data) else {
+                importNotice = ImportNotice(message: "This file isn't a valid Pupa app bundle.")
+                return
+            }
+            pendingImport = PendingImport(
+                data: data,
+                isLibrary: false,
+                appNames: [bundle.app.name],
+                agentPrompts: agentPrompts(in: bundle.app))
+        case .library:
+            guard let library = try? MyAppBundle.makeDecoder().decode(MyAppLibraryBundle.self, from: data) else {
+                importNotice = ImportNotice(message: "This file isn't a valid Pupa app bundle.")
+                return
+            }
+            pendingImport = PendingImport(
+                data: data,
+                isLibrary: true,
+                appNames: library.apps.map { $0.app.name },
+                agentPrompts: library.apps.flatMap { agentPrompts(in: $0.app) })
+        case .unknown:
             importNotice = ImportNotice(message: "This file isn't a valid Pupa app bundle.")
-            return
         }
-        pendingImport = PendingImport(
-            data: data,
-            appName: bundle.app.name,
-            agentPrompts: agentPrompts(in: bundle.app))
     }
 
     /// Slack agent personas in a bundle — the privacy review surface, mirroring
@@ -904,12 +919,27 @@ public struct AppView: View {
     private func confirmImport(_ pending: PendingImport) {
         pendingImport = nil
         do {
-            let result = try MyAppImporter.importBundle(pending.data, into: store, memory: memory)
-            detailPath = []
-            selection = .myAppHome(result.myAppId)
-            dispatchSelection(.myAppHome(result.myAppId))
-            if !result.warnings.isEmpty {
-                importNotice = ImportNotice(message: result.warnings.joined(separator: "\n"))
+            if pending.isLibrary {
+                let result = try MyAppImporter.importLibrary(pending.data, into: store, memory: memory)
+                guard let first = result.myAppIds.first else {
+                    importNotice = ImportNotice(message: "The bundle had no apps to import.")
+                    return
+                }
+                detailPath = []
+                selection = .myAppHome(first)
+                dispatchSelection(.myAppHome(first))
+                let n = result.myAppIds.count
+                var lines = ["Imported \(n) app\(n == 1 ? "" : "s")."]
+                lines.append(contentsOf: result.warnings)
+                importNotice = ImportNotice(message: lines.joined(separator: "\n"))
+            } else {
+                let result = try MyAppImporter.importBundle(pending.data, into: store, memory: memory)
+                detailPath = []
+                selection = .myAppHome(result.myAppId)
+                dispatchSelection(.myAppHome(result.myAppId))
+                if !result.warnings.isEmpty {
+                    importNotice = ImportNotice(message: result.warnings.joined(separator: "\n"))
+                }
             }
         } catch {
             importNotice = ImportNotice(message: error.localizedDescription)
@@ -917,12 +947,15 @@ public struct AppView: View {
     }
 }
 
-/// A `.pupaapp` opened from outside the app, staged for confirmation.
+/// A `.pupaapp` opened from outside the app, staged for confirmation. Holds one
+/// app (single bundle) or many (library bundle).
 private struct PendingImport: Identifiable {
     let id = UUID()
     let data: Data
-    let appName: String
-    /// Agent personas in the bundle, surfaced for review before import.
+    let isLibrary: Bool
+    /// Names of the app(s) that would be imported.
+    let appNames: [String]
+    /// Agent personas across the bundle, surfaced for review before import.
     let agentPrompts: [String]
 }
 
@@ -943,11 +976,19 @@ private struct ImportConfirmSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    Text(pending.appName).font(.headline)
+                    if pending.isLibrary {
+                        ForEach(pending.appNames, id: \.self) { Text($0) }
+                    } else {
+                        Text(pending.appNames.first ?? "").font(.headline)
+                    }
                 } header: {
-                    Text("Import app")
+                    Text(pending.isLibrary
+                         ? "Import \(pending.appNames.count) app\(pending.appNames.count == 1 ? "" : "s")"
+                         : "Import app")
                 } footer: {
-                    Text("This app was shared with you. Imported agents run with your tools and data — review before importing.")
+                    Text(pending.isLibrary
+                         ? "These apps were shared with you. Imported agents run with your tools and data — review before importing."
+                         : "This app was shared with you. Imported agents run with your tools and data — review before importing.")
                 }
                 if !pending.agentPrompts.isEmpty {
                     Section("Agent prompts") {

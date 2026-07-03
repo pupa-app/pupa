@@ -11,6 +11,8 @@ public enum MyAppImporter {
     // MARK: Resource caps (DoS guards)
 
     static let maxBundleBytes = 8 * 1024 * 1024      // 8 MB raw, checked pre-decode
+    static let maxLibraryBytes = 64 * 1024 * 1024    // 64 MB aggregate for a library
+    static let maxAppsPerLibrary = 128
     static let maxComponents = 64
     static let maxItemsPerComponent = 5_000
     static let maxSlackMessagesPerChannel = 5_000
@@ -61,6 +63,36 @@ public enum MyAppImporter {
         public let warnings: [String]
     }
 
+    /// Result of importing a multi-app library: the ids that landed plus any
+    /// per-app warnings (including apps skipped best-effort).
+    public struct LibraryImportResult {
+        public let myAppIds: [UUID]
+        public let warnings: [String]
+    }
+
+    /// Which `.pupaapp` payload a file holds — a single app or a library. Both
+    /// share the extension and are told apart by the `header.format` magic.
+    public enum BundleFormat {
+        case single
+        case library
+        case unknown
+    }
+
+    /// Peek at the `header.format` magic without full validation, so the UI can
+    /// route to the right importer (and build the right confirm preview).
+    public static func probeFormat(_ data: Data) -> BundleFormat {
+        struct Probe: Decodable { struct H: Decodable { let format: String }; let header: H }
+        guard data.count <= maxLibraryBytes,
+              let probe = try? MyAppBundle.makeDecoder().decode(Probe.self, from: data) else {
+            return .unknown
+        }
+        switch probe.header.format {
+        case MyAppBundle.formatMagic: return .single
+        case MyAppLibraryBundle.formatMagic: return .library
+        default: return .unknown
+        }
+    }
+
     // MARK: Entry point
 
     @discardableResult
@@ -69,18 +101,32 @@ public enum MyAppImporter {
         into store: MyAppStore,
         memory: MemoryStore
     ) throws -> ImportResult {
-        var warnings: [String] = []
-
         // Stage 0a — size cap before decode.
         guard data.count <= maxBundleBytes else { throw ImportError.tooLarge(bytes: data.count) }
 
-        // Stage 0b — decode + header (read & validated first).
+        // Stage 0b — decode (header validated inside `importDecoded`).
         let bundle: MyAppBundle
         do {
             bundle = try MyAppBundle.makeDecoder().decode(MyAppBundle.self, from: data)
         } catch {
             throw ImportError.notABundle
         }
+        return try importDecoded(bundle, into: store, memory: memory)
+    }
+
+    /// Import an already-decoded bundle — the shared validation authority for
+    /// both the single-app path and each app inside a library. **The bundle is
+    /// untrusted:** validated against an allow-list and caps before any store /
+    /// disk mutation.
+    @discardableResult
+    static func importDecoded(
+        _ bundle: MyAppBundle,
+        into store: MyAppStore,
+        memory: MemoryStore
+    ) throws -> ImportResult {
+        var warnings: [String] = []
+
+        // Header (read & validated first).
         guard bundle.header.format == MyAppBundle.formatMagic else { throw ImportError.notABundle }
         guard bundle.header.formatVersion <= MyAppBundle.currentFormatVersion else {
             throw ImportError.newerFormat(found: bundle.header.formatVersion,
@@ -171,6 +217,50 @@ public enum MyAppImporter {
         writeMemories(bundle.memories, appName: newName, memory: memory)
 
         return ImportResult(myAppId: id, warnings: warnings)
+    }
+
+    /// Import a multi-app `MyAppLibraryBundle`. **Best-effort:** each app runs
+    /// through the same per-app authority (`importDecoded`); one malformed app
+    /// is skipped with a warning rather than sinking the whole library. Because
+    /// each app is inserted before the next is imported, the slug-unique rename
+    /// naturally deduplicates apps that collide with each other.
+    @discardableResult
+    public static func importLibrary(
+        _ data: Data,
+        into store: MyAppStore,
+        memory: MemoryStore
+    ) throws -> LibraryImportResult {
+        // Size cap before decode.
+        guard data.count <= maxLibraryBytes else { throw ImportError.tooLarge(bytes: data.count) }
+
+        // Decode + header (magic + version).
+        let library: MyAppLibraryBundle
+        do {
+            library = try MyAppBundle.makeDecoder().decode(MyAppLibraryBundle.self, from: data)
+        } catch {
+            throw ImportError.notABundle
+        }
+        guard library.header.format == MyAppLibraryBundle.formatMagic else { throw ImportError.notABundle }
+        guard library.header.formatVersion <= MyAppLibraryBundle.currentFormatVersion else {
+            throw ImportError.newerFormat(found: library.header.formatVersion,
+                                          supported: MyAppLibraryBundle.currentFormatVersion)
+        }
+        guard library.apps.count <= maxAppsPerLibrary else {
+            throw ImportError.malformed("too many apps")
+        }
+
+        var ids: [UUID] = []
+        var warnings: [String] = []
+        for appBundle in library.apps {
+            do {
+                let result = try importDecoded(appBundle, into: store, memory: memory)
+                ids.append(result.myAppId)
+                warnings.append(contentsOf: result.warnings)
+            } catch {
+                warnings.append("Skipped '\(appBundle.app.name)': \(error.localizedDescription)")
+            }
+        }
+        return LibraryImportResult(myAppIds: ids, warnings: warnings)
     }
 
     // MARK: - Validation helpers

@@ -3,6 +3,20 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.52] — 2026-07-03
+
+### Added
+
+- **Share / import all apps in one file.** The Share screen's app dropdown gains
+  an **All apps** option that exports every MyApp into a single `.pupaapp`
+  *library* bundle; open it (Files picker or tap-to-open) to import them all in
+  one go. Same `.pupaapp` extension as a single-app bundle — the two are told
+  apart by a header magic.
+  Each app runs through the existing per-app import validator, so every guard
+  (settings allow-list, memory path checks, slug-unique rename, caps) applies
+  per app; a malformed app in a library is skipped with a note rather than
+  sinking the rest. (`PupaApp` `0.0.149`)
+
 ## [0.0.51] — 2026-07-03
 
 ### Added

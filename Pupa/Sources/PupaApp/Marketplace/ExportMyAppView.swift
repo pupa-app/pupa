@@ -18,7 +18,7 @@ struct SharingSettingsView: View {
                 } label: {
                     hubRow(icon: "square.and.arrow.up",
                            title: "Share an app",
-                           caption: "Send a MyApp as a .pupaapp bundle")
+                           caption: "Send one MyApp — or all of them — as a .pupaapp bundle")
                 }
                 NavigationLink {
                     ImportAppScreen(store: store, memory: memory, onImported: onImported)
@@ -60,10 +60,14 @@ private struct SharingNotice: Identifiable {
 
 /// Export a MyApp to a `.pupaapp` and hand it to the system share sheet:
 /// component selection + records/memories toggles + a review of the agent
-/// prompts being shared.
+/// prompts being shared. The app picker also offers **All apps** — every MyApp
+/// bundled into one `.pupaapp` library (no component picker; each app whole).
 private struct ExportShareScreen: View {
     @Bindable var store: MyAppStore
     var memory: MemoryStore
+
+    /// Sentinel picker tag selecting "every app as one library bundle".
+    private static let allAppsTag = UUID()
 
     @State private var selectedAppId: UUID?
     @State private var selectedComponentIds: Set<String> = []
@@ -75,6 +79,8 @@ private struct ExportShareScreen: View {
     /// choices; `nil` (control disabled) until at least one component is picked.
     @State private var shareURL: URL?
     @State private var notice: SharingNotice?
+
+    private var isAllApps: Bool { selectedAppId == Self.allAppsTag }
 
     private var app: MyApp? {
         store.myApps.first { $0.id == selectedAppId } ?? store.myApps.first
@@ -103,21 +109,24 @@ private struct ExportShareScreen: View {
         if let app {
             Section("App") {
                 Picker("App", selection: Binding(
-                    get: { app.id },
+                    get: { isAllApps ? Self.allAppsTag : app.id },
                     set: { selectedAppId = $0 }
                 )) {
+                    Text("All apps").tag(Self.allAppsTag)
                     ForEach(store.myApps) { Text($0.name).tag($0.id) }
                 }
             }
 
-            Section {
-                ForEach(app.components) { comp in
-                    componentRow(comp)
+            if !isAllApps {
+                Section {
+                    ForEach(app.components) { comp in
+                        componentRow(comp)
+                    }
+                } header: {
+                    Text("Components")
+                } footer: {
+                    Text("Select at least one component to share.")
                 }
-            } header: {
-                Text("Components")
-            } footer: {
-                Text("Select at least one component to share.")
             }
 
             Section {
@@ -146,9 +155,9 @@ private struct ExportShareScreen: View {
                     // "error fetching item … (null)" logs) and gives a clean card.
                     ShareLink(
                         item: shareURL,
-                        preview: SharePreview(
-                            app.name,
-                            image: Image(systemName: app.iconSystemName))
+                        preview: isAllApps
+                            ? SharePreview("Pupa Apps", image: Image(systemName: "square.stack.3d.up"))
+                            : SharePreview(app.name, image: Image(systemName: app.iconSystemName))
                     ) {
                         Label("Share…", systemImage: "square.and.arrow.up")
                     }
@@ -157,7 +166,9 @@ private struct ExportShareScreen: View {
                         .foregroundStyle(.secondary)
                 }
             } footer: {
-                Text("Shares a .pupaapp file — AirDrop, Messages, WhatsApp, Mail, or Save to Files. Opening it on another device imports the app into Pupa.")
+                Text(isAllApps
+                     ? "Shares a .pupaapp file with every app — AirDrop, Messages, WhatsApp, Mail, or Save to Files. Opening it on another device imports them all into Pupa."
+                     : "Shares a .pupaapp file — AirDrop, Messages, WhatsApp, Mail, or Save to Files. Opening it on another device imports the app into Pupa.")
             }
         } else {
             Section { Text("No apps to share.").foregroundStyle(.secondary) }
@@ -184,9 +195,9 @@ private struct ExportShareScreen: View {
     }
 
     /// Slack agent personas that would ship in the current selection — the
-    /// privacy review surface.
+    /// privacy review surface. (Omitted in all-apps mode to keep it minimal.)
     private var sharedPromptPreview: [String] {
-        guard let app else { return [] }
+        guard !isAllApps, let app else { return [] }
         var out: [String] = []
         for comp in app.components where selectedComponentIds.contains(comp.id) {
             if case .slack(let s) = comp.body {
@@ -205,20 +216,29 @@ private struct ExportShareScreen: View {
     }
 
     private func syncSelection() {
+        if isAllApps { regenerateShareFile(); return }
         guard let app else { return }
         selectedAppId = app.id
         selectedComponentIds = Set(app.components.map(\.id))
         regenerateShareFile()
     }
 
-    /// Encode the current selection to a temp `<App>.pupaapp` file the share
-    /// sheet hands off. `nil`s `shareURL` (disabling the control) when nothing
-    /// is selected. Cheap enough to re-run on every toggle.
+    /// Encode the current selection to a temp `.pupaapp` file the share sheet
+    /// hands off — a single-app bundle, or (all-apps mode) a library of every
+    /// app. `nil`s `shareURL` when nothing is selectable. Cheap enough to re-run
+    /// on every toggle.
     private func regenerateShareFile() {
-        guard let app, !selectedComponentIds.isEmpty else {
-            shareURL = nil
+        if isAllApps {
+            guard !store.myApps.isEmpty else { shareURL = nil; return }
+            let library = MyAppExporter.makeLibraryBundle(
+                apps: store.myApps,
+                includeRecords: includeRecords,
+                includeMemories: includeMemories,
+                memory: memory)
+            writeShareFile(named: "Pupa Apps") { try library.encoded() }
             return
         }
+        guard let app, !selectedComponentIds.isEmpty else { shareURL = nil; return }
         let bundle = MyAppExporter.makeBundle(
             app: app,
             options: .init(
@@ -226,11 +246,17 @@ private struct ExportShareScreen: View {
                 includeRecords: includeRecords,
                 includeMemories: includeMemories),
             memory: memory)
+        writeShareFile(named: MemoryStore.myAppFolder(myAppName: app.name)) { try bundle.encoded() }
+    }
+
+    /// Write `encode()`'s bytes to a temp `<base>.pupaapp` and point the share
+    /// sheet at it (or surface an error).
+    private func writeShareFile(named base: String, encode: () throws -> Data) {
         do {
             let url = FileManager.default.temporaryDirectory
-                .appendingPathComponent(MemoryStore.myAppFolder(myAppName: app.name))
+                .appendingPathComponent(base)
                 .appendingPathExtension(MyAppBundle.fileExtension)
-            try bundle.encoded().write(to: url, options: .atomic)
+            try encode().write(to: url, options: .atomic)
             shareURL = url
         } catch {
             shareURL = nil
@@ -288,13 +314,24 @@ private struct ImportAppScreen: View {
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             do {
                 let data = try Data(contentsOf: url)
-                let imported = try MyAppImporter.importBundle(data, into: store, memory: memory)
-                if imported.warnings.isEmpty {
-                    onImported(imported.myAppId)
+                if MyAppImporter.probeFormat(data) == .library {
+                    let imported = try MyAppImporter.importLibrary(data, into: store, memory: memory)
+                    guard let first = imported.myAppIds.first else {
+                        notice = SharingNotice(title: "Import failed", message: "The bundle had no apps to import.")
+                        return
+                    }
+                    let n = imported.myAppIds.count
+                    var lines = ["Imported \(n) app\(n == 1 ? "" : "s")."]
+                    lines.append(contentsOf: imported.warnings)
+                    notice = SharingNotice(title: "Imported", message: lines.joined(separator: "\n"))
+                    onImported(first)
                 } else {
-                    notice = SharingNotice(
-                        title: "Imported with notes",
-                        message: imported.warnings.joined(separator: "\n"))
+                    let imported = try MyAppImporter.importBundle(data, into: store, memory: memory)
+                    if !imported.warnings.isEmpty {
+                        notice = SharingNotice(
+                            title: "Imported with notes",
+                            message: imported.warnings.joined(separator: "\n"))
+                    }
                     onImported(imported.myAppId)
                 }
             } catch {
