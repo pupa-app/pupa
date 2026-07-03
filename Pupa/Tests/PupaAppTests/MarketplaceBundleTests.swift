@@ -279,4 +279,111 @@ struct MarketplaceBundleTests {
         let supported = MyAppType.tracker.supportedComponentKinds.subtracting(["empty"])
         #expect(supported.isSubset(of: ComponentExportRegistry.shared.registeredKinds))
     }
+
+    // MARK: Library (multi-app) round-trip
+
+    @Test("probeFormat distinguishes a single bundle from a library")
+    func probeFormatDistinguishes() throws {
+        let mem = tempMemory()
+        let app = fixtureApp()
+        let single = try MyAppExporter.makeBundle(app: app, options: allSelected(app), memory: mem).encoded()
+        let library = try MyAppExporter.makeLibraryBundle(
+            apps: [app], includeRecords: true, includeMemories: true, memory: mem).encoded()
+        #expect(MyAppImporter.probeFormat(single) == .single)
+        #expect(MyAppImporter.probeFormat(library) == .library)
+        #expect(MyAppImporter.probeFormat(Data("nonsense".utf8)) == .unknown)
+    }
+
+    @Test("Library round-trip imports every app with re-materialised memories")
+    func libraryRoundTrip() throws {
+        let mem = tempMemory()
+        let app1 = fixtureApp()
+        var app2 = fixtureApp()
+        app2.name = "Demo Two"
+        // Seed a skill into each app's scoped memory so we can prove per-app
+        // re-materialisation on import.
+        try mem.appScopedStore(forAppNamed: app1.name)
+            .writeFile(path: "pupa/skills/one/SKILL.md", content: "---\ndescription: one\n---\nA.")
+        try mem.appScopedStore(forAppNamed: app2.name)
+            .writeFile(path: "pupa/skills/two/SKILL.md", content: "---\ndescription: two\n---\nB.")
+        let store = MyAppStore(initial: ([], UUID()))
+
+        let library = MyAppExporter.makeLibraryBundle(
+            apps: [app1, app2], includeRecords: true, includeMemories: true, memory: mem)
+        let result = try MyAppImporter.importLibrary(try library.encoded(), into: store, memory: mem)
+
+        #expect(result.myAppIds.count == 2)
+        #expect(store.myApps.count == 2)
+        let names = Set(store.myApps.map(\.name))
+        #expect(names.contains("Demo"))
+        #expect(names.contains("Demo Two"))
+        // Memories re-materialised under each imported app's own scope.
+        let one = try #require(store.myApps.first { $0.name == "Demo" })
+        let two = try #require(store.myApps.first { $0.name == "Demo Two" })
+        #expect(mem.appScopedStore(forAppNamed: one.name).fileExists(at: "pupa/skills/one/SKILL.md"))
+        #expect(mem.appScopedStore(forAppNamed: two.name).fileExists(at: "pupa/skills/two/SKILL.md"))
+    }
+
+    @Test("Library apps that collide are renamed uniquely, one per app")
+    func libraryCollisionRenames() throws {
+        let mem = tempMemory()
+        let app = fixtureApp()            // both apps share the name "Demo"
+        let store = MyAppStore(initial: ([], UUID()))
+        let library = MyAppExporter.makeLibraryBundle(
+            apps: [app, app], includeRecords: true, includeMemories: true, memory: mem)
+
+        let result = try MyAppImporter.importLibrary(try library.encoded(), into: store, memory: mem)
+        #expect(result.myAppIds.count == 2)
+        #expect(Set(store.myApps.map(\.name)).count == store.myApps.count)   // all unique
+    }
+
+    @Test("A malformed app in a library is skipped best-effort; the rest import")
+    func libraryBestEffortSkipsMalformed() throws {
+        let mem = tempMemory()
+        let good = MyAppExporter.makeBundle(app: fixtureApp(), options: allSelected(fixtureApp()), memory: mem)
+        // Hand-build a bad inner bundle: an unknown typeId, rejected by the
+        // per-app validator with `.unknownType`.
+        let badApp = MyApp(
+            name: "Broken", iconSystemName: "xmark", typeId: "bogus-type",
+            components: [Component(id: "x-1", name: "X", iconSystemName: "xmark", body: .empty)])
+        let bad = MyAppBundle(
+            header: .init(appVersion: PupaAppVersion, includedRecords: true, includedMemories: true),
+            app: badApp, memories: [])
+        let library = MyAppLibraryBundle(
+            header: .init(appVersion: PupaAppVersion, appCount: 2, includedRecords: true, includedMemories: true),
+            apps: [good, bad])
+        let store = MyAppStore(initial: ([], UUID()))
+
+        let result = try MyAppImporter.importLibrary(try library.encoded(), into: store, memory: mem)
+        #expect(result.myAppIds.count == 1)
+        #expect(store.myApps.count == 1)
+        #expect(result.warnings.contains { $0.contains("Skipped 'Broken'") })
+    }
+
+    @Test("Oversized library data is rejected before decode")
+    func libraryOversizedRejected() {
+        let store = MyAppStore(initial: ([], UUID()))
+        let big = Data(count: MyAppImporter.maxLibraryBytes + 1)
+        #expect(throws: MyAppImporter.ImportError.self) {
+            try MyAppImporter.importLibrary(big, into: store, memory: tempMemory())
+        }
+    }
+
+    @Test("A newer library formatVersion is hard-rejected")
+    func libraryNewerFormatRejected() throws {
+        let mem = tempMemory()
+        let app = fixtureApp()
+        let store = MyAppStore(initial: ([], UUID()))
+        let data = try MyAppExporter.makeLibraryBundle(
+            apps: [app], includeRecords: true, includeMemories: true, memory: mem).encoded()
+        // Bump only the library header's formatVersion.
+        var obj = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        var header = try #require(obj["header"] as? [String: Any])
+        header["formatVersion"] = 999
+        obj["header"] = header
+        let bumped = try JSONSerialization.data(withJSONObject: obj)
+        #expect(throws: MyAppImporter.ImportError.self) {
+            try MyAppImporter.importLibrary(bumped, into: store, memory: mem)
+        }
+    }
 }

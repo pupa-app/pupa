@@ -86,6 +86,28 @@ fully before any store/disk mutation:
 7. insert; then write memories via `MemoryStore.writeFile` (its `resolve`
    blocks `..`, absolute paths, non-`.md`).
 
+## Library bundle (many apps in one file)
+
+`MyAppLibraryBundle` (`MyAppLibraryBundle.swift`) is a thin container —
+`header` + `apps: [MyAppBundle]` — that ships **every** MyApp in one file. Same
+`.pupaapp` extension; the two are told apart by `header.format`
+(`pupa.library.bundle` vs `pupa.myapp.bundle`), probed by
+`MyAppImporter.probeFormat` so the UI routes single vs library (Files picker,
+tap-to-open confirm sheet). No new UTType.
+
+- **Export**: the Share screen's app picker has an **All apps** option →
+  `MyAppExporter.makeLibraryBundle` calls `makeBundle` once per app (all
+  components, shared records/memories toggles). No separate screen.
+- **Import**: `MyAppImporter.importLibrary` decodes, checks the library
+  magic/version + an app-count cap, then loops `importDecoded` — the same
+  per-app authority the single path uses. **Best-effort**: one malformed app is
+  skipped with a warning, the rest land. Because each app is inserted before the
+  next imports, the slug-unique rename deduplicates apps that collide with each
+  other.
+
+No new security surface: every per-app guard runs per app; the container adds
+only a larger pre-decode byte cap and the app-count cap.
+
 ## Threat model
 
 The bundle is inert (no code execution). Remaining vectors → mitigations:
