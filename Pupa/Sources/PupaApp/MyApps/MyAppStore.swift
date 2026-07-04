@@ -29,6 +29,10 @@ public final class MyAppStore {
 
     public private(set) var myApps: [MyApp]
     public private(set) var activeMyAppId: UUID
+    /// The global memory store, wired by `AppView` at startup. Memories are
+    /// keyed on the app-name slug, so `renameMyApp` must move the folder
+    /// through this store. Unset in previews/tests that never touch memories.
+    @ObservationIgnored public var globalMemory: MemoryStore?
     /// Thread list for the Orchestrator (memory-scope) chat. Always non-empty.
     public private(set) var memoryThreads: [ChatThread]
     /// The threadId of the currently-selected Orchestrator conversation.
@@ -253,8 +257,12 @@ public final class MyAppStore {
     public func renameMyApp(_ id: UUID, to newName: String) {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let idx = myApps.firstIndex(where: { $0.id == id }) else { return }
-        guard myApps[idx].name != trimmed else { return }
+        let oldName = myApps[idx].name
+        guard oldName != trimmed else { return }
         myApps[idx].name = trimmed
+        // Memories live under the name's slug — move them along or they're
+        // orphaned (empty Memories tab, exports ship no memories).
+        globalMemory?.migrateAppFolder(fromAppNamed: oldName, toAppNamed: trimmed)
         persist()
     }
 
@@ -2644,10 +2652,20 @@ public final class MyAppStore {
         var itemEventLog: ItemEventLog?
     }
 
+    /// Encoder for persisted state. `.sortedKeys` makes the bytes
+    /// deterministic — Foundation's default key order can differ between
+    /// encodes of the same value, which would fail the dirty-hash skip and
+    /// rewrite (re-upload) every unchanged app file.
+    private static func stateEncoder() -> JSONEncoder {
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.sortedKeys]
+        return enc
+    }
+
     /// Write only the files whose encoded bytes changed; delete files for
     /// removed apps. Each write is `NSFileCoordinator`-coordinated for iCloud.
     private func persist() {
-        let enc = JSONEncoder()
+        let enc = Self.stateEncoder()
         var live = Set<UUID>()
         for app in myApps {
             live.insert(app.id)
@@ -2682,7 +2700,7 @@ public final class MyAppStore {
     /// Fill the dirty-hash caches from current state without writing, so the
     /// next mutation only re-encodes/uploads the file that changed.
     private func primeHashes() {
-        let enc = JSONEncoder()
+        let enc = Self.stateEncoder()
         for app in myApps {
             if let data = try? enc.encode(app) { lastAppHash[app.id] = data.hashValue }
         }
@@ -2739,7 +2757,7 @@ public final class MyAppStore {
     /// `NSFileVersion` conflicts — snapshotting every side so no offline edit
     /// is ever silently lost (issue #82).
     public func reloadFromDisk() {
-        let enc = JSONEncoder()
+        let enc = Self.stateEncoder()
         for app in myApps where (try? enc.encode(app))?.hashValue != lastAppHash[app.id] {
             SnapshotStore.record(app, reason: .preReload)
         }

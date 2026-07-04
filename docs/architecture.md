@@ -481,7 +481,12 @@ the CloudDocuments entitlement (`PupaHost.entitlements`, container
   plus a threads collection grouped by agent.
 - **Memories** → markdown files under `<storage root>/memories/`
   (per-agent namespaces under `agents/<agentId>/`). Survive "New session".
-  Each file syncs individually via iCloud.
+  Each file syncs individually via iCloud. The per-app folder is keyed on
+  the app name's slug, so `MyAppStore.renameMyApp` migrates the subtree to
+  the new slug (via `MemoryStore.migrateAppFolder`; on a slug collision the
+  trees merge and existing destination files win). App-scoped stores from
+  `appScopedStore` propagate their writes to the parent store's tree, so
+  the sidebar / Memories tab refresh without a relaunch.
 - **Chat history** → owned by the *backend* checkpointer, keyed by
   `threadId`. The client reloads old conversations from
   `GET /db/threads/{threadId}/messages` after relaunch. Unset DB config
@@ -502,7 +507,9 @@ Import & Export: export is a **Share…** action (`ShareLink` → AirDrop /
 Messages / WhatsApp / Files). `.pupaapp` is a registered, app-owned file type
 (`UTType.pupaAppBundle`), so opening a shared bundle routes to Pupa via
 `AppView.onOpenURL`, which read-only-decodes it for a confirm sheet before
-running the same importer. Cross-component references are enumerated/pruned by a single
+running the same importer. Each Share regeneration writes a fresh unique
+temp file so the `ShareLink` never hands off a bundle built before the
+latest toggle change. Cross-component references are enumerated/pruned by a single
 unified model on `CanvasApp` (`componentReferences` / `remapReferences`) shared
 with the delete cascade; each kind registers a `ComponentExportPolicy`. Import
 treats the bundle as untrusted (settings allow-list, size/count caps,

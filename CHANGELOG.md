@@ -3,6 +3,27 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.53] — 2026-07-04
+
+### Fixed
+
+- **MyApp export/import no longer loses memories** (#112).
+  - Importing a `.pupaapp` now refreshes the live memory tree, so the
+    imported app's Memories tab shows its files immediately instead of
+    "No notes yet." until a relaunch.
+  - Renaming a MyApp now moves its `memories/<slug>` folder to the new
+    slug. Previously a rename orphaned the folder: the Memories tab went
+    blank and exports shipped zero memories for that app.
+  - The Share screen writes each regenerated bundle to a fresh temp file,
+    so the share sheet can no longer hand off a bundle built before the
+    latest "Include records/memories" toggle change.
+  - Export reads memory files through the coordinated (iCloud-safe) path.
+  (`PupaApp` `0.0.150`)
+- **Unchanged apps no longer re-persist (and re-upload to iCloud)
+  spuriously.** The per-app dirty-hash now encodes with stable key order;
+  Foundation's default `JSONEncoder` order can differ between encodes,
+  which defeated the skip. (`PupaApp` `0.0.150`)
+
 ## [0.0.52] — 2026-07-03
 
 ### Added
