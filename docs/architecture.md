@@ -128,13 +128,19 @@ subject-generalized (a path→selection closure), so one browse view + row serve
 both scopes.
 
 **In-app links (`pupa://`).** The agent can embed tappable navigation links in
-chat markdown; `Chat/ChatLink.swift` maps a `pupa://` URL to a
+chat markdown (and note bodies); `Chat/ChatLink.swift` maps a `pupa://` URL to a
 `SidebarSelection` and `AppView.chatLinkAction` (an `OpenURLAction` installed on
-both the detail `NavigationStack` and `ChatOverlay`) pushes it onto `detailPath`
-— real `http(s)` URLs fall through to the browser. Links are **scope-relative**:
-`pupa://memory/<path>` uses the same note path the agent reads/writes and binds
-to the current chat scope (a myApp → `.myAppMemoryFile`, the orchestrator →
-`.memoryFile`); `pupa://component/<id>` targets the current myApp; the explicit
+the detail `NavigationStack`, `ChatOverlay`, and `CanvasView` — the last so
+`pupa://memory/…` values in tracker `.link` fields route in-app) pushes it onto
+`detailPath` — real `http(s)` URLs fall through to the browser. The agent writes
+**scope-relative** paths — `pupa://memory/<path>` is the same note path it
+reads/writes, bound to the current chat scope (a myApp → `.myAppMemoryFile`, the
+orchestrator → `.memoryFile`). But `SidebarSelection` memory paths are
+**global-root-relative** — the space the shared `memory` store, browse, and
+agent-prompt links all use — so `chatLinkAction` calls
+`SidebarSelection.globalizedMemoryPath` to prefix the scope folder (the myApp
+slug, or `orchestrator/`) before routing; otherwise the target note can't be
+read. `pupa://component/<id>` targets the current myApp; the explicit
 `pupa://myapp/<uuid>/memory/<path>` form is for cross-scope links. Distinct from
 Slack's `pupa-mention://` and the `.pupaapp` file type.
 

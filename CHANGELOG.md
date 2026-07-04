@@ -3,6 +3,26 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.54] — 2026-07-04
+
+### Fixed
+
+- **Tapping a `pupa://memory/` link now opens the note.** Links between memory
+  notes (and note links in chat) did nothing: the agent writes scope-relative
+  paths (`notes/x.md`), but the shared memory store reads global-root-relative
+  ones (`<app-slug>/notes/x.md`), so the target never resolved. `chatLinkAction`
+  now globalizes the path before routing. The canvas is now covered too, so a
+  `pupa://memory/…` value in a `.link` field (e.g. a tracker "Doc" pointing at a
+  note) opens in-app instead of failing to open via the browser.
+  (`PupaApp` `0.0.151`)
+
+### Changed
+
+- **Settings dismisses from the left.** On iOS the trailing "Done" is now a
+  leading back chevron, matching every pushed page — going back is one
+  consistent left-side tap instead of reaching across to the right.
+  (`PupaApp` `0.0.151`)
+
 ## [0.0.53] — 2026-07-04
 
 ### Fixed
