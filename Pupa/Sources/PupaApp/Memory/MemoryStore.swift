@@ -237,7 +237,7 @@ public final class MemoryStore {
     static let writableExtensions: Set<String> = ["md", "json"]
 
     /// Top-level folder for a myApp: `<slug>` (e.g. `"my-fitness-app"`).
-    public static func myAppFolder(myAppName: String) -> String {
+    public nonisolated static func myAppFolder(myAppName: String) -> String {
         slugify(myAppName)
     }
 
@@ -260,7 +260,7 @@ public final class MemoryStore {
     }
 
     /// Top-level folder for the orchestrator's memories.
-    public static func orchestratorFolder() -> String { "orchestrator" }
+    public nonisolated static func orchestratorFolder() -> String { "orchestrator" }
 
     /// Absolute URL for a myApp's memory root — used as `rootOverride` when
     /// creating a session-scoped `MemoryStore`.
@@ -343,7 +343,7 @@ public final class MemoryStore {
 
     /// Lower-case alphanumerics + hyphens, no consecutive hyphens, capped at
     /// 60 characters. Mirrors `MemorySheets.slugify` without a SwiftUI import.
-    static func slugify(_ raw: String, maxLength: Int = 60) -> String {
+    nonisolated static func slugify(_ raw: String, maxLength: Int = 60) -> String {
         var out: [Character] = []
         var lastWasHyphen = false
         for scalar in raw.unicodeScalars {
