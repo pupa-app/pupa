@@ -92,6 +92,9 @@ public struct AppView: View {
         PupaStorage.promoteLocalIfNeeded()
         let store = MyAppStore()
         let memory = MemoryStore()
+        // Rename must move the app's slug-keyed memory folder through the
+        // live store so the sidebar tree refreshes in place.
+        store.globalMemory = memory
         // Persona AGENTS.md and default skills (the `/to-memory` skill) are
         // seeded once at app birth (addMyApp / restoreExample / fresh-install)
         // — never here — so user edits *and deletions* aren't resurrected on

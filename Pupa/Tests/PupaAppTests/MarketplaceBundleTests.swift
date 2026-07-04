@@ -8,6 +8,8 @@ import Testing
 @Suite("Marketplace export / import")
 struct MarketplaceBundleTests {
 
+    init() { TestStorage.activate() }
+
     // MARK: Fixtures
 
     /// Temp memory root so memory writes never touch real Application Support.
@@ -271,6 +273,76 @@ struct MarketplaceBundleTests {
         #expect(scoped.fileExists(at: "pupa/skills/greet/SKILL.md"))
         #expect(scoped.fileExists(at: "pupa/agents/coach/AGENTS.md"))
         #expect(SkillStore(memory: scoped).skill(named: "greet") != nil)
+    }
+
+    // MARK: Memories round-trip (issue #112)
+
+    /// Every file path in a memory tree, read from the *in-memory* `tree`
+    /// (not disk) — asserts what the Memories tab would actually render.
+    private func treePaths(_ store: MemoryStore) -> Set<String> {
+        var out: Set<String> = []
+        func walk(_ n: MemoryNode) {
+            if !n.isFolder { out.insert(n.path) }
+            n.children?.forEach(walk)
+        }
+        walk(store.tree)
+        return out
+    }
+
+    @Test("User memories round-trip a single-app export with Include memories ON")
+    func memoriesRoundTrip() throws {
+        let mem = tempMemory()
+        let app = fixtureApp()
+        let store = MyAppStore(initial: ([], UUID()))
+        try mem.appScopedStore(forAppNamed: app.name)
+            .writeFile(path: "notes/scratch.md", content: "user note")
+
+        let bundle = MyAppExporter.makeBundle(app: app, options: allSelected(app), memory: mem)
+        #expect(bundle.memories.contains { $0.path == "notes/scratch.md" })
+
+        let result = try MyAppImporter.importBundle(try bundle.encoded(), into: store, memory: mem)
+        let imported = try #require(store.myApps.first { $0.id == result.myAppId })
+        let scoped = mem.appScopedStore(forAppNamed: imported.name)
+        #expect(scoped.fileExists(at: "notes/scratch.md"))
+        #expect(try scoped.readFile(path: "notes/scratch.md").content == "user note")
+    }
+
+    @Test("Rename before export keeps memories attached (slug migration)")
+    func renameThenExportKeepsMemories() throws {
+        let mem = tempMemory()
+        let app = fixtureApp()
+        let store = MyAppStore(initial: ([app], app.id))
+        store.globalMemory = mem
+        try mem.appScopedStore(forAppNamed: app.name)
+            .writeFile(path: "notes/scratch.md", content: "user note")
+
+        store.renameMyApp(app.id, to: "Demo Renamed")
+        let renamed = try #require(store.myApp(withId: app.id))
+        #expect(renamed.name == "Demo Renamed")
+        // The folder followed the rename…
+        #expect(mem.appScopedStore(forAppNamed: "Demo Renamed").fileExists(at: "notes/scratch.md"))
+        #expect(!mem.folderExists(at: MemoryStore.myAppFolder(myAppName: "Demo")))
+        // …so the export still ships the user memory.
+        let bundle = MyAppExporter.makeBundle(app: renamed, options: allSelected(renamed), memory: mem)
+        #expect(bundle.memories.contains { $0.path == "notes/scratch.md" })
+    }
+
+    @Test("Import refreshes the global memory tree — no relaunch needed")
+    func importRefreshesGlobalTree() throws {
+        let mem = tempMemory()
+        let app = fixtureApp()
+        // "Demo" already exists, so the import lands under a fresh slug.
+        let store = MyAppStore(initial: ([app], app.id))
+        try mem.appScopedStore(forAppNamed: app.name)
+            .writeFile(path: "notes/scratch.md", content: "user note")
+
+        let bundle = MyAppExporter.makeBundle(app: app, options: allSelected(app), memory: mem)
+        let result = try MyAppImporter.importBundle(try bundle.encoded(), into: store, memory: mem)
+        let imported = try #require(store.myApps.first { $0.id == result.myAppId })
+        let slug = MemoryStore.myAppFolder(myAppName: imported.name)
+        #expect(slug != MemoryStore.myAppFolder(myAppName: app.name))
+        // The *live* tree (what the Memories tab renders) has the new files.
+        #expect(treePaths(mem).contains("\(slug)/notes/scratch.md"))
     }
 
     @Test("Every supported component kind has an export policy")

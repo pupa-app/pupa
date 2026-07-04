@@ -250,11 +250,17 @@ private struct ExportShareScreen: View {
     }
 
     /// Write `encode()`'s bytes to a temp `<base>.pupaapp` and point the share
-    /// sheet at it (or surface an error).
+    /// sheet at it (or surface an error). Each regeneration gets a fresh
+    /// unique folder: `ShareLink` keys off the item URL's identity, so
+    /// rewriting one fixed path could hand off a bundle built before the
+    /// latest toggle change (e.g. memories missing despite the toggle ON).
     private func writeShareFile(named base: String, encode: () throws -> Data) {
+        let previous = shareURL
         do {
-            let url = FileManager.default.temporaryDirectory
-                .appendingPathComponent(base)
+            let dir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("share-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let url = dir.appendingPathComponent(base)
                 .appendingPathExtension(MyAppBundle.fileExtension)
             try encode().write(to: url, options: .atomic)
             shareURL = url
@@ -262,6 +268,14 @@ private struct ExportShareScreen: View {
             shareURL = nil
             notice = SharingNotice(title: "Export failed", message: error.localizedDescription)
         }
+        removeShareFolder(of: previous)
+    }
+
+    /// Best-effort cleanup of a superseded regeneration's unique temp folder.
+    private func removeShareFolder(of url: URL?) {
+        guard let url, url.deletingLastPathComponent()
+            .lastPathComponent.hasPrefix("share-") else { return }
+        try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
     }
 }
 
