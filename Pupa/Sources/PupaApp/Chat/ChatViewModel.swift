@@ -138,8 +138,8 @@ public struct PickedImage: Equatable, Sendable {
 
 /// A message the user submitted while a turn was still in flight. Held in
 /// `ChatViewModel.queuedMessages` (FIFO), rendered with a clock/pending glyph
-/// above the composer, and auto-sent one at a time as each turn settles
-/// cleanly. Not a `ChatBubble`: queued items are pre-conversation drafts, so
+/// above the composer, and merged into a single next turn once the current
+/// one settles cleanly. Not a `ChatBubble`: queued items are pre-conversation drafts, so
 /// they stay out of `bubbles` (and thus out of the transcript / agent history)
 /// until they're actually sent. `text` is the raw composer string — slash
 /// commands are re-evaluated when the item drains back through `send`.
@@ -189,10 +189,10 @@ public final class ChatViewModel {
     /// from the store's current thread for this scope — never mutated.
     public let threadId: String
     public private(set) var bubbles: [ChatBubble] = []
-    /// Messages the user queued while a turn was in flight, FIFO. Each is shown
-    /// with a pending/clock glyph above the composer and auto-sent — one at a
-    /// time — as each turn settles cleanly (see `drainQueue()`). Empty whenever
-    /// the session is idle with nothing waiting.
+    /// Messages the user queued while a turn was in flight, FIFO. Shown with a
+    /// pending/clock glyph above the composer and merged into a single next
+    /// turn once the current one settles cleanly (see `drainQueue()`). Empty
+    /// whenever the session is idle with nothing waiting.
     public private(set) var queuedMessages: [QueuedMessage] = []
     public private(set) var isStreaming = false
     public private(set) var lastError: String?
@@ -967,9 +967,11 @@ public final class ChatViewModel {
     }
 
     /// Pop and send the next queued message, if the session is idle and clean.
-    /// Called after a turn settles (see `consume`). Sending it flips
-    /// `isStreaming` back on and, when that turn settles, drains the next —
-    /// so the whole queue empties in FIFO order, one turn at a time.
+    /// Called after a turn settles (see `consume`). Collapses the *whole*
+    /// pending queue into a single next turn — everything queued during the
+    /// last turn is merged and sent as one user message, so the user never
+    /// waits a turn per message. Anything queued while this merged turn runs
+    /// drains the same way on the next settle.
     ///
     /// Guards: never drain while streaming or parked on an interrupt, and never
     /// after an error (the failed turn's error stays on screen and the user
@@ -977,9 +979,20 @@ public final class ChatViewModel {
     /// failures).
     private func drainQueue() {
         guard !isStreaming, !isAwaitingHumanInput, lastError == nil else { return }
-        guard !queuedMessages.isEmpty else { return }
-        let next = queuedMessages.removeFirst()
-        send(next.text, image: next.pickedImage)
+        guard let merged = Self.coalesceQueue(queuedMessages) else { return }
+        queuedMessages.removeAll()
+        send(merged.text, image: merged.image)
+    }
+
+    /// Collapse the pending queue into one outgoing message: the queued texts
+    /// joined in FIFO order (blank-line separated), carrying the first attached
+    /// image. Stays a single AG-UI user message so the backend's one-user-per-
+    /// run history contract is untouched. `nil` when the queue is empty.
+    static func coalesceQueue(_ queue: [QueuedMessage]) -> (text: String, image: PickedImage?)? {
+        guard !queue.isEmpty else { return nil }
+        let text = queue.map(\.text).filter { !$0.isEmpty }.joined(separator: "\n\n")
+        let image = queue.compactMap(\.pickedImage).first
+        return (text, image)
     }
 
     /// Update the in-progress answer for a single question row. The bubble

@@ -106,8 +106,10 @@ flight. Submitting mid-stream doesn't wait or drop — `ChatViewModel.send`
 appends the text to `queuedMessages` (FIFO) instead of starting a run. Queued
 items render as clock-marked pills above the composer; each can be cancelled
 (✕) or tapped to pull back into the composer for editing. When the current turn
-settles cleanly (`consume` → `drainQueue`), the next queued message auto-sends
-as a fresh run, and so on until the queue empties. Draining is skipped after an
+settles cleanly (`consume` → `drainQueue`), the *whole* queue is coalesced
+(`coalesceQueue`) into one fresh run — texts joined in FIFO order, the first
+attached image carried — so a burst of messages costs one turn, not one turn
+each, and it stays a single AG-UI user message. Draining is skipped after an
 error (the failure stays on screen; the user decides whether to retry) and on
 an explicit **Stop** (`cancel` Case B) / `newThread`, which discard the queue.
 While a turn is parked on a human-in-the-loop interrupt the composer is gated,

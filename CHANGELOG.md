@@ -9,8 +9,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
 
 - **Queue messages while the agent is busy.** The composer no longer locks
   during a turn — type and send and the message is queued (FIFO) with a clock
-  glyph above the composer, then auto-sent as the next run when the current
-  turn settles. Queued messages can be cancelled (✕) or tapped to edit before
+  glyph above the composer. When the current turn settles the *whole* queue is
+  merged into a single next turn (texts joined in order, first image carried),
+  so you can keep adding and everything lands in one run rather than one turn
+  per message. Queued messages can be cancelled (✕) or tapped to edit before
   they send. Draining is skipped after an error and discarded on Stop / new
   thread. The send button is Stop only when streaming with an empty composer.
   (pupa#119, `PupaApp` `0.0.154`)

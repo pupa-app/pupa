@@ -152,6 +152,25 @@ struct ChatQueuedMessagesTests {
         _ = await answers
     }
 
+    @Test("The whole queue coalesces into one message: texts joined FIFO, first image wins")
+    func coalesceQueue_mergesIntoSingleMessage() {
+        // Empty queue → nothing to drain.
+        #expect(ChatViewModel.coalesceQueue([]) == nil)
+
+        let img = Data([0xA, 0xB])
+        let queue = [
+            QueuedMessage(text: "one"),
+            QueuedMessage(text: "two", imageData: img, mimeType: "image/png"),
+            QueuedMessage(text: "", imageData: Data([0xC]), mimeType: "image/png"),
+            QueuedMessage(text: "three"),
+        ]
+        let merged = ChatViewModel.coalesceQueue(queue)
+        // FIFO order, blank-line separated, empty text components skipped.
+        #expect(merged?.text == "one\n\ntwo\n\nthree")
+        // First attached image wins (the one on "two", not the image-only item).
+        #expect(merged?.image == PickedImage(data: img, mimeType: "image/png"))
+    }
+
     @Test("A queued message carrying an image round-trips its PickedImage")
     func queuedMessage_reconstitutesImage() {
         let data = Data([0x1, 0x2, 0x3])
