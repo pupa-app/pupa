@@ -66,12 +66,13 @@ public final class SettingsStore {
     /// probe in `OnboardingMigration`.
     public static let storageKey = "pupa.settings.v1"
 
-    public static let defaultBackendURL = URL(string: "http://localhost:8004/")!
-    public static let defaultBackendLabel = "Local backend"
+    // `nonisolated` so the off-main `load()` (pupa#110) can read these defaults.
+    public nonisolated static let defaultBackendURL = URL(string: "http://localhost:8004/")!
+    public nonisolated static let defaultBackendLabel = "Local backend"
 
     /// A2A (agent-to-agent) guardrails — see `AgentInvocationGate`.
-    public static let defaultA2AMaxChainDepth = 4
-    public static let defaultA2AMaxTurnsPerPair = 5
+    public nonisolated static let defaultA2AMaxChainDepth = 4
+    public nonisolated static let defaultA2AMaxTurnsPerPair = 5
     /// UI bounds for the steppers; also clamp anything read from disk.
     public static let a2aMaxChainDepthRange = 1...8
     public static let a2aMaxTurnsPerPairRange = 1...20
@@ -357,7 +358,7 @@ public final class SettingsStore {
 
     /// `state/settings.json` under the active storage root. Device tokens are
     /// **not** here — they stay in the Keychain, unsynced (see `credentials`).
-    static var settingsURL: URL {
+    nonisolated static var settingsURL: URL {
         PupaStorage.stateRoot.appendingPathComponent("settings.json")
     }
 
@@ -398,7 +399,7 @@ public final class SettingsStore {
         let a2aMaxTurnsPerPair: Int
     }
 
-    private static func load() -> Loaded {
+    private nonisolated static func load() -> Loaded {
         guard let data = CloudDocument.read(settingsURL),
               let snap = try? JSONDecoder().decode(Snapshot.self, from: data)
         else {
@@ -429,7 +430,7 @@ public final class SettingsStore {
         )
     }
 
-    private static func resolveBackends(_ snap: Snapshot) -> ([BackendEntry], UUID) {
+    private nonisolated static func resolveBackends(_ snap: Snapshot) -> ([BackendEntry], UUID) {
         // Prefer the new multi-backend shape if present and non-empty.
         if let stored = snap.backends, !stored.isEmpty {
             let active = snap.activeBackendID.flatMap { id in
@@ -448,9 +449,10 @@ public final class SettingsStore {
     }
 
     /// Reload settings from disk and republish. Called by the iCloud watcher
-    /// when a remote edit lands. Keychain-held tokens are untouched.
-    public func reloadFromDisk() {
-        let loaded = Self.load()
+    /// when a remote edit lands. Keychain-held tokens are untouched. The disk
+    /// read runs off the main actor (pupa#110); only the republish is on main.
+    public func reloadFromDisk() async {
+        let loaded = await Task.detached(priority: .utility) { Self.load() }.value
         disabledBackendTools = loaded.disabledTools
         backends = loaded.backends
         activeBackendID = loaded.activeBackendID

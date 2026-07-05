@@ -2628,10 +2628,10 @@ public final class MyAppStore {
 
     // MARK: - Per-file persistence
 
-    private static var stateRoot: URL { PupaStorage.stateRoot }
-    private static var appsDir: URL { stateRoot.appendingPathComponent("apps", isDirectory: true) }
-    private static var indexURL: URL { stateRoot.appendingPathComponent("index.json") }
-    private static func appURL(_ id: UUID) -> URL {
+    private nonisolated static var stateRoot: URL { PupaStorage.stateRoot }
+    private nonisolated static var appsDir: URL { stateRoot.appendingPathComponent("apps", isDirectory: true) }
+    private nonisolated static var indexURL: URL { stateRoot.appendingPathComponent("index.json") }
+    private nonisolated static func appURL(_ id: UUID) -> URL {
         appsDir.appendingPathComponent("\(id.uuidString).json")
     }
 
@@ -2702,7 +2702,7 @@ public final class MyAppStore {
         var fromDisk: Bool
     }
 
-    private static func load() -> Loaded {
+    private nonisolated static func load() -> Loaded {
         let dec = JSONDecoder()
         if let data = CloudDocument.read(indexURL),
            let index = try? dec.decode(IndexFile.self, from: data) {
@@ -2738,14 +2738,23 @@ public final class MyAppStore {
     /// MyApp that hasn't been persisted, and (2) capture + resolve any iCloud
     /// `NSFileVersion` conflicts — snapshotting every side so no offline edit
     /// is ever silently lost (issue #82).
-    public func reloadFromDisk() {
+    ///
+    /// The heavy file IO — the whole-tree conflict scan and the coordinated
+    /// reads of `index.json` + every app file — runs **off the main actor**
+    /// (pupa#110): during an initial iCloud download the watcher fires this
+    /// repeatedly, and doing that IO on main stampeded the UI thread. Only the
+    /// in-memory dirty check (before) and the republish (after) touch main
+    /// state. The watcher keeps `NSMetadataQuery` updates suppressed until this
+    /// returns, so reloads can't overlap.
+    public func reloadFromDisk() async {
         let enc = JSONEncoder()
         for app in myApps where (try? enc.encode(app))?.hashValue != lastAppHash[app.id] {
             SnapshotStore.record(app, reason: .preReload)
         }
-        resolveConflictsCapturingSnapshots()
-
-        let loaded = Self.load()
+        let loaded = await Task.detached(priority: .utility) { [self] in
+            resolveConflictsCapturingSnapshots()
+            return Self.load()
+        }.value
         guard loaded.fromDisk else { return }
         myApps = loaded.myApps
         activeMyAppId = loaded.activeId
@@ -2806,8 +2815,9 @@ public final class MyAppStore {
     /// Capture + resolve iCloud conflict versions for every app file. Each
     /// side (current + every unresolved `NSFileVersion`) is snapshotted; the
     /// live file is resolved to the newest side and lingering versions are
-    /// marked resolved.
-    private func resolveConflictsCapturingSnapshots() {
+    /// marked resolved. `nonisolated` — pure file IO over statics, so
+    /// `reloadFromDisk` can run it off the main actor.
+    private nonisolated func resolveConflictsCapturingSnapshots() {
         guard let files = try? FileManager.default.contentsOfDirectory(
             at: Self.appsDir, includingPropertiesForKeys: nil) else { return }
         for file in files where file.pathExtension == "json" {
@@ -2830,7 +2840,8 @@ public final class MyAppStore {
     /// Snapshot the live + every conflicting version of one app file and
     /// return the newest side's data. Pure over its inputs so the
     /// keep-both + newest-wins logic is unit-testable without `NSFileVersion`.
-    func captureConflict(
+    /// `nonisolated` so `resolveConflictsCapturingSnapshots` stays off-main.
+    nonisolated func captureConflict(
         liveData: Data?, liveDate: Date, versions: [(data: Data, date: Date)]
     ) -> Data? {
         let dec = JSONDecoder()

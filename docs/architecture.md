@@ -442,6 +442,12 @@ behaviour when iCloud is off — no crash, just no sync). The same Apple ID's
 devices therefore share MyApps, memories, and settings. All synced file IO
 goes through `CloudDocument` (`NSFileCoordinator`-wrapped); a `CloudWatcher`
 (`NSMetadataQuery`) reloads the stores live when another device's edit lands.
+An initial iCloud download fires `NSMetadataQuery` updates in a storm, so the
+watcher **coalesces** them — suppress query updates on the first change, 0.4s
+debounce, one reload per burst — and each store's `reloadFromDisk` runs its
+heavy file IO (whole-tree `NSFileVersion` conflict scan + coordinated reads)
+**off the main actor**, republishing only the result on main. Together these
+keep the sync layer from stampeding the UI thread (pupa#110).
 Conflicts resolve last-writer-wins, **per file**. There is no migration from
 the pre-iCloud single-blob storage — a new build seeds fresh. iCloud needs
 the CloudDocuments entitlement (`PupaHost.entitlements`, container

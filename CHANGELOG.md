@@ -3,6 +3,21 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.53] — 2026-07-05
+
+### Fixed
+
+- **iCloud sync no longer janks the iPhone.** During an initial iCloud
+  download `NSMetadataQuery` fires a storm of update notifications; each one
+  drove a full store reload on the main thread. The watcher now coalesces the
+  storm (suppress query updates + 0.4s debounce → one reload per burst) **and**
+  runs each reload's heavy file IO — the whole-tree `NSFileVersion` conflict
+  scan and coordinated reads of every MyApp, the memory tree, and settings —
+  off the main actor, touching main state only to republish the result. Fixes
+  the iPhone-only slowdown / stutter seen with iCloud sync on, where the iPad
+  (rarely doing a big initial download) stayed smooth (pupa#110).
+  (`PupaApp` `0.0.150`)
+
 ## [0.0.52] — 2026-07-03
 
 ### Added

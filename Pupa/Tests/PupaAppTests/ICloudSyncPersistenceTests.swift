@@ -49,6 +49,23 @@ struct ICloudSyncPersistenceTests {
         #expect(reader.myApps.count == writer.myApps.count)
     }
 
+    @Test("reloadFromDisk (async, off-main) republishes an external write")
+    func reloadFromDiskPicksUpExternalChange() async throws {
+        MyAppStore.clearStorage()
+        let a = MyAppStore()                          // fresh install → seeds + writes
+        let initialCount = a.myApps.count
+
+        // A second store writes a new app to the same on-disk root (stands in
+        // for another device's edit landing in the iCloud container).
+        let b = MyAppStore()
+        let newID = b.addMyApp(typeId: "tracker", name: "Remote", iconSystemName: "star")
+        #expect(!a.myApps.contains { $0.id == newID })  // `a` hasn't seen it yet
+
+        await a.reloadFromDisk()                        // watcher path: IO off-main, republish on main
+        #expect(a.myApps.contains { $0.id == newID && $0.name == "Remote" })
+        #expect(a.myApps.count == initialCount + 1)
+    }
+
     @Test("MyAppStore removeMyApp deletes that app's file")
     func removeMyAppDeletesFile() throws {
         MyAppStore.clearStorage()

@@ -83,22 +83,25 @@ public enum CloudDocument {
 ///
 /// Updates are **coalesced**: during an initial iCloud download (or any burst
 /// of remote writes) `NSMetadataQuery` posts `DidUpdate` many times a second,
-/// and each `onChange` here drives a full, synchronous store reload on the
-/// main thread (re-encode every MyApp, per-file `NSFileVersion` conflict
-/// probes, coordinated reads of the whole tree — see
-/// `MyAppStore.reloadFromDisk`). Firing that once per notification stampedes
-/// the main thread and is the leading suspect for the iPhone-only slowdown in
-/// pupa#110 (the iPad rarely does a big initial download, so it never sees the
-/// storm). We therefore:
+/// and each `onChange` here drives a store reload whose heavy file IO
+/// (re-encode every MyApp, per-file `NSFileVersion` conflict probes,
+/// coordinated reads of the whole tree — see `MyAppStore.reloadFromDisk`) is
+/// the leading suspect for the iPhone-only slowdown in pupa#110 (the iPad
+/// rarely does a big initial download, so it never sees the storm). Two
+/// defences stack:
 ///   1. `disableUpdates()` the moment a change arrives, so the query batches
 ///      further changes instead of posting a notification per file, and
 ///   2. debounce the actual `onChange` so a burst collapses into one reload,
 ///      then `enableUpdates()` — which flushes anything that accumulated and
 ///      re-arms the cycle, converging once the download settles.
+/// `onChange` is **async**: each store runs its reload IO off the main actor
+/// (only the final republish touches main state), and `enableUpdates()` is
+/// deferred until it finishes — so a fresh burst can't overlap an in-flight
+/// reload.
 @MainActor
 public final class CloudWatcher {
     private let query = NSMetadataQuery()
-    private let onChange: @MainActor () -> Void
+    private let onChange: @MainActor () async -> Void
     private var observers: [NSObjectProtocol] = []
     /// Pending coalesced reload; cancelled and rescheduled on each new update.
     private var pendingReload: Task<Void, Never>?
@@ -106,7 +109,7 @@ public final class CloudWatcher {
     /// a single remote edit still lands live within a beat.
     private static let debounceNanos: UInt64 = 400_000_000  // 0.4s
 
-    public init(onChange: @escaping @MainActor () -> Void) {
+    public init(onChange: @escaping @MainActor () async -> Void) {
         self.onChange = onChange
     }
 
@@ -132,7 +135,7 @@ public final class CloudWatcher {
         pendingReload = Task { [weak self] in
             try? await Task.sleep(nanoseconds: CloudWatcher.debounceNanos)
             guard let self, !Task.isCancelled else { return }
-            self.onChange()
+            await self.onChange()
             // Flush whatever accumulated while disabled; if anything did, this
             // posts a fresh DidUpdate and the cycle coalesces again.
             self.query.enableUpdates()

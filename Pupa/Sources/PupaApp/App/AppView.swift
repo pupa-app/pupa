@@ -210,9 +210,9 @@ public struct AppView: View {
     private func startCloudWatcher() {
         guard cloudWatcher == nil else { return }
         let watcher = CloudWatcher {
-            store.reloadFromDisk()
-            memory.reloadFromDisk()
-            settings.reloadFromDisk()
+            await store.reloadFromDisk()
+            await memory.reloadFromDisk()
+            await settings.reloadFromDisk()
         }
         watcher.start()
         cloudWatcher = watcher
