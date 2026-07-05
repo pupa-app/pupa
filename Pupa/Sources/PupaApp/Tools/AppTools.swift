@@ -1226,7 +1226,7 @@ public enum AppTools {
                 defaults to a kind-appropriate icon. The component starts \
                 empty — for trackers / calendars / checklists, call the \
                 kind's render tool next to populate it; for slack, call \
-                `slackCreateAgents` and `slackCreateChannels` to set up the \
+                `slackCreateAgent` and `slackCreateChannels` to set up the \
                 room. The new component becomes the active one. Result \
                 echoes {componentId, kind, name, totalComponents}.
                 """,

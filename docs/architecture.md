@@ -305,7 +305,11 @@ resolved system-prompt fragment also carries a `kindCatalogLine` menu
 (one `kind — blurb` per supported kind, from each kind's dedicated
 `ComponentKindSpec.catalogBlurb`) so the agent knows what each kind is *for*
 before any component of that kind exists — the full per-kind `promptFragment`
-only rides context once the kind is present. Each kind is declared once as a
+only rides context once the kind is present. The always-on
+`baseSystemPromptFragment` also states the two-gate build sequence upfront
+(`addComponent` → `get_tools_<kind>` → the kind's render tool populates it),
+so the model doesn't have to reconstruct it from individual tool descriptions.
+Each kind is declared once as a
 `ComponentKindSpec` in `MyAppType.kinds` (tools + prompt fragment + catalog
 blurb); `supportedComponentKinds`, `toolNamesByKind`, and
 `promptFragmentsByKind` all derive from it. Full recipe in

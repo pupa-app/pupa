@@ -3,6 +3,24 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.55] — 2026-07-05
+
+### Fixed
+
+- **`addComponent` no longer names a tool that doesn't exist.** The prompt
+  told the model to call `slackCreateAgents` (plural) to set up a slack room,
+  but the registered tool is `slackCreateAgent` (singular). Corrected.
+  (`PupaApp` `0.0.152`)
+
+### Changed
+
+- **The build-a-component workflow is now stated plainly upfront.** The
+  always-on system-prompt fragment now spells out both tool gates —
+  `addComponent` creates the component and surfaces its `get_tools_<kind>`
+  gate; calling that gate unlocks the kind's render/mutator tools — instead of
+  leaving the sequence to be reconstructed from individual tool descriptions.
+  (`PupaApp` `0.0.152`)
+
 ## [0.0.54] — 2026-07-04
 
 ### Fixed
