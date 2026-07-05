@@ -66,6 +66,29 @@ struct ICloudSyncPersistenceTests {
         #expect(a.myApps.count == initialCount + 1)
     }
 
+    @Test("MyApps survive an iCloud toggle and mirror up when iCloud is on")
+    func toggleOffKeepsAppsAndMirrorsUp() throws {
+        MyAppStore.clearStorage()
+        let store = MyAppStore()
+        let id = store.addMyApp(typeId: "tracker", name: "Keep", iconSystemName: "star")
+
+        // iCloud "off" (no mirror root): the canonical tree is always local, so
+        // a relaunch still sees the app — this is the pupa#110 "app looks lost"
+        // regression, now impossible because `activeRoot` never switches roots.
+        #expect(PupaStorage.cloudMirrorRoot == nil)
+        #expect(MyAppStore().myApps.contains { $0.id == id })
+
+        // iCloud "on": converge mirrors the local tree up; local is untouched.
+        let cloud = TestStorage.root.appendingPathComponent("cloud-\(UUID().uuidString)", isDirectory: true)
+        PupaStorage.cloudMirrorOverride = cloud
+        defer { PupaStorage.cloudMirrorOverride = nil }
+        StorageMirror.converge(localRoot: PupaStorage.activeRoot, cloudRoot: cloud)
+
+        #expect(MyAppStore().myApps.contains { $0.id == id })       // still local
+        let mirrored = cloud.appendingPathComponent("state/apps/\(id.uuidString).json")
+        #expect(FileManager.default.fileExists(atPath: mirrored.path))  // and now in iCloud
+    }
+
     @Test("MyAppStore removeMyApp deletes that app's file")
     func removeMyAppDeletesFile() throws {
         MyAppStore.clearStorage()

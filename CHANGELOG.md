@@ -3,6 +3,28 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.54] — 2026-07-05
+
+### Changed
+
+- **iCloud sync reworked to a local-canonical store + background mirror.** The
+  local Application Support tree is now always the store of record — the app
+  reads and writes it directly and never blocks on iCloud. iCloud became a
+  mirror (`StorageMirror`) that converges the two trees off the main thread.
+
+### Fixed
+
+- **Turning iCloud off no longer makes MyApps vanish or strands edits.**
+  Previously the storage root switched per launch (iCloud when available, else
+  an empty local root), so toggling iCloud off in iOS Settings relaunched the
+  app onto the empty root — the app seeded a lone fresh MyApp ("app looks
+  lost") and any edits made while off were never synced back. The canonical
+  root is now always local, so it can't switch out from under the app. The
+  mirror merges **baseline-aware**: ordinary edits propagate, genuine conflicts
+  resolve newest-wins with the losing side preserved under `conflicts/` (never
+  dropped), and deletes propagate (a delete racing an edit keeps the edit).
+  (`PupaApp` `0.0.151`)
+
 ## [0.0.53] — 2026-07-05
 
 ### Fixed

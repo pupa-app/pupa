@@ -1,8 +1,9 @@
 import Foundation
 
-/// Coordinated file IO for data that may live in an iCloud ubiquity
-/// container. `NSFileCoordinator` is required for ubiquitous files and is
-/// harmless for local ones, so all synced reads/writes route through here.
+/// Coordinated file IO for the local canonical store. Every synced read/write
+/// routes through here; each mutation schedules a debounced `StorageMirror`
+/// pass so the change propagates to iCloud (no-op when iCloud is off). The
+/// mirror uses its own primitives, so its copies never re-enter here.
 public enum CloudDocument {
     /// Coordinated read. Returns `nil` if the file is absent or unreadable.
     public static func read(_ url: URL) -> Data? {
@@ -25,6 +26,7 @@ public enum CloudDocument {
         }
         if let coordErr { throw coordErr }
         if let writeErr { throw writeErr }
+        StorageMirror.shared.scheduleReconcile()
     }
 
     /// Coordinated move; creates the destination's parent directory.
@@ -41,6 +43,7 @@ public enum CloudDocument {
         }
         if let coordErr { throw coordErr }
         if let moveErr { throw moveErr }
+        StorageMirror.shared.scheduleReconcile()
     }
 
     /// Coordinated delete. Silent if the file is already gone.
@@ -50,6 +53,7 @@ public enum CloudDocument {
         NSFileCoordinator().coordinate(writingItemAt: url, options: .forDeleting, error: &coordErr) { u in
             try? FileManager.default.removeItem(at: u)
         }
+        StorageMirror.shared.scheduleReconcile()
     }
 
     // MARK: - iCloud conflict versions

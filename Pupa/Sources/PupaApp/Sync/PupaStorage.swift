@@ -1,50 +1,67 @@
 import Foundation
 
-/// Resolves the on-disk root for all synced app data.
+/// Resolves the on-disk roots for all synced app data.
 ///
-/// One root is active per launch: the iCloud ubiquity container's
-/// `Documents/` when iCloud is available, else local Application Support
-/// (`~/Library/Application Support/pupa`). Switching is transparent to the
-/// stores — they read `memoriesRoot` / `stateRoot` and never branch on it.
+/// **The local Application Support tree is always the store of record.** The
+/// stores read and write `stateRoot` / `memoriesRoot` (under `activeRoot`,
+/// which is local) directly and never block on iCloud, so turning iCloud off
+/// in iOS Settings — which relaunches the app onto whatever root is available
+/// — can't hide MyApps ("app looks lost") or strand offline edits. See
+/// `StorageMirror`, which converges that local tree with iCloud in the
+/// background when iCloud is available.
 ///
-/// `iCloud.app.pupa.ios` must match the CloudDocuments container declared in
-/// the app's entitlements; without that capability `documentsRoot` is `nil`
-/// and the app runs entirely local (current behaviour).
+/// iCloud is a **mirror target**, resolved lazily off the main thread only
+/// when the mirror runs. `iCloud.app.pupa.ios` must match the CloudDocuments
+/// container in the app's entitlements; without that capability
+/// `documentsRoot` is `nil` and the app runs local-only.
 ///
-/// Resolution calls `url(forUbiquityContainerIdentifier:)` once, cached for
-/// the process. Tests/demo set `overrideRoot` to a temp dir to stay off both
-/// iCloud and the real Application Support.
+/// Tests set `overrideRoot` (local canonical) and optionally
+/// `cloudMirrorOverride` (a fake iCloud tree) to exercise the mirror without a
+/// real ubiquity container.
 public enum PupaStorage {
     /// iCloud container id; matches the CloudDocuments entitlement.
     public static let containerID = "iCloud.app.pupa.ios"
 
-    /// Process-wide root override. Set by tests before any store inits.
+    /// Process-wide canonical-root override. Set by tests before any store
+    /// inits so file IO stays off the developer's real Application Support.
     nonisolated(unsafe) public static var overrideRoot: URL?
 
+    /// Test hook: pretend this directory is the iCloud mirror. Only consulted
+    /// when `overrideRoot` is set, so tests never touch a real container.
+    nonisolated(unsafe) public static var cloudMirrorOverride: URL?
+
     /// `<container>/Documents`, or `nil` when iCloud is unavailable. Resolved
-    /// once. Blocking on first access — warm it off-main at launch via `warm()`.
+    /// once (blocking on first access) — only ever touched by the background
+    /// mirror, never on the launch/store-load path.
     public static let documentsRoot: URL? = {
         guard let base = FileManager.default.url(forUbiquityContainerIdentifier: containerID)
         else { return nil }
         return base.appendingPathComponent("Documents", isDirectory: true)
     }()
 
-    /// Local fallback root, used when iCloud is off.
+    /// Local canonical root: `~/Library/Application Support/pupa`.
     public static var localRoot: URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
         return support.appendingPathComponent("pupa", isDirectory: true)
     }
 
-    /// The active root for this launch: override → iCloud → local.
+    /// The canonical root the stores read and write: always local (override in
+    /// tests). Never iCloud — that's a mirror, resolved separately.
     public static var activeRoot: URL {
-        overrideRoot ?? documentsRoot ?? localRoot
+        overrideRoot ?? localRoot
     }
 
-    /// Whether synced data lives in iCloud this launch.
-    public static var iCloudActive: Bool {
-        overrideRoot == nil && documentsRoot != nil
+    /// The iCloud mirror root, or `nil` when iCloud is unavailable. Under a
+    /// test `overrideRoot` this is *only* the injected `cloudMirrorOverride`
+    /// (never the real container). The subtree layout mirrors `activeRoot`.
+    public static var cloudMirrorRoot: URL? {
+        if overrideRoot != nil { return cloudMirrorOverride }
+        return documentsRoot
     }
+
+    /// Whether an iCloud mirror is available to sync with this launch.
+    public static var iCloudActive: Bool { cloudMirrorRoot != nil }
 
     /// Markdown memories tree root: `<active>/memories`.
     public static var memoriesRoot: URL {
@@ -56,26 +73,19 @@ public enum PupaStorage {
         activeRoot.appendingPathComponent("state", isDirectory: true)
     }
 
-    /// Warm the iCloud resolution off the main thread so the first store
-    /// access doesn't block app launch. Safe to call repeatedly.
-    public static func warm() {
-        DispatchQueue.global(qos: .userInitiated).async { _ = documentsRoot }
-    }
+    /// Subtrees the mirror keeps in sync between local and iCloud. `conflicts`
+    /// holds preserved losing sides of a merge (see `StorageMirror`); the
+    /// stores never read it.
+    public static let mirroredSubtrees = ["state", "memories", "conflicts"]
 
-    /// Promote local-fallback files into the iCloud container the first time
-    /// iCloud becomes available, so data created offline isn't stranded.
-    /// No-op when iCloud is inactive or the local root is empty. Coordinated.
-    public static func promoteLocalIfNeeded() {
-        guard iCloudActive, let cloud = documentsRoot else { return }
-        let local = localRoot
-        let fm = FileManager.default
-        for sub in ["state", "memories"] {
-            let src = local.appendingPathComponent(sub, isDirectory: true)
-            let dst = cloud.appendingPathComponent(sub, isDirectory: true)
-            guard fm.fileExists(atPath: src.path),
-                  !fm.fileExists(atPath: dst.path) else { continue }
-            try? fm.createDirectory(at: dst.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? fm.setUbiquitous(true, itemAt: src, destinationURL: dst)
+    /// Resolve the iCloud container off the main thread so the first mirror
+    /// pass doesn't block, and kick a background converge. Safe to call
+    /// repeatedly. No-op for the canonical (local) read path, which never
+    /// waits on this.
+    public static func warm() {
+        DispatchQueue.global(qos: .utility).async {
+            _ = documentsRoot
+            StorageMirror.shared.scheduleReconcile()
         }
     }
 }

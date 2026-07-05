@@ -435,23 +435,32 @@ Full reference: [skills.md](skills.md).
 
 ## Persistence
 
-Synced data lives under one **storage root**, resolved per launch by
-`PupaStorage`: the iCloud ubiquity container's `Documents/` when iCloud is
-available, else local `~/Library/Application Support/pupa` (current
-behaviour when iCloud is off — no crash, just no sync). The same Apple ID's
-devices therefore share MyApps, memories, and settings. All synced file IO
-goes through `CloudDocument` (`NSFileCoordinator`-wrapped); a `CloudWatcher`
-(`NSMetadataQuery`) reloads the stores live when another device's edit lands.
-An initial iCloud download fires `NSMetadataQuery` updates in a storm, so the
-watcher **coalesces** them — suppress query updates on the first change, 0.4s
-debounce, one reload per burst — and each store's `reloadFromDisk` runs its
-heavy file IO (whole-tree `NSFileVersion` conflict scan + coordinated reads)
-**off the main actor**, republishing only the result on main. Together these
-keep the sync layer from stampeding the UI thread (pupa#110).
-Conflicts resolve last-writer-wins, **per file**. There is no migration from
-the pre-iCloud single-blob storage — a new build seeds fresh. iCloud needs
-the CloudDocuments entitlement (`PupaHost.entitlements`, container
-`iCloud.app.pupa.ios` = `PupaStorage.containerID`).
+**The local tree is always the store of record.** `PupaStorage.activeRoot` is
+always local `~/Library/Application Support/pupa`; the stores read and write it
+directly and never block on iCloud. iCloud is a **mirror**, not the canonical
+root — so turning it off in iOS Settings (which relaunches the app) can't hide
+MyApps ("app looks lost") or strand offline edits, the way the old
+switch-roots-per-launch design did (pupa#110). All synced file IO goes through
+`CloudDocument` (`NSFileCoordinator`-wrapped), which schedules a debounced
+`StorageMirror` pass after every write.
+
+`StorageMirror` converges the local tree with the iCloud container
+(`cloudMirrorRoot`) in the background, off the main thread. Merge is
+**baseline-aware (3-way)**: a persisted `.mirror-baseline.json` records each
+file's hash as of the last sync, so an ordinary sequential edit (one side moved
+off the baseline) just propagates, while a genuine conflict (both sides moved)
+resolves newest-wins with the losing side preserved under `conflicts/` — data
+is never dropped. Deletes propagate; a delete racing an edit keeps the edit.
+It's triggered at launch (`warm()`), after any local write, and by the
+`CloudWatcher` (`NSMetadataQuery`) when a remote change lands — all debounced
+into one pass. The watcher's reload runs each store's `reloadFromDisk` off the
+main actor, republishing only the result on main, so a burst of remote writes
+can't stampede the UI thread.
+
+There is no migration from the pre-iCloud single-blob storage — a new build
+seeds fresh. iCloud needs the CloudDocuments entitlement
+(`PupaHost.entitlements`, container `iCloud.app.pupa.ios` =
+`PupaStorage.containerID`).
 
 - **Canvas + MyApps state** → **per-file** under `state/`: one
   `apps/<uuid>.json` per MyApp plus `index.json` (active id, order,
