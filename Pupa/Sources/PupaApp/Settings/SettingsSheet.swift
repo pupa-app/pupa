@@ -162,14 +162,25 @@ public struct SettingsSheet: View {
                 categoryDetail(category)
             }
             .toolbar {
+                // Dismiss control sits leading (left) on both platforms, so
+                // going back is one left-side tap — matching the back chevron
+                // every pushed page already shows. `.cancellationAction` is the
+                // modal-dismiss placement and lands top-left on iOS.
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(action: onClose) {
+                        #if os(iOS)
+                        Image(systemName: "chevron.backward")
+                        #else
+                        Text("Done")
+                        #endif
+                    }
+                    .accessibilityLabel("Back")
+                }
                 ToolbarItem(placement: .navigation) {
                     InfoBadge(
                         title: "Settings",
                         message: "Configure Pupa. The Backend section points the app at a remote server; the Tools section controls shell-command approval and which tools the agent is allowed to call this session."
                     )
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done", action: onClose)
                 }
             }
             #if os(macOS)

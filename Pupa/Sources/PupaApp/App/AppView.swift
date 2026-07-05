@@ -92,6 +92,9 @@ public struct AppView: View {
         PupaStorage.warm()
         let store = MyAppStore()
         let memory = MemoryStore()
+        // Rename must move the app's slug-keyed memory folder through the
+        // live store so the sidebar tree refreshes in place.
+        store.globalMemory = memory
         // Persona AGENTS.md and default skills (the `/to-memory` skill) are
         // seeded once at app birth (addMyApp / restoreExample / fresh-install)
         // — never here — so user edits *and deletions* aren't resurrected on
@@ -601,6 +604,11 @@ public struct AppView: View {
             )
         case .myApp, .myAppComponent:
             CanvasView(store: store, selection: sel, coordinator: coordinator)
+                // Route `pupa://` links the agent drops in `.link` fields (e.g. a
+                // tracker "Doc" pointing at a note) in-app. `chatLinkAction`
+                // falls through (`.systemAction`) for http(s), and `SlackView`'s
+                // own nested `openURL` still wins for `pupa-mention://`.
+                .environment(\.openURL, chatLinkAction)
         case .myAppAgents(let id):
             AgentsListView(
                 store: store,
@@ -816,7 +824,12 @@ public struct AppView: View {
             store.setActive(id)
             chatScope = .myApp(id)
         case .memoryFile(let path):
-            coordinator.session(for: .memory).memoryFocusedPath = path
+            // `path` is global-root-relative (`orchestrator/x.md`); the
+            // orchestrator agent's `focusedFile` context is scope-relative —
+            // strip the scope folder so it points at the note the agent knows.
+            let prefix = MemoryStore.orchestratorFolder() + "/"
+            let scoped = path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : path
+            coordinator.session(for: .memory).memoryFocusedPath = scoped
             chatScope = .memory
         case .orchestrator, .orchestratorAgentDetail, .orchestratorMemories:
             coordinator.session(for: .memory).memoryFocusedPath = ""
@@ -845,7 +858,12 @@ public struct AppView: View {
             guard let sel = ChatLink.sidebarSelection(from: url, currentMyAppId: current) else {
                 return .systemAction
             }
-            openFromChat(sel)
+            // ChatLink emits scope-relative memory paths; the shared `memory`
+            // store reads global-root-relative ones — globalize before routing.
+            let global = sel.globalizedMemoryPath { id in
+                store.myApps.first { $0.id == id }?.name
+            }
+            openFromChat(global)
             return .handled
         }
     }

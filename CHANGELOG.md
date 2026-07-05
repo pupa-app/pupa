@@ -3,42 +3,94 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
-## [0.0.54] — 2026-07-05
+## [0.0.56] — 2026-07-05
 
 ### Changed
 
 - **iCloud sync reworked to a local-canonical store + background mirror.** The
   local Application Support tree is now always the store of record — the app
-  reads and writes it directly and never blocks on iCloud. iCloud became a
-  mirror (`StorageMirror`) that converges the two trees off the main thread.
+  reads and writes it directly and never blocks on iCloud, and iCloud became a
+  background mirror (`StorageMirror`) that converges the two trees off the main
+  thread.
 
 ### Fixed
 
 - **Turning iCloud off no longer makes MyApps vanish or strands edits.**
   Previously the storage root switched per launch (iCloud when available, else
   an empty local root), so toggling iCloud off in iOS Settings relaunched the
-  app onto the empty root — the app seeded a lone fresh MyApp ("app looks
-  lost") and any edits made while off were never synced back. The canonical
-  root is now always local, so it can't switch out from under the app. The
-  mirror merges **baseline-aware**: ordinary edits propagate, genuine conflicts
-  resolve newest-wins with the losing side preserved under `conflicts/` (never
-  dropped), and deletes propagate (a delete racing an edit keeps the edit).
-  (`PupaApp` `0.0.151`)
+  app onto the empty root — it seeded a lone fresh MyApp ("app looks lost") and
+  edits made while off were never synced back. The canonical root is now always
+  local. The mirror merges **baseline-aware**: ordinary edits propagate,
+  genuine conflicts resolve newest-wins with the losing side preserved under
+  `conflicts/` (never dropped), and deletes propagate (a delete racing an edit
+  keeps the edit).
+- **iCloud sync no longer janks the iPhone.** During an initial iCloud download
+  `NSMetadataQuery` fires a storm of update notifications; each drove a full
+  store reload on the main thread. The watcher now coalesces the storm
+  (suppress query updates + 0.4s debounce → one reload per burst) and runs each
+  reload's heavy file IO off the main actor, republishing only the result on
+  main. Fixes the iPhone-only slowdown / stutter seen with iCloud sync on,
+  where the iPad (rarely doing a big initial download) stayed smooth (pupa#110).
+  (`PupaApp` `0.0.153`)
 
-## [0.0.53] — 2026-07-05
+## [0.0.55] — 2026-07-05
 
 ### Fixed
 
-- **iCloud sync no longer janks the iPhone.** During an initial iCloud
-  download `NSMetadataQuery` fires a storm of update notifications; each one
-  drove a full store reload on the main thread. The watcher now coalesces the
-  storm (suppress query updates + 0.4s debounce → one reload per burst) **and**
-  runs each reload's heavy file IO — the whole-tree `NSFileVersion` conflict
-  scan and coordinated reads of every MyApp, the memory tree, and settings —
-  off the main actor, touching main state only to republish the result. Fixes
-  the iPhone-only slowdown / stutter seen with iCloud sync on, where the iPad
-  (rarely doing a big initial download) stayed smooth (pupa#110).
+- **`addComponent` no longer names a tool that doesn't exist.** The prompt
+  told the model to call `slackCreateAgents` (plural) to set up a slack room,
+  but the registered tool is `slackCreateAgent` (singular). Corrected.
+  (`PupaApp` `0.0.152`)
+
+### Changed
+
+- **The build-a-component workflow is now stated plainly upfront.** The
+  always-on system-prompt fragment now spells out both tool gates —
+  `addComponent` creates the component and surfaces its `get_tools_<kind>`
+  gate; calling that gate unlocks the kind's render/mutator tools — instead of
+  leaving the sequence to be reconstructed from individual tool descriptions.
+  (`PupaApp` `0.0.152`)
+
+## [0.0.54] — 2026-07-04
+
+### Fixed
+
+- **Tapping a `pupa://memory/` link now opens the note.** Links between memory
+  notes (and note links in chat) did nothing: the agent writes scope-relative
+  paths (`notes/x.md`), but the shared memory store reads global-root-relative
+  ones (`<app-slug>/notes/x.md`), so the target never resolved. `chatLinkAction`
+  now globalizes the path before routing. The canvas is now covered too, so a
+  `pupa://memory/…` value in a `.link` field (e.g. a tracker "Doc" pointing at a
+  note) opens in-app instead of failing to open via the browser.
+  (`PupaApp` `0.0.151`)
+
+### Changed
+
+- **Settings dismisses from the left.** On iOS the trailing "Done" is now a
+  leading back chevron, matching every pushed page — going back is one
+  consistent left-side tap instead of reaching across to the right.
+  (`PupaApp` `0.0.151`)
+
+## [0.0.53] — 2026-07-04
+
+### Fixed
+
+- **MyApp export/import no longer loses memories** (#112).
+  - Importing a `.pupaapp` now refreshes the live memory tree, so the
+    imported app's Memories tab shows its files immediately instead of
+    "No notes yet." until a relaunch.
+  - Renaming a MyApp now moves its `memories/<slug>` folder to the new
+    slug. Previously a rename orphaned the folder: the Memories tab went
+    blank and exports shipped zero memories for that app.
+  - The Share screen writes each regenerated bundle to a fresh temp file,
+    so the share sheet can no longer hand off a bundle built before the
+    latest "Include records/memories" toggle change.
+  - Export reads memory files through the coordinated (iCloud-safe) path.
   (`PupaApp` `0.0.150`)
+- **Unchanged apps no longer re-persist (and re-upload to iCloud)
+  spuriously.** The per-app dirty-hash now encodes with stable key order;
+  Foundation's default `JSONEncoder` order can differ between encodes,
+  which defeated the skip. (`PupaApp` `0.0.150`)
 
 ## [0.0.52] — 2026-07-03
 

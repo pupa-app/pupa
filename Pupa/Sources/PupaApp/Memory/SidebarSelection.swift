@@ -100,4 +100,23 @@ public enum SidebarSelection: Hashable, Sendable {
         default: return nil
         }
     }
+
+    /// Rewrite a **scope-relative** memory selection (as `ChatLink` emits — the
+    /// agent only sees paths relative to its own scope root) into a
+    /// **global-root-relative** one, which is the space the shared UI
+    /// `MemoryStore` reads from (matching browse + agent-prompt links). Prefixes
+    /// the scope folder: a myApp's slug, or `orchestrator/`. Non-memory
+    /// selections pass through; an unresolvable myApp id is left untouched.
+    /// `myAppName` maps a myApp id to its name (for the slug).
+    public func globalizedMemoryPath(myAppName: (UUID) -> String?) -> SidebarSelection {
+        switch self {
+        case .myAppMemoryFile(let id, let path):
+            guard let name = myAppName(id) else { return self }
+            return .myAppMemoryFile(id, MemoryStore.myAppFolder(myAppName: name) + "/" + path)
+        case .memoryFile(let path):
+            return .memoryFile(MemoryStore.orchestratorFolder() + "/" + path)
+        default:
+            return self
+        }
+    }
 }

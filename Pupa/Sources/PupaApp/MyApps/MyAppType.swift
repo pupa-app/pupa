@@ -219,8 +219,14 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
         iconSystemName: "list.bullet.rectangle",
         baseSystemPromptFragment: """
         Canvas hosts COMPONENTS (sub-canvases, ids like "tracker-1") — pass \
-        `componentId` to target one; single-component myApps may omit it. \
-        Per-kind tools unlock only after `addComponent` introduces that kind.
+        `componentId` to target one; single-component myApps may omit it.
+
+        BUILD A COMPONENT — two gates. (1) `addComponent(kind, name)` creates \
+        it empty and active, which surfaces that kind's `get_tools_<kind>` \
+        gate. (2) Call `get_tools_<kind>` to unlock the kind's tools (e.g. \
+        `renderTracker`), then call the render tool to populate. If a \
+        component of that kind already exists, skip (1) — do only (2). A \
+        kind's tools stay hidden until its gate is called.
 
         LINKING — linkItem / unlinkItem attach refs between any two items \
         (any kinds, any direction, same-component allowed for parent / subtask).

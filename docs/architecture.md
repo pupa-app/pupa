@@ -128,13 +128,19 @@ subject-generalized (a path→selection closure), so one browse view + row serve
 both scopes.
 
 **In-app links (`pupa://`).** The agent can embed tappable navigation links in
-chat markdown; `Chat/ChatLink.swift` maps a `pupa://` URL to a
+chat markdown (and note bodies); `Chat/ChatLink.swift` maps a `pupa://` URL to a
 `SidebarSelection` and `AppView.chatLinkAction` (an `OpenURLAction` installed on
-both the detail `NavigationStack` and `ChatOverlay`) pushes it onto `detailPath`
-— real `http(s)` URLs fall through to the browser. Links are **scope-relative**:
-`pupa://memory/<path>` uses the same note path the agent reads/writes and binds
-to the current chat scope (a myApp → `.myAppMemoryFile`, the orchestrator →
-`.memoryFile`); `pupa://component/<id>` targets the current myApp; the explicit
+the detail `NavigationStack`, `ChatOverlay`, and `CanvasView` — the last so
+`pupa://memory/…` values in tracker `.link` fields route in-app) pushes it onto
+`detailPath` — real `http(s)` URLs fall through to the browser. The agent writes
+**scope-relative** paths — `pupa://memory/<path>` is the same note path it
+reads/writes, bound to the current chat scope (a myApp → `.myAppMemoryFile`, the
+orchestrator → `.memoryFile`). But `SidebarSelection` memory paths are
+**global-root-relative** — the space the shared `memory` store, browse, and
+agent-prompt links all use — so `chatLinkAction` calls
+`SidebarSelection.globalizedMemoryPath` to prefix the scope folder (the myApp
+slug, or `orchestrator/`) before routing; otherwise the target note can't be
+read. `pupa://component/<id>` targets the current myApp; the explicit
 `pupa://myapp/<uuid>/memory/<path>` form is for cross-scope links. Distinct from
 Slack's `pupa-mention://` and the `.pupaapp` file type.
 
@@ -299,7 +305,11 @@ resolved system-prompt fragment also carries a `kindCatalogLine` menu
 (one `kind — blurb` per supported kind, from each kind's dedicated
 `ComponentKindSpec.catalogBlurb`) so the agent knows what each kind is *for*
 before any component of that kind exists — the full per-kind `promptFragment`
-only rides context once the kind is present. Each kind is declared once as a
+only rides context once the kind is present. The always-on
+`baseSystemPromptFragment` also states the two-gate build sequence upfront
+(`addComponent` → `get_tools_<kind>` → the kind's render tool populates it),
+so the model doesn't have to reconstruct it from individual tool descriptions.
+Each kind is declared once as a
 `ComponentKindSpec` in `MyAppType.kinds` (tools + prompt fragment + catalog
 blurb); `supportedComponentKinds`, `toolNamesByKind`, and
 `promptFragmentsByKind` all derive from it. Full recipe in
@@ -496,7 +506,12 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
   plus a threads collection grouped by agent.
 - **Memories** → markdown files under `<storage root>/memories/`
   (per-agent namespaces under `agents/<agentId>/`). Survive "New session".
-  Each file syncs individually via iCloud.
+  Each file syncs individually via iCloud. The per-app folder is keyed on
+  the app name's slug, so `MyAppStore.renameMyApp` migrates the subtree to
+  the new slug (via `MemoryStore.migrateAppFolder`; on a slug collision the
+  trees merge and existing destination files win). App-scoped stores from
+  `appScopedStore` propagate their writes to the parent store's tree, so
+  the sidebar / Memories tab refresh without a relaunch.
 - **Chat history** → owned by the *backend* checkpointer, keyed by
   `threadId`. The client reloads old conversations from
   `GET /db/threads/{threadId}/messages` after relaunch. Unset DB config
@@ -517,7 +532,9 @@ Import & Export: export is a **Share…** action (`ShareLink` → AirDrop /
 Messages / WhatsApp / Files). `.pupaapp` is a registered, app-owned file type
 (`UTType.pupaAppBundle`), so opening a shared bundle routes to Pupa via
 `AppView.onOpenURL`, which read-only-decodes it for a confirm sheet before
-running the same importer. Cross-component references are enumerated/pruned by a single
+running the same importer. Each Share regeneration writes a fresh unique
+temp file so the `ShareLink` never hands off a bundle built before the
+latest toggle change. Cross-component references are enumerated/pruned by a single
 unified model on `CanvasApp` (`componentReferences` / `remapReferences`) shared
 with the delete cascade; each kind registers a `ComponentExportPolicy`. Import
 treats the bundle as untrusted (settings allow-list, size/count caps,

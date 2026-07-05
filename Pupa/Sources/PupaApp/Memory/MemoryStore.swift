@@ -210,11 +210,14 @@ public final class MemoryStore {
     /// the marketplace export of this (app-scoped) memory store. Paths are
     /// root-relative so import can re-root them under a new app's slug.
     /// Optionally restrict to a set of relative paths (e.g. only `AGENTS.md`).
+    /// Reads are coordinated so iCloud-synced files export their latest bytes.
     public func exportFiles(matching keep: ((String) -> Bool)? = nil) -> [MemoryFile] {
         snapshotPaths().compactMap { path in
             if let keep, !keep(path) { return nil }
-            guard let result = try? readFile(path: path) else { return nil }
-            return MemoryFile(path: path, content: result.content)
+            guard let url = try? resolve(path, requireExists: true),
+                  let data = CloudDocument.read(url),
+                  let content = String(data: data, encoding: .utf8) else { return nil }
+            return MemoryFile(path: path, content: content)
         }
     }
 
@@ -234,7 +237,7 @@ public final class MemoryStore {
     static let writableExtensions: Set<String> = ["md", "json"]
 
     /// Top-level folder for a myApp: `<slug>` (e.g. `"my-fitness-app"`).
-    public static func myAppFolder(myAppName: String) -> String {
+    public nonisolated static func myAppFolder(myAppName: String) -> String {
         slugify(myAppName)
     }
 
@@ -257,7 +260,7 @@ public final class MemoryStore {
     }
 
     /// Top-level folder for the orchestrator's memories.
-    public static func orchestratorFolder() -> String { "orchestrator" }
+    public nonisolated static func orchestratorFolder() -> String { "orchestrator" }
 
     /// Absolute URL for a myApp's memory root — used as `rootOverride` when
     /// creating a session-scoped `MemoryStore`.
@@ -271,10 +274,45 @@ public final class MemoryStore {
     /// A store scoped to one myApp's folder *under this store's root* — so a
     /// store with a test `rootOverride` produces a child under the same temp
     /// dir rather than the real Application Support default. Used by the
-    /// marketplace export/import.
+    /// marketplace export/import. Writes through the child rescan this store
+    /// too, so the sidebar/Memories tab refresh without a relaunch.
     public func appScopedStore(forAppNamed name: String) -> MemoryStore {
-        MemoryStore(rootOverride: root.appendingPathComponent(
+        let child = MemoryStore(rootOverride: root.appendingPathComponent(
             Self.myAppFolder(myAppName: name), isDirectory: true))
+        child.onDidMutate = { [weak self] in self?.rescan() }
+        return child
+    }
+
+    /// Move a myApp's memory subtree to its new slug after a rename. Memories
+    /// are keyed on the display-name slug, so without this the Memories tab,
+    /// export scoping, and future agent writes all resolve to an empty new
+    /// slug while the files sit orphaned under the old one.
+    ///
+    /// No-op when the slugs coincide or the source folder is missing. If the
+    /// destination folder already exists the trees merge per-file and an
+    /// existing destination file wins (the source copy stays put).
+    public func migrateAppFolder(fromAppNamed oldName: String, toAppNamed newName: String) {
+        let oldSlug = Self.myAppFolder(myAppName: oldName)
+        let newSlug = Self.myAppFolder(myAppName: newName)
+        guard !oldSlug.isEmpty, !newSlug.isEmpty, oldSlug != newSlug else { return }
+        let fm = FileManager.default
+        let src = root.appendingPathComponent(oldSlug, isDirectory: true)
+        let dst = root.appendingPathComponent(newSlug, isDirectory: true)
+        guard fm.fileExists(atPath: src.path) else { return }
+        if !fm.fileExists(atPath: dst.path) {
+            try? CloudDocument.move(from: src, to: dst)
+        } else {
+            let srcComponents = src.standardizedFileURL.pathComponents.count
+            for file in filesUnder(src) {
+                let rel = file.standardizedFileURL.pathComponents
+                    .dropFirst(srcComponents).joined(separator: "/")
+                let target = dst.appendingPathComponent(rel)
+                guard !fm.fileExists(atPath: target.path) else { continue }
+                try? CloudDocument.move(from: file, to: target)
+            }
+            if filesUnder(src).isEmpty { CloudDocument.delete(src) }
+        }
+        rescan()
     }
 
     /// Absolute URL for the orchestrator's memory root.
@@ -305,7 +343,7 @@ public final class MemoryStore {
 
     /// Lower-case alphanumerics + hyphens, no consecutive hyphens, capped at
     /// 60 characters. Mirrors `MemorySheets.slugify` without a SwiftUI import.
-    static func slugify(_ raw: String, maxLength: Int = 60) -> String {
+    nonisolated static func slugify(_ raw: String, maxLength: Int = 60) -> String {
         var out: [Character] = []
         var lastWasHyphen = false
         for scalar in raw.unicodeScalars {
