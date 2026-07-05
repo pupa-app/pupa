@@ -101,6 +101,20 @@ selectable on every platform and expose a **Copy** context-menu action
 (`ChatClipboard`, right-click on macOS / long-press on iOS) that copies the
 whole bubble.
 
+**Queued messages while busy.** The composer stays typable while a turn is in
+flight. Submitting mid-stream doesn't wait or drop — `ChatViewModel.send`
+appends the text to `queuedMessages` (FIFO) instead of starting a run. Queued
+items render as clock-marked pills above the composer; each can be cancelled
+(✕) or tapped to pull back into the composer for editing. When the current turn
+settles cleanly (`consume` → `drainQueue`), the next queued message auto-sends
+as a fresh run, and so on until the queue empties. Draining is skipped after an
+error (the failure stays on screen; the user decides whether to retry) and on
+an explicit **Stop** (`cancel` Case B) / `newThread`, which discard the queue.
+While a turn is parked on a human-in-the-loop interrupt the composer is gated,
+so nothing queues until the interrupt resolves and the turn fully settles. The
+send button is **Stop** only when streaming with an empty composer; with text
+typed mid-stream it's an arrow-up that queues.
+
 On a myApp's home / component / memories / agents / history pages — and the
 orchestrator's home / memories / agent pages — the detail pane hosts a persistent
 **bottom bar** (`MyApps/MyAppBottomBar.swift`) — the per-subject "tab bar",

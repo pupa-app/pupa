@@ -136,6 +136,38 @@ public struct PickedImage: Equatable, Sendable {
     }
 }
 
+/// A message the user submitted while a turn was still in flight. Held in
+/// `ChatViewModel.queuedMessages` (FIFO), rendered with a clock/pending glyph
+/// above the composer, and auto-sent one at a time as each turn settles
+/// cleanly. Not a `ChatBubble`: queued items are pre-conversation drafts, so
+/// they stay out of `bubbles` (and thus out of the transcript / agent history)
+/// until they're actually sent. `text` is the raw composer string — slash
+/// commands are re-evaluated when the item drains back through `send`.
+public struct QueuedMessage: Identifiable, Equatable, Sendable {
+    public let id: String
+    public var text: String
+    public var imageData: Data?
+    public var mimeType: String?
+
+    public init(
+        id: String = UUID().uuidString,
+        text: String,
+        imageData: Data? = nil,
+        mimeType: String? = nil
+    ) {
+        self.id = id
+        self.text = text
+        self.imageData = imageData
+        self.mimeType = mimeType
+    }
+
+    /// Reconstitute the `PickedImage` this item carried, if any.
+    var pickedImage: PickedImage? {
+        guard let imageData, let mimeType else { return nil }
+        return PickedImage(data: imageData, mimeType: mimeType)
+    }
+}
+
 /// What a `ChatViewModel` is bound to for its entire lifetime. Pinned at init
 /// — a session never moves between myApps, so tool dispatch and per-turn
 /// context can target a fixed scope without re-checking `activeMyAppId`.
@@ -157,6 +189,11 @@ public final class ChatViewModel {
     /// from the store's current thread for this scope — never mutated.
     public let threadId: String
     public private(set) var bubbles: [ChatBubble] = []
+    /// Messages the user queued while a turn was in flight, FIFO. Each is shown
+    /// with a pending/clock glyph above the composer and auto-sent — one at a
+    /// time — as each turn settles cleanly (see `drainQueue()`). Empty whenever
+    /// the session is idle with nothing waiting.
+    public private(set) var queuedMessages: [QueuedMessage] = []
     public private(set) var isStreaming = false
     public private(set) var lastError: String?
     /// True when a turn finished while this thread was not on screen — drives
@@ -811,7 +848,26 @@ public final class ChatViewModel {
         var displayText = text
         // Allow sends with an image but no text — the agent can still reason
         // about the image alone. Block only if both inputs are empty.
-        guard (!text.isEmpty || image != nil), !isStreaming else { return }
+        guard !text.isEmpty || image != nil else { return }
+
+        // Parked on a human-in-the-loop interrupt: the composer is gated and
+        // resolution flows through the bubble, so a stray send is dropped
+        // (mirrors the guard further down; checked up here so a queued send
+        // never lands mid-interrupt either).
+        if isAwaitingHumanInput { return }
+
+        // A turn is already in flight → don't drop the message, queue it. It is
+        // rendered with a pending glyph and auto-sent (FIFO) once the current
+        // turn settles cleanly (see `drainQueue()`). The raw text is stored so
+        // slash commands are re-evaluated when the item drains back through
+        // `send`. Multiple queued messages preserve submit order.
+        if isStreaming {
+            queuedMessages.append(
+                QueuedMessage(text: text, imageData: image?.data, mimeType: image?.mimeType)
+            )
+            return
+        }
+
         // Slash-command interception. Runs before the user bubble is appended
         // so app-only commands (e.g. `/reset`) leave no trace in the chat
         // transcript and never hit the backend. Image attachments paired with
@@ -831,16 +887,6 @@ public final class ChatViewModel {
             return
         case .notACommand:
             break
-        }
-
-        // If the agent is parked on an `ask_user_questions` interrupt, the
-        // user must submit answers via the bubble's Submit button — not by
-        // typing in the composer. We intentionally drop the send here so a
-        // stray Enter press doesn't accidentally start a new turn while
-        // the graph is waiting for resume values. The bubble's Submit
-        // affordance is the only correct exit.
-        if pendingContinuation != nil || pendingShellApprovalContinuation != nil {
-            return
         }
 
         appendBubble(ChatBubble(role: .user, text: displayText, imageData: image?.data))
@@ -888,6 +934,52 @@ public final class ChatViewModel {
             forwardedProps: baseForwardedProps
         )
         consume(stream: stream)
+    }
+
+    // MARK: - Queued messages
+
+    /// Cancel a queued message before it auto-sends. No-op if the id isn't
+    /// currently queued (e.g. it already drained). Called from the composer's
+    /// per-item ✕ affordance.
+    public func removeQueuedMessage(id: String) {
+        queuedMessages.removeAll { $0.id == id }
+    }
+
+    /// Edit the text of a queued message before it auto-sends. Trimmed-empty
+    /// edits remove the item instead (an empty queued message can't be sent).
+    /// The attached image, if any, is preserved.
+    public func updateQueuedMessage(id: String, text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let idx = queuedMessages.firstIndex(where: { $0.id == id }) else { return }
+        if trimmed.isEmpty && queuedMessages[idx].imageData == nil {
+            queuedMessages.remove(at: idx)
+        } else {
+            queuedMessages[idx].text = trimmed
+        }
+    }
+
+    /// Clear every queued message. Called when the conversation is torn down
+    /// (`newThread`) or the user deliberately halts an in-flight turn
+    /// (`cancel` Case B) — in both cases the queued drafts no longer make
+    /// sense to auto-send.
+    private func clearQueue() {
+        queuedMessages.removeAll()
+    }
+
+    /// Pop and send the next queued message, if the session is idle and clean.
+    /// Called after a turn settles (see `consume`). Sending it flips
+    /// `isStreaming` back on and, when that turn settles, drains the next —
+    /// so the whole queue empties in FIFO order, one turn at a time.
+    ///
+    /// Guards: never drain while streaming or parked on an interrupt, and never
+    /// after an error (the failed turn's error stays on screen and the user
+    /// decides whether to retry — auto-firing the queue could cascade
+    /// failures).
+    private func drainQueue() {
+        guard !isStreaming, !isAwaitingHumanInput, lastError == nil else { return }
+        guard !queuedMessages.isEmpty else { return }
+        let next = queuedMessages.removeFirst()
+        send(next.text, image: next.pickedImage)
     }
 
     /// Update the in-progress answer for a single question row. The bubble
@@ -963,17 +1055,22 @@ public final class ChatViewModel {
     private func consume(stream: AsyncThrowingStream<SessionEvent, Error>) {
         streamTask?.cancel()
         streamTask = Task { [weak self] in
+            var cancelled = false
             do {
                 for try await event in stream {
                     self?.apply(event)
                 }
             } catch {
-                if case AgentClientError.cancelled = error { } else {
+                if case AgentClientError.cancelled = error { cancelled = true } else {
                     self?.lastError = String(describing: error)
                 }
             }
             self?.setStreaming(false)
             self?.streamTask = nil
+            // Turn settled. Auto-send the next queued message unless the stream
+            // was torn down by an explicit Stop (`cancel`), which clears the
+            // queue anyway. `drainQueue` re-checks error / interrupt state.
+            if !cancelled { self?.drainQueue() }
         }
     }
 
@@ -1005,9 +1102,11 @@ public final class ChatViewModel {
         }
         // Case B — a genuine in-flight model turn with no pending interrupt.
         // Abort the stream; the backend run for this POST is dropped and there
-        // is no interrupt to orphan.
+        // is no interrupt to orphan. Stop means "halt everything", so any
+        // queued messages are discarded rather than auto-fired afterwards.
         streamTask?.cancel()
         streamTask = nil
+        clearQueue()
         setStreaming(false)
     }
 
@@ -1018,6 +1117,7 @@ public final class ChatViewModel {
     /// user can swipe back and read the old conversation.
     public func newThread() {
         cancel()
+        clearQueue()
         store.addThread(for: pinnedScope)
     }
 
