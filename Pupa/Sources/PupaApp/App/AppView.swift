@@ -86,10 +86,10 @@ public struct AppView: View {
         // Install the UNUserNotificationCenter delegate before any agent
         // turn can call `sendNotification`. Idempotent.
         NotificationCenterCoordinator.shared.bootstrap()
-        // Lift any offline-created local data into iCloud before the stores
-        // load (covers demo/preview entry that bypasses `PupaApp`). No-op when
-        // iCloud is inactive or already promoted.
-        PupaStorage.promoteLocalIfNeeded()
+        // Kick a background iCloud mirror pass (covers demo/preview entry that
+        // bypasses `PupaApp`). The stores below load from the local canonical
+        // tree regardless; the mirror converges with iCloud off the main thread.
+        PupaStorage.warm()
         let store = MyAppStore()
         let memory = MemoryStore()
         // Rename must move the app's slug-keyed memory folder through the
@@ -213,9 +213,13 @@ public struct AppView: View {
     private func startCloudWatcher() {
         guard cloudWatcher == nil else { return }
         let watcher = CloudWatcher {
-            store.reloadFromDisk()
-            memory.reloadFromDisk()
-            settings.reloadFromDisk()
+            // Pull the remote change into the local canonical tree first, then
+            // republish the stores from local. No-op reconcile when iCloud off.
+            let changed = await StorageMirror.shared.reconcile()
+            guard changed else { return }
+            await store.reloadFromDisk()
+            await memory.reloadFromDisk()
+            await settings.reloadFromDisk()
         }
         watcher.start()
         cloudWatcher = watcher

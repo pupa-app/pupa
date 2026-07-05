@@ -373,15 +373,22 @@ public final class MemoryStore {
     }
 
     /// Rebuild the tree from disk. Called by the iCloud watcher when remote
-    /// edits land so the sidebar refreshes live.
-    public func reloadFromDisk() { rescan() }
+    /// edits land so the sidebar refreshes live. The disk walk runs off the
+    /// main actor (pupa#110 — the watcher fires this repeatedly during an
+    /// initial iCloud download); only the tree republish touches main state.
+    public func reloadFromDisk() async {
+        let root = self.root
+        let rebuilt = await Task.detached(priority: .utility) { Self.scan(root: root) }.value
+        tree = rebuilt
+        onDidMutate?()
+    }
 
-    private static func scan(root: URL) -> MemoryNode {
+    private nonisolated static func scan(root: URL) -> MemoryNode {
         let children = readChildren(at: root, prefix: "")
         return MemoryNode(name: "", path: "", kind: .folder, children: children)
     }
 
-    private static func readChildren(at url: URL, prefix: String) -> [MemoryNode] {
+    private nonisolated static func readChildren(at url: URL, prefix: String) -> [MemoryNode] {
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(atPath: url.path) else { return [] }
         var folders: [MemoryNode] = []
@@ -536,8 +543,8 @@ public final class MemoryStore {
 
 // MARK: - Public value types
 
-public struct MemoryNode: Hashable, Identifiable {
-    public enum Kind: Hashable {
+public struct MemoryNode: Hashable, Identifiable, Sendable {
+    public enum Kind: Hashable, Sendable {
         case folder
         case file(sizeBytes: Int)
     }

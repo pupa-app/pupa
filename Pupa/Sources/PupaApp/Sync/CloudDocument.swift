@@ -1,8 +1,9 @@
 import Foundation
 
-/// Coordinated file IO for data that may live in an iCloud ubiquity
-/// container. `NSFileCoordinator` is required for ubiquitous files and is
-/// harmless for local ones, so all synced reads/writes route through here.
+/// Coordinated file IO for the local canonical store. Every synced read/write
+/// routes through here; each mutation schedules a debounced `StorageMirror`
+/// pass so the change propagates to iCloud (no-op when iCloud is off). The
+/// mirror uses its own primitives, so its copies never re-enter here.
 public enum CloudDocument {
     /// Coordinated read. Returns `nil` if the file is absent or unreadable.
     public static func read(_ url: URL) -> Data? {
@@ -25,6 +26,7 @@ public enum CloudDocument {
         }
         if let coordErr { throw coordErr }
         if let writeErr { throw writeErr }
+        StorageMirror.shared.scheduleReconcile()
     }
 
     /// Coordinated move; creates the destination's parent directory.
@@ -41,6 +43,7 @@ public enum CloudDocument {
         }
         if let coordErr { throw coordErr }
         if let moveErr { throw moveErr }
+        StorageMirror.shared.scheduleReconcile()
     }
 
     /// Coordinated delete. Silent if the file is already gone.
@@ -50,6 +53,7 @@ public enum CloudDocument {
         NSFileCoordinator().coordinate(writingItemAt: url, options: .forDeleting, error: &coordErr) { u in
             try? FileManager.default.removeItem(at: u)
         }
+        StorageMirror.shared.scheduleReconcile()
     }
 
     // MARK: - iCloud conflict versions
@@ -80,13 +84,36 @@ public enum CloudDocument {
 /// Watches the iCloud ubiquitous documents scope and fires `onChange` when
 /// remote edits land, so stores can reload and republish for live SwiftUI
 /// updates. A no-op when iCloud is inactive (no ubiquitous items to observe).
+///
+/// Updates are **coalesced**: during an initial iCloud download (or any burst
+/// of remote writes) `NSMetadataQuery` posts `DidUpdate` many times a second,
+/// and each `onChange` here drives a store reload whose heavy file IO
+/// (re-encode every MyApp, per-file `NSFileVersion` conflict probes,
+/// coordinated reads of the whole tree — see `MyAppStore.reloadFromDisk`) is
+/// the leading suspect for the iPhone-only slowdown in pupa#110 (the iPad
+/// rarely does a big initial download, so it never sees the storm). Two
+/// defences stack:
+///   1. `disableUpdates()` the moment a change arrives, so the query batches
+///      further changes instead of posting a notification per file, and
+///   2. debounce the actual `onChange` so a burst collapses into one reload,
+///      then `enableUpdates()` — which flushes anything that accumulated and
+///      re-arms the cycle, converging once the download settles.
+/// `onChange` is **async**: each store runs its reload IO off the main actor
+/// (only the final republish touches main state), and `enableUpdates()` is
+/// deferred until it finishes — so a fresh burst can't overlap an in-flight
+/// reload.
 @MainActor
 public final class CloudWatcher {
     private let query = NSMetadataQuery()
-    private let onChange: @MainActor () -> Void
+    private let onChange: @MainActor () async -> Void
     private var observers: [NSObjectProtocol] = []
+    /// Pending coalesced reload; cancelled and rescheduled on each new update.
+    private var pendingReload: Task<Void, Never>?
+    /// Debounce window. Long enough to swallow a sync burst, short enough that
+    /// a single remote edit still lands live within a beat.
+    private static let debounceNanos: UInt64 = 400_000_000  // 0.4s
 
-    public init(onChange: @escaping @MainActor () -> Void) {
+    public init(onChange: @escaping @MainActor () async -> Void) {
         self.onChange = onChange
     }
 
@@ -98,13 +125,30 @@ public final class CloudWatcher {
         for name in [NSNotification.Name.NSMetadataQueryDidUpdate,
                      NSNotification.Name.NSMetadataQueryDidFinishGathering] {
             observers.append(center.addObserver(forName: name, object: query, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.onChange() }
+                MainActor.assumeIsolated { self?.scheduleCoalescedReload() }
             })
         }
         query.start()
     }
 
+    /// Suppress further per-file notifications and (re)arm a single debounced
+    /// reload. Balanced by `enableUpdates()` when the reload finally runs.
+    private func scheduleCoalescedReload() {
+        query.disableUpdates()
+        pendingReload?.cancel()
+        pendingReload = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: CloudWatcher.debounceNanos)
+            guard let self, !Task.isCancelled else { return }
+            await self.onChange()
+            // Flush whatever accumulated while disabled; if anything did, this
+            // posts a fresh DidUpdate and the cycle coalesces again.
+            self.query.enableUpdates()
+        }
+    }
+
     public func stop() {
+        pendingReload?.cancel()
+        pendingReload = nil
         query.stop()
         observers.forEach(NotificationCenter.default.removeObserver)
         observers.removeAll()

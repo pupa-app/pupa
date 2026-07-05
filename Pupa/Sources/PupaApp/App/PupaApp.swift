@@ -4,11 +4,10 @@ import SwiftUI
 /// the `PupaDemo` executable on macOS for fast iteration.
 public struct PupaApp: App {
     public init() {
-        // Resolve the iCloud container off-main and, the first time it becomes
-        // available, lift any offline-created local data into it — before the
-        // stores load. Both are no-ops when iCloud is unavailable.
+        // Stores load from the local canonical tree immediately (no iCloud on
+        // the launch path). `warm()` resolves the iCloud container off-main and
+        // kicks the first background mirror pass to converge with iCloud.
         PupaStorage.warm()
-        PupaStorage.promoteLocalIfNeeded()
     }
 
     public var body: some Scene {
