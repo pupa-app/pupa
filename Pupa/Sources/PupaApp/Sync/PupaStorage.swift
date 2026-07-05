@@ -73,10 +73,11 @@ public enum PupaStorage {
         activeRoot.appendingPathComponent("state", isDirectory: true)
     }
 
-    /// Subtrees the mirror keeps in sync between local and iCloud. `conflicts`
-    /// holds preserved losing sides of a merge (see `StorageMirror`); the
-    /// stores never read it.
-    public static let mirroredSubtrees = ["state", "memories", "conflicts"]
+    /// Subtrees the mirror keeps in sync between local and iCloud. The
+    /// preserved losing sides of a merge live under a separate local-only
+    /// `conflicts/` tree (see `StorageMirror`) — deliberately **not** mirrored,
+    /// so recovery copies don't double storage or propagate between devices.
+    public static let mirroredSubtrees = ["state", "memories"]
 
     /// Resolve the iCloud container off the main thread so the first mirror
     /// pass doesn't block, and kick a background converge. Safe to call

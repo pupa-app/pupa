@@ -85,6 +85,7 @@ public actor StorageMirror {
             }
         }
 
+        pruneConflictsByAge(conflictsRoot)
         saveBaseline(baseline, local)
         return localChanged
     }
@@ -189,15 +190,12 @@ public actor StorageMirror {
             let cloudURL = cloudRoot.appendingPathComponent(rel)
             let winnerURL = localNewer ? localURL : cloudURL
             let loserURL = localNewer ? cloudURL : localURL
-            // Preserve the losing side so no edit is lost, then make the winner
-            // canonical on both sides. The cloud side is the one needing
-            // coordination: it's the loser when local won, the winner otherwise.
+            // Preserve the losing side (deduped + capped) so no edit is lost,
+            // then make the winner canonical on both sides. The cloud side is
+            // the one needing coordination: it's the loser when local won, the
+            // winner otherwise.
             if let loserData = read(loserURL, coordinate: localNewer) {
-                let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-                let ext = (rel as NSString).pathExtension
-                let base = (rel as NSString).deletingPathExtension
-                let name = ext.isEmpty ? "\(base)__\(stamp)" : "\(base)__\(stamp).\(ext)"
-                write(loserData, to: conflictsRoot.appendingPathComponent(name), coordinate: false)
+                preserveLoser(loserData, rel: rel, under: conflictsRoot)
             }
             if let winnerData = read(winnerURL, coordinate: !localNewer) {
                 if !localNewer { write(winnerData, to: localURL, coordinate: false) }
@@ -210,6 +208,70 @@ public actor StorageMirror {
 
     /// A conflict touches local only when the cloud side won (we rewrote local).
     private static func touchedLocalConflict(_ localNewer: Bool) -> Bool { !localNewer }
+
+    // MARK: - Conflict preservation budget
+
+    /// Newest preserved copies kept per conflicted path. Older ones are pruned
+    /// so a repeatedly-conflicting file can't accumulate unboundedly.
+    static let maxConflictCopiesPerPath = 5
+    /// Preserved copies older than this are pruned on the next pass.
+    static let conflictMaxAge: TimeInterval = 30 * 24 * 60 * 60  // 30 days
+
+    /// Store the losing side under `conflicts/<sub>/<rel>/<stamp>` — one folder
+    /// per conflicted path. Two guards keep this from ballooning:
+    ///   1. **dedup** — skip if this exact content is already preserved for the
+    ///      path (an oscillating conflict re-presents the same loser each pass),
+    ///   2. **cap** — keep only the newest `maxConflictCopiesPerPath`.
+    /// Combined with the periodic age prune and the fact that `conflicts/` is
+    /// local-only (never mirrored), preserved data stays bounded.
+    private static func preserveLoser(_ data: Data, rel: String, under conflictsRoot: URL) {
+        let dir = conflictsRoot.appendingPathComponent(rel, isDirectory: true)
+        let loserHash = hash(data)
+        let existing = conflictCopies(in: dir)
+        if existing.contains(where: { read($0, coordinate: false).map(hash) == loserHash }) { return }
+        let ext = (rel as NSString).pathExtension
+        // Timestamp sorts lexically = chronologically; random suffix avoids a
+        // same-second filename collision.
+        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let unique = "\(stamp)-\(UUID().uuidString.prefix(4))"
+        let name = ext.isEmpty ? unique : "\(unique).\(ext)"
+        write(data, to: dir.appendingPathComponent(name), coordinate: false)
+        // Cap: drop all but the newest N for this path.
+        let all = conflictCopies(in: dir).sorted { $0.lastPathComponent > $1.lastPathComponent }
+        for stale in all.dropFirst(maxConflictCopiesPerPath) { remove(stale, coordinate: false) }
+    }
+
+    /// Regular files directly inside a conflict path's folder (skips hidden).
+    private static func conflictCopies(in dir: URL) -> [URL] {
+        (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))?
+            .filter { !$0.lastPathComponent.hasPrefix(".") } ?? []
+    }
+
+    /// Delete preserved copies older than `conflictMaxAge`, then remove any
+    /// folders left empty. Runs once per reconcile.
+    static func pruneConflictsByAge(_ conflictsRoot: URL, now: Date = Date()) {
+        let fm = FileManager.default
+        guard let en = fm.enumerator(at: conflictsRoot, includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey]) else { return }
+        for case let url as URL in en {
+            let vals = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey])
+            guard vals?.isRegularFile == true else { continue }
+            let age = now.timeIntervalSince(vals?.contentModificationDate ?? now)
+            if age > conflictMaxAge { try? fm.removeItem(at: url) }
+        }
+        removeEmptyDirs(conflictsRoot)
+    }
+
+    /// Depth-first removal of empty directories under (and including) `root`.
+    private static func removeEmptyDirs(_ root: URL) {
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey]) else { return }
+        for child in contents where (try? child.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+            removeEmptyDirs(child)
+        }
+        if (try? fm.contentsOfDirectory(atPath: root.path))?.isEmpty == true {
+            try? fm.removeItem(at: root)
+        }
+    }
 
     // MARK: - Tree snapshot
 
