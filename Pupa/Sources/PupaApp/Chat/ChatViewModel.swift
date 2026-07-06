@@ -303,6 +303,10 @@ public final class ChatViewModel {
     /// discarded with the `ChatViewModel`. See `CanvasSummary.swift`.
     private let previewTracker = CanvasPreviewTracker()
     private var streamTask: Task<Void, Never>?
+    /// True while the current turn was halted by the user (Stop, Case B in
+    /// `cancel()`). Suppresses the "turn ended with no reply" notice for a
+    /// late `.completed(.silent)` from the torn-down stream. Reset on `send`.
+    private var didUserStop = false
     /// The id of the currently-open tool-round bubble, if one is collecting
     /// streamed `.toolCallStarted` events. Cleared on the next
     /// `.assistantMessageStart` (LLM resumes narration after the tool batch),
@@ -808,7 +812,8 @@ public final class ChatViewModel {
         self.session = AgentSession(
             client: client,
             registry: registry,
-            threadId: threadId
+            threadId: threadId,
+            maxRounds: settings.effectiveMaxToolRounds
         )
         self.sessionBackendURL = initialURL
         self.sessionAuthHeaders = initialHeaders
@@ -833,7 +838,8 @@ public final class ChatViewModel {
         session = AgentSession(
             client: client,
             registry: registry,
-            threadId: threadId
+            threadId: threadId,
+            maxRounds: settings.effectiveMaxToolRounds
         )
         sessionBackendURL = url
         sessionAuthHeaders = headers
@@ -899,6 +905,7 @@ public final class ChatViewModel {
 
         setStreaming(true)
         lastError = nil
+        didUserStop = false
 
         rebuildSessionIfSettingsChanged()
 
@@ -1117,6 +1124,9 @@ public final class ChatViewModel {
         // Abort the stream; the backend run for this POST is dropped and there
         // is no interrupt to orphan. Stop means "halt everything", so any
         // queued messages are discarded rather than auto-fired afterwards.
+        // Flag it so a late `.completed(.silent)` from the torn-down stream
+        // doesn't render a spurious "turn ended with no reply" notice.
+        didUserStop = true
         streamTask?.cancel()
         streamTask = nil
         clearQueue()
@@ -1214,11 +1224,32 @@ public final class ChatViewModel {
             // `.roundFinished` has already fired. Closing here would leave the
             // entry pending forever.
             break
-        case .completed:
+        case .completed(let outcome):
             openToolRoundId = nil
+            // A turn that settled without any assistant text and without an
+            // error would otherwise just drop the spinner and look dead. Show
+            // an inline system note with the reason so the user knows it
+            // stopped (and can nudge it) rather than wondering if it crashed.
+            if case .silent(let reason) = outcome, !didUserStop {
+                appendBubble(ChatBubble(role: .system, text: Self.silentStopMessage(reason)))
+            }
         case .error(let message, _):
             openToolRoundId = nil
             lastError = message
+        }
+    }
+
+    /// User-facing note for a turn that ended with no assistant reply.
+    static func silentStopMessage(_ reason: SilentReason) -> String {
+        switch reason {
+        case .emptyTurn:
+            return "The agent finished its turn without a reply. Say \u{201C}continue\u{201D} to nudge it."
+        case .maxRounds:
+            return "Stopped after the tool-round safety limit. Say \u{201C}continue\u{201D} to resume."
+        case .droppedStream:
+            return "The connection closed before the agent replied. Say \u{201C}continue\u{201D} or try again."
+        case .backend(let detail):
+            return "The agent stopped: \(detail)"
         }
     }
 

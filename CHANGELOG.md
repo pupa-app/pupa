@@ -3,6 +3,32 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.60] — 2026-07-06
+
+### Fixed
+
+- **Chats no longer stop silently.** A turn that settled with no assistant
+  reply (the model ended after tool use without a closing line, the client's
+  round cap was hit, or the stream dropped) used to just drop the "Working…"
+  spinner — looking like the agent had died. The chat now shows an inline note
+  explaining why it stopped and how to resume it. A delegated sub-agent /
+  Slack-agent error is surfaced too instead of being swallowed into an empty
+  reply. (`PupaApp` `0.0.157`, `AGUIKit` `0.0.23`)
+- **Frontend-tool interrupts always get their resume.** When the round cap was
+  reached mid-interrupt the client dropped the pending resume POST, stranding
+  the backend session (parked forever) and the turn with it. The resume is now
+  always sent, and the cap is raised (8 → 24) since every tool round-trip
+  consumes a round. (`AGUIKit` `0.0.23`)
+
+### Added
+
+- **Configurable tool-round cap.** Settings → Agent-to-agent → "Turn limits"
+  exposes _Tool rounds per turn_ (4–64, default 24), fed into every
+  `AgentSession`. Raise it for long multi-step turns; a turn that hits the
+  limit stops with a note rather than hanging. A **No limit** toggle removes
+  the breaker entirely (`AgentSession(maxRounds: nil)`) for turns that run as
+  long as they need. (`PupaApp` `0.0.157`, `AGUIKit` `0.0.23`)
+
 ## [0.0.59] — 2026-07-06
 
 ### Added
