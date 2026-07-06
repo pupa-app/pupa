@@ -125,7 +125,12 @@ instead of hiding under a floating overlay. It's keyed by `MyAppHomeView.Subject
 (`.myApp(id)` / `.orchestrator`). Left to right: **Home** (`house`), **Agents**
 (`person.2`, opens `AgentsListView` / `AgentDetailView`), **Memories**
 (`brain`, opens `MyAppMemoriesView` — a browse page of the subject's note tree;
-folders drill in, files push `.myAppMemoryFile` / `.memoryFile`), **History**
+folders drill in, files push `.myAppMemoryFile` / `.memoryFile`. Direct editing
+without the agent: the header `+` menu adds a Note / Folder at the scope root; a
+folder row's long-press menu adds inside it; any row can be renamed / moved or
+deleted. Rows funnel these through `MemoryRowActions` into the shared
+`MemorySheet` shells (`New*MemorySheet` / `RenameMemorySheet`) and a delete
+confirmation over `MemoryStore`), **History**
 (`clock`, pushes `ChangeHistoryView` via `.myAppHistory` — **myApp only**; the
 orchestrator has no canvas change-log so it omits this), the **Pupa** chat launcher (toggles
 `AppView.chatOpen`, carrying the scope's `StatusBadge`), and a **⋯** menu that

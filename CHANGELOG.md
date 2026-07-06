@@ -3,6 +3,16 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.59] — 2026-07-06
+
+### Added
+
+- **Edit memories in place from the Memories page.** The header `+` menu adds a
+  Note or Folder at the scope root; a folder's long-press menu adds inside it,
+  and any note or folder can be renamed / moved or deleted (with a
+  confirmation). No need to route memory edits through the agent. (`PupaApp`
+  `0.0.156`)
+
 ## [0.0.58] — 2026-07-06
 
 ### Fixed
