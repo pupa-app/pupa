@@ -77,6 +77,12 @@ public final class SettingsStore {
     public static let a2aMaxChainDepthRange = 1...8
     public static let a2aMaxTurnsPerPairRange = 1...20
 
+    /// Per-turn tool-round cap (`AgentSession.maxRounds`). Every frontend-tool
+    /// round-trip consumes one round, so multi-step turns need headroom; this
+    /// is the client-side runaway breaker, not an A2A limit.
+    public nonisolated static let defaultMaxToolRounds = 24
+    public static let maxToolRoundsRange = 4...64
+
     public private(set) var disabledBackendTools: Set<String>
     public private(set) var backends: [BackendEntry]
     public private(set) var activeBackendID: UUID
@@ -103,6 +109,21 @@ public final class SettingsStore {
     /// `a2aMaxChainDepth` caps how deep a chain of agents-calling-agents can go.
     public private(set) var a2aMaxChainDepth: Int
     public private(set) var a2aMaxTurnsPerPair: Int
+    /// Max tool rounds per turn, fed into every `AgentSession(maxRounds:)`.
+    /// A pending frontend-tool interrupt always gets its resume even at the
+    /// cap (the session never strands the backend); this just bounds runaway
+    /// tool loops. Applies on the next session build. Ignored when
+    /// `toolRoundsUnlimited` is on.
+    public private(set) var maxToolRounds: Int
+    /// When true, turns run with NO tool-round cap (`AgentSession(maxRounds:
+    /// nil)`) — the breaker is off. Use for very long agentic turns.
+    public private(set) var toolRoundsUnlimited: Bool
+
+    /// The cap actually handed to `AgentSession`: `nil` (no limit) when the
+    /// breaker is off, else `maxToolRounds`.
+    public var effectiveMaxToolRounds: Int? {
+        toolRoundsUnlimited ? nil : maxToolRounds
+    }
 
     /// Where paired-device tokens live. Keychain in production, swapped to
     /// `InMemoryCredentialStore` by tests so unit tests don't touch the real
@@ -151,6 +172,8 @@ public final class SettingsStore {
         self.orchestratorDisabledTools = snapshot.orchestratorDisabledTools
         self.a2aMaxChainDepth = snapshot.a2aMaxChainDepth
         self.a2aMaxTurnsPerPair = snapshot.a2aMaxTurnsPerPair
+        self.maxToolRounds = snapshot.maxToolRounds
+        self.toolRoundsUnlimited = snapshot.toolRoundsUnlimited
         self.credentials = credentials ?? KeychainCredentialStore()
 
         // Init override (tests + previews) edits the *active* backend's URL.
@@ -260,6 +283,21 @@ public final class SettingsStore {
         persist()
     }
 
+    /// Clamp to the supported range so a bad write can't strand turns (too
+    /// low) or invite runaway loops (too high).
+    public func setMaxToolRounds(_ value: Int) {
+        let clamped = min(max(value, Self.maxToolRoundsRange.lowerBound), Self.maxToolRoundsRange.upperBound)
+        guard clamped != maxToolRounds else { return }
+        maxToolRounds = clamped
+        persist()
+    }
+
+    public func setToolRoundsUnlimited(_ value: Bool) {
+        guard value != toolRoundsUnlimited else { return }
+        toolRoundsUnlimited = value
+        persist()
+    }
+
     // MARK: - Orchestrator LLM
 
     /// Write (or clear) the orchestrator's LLM selection. Pass `nil` for
@@ -350,7 +388,9 @@ public final class SettingsStore {
             orchestratorLLMModel: orchestratorLLMModel,
             orchestratorDisabledTools: Array(orchestratorDisabledTools).sorted(),
             a2aMaxChainDepth: a2aMaxChainDepth,
-            a2aMaxTurnsPerPair: a2aMaxTurnsPerPair
+            a2aMaxTurnsPerPair: a2aMaxTurnsPerPair,
+            maxToolRounds: maxToolRounds,
+            toolRoundsUnlimited: toolRoundsUnlimited
         )
         guard let data = try? JSONEncoder().encode(snap) else { return }
         try? CloudDocument.write(data, to: Self.settingsURL)
@@ -383,6 +423,9 @@ public final class SettingsStore {
         // Optional so pre-A2A blobs decode; `load()` substitutes the defaults.
         var a2aMaxChainDepth: Int?
         var a2aMaxTurnsPerPair: Int?
+        // Optional so pre-existing blobs decode; `load()` substitutes the default.
+        var maxToolRounds: Int?
+        var toolRoundsUnlimited: Bool?
         // Legacy single-backend field. Decoded for migration; never re-encoded.
         var backendURL: String?
     }
@@ -397,6 +440,8 @@ public final class SettingsStore {
         let orchestratorDisabledTools: Set<String>
         let a2aMaxChainDepth: Int
         let a2aMaxTurnsPerPair: Int
+        let maxToolRounds: Int
+        let toolRoundsUnlimited: Bool
     }
 
     private nonisolated static func load() -> Loaded {
@@ -413,7 +458,9 @@ public final class SettingsStore {
                 orchestratorLLMModel: nil,
                 orchestratorDisabledTools: [],
                 a2aMaxChainDepth: defaultA2AMaxChainDepth,
-                a2aMaxTurnsPerPair: defaultA2AMaxTurnsPerPair
+                a2aMaxTurnsPerPair: defaultA2AMaxTurnsPerPair,
+                maxToolRounds: defaultMaxToolRounds,
+                toolRoundsUnlimited: false
             )
         }
         let (backends, activeID) = resolveBackends(snap)
@@ -426,7 +473,9 @@ public final class SettingsStore {
             orchestratorLLMModel: snap.orchestratorLLMModel,
             orchestratorDisabledTools: Set(snap.orchestratorDisabledTools ?? []),
             a2aMaxChainDepth: snap.a2aMaxChainDepth ?? defaultA2AMaxChainDepth,
-            a2aMaxTurnsPerPair: snap.a2aMaxTurnsPerPair ?? defaultA2AMaxTurnsPerPair
+            a2aMaxTurnsPerPair: snap.a2aMaxTurnsPerPair ?? defaultA2AMaxTurnsPerPair,
+            maxToolRounds: snap.maxToolRounds ?? defaultMaxToolRounds,
+            toolRoundsUnlimited: snap.toolRoundsUnlimited ?? false
         )
     }
 
@@ -462,6 +511,8 @@ public final class SettingsStore {
         orchestratorDisabledTools = loaded.orchestratorDisabledTools
         a2aMaxChainDepth = loaded.a2aMaxChainDepth
         a2aMaxTurnsPerPair = loaded.a2aMaxTurnsPerPair
+        maxToolRounds = loaded.maxToolRounds
+        toolRoundsUnlimited = loaded.toolRoundsUnlimited
     }
 }
 

@@ -351,7 +351,8 @@ public final class ChatSessionCoordinator {
                 extraHeaders: settings.authHeaders
             ),
             registry: registry,
-            threadId: UUID().uuidString
+            threadId: UUID().uuidString,
+            maxRounds: settings.effectiveMaxToolRounds
         )
         // Mirror ChatViewModel's per-turn payload so the sub-agent sees the
         // same context shape the user's own chat would for that myApp.
@@ -403,6 +404,19 @@ public final class ChatSessionCoordinator {
             case .assistantMessageEnd(_, let text):
                 if !accumulated.isEmpty { accumulated.append("\n") }
                 accumulated.append(text)
+            case .error(let message, _):
+                // An in-band RUN_ERROR from the delegated agent used to be
+                // dropped (default: break), returning "" to the orchestrator —
+                // the parent model then had no idea the sub-run failed. Fold it
+                // into the result so the parent can react / tell the user.
+                if !accumulated.isEmpty { accumulated.append("\n") }
+                accumulated.append("[sub-agent error: \(message)]")
+            case .completed(let outcome):
+                // Sub-run settled with no text and no error — don't hand the
+                // orchestrator an empty string it can't distinguish from "done".
+                if case .silent = outcome, accumulated.isEmpty {
+                    accumulated = "[sub-agent ended its turn with no reply]"
+                }
             default:
                 break
             }
@@ -600,7 +614,8 @@ public final class ChatSessionCoordinator {
                 extraHeaders: settings.authHeaders
             ),
             registry: registry,
-            threadId: UUID().uuidString
+            threadId: UUID().uuidString,
+            maxRounds: settings.effectiveMaxToolRounds
         )
         let agentSnapshot = agent
         let channelSnapshot = channel
@@ -646,6 +661,7 @@ public final class ChatSessionCoordinator {
             history: history
         )
         var accumulated = ""
+        var runError: String?
         do {
             for try await event in session.send(
                 prompt,
@@ -672,6 +688,11 @@ public final class ChatSessionCoordinator {
                         resultText: resultText,
                         failed: failed
                     )
+                case .error(let message, _):
+                    // In-band RUN_ERROR: same outcome as a thrown transport
+                    // error below — surface it as a failure instead of silently
+                    // dropping it and auto-posting an empty/partial reply.
+                    runError = message
                 default:
                     break
                 }
@@ -679,6 +700,7 @@ public final class ChatSessionCoordinator {
         } catch {
             return .failed(error: String(describing: error))
         }
+        if let runError { return .failed(error: runError) }
         let trimmed = accumulated.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitlyPosted = slackInvoker.hasExplicitlyPosted(agentId: agentId)
         // Suppress auto-post when the agent explicitly used

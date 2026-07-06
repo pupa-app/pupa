@@ -414,6 +414,42 @@ public struct SettingsSheet: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+        Section {
+            Toggle(isOn: Binding(
+                get: { settings.toolRoundsUnlimited },
+                set: { settings.setToolRoundsUnlimited($0) }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("No limit")
+                    Text("Let a turn run as many tool rounds as it needs. Removes the safety breaker — a stuck turn can loop indefinitely.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Stepper(
+                value: Binding(
+                    get: { settings.maxToolRounds },
+                    set: { settings.setMaxToolRounds($0) }
+                ),
+                in: SettingsStore.maxToolRoundsRange
+            ) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Tool rounds per turn: \(settings.maxToolRounds)")
+                    Text("How many tool round-trips one turn may take before the client stops it. Each on-device tool call (adding a component, editing a memory…) uses one. Raise it for long multi-step turns.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .disabled(settings.toolRoundsUnlimited)
+        } header: {
+            Text("Turn limits")
+        } footer: {
+            Text("A turn that hits this limit stops with a note instead of hanging. Applies on the next message.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
     @ViewBuilder

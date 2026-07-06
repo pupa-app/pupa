@@ -31,7 +31,17 @@ handlers.
   results, and re-POST until the model stops. `forwardedProps` (e.g. the
   per-turn `llm = {provider, model}` selection) is captured at send time
   and re-applied on every round, including resume rounds after a frontend
-  interrupt.
+  interrupt. A computed frontend-tool dispatch **always** gets its resume
+  POST — even when the runaway round cap (`maxRounds`, from
+  `SettingsStore.effectiveMaxToolRounds`: `maxToolRounds` default 24, range
+  4–64, or `nil` when the "No limit" toggle is on; every tool round-trip
+  consumes one) is hit mid-interrupt — so the backend session is never left
+  parked. `nil` removes the breaker: the turn runs until the backend settles. The loop settles with
+  `.completed(CompletionOutcome)`: `.produced` when the turn emitted
+  assistant text, else `.silent(reason)` (`emptyTurn` / `maxRounds` /
+  `droppedStream` / `backend`) so the UI can flag a turn that ended with no
+  reply instead of silently dropping the spinner. `ChatViewModel` renders a
+  `.system` notice bubble for `.silent`.
 - **[`ToolRegistry.swift`](../AGUIKit/Sources/AGUIKit/ToolRegistry.swift)**
   / **[`Tool.swift`](../AGUIKit/Sources/AGUIKit/Tool.swift)** — host
   registers `@Sendable async` handlers keyed by tool name; their
