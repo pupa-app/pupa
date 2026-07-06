@@ -434,10 +434,22 @@ public struct MyAppHomeView: View {
 
 }
 
+/// Direct (non-agent) memory mutations a row can trigger, bundled so the
+/// recursive row and its `MyAppMemoriesView` host share one closure set. Folder
+/// rows offer all four; file rows offer rename + delete. Parents are passed as
+/// the target folder's global-root-relative path.
+struct MemoryRowActions {
+    var newNote: (_ parent: String) -> Void
+    var newFolder: (_ parent: String) -> Void
+    var rename: (_ node: MemoryNode) -> Void
+    var delete: (_ node: MemoryNode) -> Void
+}
+
 /// Recursive memory row used by the `MyAppMemoriesView` browse page (reached
 /// from the bottom bar). Folders toggle their children on tap (tracked via the
 /// shared `expanded` set, keyed by full path); files navigate via the
-/// `onNavigate` callback. Extracted to its own `View` because SwiftUI's
+/// `onNavigate` callback. A long-press context menu adds/renames/deletes in
+/// place (`MemoryRowActions`). Extracted to its own `View` because SwiftUI's
 /// opaque-type inference doesn't handle a self-recursive `@ViewBuilder` method.
 struct MemoryLandingRow: View {
     let node: MemoryNode
@@ -448,12 +460,39 @@ struct MemoryLandingRow: View {
     /// both scopes.
     let fileSelection: (String) -> SidebarSelection
     var onNavigate: (SidebarSelection) -> Void
+    let actions: MemoryRowActions
 
     var body: some View {
         if node.isFolder {
             folderRow
         } else {
             fileRow
+        }
+    }
+
+    /// Context menu for a folder: add inside it, then rename / delete it.
+    @ViewBuilder
+    private var folderMenu: some View {
+        Button { actions.newNote(node.path) } label: {
+            Label("New Note", systemImage: "doc.badge.plus")
+        }
+        Button { actions.newFolder(node.path) } label: {
+            Label("New Folder", systemImage: "folder.badge.plus")
+        }
+        Divider()
+        renameButton
+        deleteButton
+    }
+
+    private var renameButton: some View {
+        Button { actions.rename(node) } label: {
+            Label("Rename / Move", systemImage: "pencil")
+        }
+    }
+
+    private var deleteButton: some View {
+        Button(role: .destructive) { actions.delete(node) } label: {
+            Label("Delete", systemImage: "trash")
         }
     }
 
@@ -481,6 +520,7 @@ struct MemoryLandingRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contextMenu { folderMenu }
 
         if isOpen, let children = node.children {
             ForEach(children) { child in
@@ -489,7 +529,8 @@ struct MemoryLandingRow: View {
                     depth: depth + 1,
                     expanded: $expanded,
                     fileSelection: fileSelection,
-                    onNavigate: onNavigate
+                    onNavigate: onNavigate,
+                    actions: actions
                 )
             }
         }
@@ -516,6 +557,10 @@ struct MemoryLandingRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            renameButton
+            deleteButton
+        }
     }
 }
 
