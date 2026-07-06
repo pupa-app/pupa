@@ -120,3 +120,10 @@ non-markdown supporting files, and a global cross-app skills tier.
 - Model surface: `ChatViewModel.skillsContextEntry` (in all three context
   paths) + the `app_skill_view` tool (`AppTools.registerSkillTools`), always
   advertised via `MyAppType.skillToolNames`.
+
+## Sibling: subagents
+
+`pupa/agents/<slug>/AGENTS.md` is the parallel primitive — Claude-Code-style
+delegates discovered by `AgentStore` (mirrors `SkillStore`) and invoked with the
+`invoke_agent` tool. Slack agents are these subagents. See
+[architecture.md → Subagents](architecture.md#subagents).

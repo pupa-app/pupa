@@ -2,6 +2,11 @@ import Foundation
 import Testing
 @testable import PupaApp
 
+/// Shared MyApp id for `.subagent` keys in these tests. With a single app,
+/// distinct slugs are distinct keys (the reentry semantics the old
+/// `.slack(agentId:)` key provided).
+private let kGateApp = UUID()
+
 /// Tests for `AgentInvocationGate` (forest model, Phase 1b — issue #193).
 ///
 /// Focus areas:
@@ -315,7 +320,8 @@ struct AgentInvocationGateTests {
         let id = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
         #expect(AgentInvocationKey.orchestrator.wireValue == "orchestrator")
         #expect(AgentInvocationKey.myApp(id).wireValue == "myApp:11111111-2222-3333-4444-555555555555")
-        #expect(AgentInvocationKey.slack(agentId: "marketing").wireValue == "slack:marketing")
+        #expect(AgentInvocationKey.subagent(myAppId: id, slug: "marketing").wireValue
+            == "subagent:11111111-2222-3333-4444-555555555555:marketing")
     }
 
     // MARK: - AgentInvocationRejection construction
@@ -362,7 +368,7 @@ struct AgentInvocationGateTests {
         let gate = AgentInvocationGate()
         let app = UUID()
         let idA = enter(gate: gate, caller: nil, target: .myApp(app))
-        let idSlack = enter(gate: gate, caller: idA, target: .slack(agentId: "marketing"))
+        let idSlack = enter(gate: gate, caller: idA, target: .subagent(myAppId: kGateApp, slug:"marketing"))
         // Slack agent tries to invoke the MyApp it was called from.
         let d = gate.decide(caller: idSlack, target: .myApp(app))
         guard case .reentrant = d else {
@@ -375,12 +381,12 @@ struct AgentInvocationGateTests {
         let gate = AgentInvocationGate()
         let app1 = UUID(), app2 = UUID()
         enter(gate: gate, caller: nil, target: .myApp(app1))
-        enter(gate: gate, caller: nil, target: .slack(agentId: "a1"))
+        enter(gate: gate, caller: nil, target: .subagent(myAppId: kGateApp, slug:"a1"))
         // Unrelated keys in separate trees.
         guard case .proceed = gate.decide(caller: nil, target: .myApp(app2)) else {
             Issue.record("Expected .proceed for unrelated myApp2"); return
         }
-        guard case .proceed = gate.decide(caller: nil, target: .slack(agentId: "a2")) else {
+        guard case .proceed = gate.decide(caller: nil, target: .subagent(myAppId: kGateApp, slug:"a2")) else {
             Issue.record("Expected .proceed for unrelated slack a2"); return
         }
     }
@@ -497,11 +503,11 @@ struct AgentInvocationGateTests {
         // Register a MyApp root.
         let idApp = enter(gate: gate, caller: nil, target: .myApp(app))
         // Now enter a Slack sub-agent under that MyApp.
-        guard case let .proceed(idSlack, root) = gate.decide(caller: idApp, target: .slack(agentId: "a1")) else {
+        guard case let .proceed(idSlack, root) = gate.decide(caller: idApp, target: .subagent(myAppId: kGateApp, slug:"a1")) else {
             Issue.record("Expected .proceed for Slack sub-agent"); return
         }
         inv.enter("a1", agentName: "marketing", channelId: "c1",
-                  invocationId: idSlack, caller: idApp, treeRoot: root)
+                  myAppId: kGateApp, invocationId: idSlack, caller: idApp, treeRoot: root)
         // Gate has both nodes.
         #expect(gate.activeInvocations[idApp] != nil)
         #expect(gate.activeInvocations[idSlack] != nil)
@@ -520,11 +526,11 @@ struct AgentInvocationGateTests {
     func currentInvocationId() {
         let gate = AgentInvocationGate()
         let inv = SlackInvoker(gate: gate)
-        guard case let .proceed(id, root) = gate.decide(caller: nil, target: .slack(agentId: "a1")) else {
+        guard case let .proceed(id, root) = gate.decide(caller: nil, target: .subagent(myAppId: kGateApp, slug:"a1")) else {
             Issue.record("Expected .proceed"); return
         }
         inv.enter("a1", agentName: "bot", channelId: "c1",
-                  invocationId: id, caller: nil, treeRoot: root)
+                  myAppId: kGateApp, invocationId: id, caller: nil, treeRoot: root)
         #expect(inv.currentInvocationId(agentId: "a1") == id)
         #expect(inv.currentInvocationId(agentId: "a2") == nil)
         inv.exit("a1")
@@ -536,7 +542,7 @@ struct AgentInvocationGateTests {
         let gate = AgentInvocationGate(maxChainDepth: 1)
         let idApp = enter(gate: gate, caller: nil, target: .myApp(UUID()))
         // Chain from idApp is length 1 — at the cap. A nested Slack call is depth 2.
-        let d = gate.decide(caller: idApp, target: .slack(agentId: "a1"))
+        let d = gate.decide(caller: idApp, target: .subagent(myAppId: kGateApp, slug:"a1"))
         guard case let .maxDepthExceeded(_, depth) = d else {
             Issue.record("Expected .maxDepthExceeded"); return
         }

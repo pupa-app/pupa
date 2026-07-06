@@ -2,6 +2,18 @@ import Foundation
 import Observation
 import AGUIKit
 
+/// Errors thrown by `ChatSessionCoordinator.runSubagent` distinct from an
+/// `AgentInvocationRejection`. Surfaced by the `invoke_agent` tool handler as
+/// an `{ok:false, error}` echo.
+public enum SubagentRunError: Error, CustomStringConvertible {
+    case notFound(String)
+    public var description: String {
+        switch self {
+        case .notFound(let name): return "no subagent named '\(name)' (create pupa/agents/<slug>/AGENTS.md)"
+        }
+    }
+}
+
 /// Owns one `ChatViewModel` per `ChatScope` (one per myApp + one shared for
 /// memory mode) and lazily creates them on first access. Sessions live for
 /// the rest of the app process (or until their backing myApp is deleted), so
@@ -230,6 +242,12 @@ public final class ChatSessionCoordinator {
             )
             AppTools.registerMemoryTools(on: registry, memory: sessionMemory)
             AppTools.registerSkillTools(on: registry, memory: sessionMemory)
+            // Generic subagent invocation: the main agent can delegate to any
+            // `pupa/agents/<slug>/AGENTS.md` subagent in this myApp.
+            AppTools.registerSubagentTools(on: registry, run: { [weak self] name, prompt in
+                guard let self else { return "" }
+                return try await self.runSubagent(myAppId: id, agentName: name, prompt: prompt)
+            })
             let toolGateState = ToolGateState()
             sessionToolGateState = toolGateState
             AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: toolGateState)
@@ -425,6 +443,179 @@ public final class ChatSessionCoordinator {
         return accumulated
     }
 
+    /// Spin up a transient sub-session for a `pupa/agents/<slug>/AGENTS.md`
+    /// subagent within `myAppId`. Inherits the MyApp's canvas + memory
+    /// surface but narrows the tool set to the subagent's frontmatter
+    /// (`tools` / `disabled_tools`, always plus `invoke_agent`) and pins its
+    /// persona (the AGENTS.md body) as a context entry. Runs the multi-round
+    /// loop to completion and returns the concatenated final assistant text.
+    ///
+    /// The generic counterpart to `runOneShot` (which targets another MyApp's
+    /// *main* agent). Invoked by the `invoke_agent` frontend tool — from the
+    /// main chat (`caller == nil`) or from another subagent (A2A; `caller` is
+    /// the parent run's invocationId). Consults `agentInvocationGate` first
+    /// and throws `AgentInvocationRejection` when rejected so the tool handler
+    /// can echo `agent_unavailable`; throws `SubagentRunError.notFound` when
+    /// no such subagent exists.
+    func runSubagent(
+        myAppId: UUID,
+        agentName: String,
+        prompt: String,
+        caller: UUID? = nil
+    ) async throws -> String {
+        let store = self.store
+        let settings = self.settings
+        let urlSession = self.urlSession
+        let myAppName = store.myApps.first(where: { $0.id == myAppId })?.name ?? ""
+        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: myAppName))
+        appMemory.onDidMutate = { [weak self] in self?.memory.rescan() }
+        guard let subagent = AgentStore(memory: appMemory).agent(named: agentName) else {
+            throw SubagentRunError.notFound(agentName)
+        }
+        let target: AgentInvocationKey = .subagent(myAppId: myAppId, slug: subagent.name)
+        syncGateLimitsFromSettings()
+        let decision = agentInvocationGate.decide(caller: caller, target: target)
+        guard case let .proceed(invocationId, treeRoot) = decision else {
+            let ancestors = caller.map { agentInvocationGate.ancestorChain(from: $0) } ?? []
+            throw AgentInvocationRejection(
+                decision: decision,
+                callPath: ancestors.map { $0.agentKey },
+                treeRootKey: ancestors.first?.agentKey
+            )
+        }
+        agentInvocationGate.enter(
+            invocationId: invocationId,
+            target: target,
+            caller: caller,
+            treeRoot: treeRoot
+        )
+        defer { agentInvocationGate.exit(invocationId) }
+
+        let registry = ToolRegistry()
+        AppTools.registerMyAppTools(on: registry, store: store, myAppId: myAppId, memory: appMemory)
+        AppTools.registerMemoryTools(on: registry, memory: appMemory)
+        AppTools.registerSkillTools(on: registry, memory: appMemory)
+        // A2A: this subagent can invoke siblings; thread its own invocationId
+        // as the caller so the gate records the nested edge and bounds depth.
+        AppTools.registerSubagentTools(on: registry, run: { [weak self] name, subPrompt in
+            guard let self else { return "" }
+            return try await self.runSubagent(
+                myAppId: myAppId, agentName: name, prompt: subPrompt, caller: invocationId
+            )
+        })
+        let subRunToolGateState = ToolGateState()
+        AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: subRunToolGateState)
+        if let myApp = store.myApps.first(where: { $0.id == myAppId }),
+           let type = MyAppTypeRegistry.shared.resolve(id: myApp.typeId) {
+            AppTools.registerToolGates(on: registry, myAppType: type, toolGateState: subRunToolGateState)
+        }
+        let session = AgentSession(
+            client: AgentClient(
+                endpoint: settings.backendURL,
+                session: urlSession,
+                extraHeaders: settings.authHeaders
+            ),
+            registry: registry,
+            threadId: UUID().uuidString,
+            maxRounds: settings.effectiveMaxToolRounds
+        )
+        let memory = appMemory
+        let subagentSnapshot = subagent
+        let context: @Sendable () async -> [AgentContextEntry] = {
+            await Self.subagentContextEntries(
+                store: store, memory: memory, myAppId: myAppId, subagent: subagentSnapshot
+            )
+        }
+        let disabledExtra = Set(subagent.disabledTools ?? [])
+        let state: @Sendable () async -> AnyJSON = {
+            await MainActor.run {
+                let disabledSet = settings.disabledBackendTools
+                    .union(store.myAppDisabledTools(for: myAppId))
+                    .union(disabledExtra)
+                let disabled = disabledSet.sorted().map { AnyJSON.string($0) }
+                var entries: [String: AnyJSON] = ["disabled_tools": .array(disabled)]
+                let effective = EffectiveSettings(
+                    globalSource: GlobalSettingsSource(shellApprovalDisabled: settings.shellApprovalDisabled),
+                    myAppSettings: store.myApp(withId: myAppId).map { [$0.id: $0.settings] } ?? [:]
+                )
+                if effective.resolve(ShellApprovalDisabledKey.self, at: .myApp(myAppId)) {
+                    entries["shell_approval_disabled"] = .bool(true)
+                }
+                return AnyJSON.object(entries)
+            }
+        }
+        let fallbackModel = await MainActor.run { store.myAppLLM(for: myAppId) }
+        let modelProps = Self.llmForwardedProps(subagent.llmSelection ?? fallbackModel)
+        incrementBusy(myAppId)
+        defer { decrementBusy(myAppId) }
+        let scope: ChatScope = .myApp(myAppId)
+        let toolFilter: @Sendable () async -> Set<String> = { [store, subRunToolGateState] in
+            await MainActor.run {
+                let base = ChatViewModel.allowedToolNames(
+                    scope: scope, store: store, toolGateState: subRunToolGateState
+                )
+                return SubagentPolicy.narrowedTools(base: base, subagent: subagentSnapshot)
+            }
+        }
+        var accumulated = ""
+        for try await event in session.send(
+            prompt,
+            context: context,
+            toolFilter: toolFilter,
+            state: state,
+            forwardedProps: modelProps
+        ) {
+            switch event {
+            case .assistantMessageEnd(_, let text):
+                if !accumulated.isEmpty { accumulated.append("\n") }
+                accumulated.append(text)
+            case .error(let message, _):
+                if !accumulated.isEmpty { accumulated.append("\n") }
+                accumulated.append("[sub-agent error: \(message)]")
+            case .completed(let outcome):
+                if case .silent = outcome, accumulated.isEmpty {
+                    accumulated = "[sub-agent ended its turn with no reply]"
+                }
+            default:
+                break
+            }
+        }
+        self.memory.rescan()
+        return accumulated
+    }
+
+    /// Per-turn context entries for a generic subagent invocation. Same
+    /// canvas + memory shape as any sub-run, plus a persona entry pinning the
+    /// subagent's AGENTS.md body and its private memory subfolder.
+    private static func subagentContextEntries(
+        store: MyAppStore,
+        memory: MemoryStore,
+        myAppId: UUID,
+        subagent: Subagent
+    ) async -> [AgentContextEntry] {
+        let base = await subRunContextEntries(store: store, memory: memory, myAppId: myAppId)
+        return await MainActor.run {
+            var entries = base
+            let subfolder = MemoryStore.subagentSubfolder(name: subagent.name)
+            let personaPayload: [String: String] = [
+                "name": subagent.displayName ?? subagent.name,
+                "slug": subagent.name,
+                "persona": subagent.body,
+                "memorySubfolder": subfolder,
+            ]
+            let json = (try? JSONEncoder().encode(personaPayload))
+                .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+            entries.append(AgentContextEntry(
+                description: "Your subagent persona for this invocation. Adopt this role for your "
+                    + "reply. Your private memory subfolder is `\(subfolder)` — keep notes there "
+                    + "(e.g. `\(subfolder)/notes.md`); edit `\(subfolder)/AGENTS.md` to update your "
+                    + "own instructions. You may delegate to sibling subagents via `invoke_agent`.",
+                value: json
+            ))
+            return entries
+        }
+    }
+
     /// Build the per-turn context entries for a sub-run. Same shape as
     /// `ChatViewModel.contextEntries(... scope: .myApp(id))` so the
     /// sub-agent sees the canvas state, memories paths, and myApp-type
@@ -445,8 +636,10 @@ public final class ChatSessionCoordinator {
             // Skills under pupa/skills/ — the sub-run / Slack agent can load any
             // via app_skill_view (and create new ones). Same entry as main chat.
             let skillsEntry = [ChatViewModel.skillsContextEntry(SkillStore(memory: memory))]
+            // Subagents under pupa/agents/ — sub-runs can delegate to siblings.
+            let agentsEntry = [ChatViewModel.agentsContextEntry(AgentStore(memory: memory))]
             guard let myApp = store.myApps.first(where: { $0.id == myAppId }) else {
-                return [memoriesEntry] + skillsEntry
+                return [memoriesEntry] + skillsEntry + agentsEntry
             }
             // Same thin enumeration as the main chat — full item lists
             // stay reachable via `getCanvasState` and the `list*` /
@@ -472,7 +665,7 @@ public final class ChatSessionCoordinator {
                 ),
                 memoriesEntry,
                 AgentContextEntry(description: typeDescription, value: typeJSON),
-            ] + skillsEntry
+            ] + skillsEntry + agentsEntry
         }
     }
 
@@ -511,86 +704,78 @@ public final class ChatSessionCoordinator {
         let memory = self.memory
         let settings = self.settings
         let urlSession = self.urlSession
-        // Snapshot the agent + channel under MainActor before
-        // touching anything else. If either is missing, fail
-        // immediately — the channel may have been deleted between
-        // composer-send and dispatch.
-        let snapshot = await MainActor.run { () -> (SlackAgent, SlackChannel, [SlackMessage])? in
-            guard let myApp = store.myApps.first(where: { $0.id == myAppId }),
+        let myAppName = store.myApps.first(where: { $0.id == myAppId })?.name ?? ""
+        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: myAppName))
+        appMemory.onDidMutate = { [weak self] in self?.memory.rescan() }
+        // Resolve the subagent (`agentId` is its slug) from the filesystem and
+        // the channel from the canvas. If either is missing, fail immediately.
+        let snapshot = await MainActor.run { () -> (Subagent, SlackChannel, [SlackMessage])? in
+            guard let subagent = AgentStore(memory: appMemory).agent(named: agentId),
+                  let myApp = store.myApps.first(where: { $0.id == myAppId }),
                   let comp = myApp.components.first(where: { $0.id == componentId }),
                   case .slack(let s) = comp.body,
-                  let agent = s.agents.first(where: { $0.id == agentId }),
                   let channel = s.channels.first(where: { $0.id == channelId })
             else { return nil }
             let history = (s.messagesByChannel[channelId] ?? [])
                 .sorted { $0.timestamp < $1.timestamp }
-            return (agent, channel, history)
+            return (subagent, channel, history)
         }
-        guard let (agent, channel, history) = snapshot else {
+        guard let (subagent, channel, history) = snapshot else {
             return .failed(error: "agent or channel not found")
         }
+        let slug = subagent.name
+        let agentDisplayName = subagent.displayName ?? subagent.name
         let invocationId: UUID
         let treeRoot: UUID
         syncGateLimitsFromSettings()
-        switch agentInvocationGate.decide(caller: caller, target: .slack(agentId: agentId)) {
-        case .reentrant: return .reentrant(targetName: agent.name)
-        case .busy: return .busy(targetName: agent.name)
+        switch agentInvocationGate.decide(caller: caller, target: .subagent(myAppId: myAppId, slug: slug)) {
+        case .reentrant: return .reentrant(targetName: agentDisplayName)
+        case .busy: return .busy(targetName: agentDisplayName)
         case .maxDepthExceeded(_, let depth):
-            return .maxDepthExceeded(targetName: agent.name, depth: depth)
+            return .maxDepthExceeded(targetName: agentDisplayName, depth: depth)
         case .budgetExhausted(_, let n):
-            return .budgetExhausted(targetName: agent.name, exhaustedAfter: n)
+            return .budgetExhausted(targetName: agentDisplayName, exhaustedAfter: n)
         case let .proceed(id, root):
             invocationId = id
             treeRoot = root
         }
         slackInvoker.enter(
-            agentId,
-            agentName: agent.name,
+            slug,
+            agentName: agentDisplayName,
             channelId: channelId,
+            myAppId: myAppId,
             invocationId: invocationId,
             caller: caller,
             treeRoot: treeRoot
         )
         incrementBusy(myAppId)
         defer {
-            slackInvoker.exit(agentId)
+            slackInvoker.exit(slug)
             decrementBusy(myAppId)
             memory.rescan()  // keep global sidebar tree in sync with app-scoped writes
         }
-        // Build the transient session, mirroring runOneShot's setup
-        // so the Slack agent has the same canvas + memory surface
-        // as the main agent in this MyApp. Slack sub-agents get the
-        // same app-scoped MemoryStore as the myApp's main session so
-        // `lsMemories` only sees the app's subtree. Their private
-        // subfolder is communicated via the persona context entry.
-        // Slack tools wired in sub-agent mode (admin tools refuse,
-        // slackPostMessage works).
-        let myAppName = store.myApps.first(where: { $0.id == myAppId })?.name ?? ""
-        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: myAppName))
-        appMemory.onDidMutate = { [weak self] in self?.memory.rescan() }
-        // Back-fill AGENTS.md for agents created before this feature was added.
-        let agentSubfolder = MemoryStore.slackAgentSubfolder(agentName: agent.name)
-        if !appMemory.fileExists(at: "\(agentSubfolder)/AGENTS.md") {
-            let content = """
-                # \(agent.name)
-
-                **Role:** \(agent.role)
-
-                ## Persona
-                \(agent.systemPromptAddition.isEmpty ? "_No persona set._" : agent.systemPromptAddition)
-                """
-            _ = try? appMemory.writeFile(path: "\(agentSubfolder)/AGENTS.md", content: content)
-        }
+        // Build the transient session, mirroring runOneShot's setup so the
+        // subagent has the same canvas + memory surface as the main agent in
+        // this MyApp, narrowed to its frontmatter tools. Slack tools wired in
+        // sub-agent mode (admin tools refuse, slackPostMessage works).
         let registry = ToolRegistry()
         AppTools.registerMyAppTools(
             on: registry,
             store: store,
             myAppId: myAppId,
             memory: appMemory,
-            slack: subAgentSlackContext(myAppId: myAppId, currentAgentId: agentId)
+            slack: subAgentSlackContext(myAppId: myAppId, currentAgentId: slug)
         )
         AppTools.registerMemoryTools(on: registry, memory: appMemory)
         AppTools.registerSkillTools(on: registry, memory: appMemory)
+        // A2A: the subagent can also delegate to siblings via invoke_agent,
+        // threading its own invocationId so the gate bounds the chain.
+        AppTools.registerSubagentTools(on: registry, run: { [weak self] name, subPrompt in
+            guard let self else { return "" }
+            return try await self.runSubagent(
+                myAppId: myAppId, agentName: name, prompt: subPrompt, caller: invocationId
+            )
+        })
         let slackToolGateState = ToolGateState()
         AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: slackToolGateState)
         if let myApp = store.myApps.first(where: { $0.id == myAppId }),
@@ -604,7 +789,7 @@ public final class ChatSessionCoordinator {
         // captures `bridge` weakly, so we hold a strong local for the
         // whole run; the `defer` below + `withExtendedLifetime` keep
         // ARC from releasing it across the session's await points.
-        let hitlBridge = SlackHITLBridge(agentId: agentId, invoker: slackInvoker)
+        let hitlBridge = SlackHITLBridge(agentId: slug, invoker: slackInvoker)
         AppTools.registerHumanInTheLoopTools(on: registry, bridge: hitlBridge)
         defer { withExtendedLifetime(hitlBridge) {} }
         let session = AgentSession(
@@ -617,7 +802,7 @@ public final class ChatSessionCoordinator {
             threadId: UUID().uuidString,
             maxRounds: settings.effectiveMaxToolRounds
         )
-        let agentSnapshot = agent
+        let agentSnapshot = subagent
         let channelSnapshot = channel
         let historySnapshot = history
         let context: @Sendable () async -> [AgentContextEntry] = {
@@ -630,7 +815,7 @@ public final class ChatSessionCoordinator {
                 history: historySnapshot
             )
         }
-        let agentDisabledTools = Set(agent.disabledTools ?? [])
+        let agentDisabledTools = Set(subagent.disabledTools ?? [])
         let state: @Sendable () async -> AnyJSON = {
             await MainActor.run {
                 // Global Settings → Tools set ∪ this sub-agent's per-agent overrides.
@@ -647,16 +832,19 @@ public final class ChatSessionCoordinator {
                 return AnyJSON.object(entries)
             }
         }
-        // Per-agent model selection (falls back to MyApp's, then backend default).
-        let agentModel = agent.llmProvider.flatMap { p in agent.llmModel.map { (provider: p, model: $0) } }
-            ?? store.myAppLLM(for: myAppId)
-        let modelProps = Self.llmForwardedProps(agentModel)
+        // Per-agent model selection (frontmatter, then MyApp's, then backend default).
+        let fallbackModel = await MainActor.run { store.myAppLLM(for: myAppId) }
+        let modelProps = Self.llmForwardedProps(subagent.llmSelection ?? fallbackModel)
         let scope: ChatScope = .myApp(myAppId)
         let toolFilter: @Sendable () async -> Set<String> = { [store, slackToolGateState] in
-            await MainActor.run { ChatViewModel.allowedToolNames(scope: scope, store: store, toolGateState: slackToolGateState) }
+            await MainActor.run {
+                let base = ChatViewModel.allowedToolNames(scope: scope, store: store, toolGateState: slackToolGateState)
+                return SubagentPolicy.narrowedTools(base: base, subagent: agentSnapshot)
+            }
         }
         let prompt = Self.slackInvocationPrompt(
-            agent: agent,
+            agentName: agentDisplayName,
+            agentSlug: slug,
             channel: channel,
             history: history
         )
@@ -675,13 +863,13 @@ public final class ChatSessionCoordinator {
                     if !accumulated.isEmpty { accumulated.append("\n") }
                     accumulated.append(text)
                 case .toolCallStarted(let id, let name):
-                    slackInvoker.recordToolCallStart(agentId: agentId, id: id, name: name)
+                    slackInvoker.recordToolCallStart(agentId: slug, id: id, name: name)
                 case .toolCallFinished(let id, let name, let arguments, let result):
                     let argsJSON = Self.prettyJSON(arguments)
                     let resultText = result.map(Self.prettyJSON) ?? ""
                     let failed = Self.toolResultIsFailure(result)
                     slackInvoker.recordToolCallFinish(
-                        agentId: agentId,
+                        agentId: slug,
                         id: id,
                         name: name,
                         argsJSON: argsJSON,
@@ -702,7 +890,7 @@ public final class ChatSessionCoordinator {
         }
         if let runError { return .failed(error: runError) }
         let trimmed = accumulated.trimmingCharacters(in: .whitespacesAndNewlines)
-        let explicitlyPosted = slackInvoker.hasExplicitlyPosted(agentId: agentId)
+        let explicitlyPosted = slackInvoker.hasExplicitlyPosted(agentId: slug)
         // Suppress auto-post when the agent explicitly used
         // `slackPostMessage` during its run — otherwise we'd
         // duplicate the agent's reply (once via the tool call,
@@ -713,7 +901,7 @@ public final class ChatSessionCoordinator {
             store.slackPostMessage(
                 channelId: channelId,
                 authorKind: .agent,
-                authorId: agentId,
+                authorId: slug,
                 text: trimmed,
                 myAppId: myAppId,
                 componentId: componentId
@@ -745,19 +933,24 @@ public final class ChatSessionCoordinator {
             },
             resolveAgentId: { [weak self] name in
                 guard let self else { return nil }
-                return await MainActor.run {
-                    self.store.myApps.first(where: { $0.id == myAppId })?
-                        .components.lazy.compactMap { comp -> [SlackAgent]? in
-                            if case .slack(let s) = comp.body { return s.agents }
-                            return nil
-                        }.first?
-                        .first(where: { $0.name.lowercased() == name.lowercased() })?.id
-                }
+                return await MainActor.run { self.resolveSubagentSlug(name: name, myAppId: myAppId) }
             },
             markMessagePosted: { [weak self] agentId in
                 await MainActor.run { self?.slackInvoker.markMessagePosted(agentId: agentId) }
             }
         )
+    }
+
+    /// Resolve an @-mention handle (display name or slug) to a subagent slug
+    /// via the MyApp's `pupa/agents/` roster. Returns nil when no match.
+    @MainActor
+    private func resolveSubagentSlug(name: String, myAppId: UUID) -> String? {
+        let appName = store.myApps.first(where: { $0.id == myAppId })?.name ?? ""
+        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: appName))
+        let lower = name.lowercased()
+        return AgentStore(memory: appMemory).agents.first(where: {
+            $0.name.lowercased() == lower || ($0.displayName?.lowercased() == lower)
+        })?.name
     }
 
     /// `SlackToolContext` for a Slack sub-agent's transient
@@ -792,14 +985,7 @@ public final class ChatSessionCoordinator {
             },
             resolveAgentId: { [weak self] name in
                 guard let self else { return nil }
-                return await MainActor.run {
-                    self.store.myApps.first(where: { $0.id == myAppId })?
-                        .components.lazy.compactMap { comp -> [SlackAgent]? in
-                            if case .slack(let s) = comp.body { return s.agents }
-                            return nil
-                        }.first?
-                        .first(where: { $0.name.lowercased() == name.lowercased() })?.id
-                }
+                return await MainActor.run { self.resolveSubagentSlug(name: name, myAppId: myAppId) }
             },
             markMessagePosted: { [weak self] agentId in
                 await MainActor.run { self?.slackInvoker.markMessagePosted(agentId: agentId) }
@@ -856,7 +1042,8 @@ public final class ChatSessionCoordinator {
     static let slackInvocationHistoryLimit = 30
 
     static func slackInvocationPrompt(
-        agent: SlackAgent,
+        agentName: String,
+        agentSlug: String,
         channel: SlackChannel,
         history: [SlackMessage],
         historyLimit: Int = slackInvocationHistoryLimit
@@ -871,7 +1058,7 @@ public final class ChatSessionCoordinator {
             let speaker: String
             switch msg.authorKind {
             case .user: speaker = "user"
-            case .agent: speaker = msg.authorId == agent.id ? "you" : msg.authorId
+            case .agent: speaker = msg.authorId == agentSlug ? "you" : msg.authorId
             }
             return "[\(formatter.string(from: msg.timestamp))] \(speaker): \(msg.text)"
         }.joined(separator: "\n")
@@ -892,38 +1079,31 @@ public final class ChatSessionCoordinator {
 
         \(truncationHint)\(transcript)
 
-        Reply once as \(agent.name). Your response is posted as a new message in \(channelLabel) — \
+        Reply once as \(agentName). Your response is posted as a new message in \(channelLabel) — \
         keep it focused, conversational, and in your role. Do not prefix your reply with your name \
         or a timestamp; the channel renders those automatically.
         """
     }
 
-    /// Per-turn context entries for a Slack agent invocation. Same
-    /// canvas + memory shape as a normal sub-run, plus a persona
-    /// entry that pins the agent's role / system-prompt addition.
+    /// Per-turn context entries for a Slack subagent invocation. Same
+    /// canvas + memory shape as a normal sub-run, plus a persona entry that
+    /// pins the subagent's AGENTS.md body and channel context.
     private static func slackContextEntries(
         store: MyAppStore,
         memory: MemoryStore,
         myAppId: UUID,
-        agent: SlackAgent,
+        agent: Subagent,
         channel: SlackChannel,
         history: [SlackMessage]
     ) async -> [AgentContextEntry] {
         let baseEntries = await subRunContextEntries(store: store, memory: memory, myAppId: myAppId)
         return await MainActor.run {
             var entries = baseEntries
-            // Relative to the app-scoped MemoryStore root (which IS appRoot),
-            // so no myApp prefix needed.
-            let memorySubfolder = MemoryStore.slackAgentSubfolder(agentName: agent.name)
-            // Use AGENTS.md as the source of truth for persona; fall back to
-            // systemPromptAddition if the file is missing (old agents).
-            let agentsMd = (try? memory.readFile(path: "\(memorySubfolder)/AGENTS.md"))?.content
-            let persona = agentsMd ?? agent.systemPromptAddition
+            let memorySubfolder = MemoryStore.subagentSubfolder(name: agent.name)
             let personaPayload: [String: String] = [
-                "agentId": agent.id,
-                "name": agent.name,
-                "role": agent.role,
-                "persona": persona,
+                "slug": agent.name,
+                "name": agent.displayName ?? agent.name,
+                "persona": agent.body,
                 "channelId": channel.id,
                 "channelName": channel.name,
                 "channelType": channel.type.rawValue,

@@ -141,23 +141,20 @@ struct JobSearchExampleTests {
         }
     }
 
-    @Test("Slack Prep Room has three distinct-persona agents in #general")
+    @Test("Slack Prep Room's #general channel references the three subagents by slug")
     func slackHasThreeAgents() {
         let myApp = JobSearchExample.make()
         guard case .slack(let data) = body(myApp, id: "slack-1") else {
             Issue.record("slack-1 missing or wrong kind"); return
         }
-        #expect(data.agents.count == 3)
-        let ids = Set(data.agents.map(\.id))
-        #expect(ids == ["coach", "challenger", "scout"])
-        // Each agent must carry a non-empty persona — that's the only
-        // hook driving distinct behaviour at invocation time.
-        #expect(data.agents.allSatisfy { !$0.systemPromptAddition.isEmpty })
+        // Agents are filesystem subagents (seeded AGENTS.md, checked below);
+        // the channel references them by slug.
+        #expect(Set(data.channels.first?.memberAgentIds ?? []) == ["coach", "challenger", "scout"])
 
         #expect(data.channels.count == 1)
         let general = data.channels[0]
         #expect(general.name == "general")
-        #expect(Set(general.memberAgentIds) == ids)
+        #expect(Set(general.memberAgentIds) == ["coach", "challenger", "scout"])
         #expect(data.activeChannelId == general.id)
         // No seeded transcript — the user starts the conversation.
         #expect(data.messagesByChannel[general.id]?.isEmpty ?? true)

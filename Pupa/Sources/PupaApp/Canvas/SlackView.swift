@@ -1,12 +1,13 @@
 import SwiftUI
 
 /// Slack canvas component view. Two panes: channel sidebar on the
-/// left, message thread + composer on the right. All mutations route
-/// through `MyAppStore`'s `slack*` mutators so the (forthcoming)
-/// agent tools and the inline UI buttons share one source of truth.
+/// left, message thread + composer on the right. Channel/message mutations
+/// route through `MyAppStore`'s `slack*` mutators; agents are filesystem
+/// subagents (`pupa/agents/`) surfaced via `agentRoster`.
 ///
-/// Agent invocation isn't wired here yet — typing in the composer
-/// appends a user message but no agent runs. That comes in step 3.
+/// @-mentioning an agent (or posting in a DM) spawns a subagent run via
+/// `ChatSessionCoordinator.invokeSlackAgent`, streamed live into the channel
+/// pane through `SlackInvoker`.
 public struct SlackView: View {
     @Bindable var store: MyAppStore
     let data: SlackData
@@ -17,6 +18,9 @@ public struct SlackView: View {
 
     @State private var newChannelSheet: Bool = false
     @State private var newAgentSheet: Bool = false
+    /// Bumped after the create-agent sheet writes a new AGENTS.md so the
+    /// disk-read `agentRoster` recomputes and the sidebar shows it.
+    @State private var rosterRefresh: Int = 0
     @State private var composerText: String = ""
     @State private var lastInvocationNote: String?
     /// Drives the channels+agents drawer on compact horizontal
@@ -61,6 +65,16 @@ public struct SlackView: View {
         self.invoker = coordinator.slackInvoker
     }
 
+    /// The MyApp's subagent roster — every `pupa/agents/<slug>/AGENTS.md`,
+    /// re-read from disk each render. Slack agents ARE subagents now; the
+    /// component holds no agent list of its own. `rosterRefresh` forces a
+    /// recompute after the create-agent sheet writes a new file.
+    private var agentRoster: [Subagent] {
+        _ = rosterRefresh
+        let appName = store.myApps.first(where: { $0.id == myAppId })?.name ?? ""
+        return AgentStore(memory: MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: appName))).agents
+    }
+
     public var body: some View {
         Group {
             if isCompact {
@@ -92,8 +106,12 @@ public struct SlackView: View {
                   let agentId = url.host, !agentId.isEmpty else {
                 return .systemAction
             }
+            let appName = store.myApps.first(where: { $0.id == myAppId })?.name ?? ""
+            let display = AgentStore(memory: MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: appName)))
+                .agent(named: agentId)?.displayName ?? agentId
             if let dmId = store.slackOpenDM(
                 agentId: agentId,
+                displayName: display,
                 myAppId: myAppId,
                 componentId: componentId
             ) {
@@ -132,7 +150,7 @@ public struct SlackView: View {
         #endif
         .sheet(isPresented: $newChannelSheet) {
             SlackChannelEditorSheet(
-                agents: data.agents,
+                agents: agentRoster,
                 onCreate: { name, type, members in
                     _ = store.slackAddChannel(
                         name: name,
@@ -149,13 +167,17 @@ public struct SlackView: View {
         .sheet(isPresented: $newAgentSheet) {
             SlackAgentEditorSheet(
                 onCreate: { name, role, prompt in
-                    _ = store.slackAddAgent(
+                    // Create a filesystem subagent — the canonical writer
+                    // produces pupa/agents/<slug>/AGENTS.md; `role` becomes the
+                    // subagent description.
+                    let appName = store.myApps.first(where: { $0.id == myAppId })?.name ?? ""
+                    let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: appName))
+                    _ = try? AgentStore(memory: appMemory).createAgent(
                         name: name,
-                        role: role,
-                        systemPromptAddition: prompt,
-                        myAppId: myAppId,
-                        componentId: componentId
+                        description: role,
+                        prompt: prompt
                     )
+                    rosterRefresh += 1
                     newAgentSheet = false
                 },
                 onCancel: { newAgentSheet = false }
@@ -236,16 +258,18 @@ public struct SlackView: View {
 
     @ViewBuilder
     private var agentsSection: some View {
-        if !data.agents.isEmpty {
+        if !agentRoster.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 Text("AGENTS")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 8)
-                ForEach(data.agents) { agent in
+                ForEach(agentRoster) { agent in
+                    let label = agent.displayName ?? agent.name
                     Button {
                         let dmId = store.slackOpenDM(
-                            agentId: agent.id,
+                            agentId: agent.name,
+                            displayName: label,
                             myAppId: myAppId,
                             componentId: componentId
                         )
@@ -259,17 +283,18 @@ public struct SlackView: View {
                     } label: {
                         HStack(spacing: 8) {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(agent.name)
+                                Text(label)
                                     .font(.subheadline)
-                                    .foregroundStyle(SlackAgentPalette.color(forAgentId: agent.id))
-                                if !agent.role.isEmpty {
-                                    Text(agent.role)
+                                    .foregroundStyle(SlackAgentPalette.color(forAgentId: agent.name))
+                                if !agent.description.isEmpty {
+                                    Text(agent.description)
                                         .font(.caption2)
                                         .foregroundStyle(.secondary)
+                                        .lineLimit(1)
                                 }
                             }
                             Spacer()
-                            if invoker.isBusy(agent.id) {
+                            if invoker.isBusy(agent.name) {
                                 ProgressView()
                                     .controlSize(.small)
                             }
@@ -279,7 +304,7 @@ public struct SlackView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .help("Open a DM with \(agent.name)")
+                    .help("Open a DM with \(label)")
                 }
             }
         }
@@ -403,7 +428,7 @@ public struct SlackView: View {
                             message: msg,
                             authorName: authorName(for: msg),
                             authorColor: authorColor(for: msg),
-                            attributedText: Self.attributedMessageText(msg.text, agents: data.agents)
+                            attributedText: Self.attributedMessageText(msg.text, agents: agentRoster)
                         )
                         .id(msg.id)
                     }
@@ -436,7 +461,8 @@ public struct SlackView: View {
         switch msg.authorKind {
         case .user: return "You"
         case .agent:
-            return data.agents.first(where: { $0.id == msg.authorId })?.name ?? msg.authorId
+            let a = agentRoster.first(where: { $0.name == msg.authorId })
+            return a?.displayName ?? a?.name ?? msg.authorId
         }
     }
 
@@ -544,17 +570,20 @@ public struct SlackView: View {
         return ActiveMentionToken(range: atIdx..<text.endIndex, partial: partial)
     }
 
-    /// Agents whose name has `partial` as a prefix
+    /// Subagents whose slug or display name has `partial` as a prefix
     /// (case-insensitive). Empty partial returns every agent.
-    private func mentionMatches(_ partial: String) -> [SlackAgent] {
-        if partial.isEmpty { return data.agents }
+    private func mentionMatches(_ partial: String) -> [Subagent] {
+        if partial.isEmpty { return agentRoster }
         let q = partial.lowercased()
-        return data.agents.filter { $0.name.lowercased().hasPrefix(q) }
+        return agentRoster.filter {
+            $0.name.lowercased().hasPrefix(q) || ($0.displayName?.lowercased().hasPrefix(q) ?? false)
+        }
     }
 
-    /// Replace the active `@<partial>` with `@<full-name> ` and
-    /// dismiss the palette by virtue of the trailing space.
-    private func applyMention(_ agent: SlackAgent, token: ActiveMentionToken) {
+    /// Replace the active `@<partial>` with `@<slug> ` and dismiss the
+    /// palette via the trailing space. The slug (no spaces) is the stable
+    /// mention token `parseMentions` resolves.
+    private func applyMention(_ agent: Subagent, token: ActiveMentionToken) {
         composerText.replaceSubrange(token.range, with: "@\(agent.name) ")
     }
 
@@ -569,20 +598,20 @@ public struct SlackView: View {
     }
 
     private func composerPlaceholder(for channel: SlackChannel, compact: Bool) -> String {
-        Self.composerPlaceholder(for: channel, agents: data.agents, compact: compact)
+        Self.composerPlaceholder(for: channel, agents: agentRoster, compact: compact)
     }
 
     /// Pure helper for unit tests. Returns the user-facing
-    /// placeholder string given the channel, the known agent list,
+    /// placeholder string given the channel, the known agent roster,
     /// and the layout density.
     static func composerPlaceholder(
         for channel: SlackChannel,
-        agents: [SlackAgent],
+        agents: [Subagent],
         compact: Bool
     ) -> String {
         if channel.type == .dm, let agentId = channel.memberAgentIds.first,
-           let agent = agents.first(where: { $0.id == agentId }) {
-            return "Message @\(agent.name)"
+           let agent = agents.first(where: { $0.name == agentId }) {
+            return "Message @\(agent.displayName ?? agent.name)"
         }
         let prefix = channel.type == .channel ? "#" : ""
         let base = "Message \(prefix)\(channel.name)"
@@ -592,7 +621,8 @@ public struct SlackView: View {
     private func send(in channel: SlackChannel) {
         let trimmed = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        let explicitMentions = Self.parseMentions(text: trimmed, agents: data.agents)
+        let roster = agentRoster
+        let explicitMentions = Self.parseMentions(text: trimmed, agents: roster)
         // DM auto-trigger: in a 1-on-1 DM, every user post invokes
         // the recipient agent even without an explicit `@mention`.
         // Channels + group DMs still require explicit mentions.
@@ -620,7 +650,9 @@ public struct SlackView: View {
         let myAppId = myAppId
         let componentId = componentId
         let coordinator = coordinator
-        let agentNamesById = Dictionary(uniqueKeysWithValues: data.agents.map { ($0.id, $0.name) })
+        let agentNamesById = Dictionary(
+            uniqueKeysWithValues: roster.map { ($0.name, $0.displayName ?? $0.name) }
+        )
         for agentId in resolvedMentions {
             Task { @MainActor in
                 let outcome = await coordinator.invokeSlackAgent(
@@ -665,10 +697,12 @@ public struct SlackView: View {
     /// occurrence independently and links each one to the right
     /// agent. Case-insensitive name match; unknown names are
     /// skipped.
-    public nonisolated static func mentions(in text: String, agents: [SlackAgent]) -> [MessageMention] {
-        let byName: [String: SlackAgent] = Dictionary(
-            uniqueKeysWithValues: agents.map { ($0.name.lowercased(), $0) }
-        )
+    public nonisolated static func mentions(in text: String, agents: [Subagent]) -> [MessageMention] {
+        var byName: [String: Subagent] = [:]
+        for a in agents {
+            byName[a.name.lowercased()] = a
+            if let d = a.displayName { byName[d.lowercased()] = a }
+        }
         var out: [MessageMention] = []
         let pattern = #"@([A-Za-z0-9._\-]+)"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
@@ -681,8 +715,8 @@ public struct SlackView: View {
             if let swiftRange = Range(match.range, in: text) {
                 out.append(MessageMention(
                     range: swiftRange,
-                    agentId: agent.id,
-                    agentName: agent.name
+                    agentId: agent.name,
+                    agentName: agent.displayName ?? agent.name
                 ))
             }
         }
@@ -707,7 +741,7 @@ public struct SlackView: View {
     /// friendliness.
     public nonisolated static func attributedMessageText(
         _ text: String,
-        agents: [SlackAgent]
+        agents: [Subagent]
     ) -> AttributedString {
         var attributed: AttributedString
         do {
@@ -743,10 +777,12 @@ public struct SlackView: View {
     /// deduplicated. Pure function — safe to call from any actor
     /// context (the Slack tool handlers on the agent side call it
     /// off the main actor).
-    public nonisolated static func parseMentions(text: String, agents: [SlackAgent]) -> [String] {
-        let byName: [String: String] = Dictionary(
-            uniqueKeysWithValues: agents.map { ($0.name.lowercased(), $0.id) }
-        )
+    public nonisolated static func parseMentions(text: String, agents: [Subagent]) -> [String] {
+        var byName: [String: String] = [:]
+        for a in agents {
+            byName[a.name.lowercased()] = a.name
+            if let d = a.displayName { byName[d.lowercased()] = a.name }
+        }
         var out: [String] = []
         var seen = Set<String>()
         // Match `@` followed by a run of name characters. Names that
@@ -853,8 +889,8 @@ private struct MessageBubble: View {
 /// the active token with `@<full-name> ` and dismisses the palette.
 /// Mirrors the slash-command palette pattern in `ChatPanel`.
 private struct MentionPalette: View {
-    let agents: [SlackAgent]
-    let onPick: (SlackAgent) -> Void
+    let agents: [Subagent]
+    let onPick: (Subagent) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -865,9 +901,9 @@ private struct MentionPalette: View {
                     HStack(spacing: 8) {
                         Text("@\(agent.name)")
                             .font(.callout.monospaced())
-                            .foregroundStyle(SlackAgentPalette.color(forAgentId: agent.id))
-                        if !agent.role.isEmpty {
-                            Text(agent.role)
+                            .foregroundStyle(SlackAgentPalette.color(forAgentId: agent.name))
+                        if !agent.description.isEmpty {
+                            Text(agent.description)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
@@ -1189,7 +1225,7 @@ public enum SlackAgentPalette {
 // MARK: - New channel sheet
 
 private struct SlackChannelEditorSheet: View {
-    let agents: [SlackAgent]
+    let agents: [Subagent]
     let onCreate: (String, SlackChannelType, [String]) -> Void
     let onCancel: () -> Void
 
@@ -1214,11 +1250,11 @@ private struct SlackChannelEditorSheet: View {
                 if !agents.isEmpty {
                     Section("Members") {
                         ForEach(agents) { agent in
-                            Toggle(agent.name, isOn: Binding(
-                                get: { selectedMembers.contains(agent.id) },
+                            Toggle(agent.displayName ?? agent.name, isOn: Binding(
+                                get: { selectedMembers.contains(agent.name) },
                                 set: { isOn in
-                                    if isOn { selectedMembers.insert(agent.id) }
-                                    else { selectedMembers.remove(agent.id) }
+                                    if isOn { selectedMembers.insert(agent.name) }
+                                    else { selectedMembers.remove(agent.name) }
                                 }
                             ))
                         }

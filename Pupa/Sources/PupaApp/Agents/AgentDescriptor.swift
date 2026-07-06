@@ -3,7 +3,9 @@ import Foundation
 /// Coarse classification used to badge a row on the agents list.
 public enum AgentKind: String, Sendable {
     case myApp
-    case slack
+    /// A `pupa/agents/<slug>/AGENTS.md` subagent (surfaced in Slack rooms
+    /// and invokable via `invoke_agent`).
+    case subagent
     /// The cross-MyApp meta-agent. Has no `myAppId` — it routes against
     /// every MyApp via `invokeMyAppAgent` and lives in the `.memory` scope.
     case orchestrator
@@ -11,7 +13,7 @@ public enum AgentKind: String, Sendable {
     public var displayName: String {
         switch self {
         case .myApp: return "MyApp"
-        case .slack: return "Slack"
+        case .subagent: return "Subagent"
         case .orchestrator: return "Orchestrator"
         }
     }

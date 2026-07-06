@@ -590,6 +590,10 @@ public final class ChatViewModel {
             // skills are universally relevant and the list is cheap.
             result.formUnion(MyAppType.skillToolNames)
 
+            // invoke_agent is always advertised so the agent can delegate to
+            // any subagent listed in its context (like app_skill_view).
+            result.formUnion(MyAppType.subagentToolNames)
+
             return result
         }
     }
@@ -708,6 +712,7 @@ public final class ChatViewModel {
             (label: "Tool Gates", names: toolGateNames),
             (label: "Memory", names: MyAppType.memoryToolNames),
             (label: "Skills", names: MyAppType.skillToolNames),
+            (label: "Subagents", names: MyAppType.subagentToolNames),
             (label: "Notifications", names: MyAppType.notificationToolNames),
             (label: "Orchestrator", names: MyAppType.orchestratorToolNames),
             (label: "Human-in-the-loop", names: MyAppType.humanInTheLoopToolNames),
@@ -1518,9 +1523,39 @@ public final class ChatViewModel {
                     ),
                     memoriesEntry,
                     AgentContextEntry(description: typeDescription, value: typeJSON),
-                ] + skillsEntry
+                ] + skillsEntry + [agentsContextEntry(AgentStore(memory: memory))]
             }
         }
+    }
+
+    /// The subagents context entry for a MyApp scope's `AgentStore`. Always
+    /// present so the agent knows it can delegate to (and create) subagents,
+    /// even with none defined yet. `value` lists each subagent's name +
+    /// description + when_to_use (progressive disclosure); the persona body
+    /// loads only when the subagent actually runs. Shared by the main-chat and
+    /// sub-run paths.
+    @MainActor
+    static func agentsContextEntry(_ agentStore: AgentStore) -> AgentContextEntry {
+        let payload: [[String: String]] = agentStore.modelContextAgents().map { agent in
+            var dict: [String: String] = ["name": agent.name]
+            if !agent.description.isEmpty { dict["description"] = agent.description }
+            if let w = agent.whenToUse, !w.isEmpty { dict["when_to_use"] = w }
+            return dict
+        }
+        let json = (try? JSONEncoder().encode(["agents": payload]))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "{\"agents\":[]}"
+        return AgentContextEntry(
+            description: "Subagents — Claude-Code-style delegates in pupa/agents/ (the `agents` list "
+                + "below is the roster; empty means none yet). DELEGATE to one: call "
+                + "invoke_agent(name:, prompt:) — it runs in a scoped sub-session and returns its "
+                + "reply. CREATE one: writeMemoryFile to `pupa/agents/<slug>/AGENTS.md` — `<slug>` "
+                + "becomes its invoke name. Optional YAML frontmatter above the persona body: "
+                + "`name`, `description` (what + when to delegate), `when_to_use`, `tools` "
+                + "(comma-separated allowlist; omit to inherit this myApp's surface), "
+                + "`disabled_tools`, `model`, `provider`. Only names + descriptions ride context; "
+                + "the persona loads when the subagent runs.",
+            value: json
+        )
     }
 
     /// The skills context entry for a scope's `SkillStore`. Always present so

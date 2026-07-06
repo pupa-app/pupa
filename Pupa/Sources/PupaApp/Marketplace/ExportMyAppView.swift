@@ -194,20 +194,19 @@ private struct ExportShareScreen: View {
         .buttonStyle(.plain)
     }
 
-    /// Slack agent personas that would ship in the current selection — the
-    /// privacy review surface. (Omitted in all-apps mode to keep it minimal.)
+    /// Slack workspace agents that would ship in the current selection — the
+    /// privacy review surface. Agent slugs referenced by the rooms; their
+    /// persona text ships as `pupa/agents/<slug>/AGENTS.md` memory files.
+    /// (Omitted in all-apps mode to keep it minimal.)
     private var sharedPromptPreview: [String] {
         guard !isAllApps, let app else { return [] }
-        var out: [String] = []
+        var slugs: Set<String> = []
         for comp in app.components where selectedComponentIds.contains(comp.id) {
             if case .slack(let s) = comp.body {
-                for agent in s.agents {
-                    let role = agent.role.isEmpty ? "" : " — \(agent.role)"
-                    out.append("\(agent.name)\(role)")
-                }
+                slugs.formUnion(s.channels.flatMap { $0.memberAgentIds })
             }
         }
-        return out
+        return slugs.sorted()
     }
 
     private func toggle(_ id: String) {

@@ -428,36 +428,19 @@ enum JobSearchExample: ExampleMyApp {
         }
 
         private func prepRoomSlack() -> Component {
-            let coach = SlackAgent(
-                id: "coach",
-                name: "Coach",
-                role: "Interview prep coach",
-                systemPromptAddition: coachPersona
-            )
-            let challenger = SlackAgent(
-                id: "challenger",
-                name: "Challenger",
-                role: "Devil's-advocate interviewer",
-                systemPromptAddition: challengerPersona
-            )
-            let scout = SlackAgent(
-                id: "scout",
-                name: "Scout",
-                role: "Role & company researcher",
-                systemPromptAddition: scoutPersona
-            )
+            // Agents are filesystem subagents seeded by `seedAgentsMd` at
+            // `pupa/agents/<slug>/AGENTS.md`; the channel references them by slug.
             let general = SlackChannel(
                 id: "general",
                 name: "general",
                 type: .channel,
-                memberAgentIds: [coach.id, challenger.id, scout.id]
+                memberAgentIds: ["coach", "challenger", "scout"]
             )
             return Component(
                 id: "slack-1",
                 name: "Prep Room",
                 iconSystemName: "bubble.left.and.bubble.right",
                 body: .slack(SlackData(
-                    agents: [coach, challenger, scout],
                     channels: [general],
                     messagesByChannel: [:],
                     activeChannelId: general.id

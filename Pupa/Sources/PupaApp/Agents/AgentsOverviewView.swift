@@ -103,7 +103,7 @@ public struct AgentsOverviewView: View {
             ForEach(agents) { descriptor in
                 agentDisclosure(
                     descriptor,
-                    scope: descriptor.kind == .slack ? nil : .myApp(app.id)
+                    scope: descriptor.kind == .subagent ? nil : .myApp(app.id)
                 )
             }
         } label: {
@@ -232,9 +232,10 @@ public struct AgentsOverviewView: View {
             return "orchestrator"
         case .myApp:
             return descriptor.myAppId?.uuidString ?? descriptor.id
-        case .slack:
-            let bare = descriptor.id.split(separator: ":").last.map(String.init) ?? descriptor.id
-            return "slack:\(bare)"
+        case .subagent:
+            // Descriptor id is `subagent:<myAppId>:<slug>` — identical to
+            // `AgentInvocationKey.subagent.statKey`.
+            return descriptor.id
         }
     }
 

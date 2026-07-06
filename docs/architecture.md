@@ -410,15 +410,17 @@ than an abstract sentinel; the "inherits the backend's model" note still flags
 that it isn't an explicit override.
 Storage parallels the existing per-agent LLM storage: the main agent uses
 `MyApp.settings` (`llm.*`, `tools.disabled` as a `SettingValue.stringArray`),
-Slack sub-agents use the `SlackAgent` struct (`llmProvider/llmModel/disabledTools`),
-and the orchestrator uses global `SettingsStore` fields. Each agent's disabled
-set is **unioned** with the global Settings → Tools set (`disabledBackendTools`)
-and sent every turn as `state.disabled_tools`, which the backend
-`ToolGatingMiddleware` drops from the model's tool list. The three send paths —
-the main-agent chat turn (`ChatViewModel`), orchestrator→MyApp sub-runs and
-Slack sub-runs (`ChatSessionCoordinator`, via `llmForwardedProps`) — all forward
-the resolved per-agent model and disabled union, so a sub-agent runs on its own
-configured model rather than the backend default.
+subagents keep their overrides in `pupa/agents/<slug>/AGENTS.md` frontmatter
+(`model`/`provider`/`tools`/`disabled_tools`; edited via `AgentStore.setModel` /
+`setDisabledTools`), and the orchestrator uses global `SettingsStore` fields.
+Each agent's disabled set is **unioned** with the global Settings → Tools set
+(`disabledBackendTools`) and sent every turn as `state.disabled_tools`, which
+the backend `ToolGatingMiddleware` drops from the model's tool list. The send
+paths — the main-agent chat turn (`ChatViewModel`), orchestrator→MyApp sub-runs
+and generic/Slack subagent sub-runs (`ChatSessionCoordinator`, via
+`llmForwardedProps`) — all forward the resolved per-agent model and disabled
+union, so a subagent runs on its own configured model rather than the backend
+default.
 
 **Per-thread model.** Each conversation thread can pin its own model,
 overriding the agent default. A compact `ModelPickerRow(compact:)` chip sits
@@ -471,6 +473,41 @@ on demand via `app_skill_view`). All are file-exists-guarded.
 These are **app skills** (on-device `pupa/skills/`, `app_skill_view`), distinct
 from any **backend** skills library (`~/.pupa-backend/skills/`, the backend's
 own `skill_view` tool) the client never touches — see [skills.md](skills.md).
+
+## Subagents
+
+A **subagent** is a Claude-Code-style delegate: a `pupa/agents/<slug>/AGENTS.md`
+file with frontmatter (`name`, `description`, `when_to_use`, `tools`,
+`disabled_tools`, `model`, `provider`) and a persona body. Drop the file and the
+subagent exists — `AgentStore`
+([Pupa/Sources/PupaApp/Agents/AgentStore.swift](../Pupa/Sources/PupaApp/Agents/AgentStore.swift))
+discovers them per scope by walking `pupa/agents/*/AGENTS.md`, exactly mirroring
+`SkillStore`. `AgentStore.createAgent` is the canonical writer (used by the Slack
+create-agent UI and any future `create_agent` tool); an agent can also author one
+by hand-writing the file with the memory tools.
+
+The main agent — and, by default, any subagent (A2A) — invokes one with the
+`invoke_agent(name, prompt)` frontend tool (`AppTools.registerSubagentTools`,
+advertised via `MyAppType.subagentToolNames`). The handler calls
+`ChatSessionCoordinator.runSubagent`, which spins a transient `AgentSession`
+scoped to the parent MyApp: memory + canvas surface inherited, tool set narrowed
+by `SubagentPolicy.narrowedTools` (the frontmatter `tools` allowlist minus
+`disabled_tools`, minus main-chat-only admin tools, always plus `invoke_agent`),
+persona pinned as a context entry, and the frontmatter model/provider forwarded.
+Progressive disclosure mirrors skills: `ChatViewModel.agentsContextEntry` lists
+each subagent's `{name, description, when_to_use}`; the persona loads only when
+the subagent runs.
+
+Every subagent run is gated by the shared `AgentInvocationGate` under a
+`.subagent(myAppId:slug:)` key, so reentrancy, chain-depth, and per-pair turn
+budgets bound A2A chains exactly as they bound orchestrator→MyApp delegation.
+
+**Slack is a UI over subagents.** A Slack component holds only channels +
+messages (`SlackData`); its workspace roster is *all* subagents discovered under
+the MyApp. Channels reference agents by slug; @-mentioning one (or posting in a
+DM) calls `invokeSlackAgent`, a thin Slack wrapper over the same subagent runner
+that adds channel-history context, live `SlackInvoker` bubbles, and auto-posting
+of the reply.
 
 Full reference: [skills.md](skills.md).
 

@@ -94,14 +94,15 @@ struct ResearchTrackerExampleTests {
         #expect(expr.contains("strong_w3") && expr.contains("strong_w2"))
     }
 
-    @Test("Research Room has three distinct-persona agents in #research")
+    @Test("Research Room's #research channel references the three subagents by slug")
     func researchRoomAgents() {
         let myApp = ResearchTrackerExample.make()
         guard case .slack(let data) = body(myApp, id: "slack-1") else {
             Issue.record("slack-1 missing or wrong kind"); return
         }
-        #expect(Set(data.agents.map(\.id)) == ["scout", "analyst", "digest"])
-        #expect(data.agents.allSatisfy { !$0.systemPromptAddition.isEmpty })
+        // Agents are filesystem subagents (seeded AGENTS.md, checked below);
+        // the channel references them by slug.
+        #expect(Set(data.channels.first?.memberAgentIds ?? []) == ["scout", "analyst", "digest"])
         #expect(data.channels.first?.name == "research")
         // No seeded transcript — the user starts the conversation.
         #expect(data.messagesByChannel.isEmpty)
