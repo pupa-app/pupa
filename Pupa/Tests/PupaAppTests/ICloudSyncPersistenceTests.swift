@@ -167,4 +167,39 @@ struct ICloudSyncPersistenceTests {
         let aDate = try fm.attributesOfItem(atPath: appURL(a).path)[.modificationDate] as! Date
         #expect(aDate == old)
     }
+
+    // MARK: - Regression: rapid successive writes (pupa#120)
+
+    /// Hammering one tracker item with back-to-back patches must persist every
+    /// write in order; a fresh store loads the final value. Guards the
+    /// uncoordinated atomic write path — dropping `NSFileCoordinator` must not
+    /// drop, reorder, or tear a rapid burst of persists (the kanban-reorder
+    /// hot path).
+    @Test("Rapid successive patches persist the final value to disk")
+    func rapidPatchesPersistFinalValue() throws {
+        MyAppStore.clearStorage()
+        let store = MyAppStore()
+        let id = store.addMyApp(typeId: "tracker", name: "Board", iconSystemName: "star")
+        store.setTracker(
+            title: "Board",
+            fields: [FieldDef(name: "status", type: .select, options: ["todo", "doing", "done"])],
+            myAppId: id)
+        guard let itemId = store.addItem(["status": "todo"], myAppId: id) else {
+            Issue.record("addItem returned nil"); return
+        }
+
+        let sequence = ["doing", "todo", "done", "doing", "done"]
+        for _ in 0..<10 {
+            for v in sequence { _ = store.patchItem(id: itemId, with: ["status": v], myAppId: id) }
+        }
+        let final = sequence.last!
+
+        // A fresh instance loads the last written value straight from disk.
+        let reader = MyAppStore()
+        let item: TrackerItem? = reader.myApps.first { $0.id == id }.flatMap { app in
+            if case .tracker(let t) = app.canvas { return t.items.first { $0.id == itemId } }
+            return nil
+        }
+        #expect(item?.values["status"] == final)
+    }
 }

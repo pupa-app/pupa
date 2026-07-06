@@ -467,8 +467,11 @@ directly and never block on iCloud. iCloud is a **mirror**, not the canonical
 root — so turning it off in iOS Settings (which relaunches the app) can't hide
 MyApps ("app looks lost") or strand offline edits, the way the old
 switch-roots-per-launch design did (pupa#110). All synced file IO goes through
-`CloudDocument` (`NSFileCoordinator`-wrapped), which schedules a debounced
-`StorageMirror` pass after every write.
+`CloudDocument`, which writes the local tree with **plain atomic** writes (no
+`NSFileCoordinator`: the local store is single-process with no file presenter,
+so coordination only bought a main-thread XPC stall — pupa#120) and schedules a
+debounced `StorageMirror` pass after every write. iCloud-side coordination lives
+only in `StorageMirror`.
 
 `StorageMirror` converges the local tree with the iCloud container
 (`cloudMirrorRoot`) in the background, off the main thread. Merge is
