@@ -3240,6 +3240,80 @@ public enum AppTools {
         ))
     }
 
+    // MARK: - Subagent tools
+
+    /// Generic subagent invocation. `invoke_agent(name, prompt)` spins a
+    /// transient sub-session against a `pupa/agents/<slug>/AGENTS.md` subagent
+    /// scoped to the current MyApp and returns its final assistant text.
+    /// Advertised to the main agent AND to subagents (A2A); the invocation
+    /// gate bounds chain depth and rejects reentrancy with a structured
+    /// `agent_unavailable` echo (same shape as `invokeMyAppAgent`).
+    @MainActor
+    public static func registerSubagentTools(
+        on registry: ToolRegistry,
+        run: @escaping @Sendable (_ agentName: String, _ prompt: String) async throws -> String
+    ) {
+        registry.register(ClientTool(
+            descriptor: ToolDescriptor(
+                name: "invoke_agent",
+                description: """
+                Delegate a task to a subagent defined at \
+                `pupa/agents/<name>/AGENTS.md`. Runs it in a transient \
+                sub-session scoped to this myApp (its own canvas + memory \
+                surface, narrowed to the subagent's frontmatter `tools`) and \
+                returns {ok, name, text} with the subagent's final reply. \
+                `name` is the subagent's folder slug — see the `agents` list in \
+                context. Emit multiple `invoke_agent` calls in one turn to fan \
+                out in parallel.
+                """,
+                parameters: [
+                    "type": "object",
+                    "properties": [
+                        "name": ["type": "string"],
+                        "prompt": ["type": "string"],
+                    ],
+                    "required": ["name", "prompt"],
+                ]
+            ),
+            parallelSafe: true,
+            handler: { args in
+                let name = args["name"]?.stringValue ?? ""
+                let prompt = args["prompt"]?.stringValue ?? ""
+                guard !name.isEmpty else {
+                    return .object(["ok": .bool(false), "error": .string("name is required")])
+                }
+                do {
+                    let text = try await run(name, prompt)
+                    return .object([
+                        "ok": .bool(true),
+                        "name": .string(name),
+                        "text": .string(text),
+                    ])
+                } catch let rejection as AgentInvocationRejection {
+                    var payload: [String: AnyJSON] = [
+                        "reason": .string(rejection.reason.rawValue),
+                        "target": .string(rejection.target.wireValue),
+                        "callPath": .array(rejection.callPath.map { .string($0.wireValue) }),
+                    ]
+                    if let depth = rejection.depth { payload["depth"] = .int(depth) }
+                    if let rootKey = rejection.treeRootKey { payload["treeRootedAt"] = .string(rootKey.wireValue) }
+                    if let n = rejection.exhaustedAfter { payload["exhaustedAfter"] = .int(n) }
+                    return .object([
+                        "ok": .bool(false),
+                        "name": .string(name),
+                        "agent_unavailable": .object(payload),
+                    ])
+                } catch {
+                    return .object([
+                        "ok": .bool(false),
+                        "name": .string(name),
+                        "error": .string(String(describing: error)),
+                    ])
+                }
+            }
+        ))
+    }
+
     // MARK: - Slack tools
 
     /// Tools that drive a Slack canvas component. Three flavours:
@@ -3272,22 +3346,21 @@ public enum AppTools {
             descriptor: ToolDescriptor(
                 name: "slackListAgents",
                 description: """
-                List every agent in this MyApp's Slack canvas. \
-                Result echoes \
-                {agents: [{id, name, role}]}.
+                List every subagent available in this MyApp (the `pupa/agents/` \
+                roster) — these are the agents a channel can add and users can \
+                @-mention. Result echoes {agents: [{id, name, description}]}, \
+                where `id` is the slug used in channel rosters and @-mentions.
                 """,
                 parameters: ["type": "object", "properties": [:]]
             ),
             handler: { _ in
                 return await MainActor.run {
-                    guard let s = slackData(store, myAppId: myAppId) else {
-                        return .object(["ok": .bool(false), "error": "no slack component"])
-                    }
-                    let entries: [AnyJSON] = s.agents.map { a in
+                    let roster = memory.map { AgentStore(memory: $0).agents } ?? []
+                    let entries: [AnyJSON] = roster.map { a in
                         .object([
-                            "id": .string(a.id),
-                            "name": .string(a.name),
-                            "role": .string(a.role),
+                            "id": .string(a.name),
+                            "name": .string(a.displayName ?? a.name),
+                            "description": .string(a.description),
                         ])
                     }
                     return .object([
@@ -3445,11 +3518,11 @@ public enum AppTools {
                 }
                 // Snapshot @mentions BEFORE posting — we want the
                 // text the agent actually wrote, not whatever the
-                // store coerces.
-                let agentsSnapshot = await MainActor.run {
-                    slackData(store, myAppId: myAppId)?.agents ?? []
+                // store coerces. Mentions resolve against the filesystem roster.
+                let rosterSnapshot = await MainActor.run {
+                    memory.map { AgentStore(memory: $0).agents } ?? []
                 }
-                let mentions = SlackView.parseMentions(text: trimmedText, agents: agentsSnapshot)
+                let mentions = SlackView.parseMentions(text: trimmedText, agents: rosterSnapshot)
                 // Resolve componentId for the store mutator.
                 let componentId = await MainActor.run {
                     store.slackComponentId(myAppId: myAppId)
@@ -3497,94 +3570,10 @@ public enum AppTools {
         ))
 
         // --- Admin (main chat only) ----------------------------
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "slackCreateAgent",
-                description: """
-                Create a new agent in this MyApp's Slack canvas. \
-                `name` is the @-mentionable handle (one token, no \
-                spaces). `role` is a short label ("marketing", \
-                "engineering"). `systemPromptAddition` is the \
-                persona text appended to the base system prompt \
-                for every invocation of this agent — keep it \
-                focused on behaviour, not facts. Refused if the \
-                caller is itself a Slack agent (only the main \
-                chat agent can create agents in v1). \
-                Result echoes {agentId, name, role}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "name": ["type": "string"],
-                        "role": ["type": "string"],
-                        "systemPromptAddition": ["type": "string"],
-                    ],
-                    "required": ["name", "role"],
-                ]
-            ),
-            handler: { args in
-                if context.currentAgentId != nil {
-                    return Self.adminForbiddenResult()
-                }
-                let name = args["name"]?.stringValue ?? ""
-                let role = args["role"]?.stringValue ?? ""
-                let prompt = args["systemPromptAddition"]?.stringValue ?? ""
-                if let mem = memory {
-                    let (folderPath, exists) = await MainActor.run {
-                        // mem is app-scoped, so use the app-relative subfolder path
-                        let path = MemoryStore.slackAgentSubfolder(agentName: name)
-                        return (path, mem.folderExists(at: path))
-                    }
-                    if exists {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": .string(
-                                "A memory folder already exists at '\(folderPath)'. " +
-                                "Choose a different agent name or delete the folder first."
-                            ),
-                        ])
-                    }
-                }
-                return await MainActor.run {
-                    guard let agentId = store.slackAddAgent(
-                        name: name,
-                        role: role,
-                        systemPromptAddition: prompt,
-                        myAppId: myAppId
-                    ) else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": .string("could not add agent — name empty or no slack component"),
-                        ])
-                    }
-                    // Auto-write AGENTS.md into the agent's memory subfolder
-                    // so its role and persona are persisted and visible in
-                    // the sidebar from the moment it's created.
-                    if let mem = memory {
-                        let subfolder = MemoryStore.slackAgentSubfolder(agentName: name)
-                        let agentsContent = """
-                            # \(name)
-
-                            **Role:** \(role)
-
-                            ## Persona
-                            \(prompt.isEmpty ? "_No persona set._" : prompt)
-                            """
-                        _ = try? mem.writeFile(
-                            path: "\(subfolder)/AGENTS.md",
-                            content: agentsContent
-                        )
-                    }
-                    return .object([
-                        "ok": .bool(true),
-                        "agentId": .string(agentId),
-                        "name": .string(name),
-                        "role": .string(role),
-                    ])
-                }
-            }
-        ))
+        //
+        // Subagents are authored as `pupa/agents/<slug>/AGENTS.md` files (via
+        // the memory tools or the Slack create-agent UI) — there is no
+        // `slackCreateAgent` tool. Channel setup stays here.
 
         registry.register(ClientTool(
             descriptor: ToolDescriptor(
@@ -4655,6 +4644,7 @@ public enum AppTools {
         case "checklist": return "checklist"
         case "calculator": return "function"
         case "chart": return "chart.pie"
+        case "slack": return "bubble.left.and.bubble.right"
         default: return "square.dashed"
         }
     }

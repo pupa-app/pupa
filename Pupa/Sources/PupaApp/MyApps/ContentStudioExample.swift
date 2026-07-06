@@ -194,36 +194,19 @@ enum ContentStudioExample: ExampleMyApp {
         }
 
         private func studioRoom() -> Component {
-            let researcher = SlackAgent(
-                id: "researcher",
-                name: "Researcher",
-                role: "Content researcher",
-                systemPromptAddition: researcherPersona
-            )
-            let editor = SlackAgent(
-                id: "editor",
-                name: "Editor",
-                role: "Editorial coach",
-                systemPromptAddition: editorPersona
-            )
-            let ideator = SlackAgent(
-                id: "ideator",
-                name: "Ideator",
-                role: "Creative angle generator",
-                systemPromptAddition: ideatorPersona
-            )
+            // Agents are filesystem subagents seeded by `seedAgentsMd` at
+            // `pupa/agents/<slug>/AGENTS.md`; the channel references them by slug.
             let general = SlackChannel(
                 id: "general",
                 name: "general",
                 type: .channel,
-                memberAgentIds: [researcher.id, editor.id, ideator.id]
+                memberAgentIds: ["researcher", "editor", "ideator"]
             )
             return Component(
                 id: "slack-1",
                 name: "Studio Room",
                 iconSystemName: "bubble.left.and.bubble.right",
                 body: .slack(SlackData(
-                    agents: [researcher, editor, ideator],
                     channels: [general],
                     messagesByChannel: [:],
                     activeChannelId: general.id

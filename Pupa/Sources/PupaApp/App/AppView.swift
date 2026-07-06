@@ -921,19 +921,17 @@ public struct AppView: View {
         }
     }
 
-    /// Slack agent personas in a bundle — the privacy review surface, mirroring
-    /// the export screen's `sharedPromptPreview`.
+    /// Slack workspace agents in a bundle — the privacy review surface. Agent
+    /// slugs referenced by the rooms; their persona text ships as
+    /// `pupa/agents/<slug>/AGENTS.md` memory files (shown in the memory review).
     private func agentPrompts(in app: MyApp) -> [String] {
-        var out: [String] = []
+        var slugs: Set<String> = []
         for comp in app.components {
             if case .slack(let s) = comp.body {
-                for agent in s.agents {
-                    let role = agent.role.isEmpty ? "" : " — \(agent.role)"
-                    out.append("\(agent.name)\(role)")
-                }
+                slugs.formUnion(s.channels.flatMap { $0.memberAgentIds })
             }
         }
-        return out
+        return slugs.sorted()
     }
 
     /// Run the real import after the user confirms, then navigate to the new

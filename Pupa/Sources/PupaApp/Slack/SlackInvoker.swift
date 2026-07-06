@@ -73,13 +73,14 @@ public final class SlackInvoker {
         _ agentId: String,
         agentName: String,
         channelId: String,
+        myAppId: UUID,
         invocationId: UUID,
         caller: UUID?,
         treeRoot: UUID
     ) -> UUID {
         gate.enter(
             invocationId: invocationId,
-            target: .slack(agentId: agentId),
+            target: .subagent(myAppId: myAppId, slug: agentId),
             caller: caller,
             treeRoot: treeRoot
         )

@@ -2,8 +2,8 @@ import Foundation
 
 /// Builds `[AgentDescriptor]` for a MyApp by walking its current state.
 ///
-/// The MyApp main agent is always emitted; each Slack component
-/// contributes one descriptor per `SlackAgent` in `SlackData.agents`.
+/// The MyApp main agent is always emitted; each `pupa/agents/<slug>/AGENTS.md`
+/// subagent contributes one descriptor (discovered via `AgentStore`).
 ///
 /// ## Extension point
 /// Add a new attribute by appending one `AgentProperty` to the relevant
@@ -19,11 +19,10 @@ public enum AgentRegistry {
     /// There's only one — no scoping needed.
     public static let orchestratorAgentId = "orchestrator"
 
-    /// Build the id used for a Slack agent inside a specific component.
-    /// `componentId` keeps the id unique even if two components ever
-    /// host agents with the same underlying `SlackAgent.id`.
-    public static func slackAgentId(componentId: String, slackAgentId: String) -> String {
-        "slack:\(componentId):\(slackAgentId)"
+    /// Build the descriptor id for a subagent: `subagent:<myAppId>:<slug>`.
+    /// `AgentDetailView` unwinds this to resolve the AGENTS.md to edit.
+    public static func subagentId(myAppId: UUID, slug: String) -> String {
+        "subagent:\(myAppId.uuidString):\(slug)"
     }
 
     @MainActor
@@ -35,19 +34,15 @@ public enum AgentRegistry {
     ) -> [AgentDescriptor] {
         var descriptors: [AgentDescriptor] = []
         descriptors.append(buildMainAgent(myApp: myApp, store: store, settings: settings, catalog: catalog))
-        for component in myApp.components {
-            if case .slack(let data) = component.body {
-                for agent in data.agents {
-                    descriptors.append(buildSlackAgent(
-                        myApp: myApp,
-                        component: component,
-                        agent: agent,
-                        store: store,
-                        settings: settings,
-                        catalog: catalog
-                    ))
-                }
-            }
+        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: myApp.name))
+        for subagent in AgentStore(memory: appMemory).agents {
+            descriptors.append(buildSubagent(
+                myApp: myApp,
+                subagent: subagent,
+                store: store,
+                settings: settings,
+                catalog: catalog
+            ))
         }
         return descriptors
     }
@@ -184,39 +179,37 @@ public enum AgentRegistry {
         )
     }
 
-    // MARK: - Slack agent
+    // MARK: - Subagent
 
     @MainActor
-    private static func buildSlackAgent(
+    private static func buildSubagent(
         myApp: MyApp,
-        component: Component,
-        agent: SlackAgent,
+        subagent: Subagent,
         store: MyAppStore,
         settings: SettingsStore,
         catalog: ModelCatalogStore
     ) -> AgentDescriptor {
-        let promptPath = "\(MemoryStore.slackAgentFolder(myAppName: myApp.name, agentName: agent.name))/AGENTS.md"
+        let promptPath = "\(MemoryStore.pupaFolder(myAppName: myApp.name))/agents/\(subagent.name)/AGENTS.md"
 
         var properties: [AgentProperty] = []
-        properties.append(AgentProperty(
-            id: "role",
-            label: "Role",
-            value: .text(agent.role.isEmpty ? "—" : agent.role),
-            note: nil
-        ))
-        let agentSelection: (provider: String, model: String)?
-        if let provider = agent.llmProvider, let model = agent.llmModel {
-            agentSelection = (provider, model)
-        } else {
-            agentSelection = nil
+        if !subagent.description.isEmpty {
+            properties.append(AgentProperty(
+                id: "role",
+                label: "Description",
+                value: .text(subagent.description),
+                note: nil
+            ))
         }
-        let allowedTools = ChatViewModel.allowedToolNames(
+        let agentSelection = subagent.llmSelection
+        // The subagent's advertised surface, narrowed by its frontmatter.
+        let base = ChatViewModel.allowedToolNames(
             scope: .myApp(myApp.id),
             store: store,
             toolGateState: ToolGateState()
         )
+        let allowedTools = SubagentPolicy.narrowedTools(base: base, subagent: subagent)
         let toolGroups = groupToolNames(allowed: allowedTools, scope: .myApp(myApp.id), store: store)
-        let disabled = Set(agent.disabledTools ?? [])
+        let disabled = Set(subagent.disabledTools ?? [])
 
         properties.append(modelProperty(currentSelection: agentSelection, catalog: catalog))
         properties.append(permissionsProperty(settings: settings))
@@ -227,15 +220,7 @@ public enum AgentRegistry {
                 label: promptPath,
                 destination: .myAppMemoryFile(myApp.id, promptPath)
             ),
-            note: nil
-        ))
-        properties.append(AgentProperty(
-            id: "persona",
-            label: "Persona addition",
-            value: .text(agent.systemPromptAddition.isEmpty
-                ? "(none)"
-                : agent.systemPromptAddition),
-            note: "Appended to the parent MyApp's system prompt for each invocation."
+            note: "Edit this AGENTS.md to change the persona, tools (frontmatter `tools`), or model (`model`/`provider`)."
         ))
         properties.append(AgentProperty(
             id: "tools",
@@ -245,22 +230,16 @@ public enum AgentRegistry {
                 groups: toolGroups,
                 disabled: disabled
             ),
-            note: "Inherits the parent MyApp's tool surface. Toggle a tool off to hide it from this sub-agent only."
-        ))
-        properties.append(AgentProperty(
-            id: "component",
-            label: "Component",
-            value: .list(["\(component.name) (\(component.kindString))"]),
-            note: nil
+            note: "Resolved from the subagent's frontmatter `tools`/`disabled_tools` over the parent MyApp surface. Toggle a tool off to add it to `disabled_tools`."
         ))
 
         return AgentDescriptor(
-            id: slackAgentId(componentId: component.id, slackAgentId: agent.id),
-            name: agent.name,
-            kind: .slack,
+            id: subagentId(myAppId: myApp.id, slug: subagent.name),
+            name: subagent.displayName ?? subagent.name,
+            kind: .subagent,
             iconSystemName: "person.crop.circle",
             myAppId: myApp.id,
-            subtitle: agent.role.isEmpty ? nil : agent.role,
+            subtitle: subagent.description.isEmpty ? nil : subagent.description,
             modelSummary: modelSummaryText(currentSelection: agentSelection, catalog: catalog),
             toolSummary: toolSummaryText(allowed: allowedTools.count, disabled: disabled.count),
             properties: properties
@@ -312,6 +291,7 @@ public enum AgentRegistry {
             (label: "Tool Gates", names: toolGateNames),
             (label: "Memory", names: MyAppType.memoryToolNames),
             (label: "Skills", names: MyAppType.skillToolNames),
+            (label: "Subagents", names: MyAppType.subagentToolNames),
             (label: "Notifications", names: MyAppType.notificationToolNames),
             (label: "Orchestrator", names: MyAppType.orchestratorToolNames),
             (label: "Human-in-the-loop", names: MyAppType.humanInTheLoopToolNames),

@@ -33,7 +33,7 @@ struct SlackInvokerHITLTests {
     ) -> UUID {
         let id = UUID()
         inv.enter(agentId, agentName: agentName, channelId: channelId,
-                  invocationId: id, caller: nil, treeRoot: id)
+                  myAppId: UUID(), invocationId: id, caller: nil, treeRoot: id)
         return id
     }
 

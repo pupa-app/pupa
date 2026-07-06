@@ -3,6 +3,29 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.61] — 2026-07-06
+
+### Added
+
+- **Generic filesystem subagents.** Drop a `pupa/agents/<slug>/AGENTS.md` file
+  (frontmatter: `name`, `description`, `when_to_use`, `tools`, `disabled_tools`,
+  `model`, `provider`) and the subagent exists — discovered by `AgentStore`
+  (mirrors the skills system). The main agent, and by default any subagent
+  (agent-to-agent), can delegate to one with the new `invoke_agent(name, prompt)`
+  tool; runs are scoped to the MyApp, narrowed to the subagent's frontmatter
+  tools, and bounded by the shared invocation gate. (`PupaApp` `0.0.158`)
+
+### Changed
+
+- **Slack is now a thin UI over subagents.** Slack agents are the generic
+  filesystem subagents rather than a bespoke inline model — a component's roster
+  is every subagent in the MyApp, channels reference them by slug, and per-agent
+  model/tool overrides live in each agent's `AGENTS.md`. Removed the
+  `slackCreateAgent` tool (author personas by writing the file, or via the
+  new-agent UI); the `SlackAgent` struct and `SlackData.agents` are gone.
+  **Breaking:** existing on-disk Slack components lose their inline agents
+  (rebuild by adding subagents).
+
 ## [0.0.60] — 2026-07-06
 
 ### Fixed

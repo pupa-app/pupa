@@ -13,19 +13,21 @@ import Observation
 public enum AgentInvocationKey: Hashable, Sendable {
     case orchestrator
     case myApp(UUID)
-    case slack(agentId: String)
+    /// A `pupa/agents/<slug>/AGENTS.md` subagent, scoped to its MyApp.
+    /// Slugs are unique only within a MyApp, so the key carries both.
+    /// Slack agents are a UI presentation of these subagents.
+    case subagent(myAppId: UUID, slug: String)
 
-    /// Opaque, stable id used to key `AgentStatsStore`. Slack carries the
-    /// bare `SlackAgent.id` (a UUID, no colons) — the agents overview
-    /// derives the same `"slack:<bareId>"` from a descriptor's composite
-    /// id by taking the segment after the last `:`. MyApp uses the raw
-    /// UUID string (the per-MyApp main-agent descriptor id is a shared
-    /// constant, so the overview keys main agents off `myAppId`, not id).
+    /// Opaque, stable id used to key `AgentStatsStore`. Subagents carry
+    /// `"subagent:<myAppId>:<slug>"`; the agents overview derives the same
+    /// from a descriptor id. MyApp uses the raw UUID string (the per-MyApp
+    /// main-agent descriptor id is a shared constant, so the overview keys
+    /// main agents off `myAppId`, not id).
     public var statKey: String {
         switch self {
         case .orchestrator: return "orchestrator"
         case .myApp(let id): return id.uuidString
-        case .slack(let agentId): return "slack:\(agentId)"
+        case .subagent(let myAppId, let slug): return "subagent:\(myAppId.uuidString):\(slug)"
         }
     }
 }
@@ -351,7 +353,7 @@ extension AgentInvocationKey {
         switch self {
         case .orchestrator: return "orchestrator"
         case .myApp(let id): return "myApp:\(id.uuidString)"
-        case .slack(let agentId): return "slack:\(agentId)"
+        case .subagent(let myAppId, let slug): return "subagent:\(myAppId.uuidString):\(slug)"
         }
     }
 }

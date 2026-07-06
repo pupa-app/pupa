@@ -254,6 +254,13 @@ public final class MemoryStore {
     public static let pupaAgentsPath = "pupa/AGENTS.md"
     /// Skills directory, relative to a scope-rooted store: `pupa/skills`.
     public static let pupaSkillsDir = "pupa/skills"
+    /// Subagents directory, relative to a scope-rooted store: `pupa/agents`.
+    /// Each subagent is `pupa/agents/<slug>/AGENTS.md` + a private notes subtree.
+    public static let pupaAgentsDir = "pupa/agents"
+    /// Relative path for a named subagent's folder: `pupa/agents/<slug>`.
+    public static func subagentSubfolder(name: String) -> String {
+        "\(pupaAgentsDir)/\(slugify(name))"
+    }
     /// Absolute (global-root-relative) `pupa/` folder for a myApp.
     public static func pupaFolder(myAppName: String) -> String {
         "\(myAppFolder(myAppName: myAppName))/\(pupaFolderName)"

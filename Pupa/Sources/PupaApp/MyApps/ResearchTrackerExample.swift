@@ -268,20 +268,15 @@ enum ResearchTrackerExample: ExampleMyApp {
         // MARK: Research Room
 
         private func researchRoom() -> Component {
-            let scout = SlackAgent(id: "scout", name: "Scout", role: "Source finder",
-                                   systemPromptAddition: scoutPersona)
-            let analyst = SlackAgent(id: "analyst", name: "Analyst", role: "Signal analyst",
-                                     systemPromptAddition: analystPersona)
-            let digest = SlackAgent(id: "digest", name: "Digest", role: "Weekly summariser",
-                                    systemPromptAddition: digestPersona)
+            // Agents are filesystem subagents seeded by `seedAgentsMd` at
+            // `pupa/agents/<slug>/AGENTS.md`; the channel references them by slug.
             let general = SlackChannel(id: "general", name: "research", type: .channel,
-                                       memberAgentIds: [scout.id, analyst.id, digest.id])
+                                       memberAgentIds: ["scout", "analyst", "digest"])
             return Component(
                 id: "slack-1",
                 name: "Research Room",
                 iconSystemName: "bubble.left.and.bubble.right",
                 body: .slack(SlackData(
-                    agents: [scout, analyst, digest],
                     channels: [general],
                     messagesByChannel: [:],
                     activeChannelId: general.id

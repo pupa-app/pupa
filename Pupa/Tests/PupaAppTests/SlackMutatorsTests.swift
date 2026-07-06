@@ -2,8 +2,10 @@ import Foundation
 import Testing
 @testable import PupaApp
 
-/// Tests for the `MyAppStore.slack*` mutators that back both the
-/// inline SlackView buttons and (in step 4) the Slack frontend tools.
+/// Tests for the `MyAppStore.slack*` mutators + `SlackView` pure helpers.
+/// Slack agents are filesystem subagents now — channels reference them by
+/// slug, and the store stores member slugs verbatim (roster validation is
+/// the caller's job).
 @MainActor
 @Suite("Slack mutators")
 struct SlackMutatorsTests {
@@ -33,67 +35,48 @@ struct SlackMutatorsTests {
         return nil
     }
 
+    /// A lightweight subagent for the pure-helper tests: slug + display name.
+    private func sub(_ slug: String, _ display: String) -> Subagent {
+        Subagent(name: slug, displayName: display, sourcePath: "pupa/agents/\(slug)/AGENTS.md")
+    }
+
     @Test("addComponent(kind: slack) seeds an empty SlackData body")
     func addComponentSlack() {
         let (store, id) = freshStore()
         let s = slack(store, id: id)
         #expect(s != nil)
-        #expect(s?.agents.isEmpty == true)
         #expect(s?.channels.isEmpty == true)
         #expect(s?.activeChannelId == nil)
     }
 
-    @Test("slackAddAgent allocates stable agent-N ids and appends")
-    func addAgent() {
-        let (store, id) = freshStore()
-        let a1 = store.slackAddAgent(name: "marketing", role: "", systemPromptAddition: "", myAppId: id)
-        let a2 = store.slackAddAgent(name: "dev", role: "", systemPromptAddition: "", myAppId: id)
-        #expect(a1 == "agent-1")
-        #expect(a2 == "agent-2")
-        #expect(slack(store, id: id)?.agents.count == 2)
-    }
-
-    @Test("slackAddAgent refuses empty names")
-    func addAgentEmpty() {
-        let (store, id) = freshStore()
-        let bad = store.slackAddAgent(name: "   ", role: "", systemPromptAddition: "", myAppId: id)
-        #expect(bad == nil)
-        #expect(slack(store, id: id)?.agents.isEmpty == true)
-    }
-
-    @Test("slackAddChannel filters memberAgentIds to known agents and sets active when first")
+    @Test("slackAddChannel stores member slugs verbatim and sets active when first")
     func addChannel() {
         let (store, id) = freshStore()
-        _ = store.slackAddAgent(name: "marketing", role: "", systemPromptAddition: "", myAppId: id)
-        _ = store.slackAddAgent(name: "dev", role: "", systemPromptAddition: "", myAppId: id)
         let cId = store.slackAddChannel(
             name: "planning",
             type: .channel,
-            memberAgentIds: ["agent-1", "agent-2", "agent-bogus"],
+            memberAgentIds: ["scout", "dev"],
             myAppId: id
         )
         #expect(cId == "channel-1")
         let s = slack(store, id: id)
-        #expect(s?.channels.first?.memberAgentIds == ["agent-1", "agent-2"])
+        #expect(s?.channels.first?.memberAgentIds == ["scout", "dev"])
         #expect(s?.activeChannelId == cId)
     }
 
-    @Test("slackAddAgentsToChannel is idempotent and ignores unknown agent ids")
+    @Test("slackAddAgentsToChannel is idempotent and appends new slugs")
     func addAgentsToChannel() {
         let (store, id) = freshStore()
-        _ = store.slackAddAgent(name: "marketing", role: "", systemPromptAddition: "", myAppId: id)
-        _ = store.slackAddAgent(name: "dev", role: "", systemPromptAddition: "", myAppId: id)
         let cId = store.slackAddChannel(name: "planning", type: .channel, myAppId: id)!
 
-        let first = store.slackAddAgentsToChannel(channelId: cId, agentIds: ["agent-1"], myAppId: id)
+        let first = store.slackAddAgentsToChannel(channelId: cId, agentIds: ["scout"], myAppId: id)
         #expect(first == true)
-        // Idempotent: same id again is a no-op.
-        let second = store.slackAddAgentsToChannel(channelId: cId, agentIds: ["agent-1"], myAppId: id)
+        // Idempotent: same slug again is a no-op.
+        let second = store.slackAddAgentsToChannel(channelId: cId, agentIds: ["scout"], myAppId: id)
         #expect(second == false)
-        // Unknown id is dropped, but agent-2 is added.
-        let mixed = store.slackAddAgentsToChannel(channelId: cId, agentIds: ["agent-bogus", "agent-2"], myAppId: id)
-        #expect(mixed == true)
-        #expect(slack(store, id: id)?.channels.first?.memberAgentIds == ["agent-1", "agent-2"])
+        let more = store.slackAddAgentsToChannel(channelId: cId, agentIds: ["dev"], myAppId: id)
+        #expect(more == true)
+        #expect(slack(store, id: id)?.channels.first?.memberAgentIds == ["scout", "dev"])
     }
 
     @Test("slackSetActiveChannel toggles activeChannelId and rejects unknown ids")
@@ -117,11 +100,7 @@ struct SlackMutatorsTests {
         let (store, id) = freshStore()
         let cId = store.slackAddChannel(name: "planning", type: .channel, myAppId: id)!
         let msgId = store.slackPostMessage(
-            channelId: cId,
-            authorKind: .user,
-            authorId: "user",
-            text: "kickoff",
-            myAppId: id
+            channelId: cId, authorKind: .user, authorId: "user", text: "kickoff", myAppId: id
         )
         #expect(msgId != nil)
         let msgs = slack(store, id: id)?.messagesByChannel[cId] ?? []
@@ -130,11 +109,7 @@ struct SlackMutatorsTests {
         #expect(msgs.first?.authorKind == .user)
 
         let bogus = store.slackPostMessage(
-            channelId: "channel-bogus",
-            authorKind: .user,
-            authorId: "user",
-            text: "x",
-            myAppId: id
+            channelId: "channel-bogus", authorKind: .user, authorId: "user", text: "x", myAppId: id
         )
         #expect(bogus == nil)
     }
@@ -144,24 +119,16 @@ struct SlackMutatorsTests {
         let (store, id) = freshStore()
         let cId = store.slackAddChannel(name: "planning", type: .channel, myAppId: id)!
         let bad = store.slackPostMessage(
-            channelId: cId,
-            authorKind: .user,
-            authorId: "user",
-            text: "   ",
-            myAppId: id
+            channelId: cId, authorKind: .user, authorId: "user", text: "   ", myAppId: id
         )
         #expect(bad == nil)
         #expect((slack(store, id: id)?.messagesByChannel[cId] ?? []).isEmpty)
     }
 
-    @Test("SlackView.parseMentions is case-insensitive, dedupes, preserves order")
+    @Test("SlackView.parseMentions matches slug or display name, dedupes, preserves order")
     func parseMentions() {
-        let agents = [
-            SlackAgent(id: "agent-1", name: "marketing", role: "", systemPromptAddition: ""),
-            SlackAgent(id: "agent-2", name: "dev", role: "", systemPromptAddition: ""),
-            SlackAgent(id: "agent-3", name: "research", role: "", systemPromptAddition: ""),
-        ]
-        let text = "hey @marketing and @DEV — also @marketing again and @nobody"
+        let agents = [sub("agent-1", "marketing"), sub("agent-2", "dev"), sub("agent-3", "research")]
+        let text = "hey @marketing and @DEV — also @agent-1 again and @nobody"
         let ids = SlackView.parseMentions(text: text, agents: agents)
         #expect(ids == ["agent-1", "agent-2"])
     }
@@ -176,18 +143,16 @@ struct SlackMutatorsTests {
     @Test("slackOpenDM creates a DM channel the first time, returns the same one on repeat")
     func openDMIdempotent() {
         let (store, id) = freshStore()
-        let agentId = store.slackAddAgent(name: "marketing", role: "", systemPromptAddition: "", myAppId: id)!
-
-        let firstDM = store.slackOpenDM(agentId: agentId, myAppId: id)
+        let firstDM = store.slackOpenDM(agentId: "marketing", displayName: "Marketing", myAppId: id)
         #expect(firstDM != nil)
         let s1 = slack(store, id: id)!
         let channel = s1.channels.first { $0.id == firstDM }!
         #expect(channel.type == .dm)
-        #expect(channel.memberAgentIds == [agentId])
-        #expect(channel.name == "marketing")
+        #expect(channel.memberAgentIds == ["marketing"])
+        #expect(channel.name == "Marketing")
 
         // Second call should reuse the same channel — no duplicates.
-        let secondDM = store.slackOpenDM(agentId: agentId, myAppId: id)
+        let secondDM = store.slackOpenDM(agentId: "marketing", displayName: "Marketing", myAppId: id)
         #expect(secondDM == firstDM)
         #expect(slack(store, id: id)?.channels.count == 1)
     }
@@ -195,59 +160,36 @@ struct SlackMutatorsTests {
     @Test("slackOpenDM does NOT match a group DM that happens to contain the agent")
     func openDMNotConfusedByGroupDM() {
         let (store, id) = freshStore()
-        let a1 = store.slackAddAgent(name: "marketing", role: "", systemPromptAddition: "", myAppId: id)!
-        let a2 = store.slackAddAgent(name: "dev", role: "", systemPromptAddition: "", myAppId: id)!
-        // Group DM with both agents — must not be confused with a 1-on-1.
-        _ = store.slackAddChannel(
-            name: "team",
-            type: .groupDM,
-            memberAgentIds: [a1, a2],
-            myAppId: id
-        )
-        let dm = store.slackOpenDM(agentId: a1, myAppId: id)
+        _ = store.slackAddChannel(name: "team", type: .groupDM, memberAgentIds: ["marketing", "dev"], myAppId: id)
+        let dm = store.slackOpenDM(agentId: "marketing", displayName: "Marketing", myAppId: id)
         let channel = slack(store, id: id)?.channels.first { $0.id == dm }
         #expect(channel?.type == .dm)
-        #expect(channel?.memberAgentIds == [a1])
-    }
-
-    @Test("slackOpenDM returns nil for unknown agent")
-    func openDMUnknownAgent() {
-        let (store, id) = freshStore()
-        let dm = store.slackOpenDM(agentId: "agent-bogus", myAppId: id)
-        #expect(dm == nil)
+        #expect(channel?.memberAgentIds == ["marketing"])
     }
 
     @Test("activeMentionToken detects trailing @<partial> at end of text")
     func mentionTokenTrailing() {
-        let token = SlackView.activeMentionToken(in: "hey @mark")
-        #expect(token?.partial == "mark")
+        #expect(SlackView.activeMentionToken(in: "hey @mark")?.partial == "mark")
     }
 
     @Test("activeMentionToken detects a bare @ as empty-partial (show all agents)")
     func mentionTokenBareAt() {
-        let token = SlackView.activeMentionToken(in: "hey @")
-        #expect(token?.partial == "")
+        #expect(SlackView.activeMentionToken(in: "hey @")?.partial == "")
     }
 
     @Test("activeMentionToken returns nil when the @ is followed by whitespace")
     func mentionTokenFollowedBySpace() {
-        // Once the user finishes typing the mention by hitting space,
-        // the palette should dismiss.
-        let token = SlackView.activeMentionToken(in: "hey @marketing draft a")
-        #expect(token == nil)
+        #expect(SlackView.activeMentionToken(in: "hey @marketing draft a") == nil)
     }
 
     @Test("activeMentionToken requires @ at start-of-string or after whitespace")
     func mentionTokenWordBoundary() {
-        // Embedded `@` in an email-like token is not a mention.
-        let token = SlackView.activeMentionToken(in: "foo@bar")
-        #expect(token == nil)
+        #expect(SlackView.activeMentionToken(in: "foo@bar") == nil)
     }
 
     @Test("activeMentionToken handles @ at the very start of the composer")
     func mentionTokenAtStart() {
-        let token = SlackView.activeMentionToken(in: "@dev")
-        #expect(token?.partial == "dev")
+        #expect(SlackView.activeMentionToken(in: "@dev")?.partial == "dev")
     }
 
     // MARK: - Header / composer copy
@@ -263,48 +205,37 @@ struct SlackMutatorsTests {
     @Test("composerPlaceholder includes the mention hint on regular widths, drops it on compact")
     func composerPlaceholderRegularVsCompact() {
         let channel = SlackChannel(id: "c1", name: "planning", type: .channel)
-        let regular = SlackView.composerPlaceholder(for: channel, agents: [], compact: false)
-        let compact = SlackView.composerPlaceholder(for: channel, agents: [], compact: true)
-        #expect(regular == "Message #planning — use @name to mention")
-        #expect(compact == "Message #planning")
+        #expect(SlackView.composerPlaceholder(for: channel, agents: [], compact: false)
+            == "Message #planning — use @name to mention")
+        #expect(SlackView.composerPlaceholder(for: channel, agents: [], compact: true)
+            == "Message #planning")
     }
 
     @Test("composerPlaceholder for a DM names the recipient agent and drops the mention hint")
     func composerPlaceholderDM() {
-        let agent = SlackAgent(id: "a1", name: "marketing", role: "", systemPromptAddition: "")
-        let dm = SlackChannel(id: "c1", name: "marketing", type: .dm, memberAgentIds: ["a1"])
-        let regular = SlackView.composerPlaceholder(for: dm, agents: [agent], compact: false)
-        let compact = SlackView.composerPlaceholder(for: dm, agents: [agent], compact: true)
-        // Both densities show the same string in DMs — the hint
-        // was already irrelevant there.
-        #expect(regular == "Message @marketing")
-        #expect(compact == "Message @marketing")
+        let agent = sub("marketing", "Marketing")
+        let dm = SlackChannel(id: "c1", name: "Marketing", type: .dm, memberAgentIds: ["marketing"])
+        #expect(SlackView.composerPlaceholder(for: dm, agents: [agent], compact: false) == "Message @Marketing")
+        #expect(SlackView.composerPlaceholder(for: dm, agents: [agent], compact: true) == "Message @Marketing")
     }
 
     @Test("composerPlaceholder for a group DM uses the channel name without a # prefix")
     func composerPlaceholderGroupDM() {
         let channel = SlackChannel(id: "c1", name: "team-leads", type: .groupDM)
-        let regular = SlackView.composerPlaceholder(for: channel, agents: [], compact: false)
-        let compact = SlackView.composerPlaceholder(for: channel, agents: [], compact: true)
-        #expect(regular == "Message team-leads — use @name to mention")
-        #expect(compact == "Message team-leads")
+        #expect(SlackView.composerPlaceholder(for: channel, agents: [], compact: false)
+            == "Message team-leads — use @name to mention")
+        #expect(SlackView.composerPlaceholder(for: channel, agents: [], compact: true)
+            == "Message team-leads")
     }
 
     // MARK: - Message-bubble mention rendering
 
     @Test("mentions(in:agents:) preserves order and includes EVERY occurrence (no dedup)")
     func mentionsRangesPreserveAllOccurrences() {
-        let agents = [
-            SlackAgent(id: "a1", name: "marketing", role: "", systemPromptAddition: ""),
-            SlackAgent(id: "a2", name: "dev", role: "", systemPromptAddition: ""),
-        ]
+        let agents = [sub("a1", "marketing"), sub("a2", "dev")]
         let text = "hey @marketing and @dev — also @marketing again"
         let m = SlackView.mentions(in: text, agents: agents)
-        // Three matches: marketing, dev, marketing — keep all three
-        // (unlike `parseMentions` which dedups for fan-out).
         #expect(m.map(\.agentId) == ["a1", "a2", "a1"])
-        // Each range should map back to the literal @name in the
-        // source text.
         for mention in m {
             let substring = String(text[mention.range])
             #expect(substring.lowercased() == "@\(mention.agentName.lowercased())")
@@ -313,31 +244,25 @@ struct SlackMutatorsTests {
 
     @Test("mentions(in:agents:) is case-insensitive on the agent name")
     func mentionsCaseInsensitive() {
-        let agents = [SlackAgent(id: "a1", name: "marketing", role: "", systemPromptAddition: "")]
-        let m = SlackView.mentions(in: "ping @MARKETING please", agents: agents)
+        let m = SlackView.mentions(in: "ping @MARKETING please", agents: [sub("a1", "marketing")])
         #expect(m.count == 1)
         #expect(m.first?.agentId == "a1")
     }
 
     @Test("mentions(in:agents:) skips unknown names")
     func mentionsSkipUnknown() {
-        let agents = [SlackAgent(id: "a1", name: "marketing", role: "", systemPromptAddition: "")]
-        let m = SlackView.mentions(in: "@marketing @nobody @marketing", agents: agents)
+        let m = SlackView.mentions(in: "@marketing @nobody @marketing", agents: [sub("a1", "marketing")])
         #expect(m.map(\.agentId) == ["a1", "a1"])
     }
 
     @Test("attributedMessageText links each @mention to pupa-mention://<agentId>")
     func attributedMessageTextLinks() {
-        let a1 = SlackAgent(id: "a1", name: "marketing", role: "", systemPromptAddition: "")
-        let a2 = SlackAgent(id: "a2", name: "dev", role: "", systemPromptAddition: "")
-        let attributed = SlackView.attributedMessageText("@marketing then @dev", agents: [a1, a2])
-        // Scan every run; collect the URLs found on attributed
-        // runs. Should be two distinct mention URLs.
+        let attributed = SlackView.attributedMessageText(
+            "@marketing then @dev", agents: [sub("a1", "marketing"), sub("a2", "dev")]
+        )
         var foundLinks: Set<String> = []
-        for run in attributed.runs {
-            if let url = run.link {
-                foundLinks.insert(url.absoluteString)
-            }
+        for run in attributed.runs where run.link != nil {
+            foundLinks.insert(run.link!.absoluteString)
         }
         #expect(foundLinks == [
             "\(SlackView.mentionURLScheme)://a1",
@@ -348,28 +273,18 @@ struct SlackMutatorsTests {
     @Test("attributedMessageText leaves the string untouched when there are no mentions")
     func attributedMessageTextNoMentions() {
         let attributed = SlackView.attributedMessageText("just a plain message", agents: [])
-        // No runs should carry a link attribute.
-        for run in attributed.runs {
-            #expect(run.link == nil)
-        }
+        for run in attributed.runs { #expect(run.link == nil) }
         #expect(String(attributed.characters) == "just a plain message")
     }
 
     @Test("attributedMessageText renders **bold** as inlinePresentationIntent .stronglyEmphasized")
     func attributedMessageTextBold() {
         let attributed = SlackView.attributedMessageText("hello **world**", agents: [])
-        // The asterisks should be gone from the parsed plain text.
-        let plain = String(attributed.characters)
-        #expect(plain == "hello world")
-        // Some run covering the word "world" should carry
-        // .stronglyEmphasized.
+        #expect(String(attributed.characters) == "hello world")
         var sawStrong = false
         for run in attributed.runs {
             if run.inlinePresentationIntent?.contains(.stronglyEmphasized) == true {
-                let runText = String(attributed.characters[run.range])
-                if runText.contains("world") {
-                    sawStrong = true
-                }
+                if String(attributed.characters[run.range]).contains("world") { sawStrong = true }
             }
         }
         #expect(sawStrong)
@@ -377,34 +292,23 @@ struct SlackMutatorsTests {
 
     @Test("attributedMessageText keeps @mention styling alongside bold markdown")
     func attributedMessageTextMentionAndBold() {
-        let a1 = SlackAgent(id: "a1", name: "dev", role: "", systemPromptAddition: "")
-        let attributed = SlackView.attributedMessageText("Hello @dev **friend**", agents: [a1])
+        let attributed = SlackView.attributedMessageText("Hello @dev **friend**", agents: [sub("a1", "dev")])
         let plain = String(attributed.characters)
-        // Asterisks are stripped; mention text is preserved.
         #expect(plain == "Hello @dev friend")
         #expect(!plain.contains("**"))
-        // (a) "@dev" run should carry the mention URL.
         var mentionURL: URL?
         var sawStrong = false
         for run in attributed.runs {
             let runText = String(attributed.characters[run.range])
-            if runText.contains("@dev"), let link = run.link {
-                mentionURL = link
-            }
-            if run.inlinePresentationIntent?.contains(.stronglyEmphasized) == true {
-                sawStrong = true
-            }
+            if runText.contains("@dev"), let link = run.link { mentionURL = link }
+            if run.inlinePresentationIntent?.contains(.stronglyEmphasized) == true { sawStrong = true }
         }
         #expect(mentionURL?.absoluteString == "\(SlackView.mentionURLScheme)://a1")
-        // (b) some run carries .stronglyEmphasized.
         #expect(sawStrong)
     }
 
     @Test("attributedMessageText falls back to plain text on malformed markdown")
     func attributedMessageTextMalformedFallback() {
-        // Apple's parser is lenient; we only assert no crash and
-        // that the visible characters still contain the word
-        // "unterminated".
         let attributed = SlackView.attributedMessageText("oops **unterminated", agents: [])
         let plain = String(attributed.characters)
         #expect(!plain.isEmpty)
