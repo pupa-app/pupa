@@ -3,6 +3,19 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.58] — 2026-07-06
+
+### Fixed
+
+- **Intermittent freeze when reordering a Tracker in kanban mode.** Every canvas
+  mutation persisted through an `NSFileCoordinator`-coordinated write on the main
+  actor — a synchronous XPC round-trip to `filecoordinationd` that, on device,
+  could stall the UI for hundreds of ms (never reproduced in the Simulator). The
+  local canonical store is single-process with no file presenter, so the
+  coordination bought nothing; local writes are now plain atomic. iCloud
+  coordination stays where it belongs, in the background `StorageMirror`.
+  (pupa#120, `PupaApp` `0.0.155`)
+
 ## [0.0.57] — 2026-07-05
 
 ### Added

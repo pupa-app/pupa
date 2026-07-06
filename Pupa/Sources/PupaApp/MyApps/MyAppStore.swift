@@ -2663,7 +2663,8 @@ public final class MyAppStore {
     }
 
     /// Write only the files whose encoded bytes changed; delete files for
-    /// removed apps. Each write is `NSFileCoordinator`-coordinated for iCloud.
+    /// removed apps. Writes are plain atomic via `CloudDocument` (no main-thread
+    /// file coordination); each schedules a background `StorageMirror` pass.
     private func persist() {
         let enc = Self.stateEncoder()
         var live = Set<UUID>()
