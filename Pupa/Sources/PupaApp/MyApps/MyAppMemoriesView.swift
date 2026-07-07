@@ -92,6 +92,17 @@ public struct MyAppMemoriesView: View {
             .frame(maxWidth: 760, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .center)
         }
+        // The global tree is scanned once at launch. Only re-walk disk when the
+        // cached tree has nothing for this scope — the fix for folders written
+        // after that scan (bootstrap `pupa/`, template seeding, a mirror pull)
+        // showing a stale "No notes yet". The populated case skips the I/O and
+        // the whole-tree republish entirely, so navigation stays cheap.
+        .task(id: subject) {
+            let hasContent = memory.tree.children?
+                .first(where: { $0.name == slug })?
+                .children?.isEmpty == false
+            if !hasContent { await memory.reloadFromDisk() }
+        }
         .background(Color.canvasBackground)
         .sheet(item: $activeSheet) { sheet in
             sheetView(sheet)

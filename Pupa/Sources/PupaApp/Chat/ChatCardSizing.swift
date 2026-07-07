@@ -14,18 +14,29 @@ import CoreGraphics
 struct ChatCardSizing {
     var minSize: CGSize = CGSize(width: 320, height: 360)
     var edgePadding: CGFloat = 16
+    // macOS is a floating side card over a wide window, so it takes a smaller
+    // slice and caps out — a 50% slice pinned bottom-right buried the canvas.
+    // iOS fills more of the phone screen and needs no ceiling.
+    #if os(macOS)
+    var widthFraction: CGFloat = 0.34
+    var heightFraction: CGFloat = 0.62
+    var maxDefault: CGSize? = CGSize(width: 480, height: 760)
+    #else
     var widthFraction: CGFloat = 0.5
     var heightFraction: CGFloat = 0.6
+    var maxDefault: CGSize? = nil
+    #endif
 
-    /// Default card size: a fraction of the container, clamped to fit.
+    /// Default card size: a fraction of the container, capped on wide screens,
+    /// then clamped to fit.
     func defaultSize(in container: CGSize) -> CGSize {
-        clamp(
-            CGSize(
-                width: container.width * widthFraction,
-                height: container.height * heightFraction
-            ),
-            in: container
-        )
+        var w = container.width * widthFraction
+        var h = container.height * heightFraction
+        if let cap = maxDefault {
+            w = min(w, cap.width)
+            h = min(h, cap.height)
+        }
+        return clamp(CGSize(width: w, height: h), in: container)
     }
 
     /// On-screen size, preferring a user-dragged size when one exists.

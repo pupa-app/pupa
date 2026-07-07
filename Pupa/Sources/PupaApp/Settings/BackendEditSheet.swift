@@ -132,7 +132,10 @@ struct BackendEditSheet: View {
                 }
             }
             #if os(macOS)
-            .frame(minWidth: 360, idealWidth: 420, minHeight: 320, idealHeight: 420)
+            // Match SettingsSheet: iOS-like grouped style (macOS defaults to the
+            // tight `.columns` style) so fields keep sensible side margins.
+            .formStyle(.grouped)
+            .frame(minWidth: 460, idealWidth: 520, minHeight: 480, idealHeight: 560)
             #endif
             #if os(iOS)
             .sheet(isPresented: $presentingScanner) {

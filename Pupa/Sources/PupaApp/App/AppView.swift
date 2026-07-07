@@ -163,6 +163,17 @@ public struct AppView: View {
             // Live iCloud sync: reload the stores when another device's edits
             // land in the container. No-op when iCloud is inactive.
             .task { startCloudWatcher() }
+            // First-launch converge: `warm()` kicks a background iCloud pull but
+            // never reloads the stores, so a fresh device would show a stale
+            // (empty) memory tree until the next mutation. Await one reconcile
+            // and republish from local if it wrote anything. No-op iCloud off.
+            .task {
+                let changed = await StorageMirror.shared.reconcile()
+                guard changed else { return }
+                await store.reloadFromDisk()
+                await memory.reloadFromDisk()
+                await settings.reloadFromDisk()
+            }
             // Resumable SSE lifecycle (pupa#103): ride out short backgrounds
             // with a UIKit background task so in-flight streams survive, and
             // on return to foreground re-attach any stream the OS killed —

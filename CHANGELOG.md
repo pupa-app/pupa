@@ -3,6 +3,18 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.62] — 2026-07-06
+
+### Fixed
+
+- **macOS polish.** Settings → Account / Backend sheets no longer clip their
+  content (the fixed macOS frame was shorter than the form). The Memories page
+  now reloads from disk when opened, so notes/folders written after launch
+  actually appear instead of a stale "No notes yet". The floating chat card is
+  compact on macOS (was a 50%-wide slice pinned bottom-right that buried the
+  canvas), and the bottom bar's `⋯` menu no longer hugs the window edge.
+  (`PupaApp` `0.0.159`)
+
 ## [0.0.61] — 2026-07-06
 
 ### Added

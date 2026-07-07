@@ -336,7 +336,7 @@ public enum MyAppImporter {
             // writeFile's resolve() rejects `..`, absolute paths and any
             // extension outside the `.md` / `.json` allowlist; a hostile path
             // simply fails to write rather than escaping.
-            try? scoped.writeFile(path: file.path, content: file.content)
+            _ = try? scoped.writeFile(path: file.path, content: file.content)
         }
     }
 
