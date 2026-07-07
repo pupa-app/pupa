@@ -156,7 +156,11 @@ via `barSubject` + `barPage`; taps flat-switch the root selection (reset
 chat launcher on these pages, `ChatOverlay` hides its fallback circle there
 (`launcherVisible`). `MyAppMemoriesView` + `MemoryLandingRow` are
 subject-generalized (a path→selection closure), so one browse view + row serve
-both scopes.
+both scopes. `MyAppMemoriesView` reloads the store from disk on appear
+(`.task(id: subject)` → `MemoryStore.reloadFromDisk`), so folders written after
+the launch scan (bootstrap `pupa/`, template seeding, an iCloud pull) show
+without waiting for a mutation or the cloud watcher; `AppView` also does one
+converge+reload at launch for the same reason.
 
 **In-app links (`pupa://`).** The agent can embed tappable navigation links in
 chat markdown (and note bodies); `Chat/ChatLink.swift` maps a `pupa://` URL to a

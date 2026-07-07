@@ -183,10 +183,20 @@ public struct SettingsSheet: View {
                     )
                 }
             }
-            #if os(macOS)
-            .frame(minWidth: 320, idealWidth: 380, minHeight: 360, idealHeight: 480)
-            #endif
         }
+        #if os(macOS)
+        // macOS `Form` defaults to `.columns` — tight margins, and short
+        // multi-section pages stretch their sections top-to-bottom to fill the
+        // frame. Force the iOS-like inset-grouped style (inherited by every
+        // pushed detail's Form via the environment) so pages top-align, keep
+        // sensible side margins, and scroll when taller than the sheet.
+        .formStyle(.grouped)
+        // Size the whole stack — not just the root list — so pushed detail
+        // pages (Account, Backend) fill the sheet and top-align. A modest min
+        // height keeps short pages (Agent-to-agent) from being a mostly-empty
+        // card while tall ones scroll.
+        .frame(minWidth: 480, idealWidth: 600, minHeight: 440, idealHeight: 600)
+        #endif
         // Guided tour deep-links: land directly on the requested page (its
         // Settings step opens Backend) when the sheet appears and if the tour
         // moves between settings pages while open.
