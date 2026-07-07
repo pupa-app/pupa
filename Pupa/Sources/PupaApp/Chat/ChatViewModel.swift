@@ -1253,6 +1253,8 @@ public final class ChatViewModel {
             return "Stopped after the tool-round safety limit. Say \u{201C}continue\u{201D} to resume."
         case .droppedStream:
             return "The connection closed before the agent replied. Say \u{201C}continue\u{201D} or try again."
+        case .droppedInterrupt:
+            return "The agent\u{2019}s last action didn\u{2019}t come through. Say \u{201C}continue\u{201D} to retry it."
         case .backend(let detail):
             return "The agent stopped: \(detail)"
         }

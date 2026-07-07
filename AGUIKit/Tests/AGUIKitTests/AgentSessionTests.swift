@@ -838,6 +838,114 @@ struct AgentSessionTests {
         }
     }
 
+    // MARK: - Dropped-interrupt self-heal (ag-ui-langgraph tasks[0] emit bug)
+
+    @Test("Frontend tool with no on_interrupt self-heals via a resume-less recovery re-POST")
+    func droppedInterrupt_selfHeals_viaRecoveryRePost() async throws {
+        MockURLProtocol.reset()
+        let recorder = DispatchRecorder()
+        let registry = ToolRegistry()
+        registry.register(ClientTool(
+            descriptor: ToolDescriptor(name: "renderTracker", description: "render", parameters: ["type": "object"]),
+            handler: { _ in
+                await recorder.record(args: .null)
+                return .object(["ok": .bool(true)])
+            }
+        ))
+        let client = AgentClient(
+            endpoint: URL(string: "http://mock.test/agent")!,
+            session: makeMockSession()
+        )
+        let session = AgentSession(client: client, registry: registry, threadId: "test-thread")
+
+        let interruptValue = #"{\"frontend_tool_calls\":[{\"id\":\"call_A\",\"name\":\"renderTracker\",\"args\":{}}]}"#
+        // Round 1: the model narrates AND calls renderTracker, but the backend
+        // DROPS the on_interrupt (the `tasks[0]` emit bug) — looks like a clean
+        // finish. Round 2: the resume-less recovery re-POST; the backend's
+        // recovery path re-emits the parked on_interrupt. Round 3: resume → text.
+        TestBodies.shared.round1 = sseBody([
+            #"{"type":"RUN_STARTED","threadId":"test-thread","runId":"r1"}"#,
+            #"{"type":"TEXT_MESSAGE_START","messageId":"m1","role":"assistant"}"#,
+            #"{"type":"TEXT_MESSAGE_CONTENT","messageId":"m1","delta":"rendering now"}"#,
+            #"{"type":"TEXT_MESSAGE_END","messageId":"m1"}"#,
+            #"{"type":"TOOL_CALL_START","toolCallId":"call_A","toolCallName":"renderTracker"}"#,
+            #"{"type":"TOOL_CALL_ARGS","toolCallId":"call_A","delta":"{}"}"#,
+            #"{"type":"TOOL_CALL_END","toolCallId":"call_A"}"#,
+            #"{"type":"RUN_FINISHED","threadId":"test-thread","runId":"r1"}"#,
+        ])
+        TestBodies.shared.round2 = sseBody([
+            #"{"type":"RUN_STARTED","threadId":"test-thread","runId":"r2"}"#,
+            "{\"type\":\"CUSTOM\",\"name\":\"on_interrupt\",\"value\":\"\(interruptValue)\"}",
+            #"{"type":"RUN_FINISHED","threadId":"test-thread","runId":"r2"}"#,
+        ])
+        TestBodies.shared.round3 = sseBody([
+            #"{"type":"RUN_STARTED","threadId":"test-thread","runId":"r3"}"#,
+            #"{"type":"TEXT_MESSAGE_START","messageId":"m2","role":"assistant"}"#,
+            #"{"type":"TEXT_MESSAGE_CONTENT","messageId":"m2","delta":"done"}"#,
+            #"{"type":"TEXT_MESSAGE_END","messageId":"m2"}"#,
+            #"{"type":"RUN_FINISHED","threadId":"test-thread","runId":"r3"}"#,
+        ])
+        MockURLProtocol.responder = { _ in
+            let body: Data
+            switch MockURLProtocol.requestCount {
+            case 1: body = TestBodies.shared.round1!
+            case 2: body = TestBodies.shared.round2!
+            default: body = TestBodies.shared.round3!
+            }
+            return (200, body, Self.sseHeaders)
+        }
+
+        let outcome = await lastCompletion(session.send("render a tracker", context: { [] }))
+
+        // The tool ran once (after recovery re-emitted the interrupt) and the
+        // turn settled cleanly on the resume round's text.
+        #expect(await recorder.count == 1)
+        #expect(outcome == .produced)
+        // Three POSTs: initial send, resume-less recovery re-POST, resume.
+        #expect(MockURLProtocol.requestCount == 3)
+
+        // The recovery re-POST (round 2) carries NO command.resume — a plain
+        // continuation that triggers the backend's recovery path.
+        let recoveryInput = try JSONDecoder().decode(RunAgentInput.self, from: MockURLProtocol.requestBodies[1])
+        #expect(recoveryInput.forwardedProps["command"]?["resume"] == nil)
+        // The resume POST (round 3) DOES carry tool_results for the dispatched call.
+        let resumeInput = try JSONDecoder().decode(RunAgentInput.self, from: MockURLProtocol.requestBodies[2])
+        let results = try #require(resumeInput.forwardedProps["command"]?["resume"]?["tool_results"]?.arrayValue)
+        #expect(results.count == 1)
+    }
+
+    @Test("A frontend tool that never gets an interrupt settles as .silent(.droppedInterrupt) after bounded retries")
+    func droppedInterrupt_recoveryExhausted_settlesDroppedInterrupt() async throws {
+        MockURLProtocol.reset()
+        let registry = ToolRegistry()
+        registry.register(ClientTool(
+            descriptor: ToolDescriptor(name: "renderTracker", description: "render", parameters: ["type": "object"]),
+            handler: { _ in .object(["ok": .bool(true)]) }
+        ))
+        let client = AgentClient(
+            endpoint: URL(string: "http://mock.test/agent")!,
+            session: makeMockSession()
+        )
+        let session = AgentSession(client: client, registry: registry, threadId: "test-thread")
+
+        // Every round calls renderTracker with NO on_interrupt — the backend
+        // recovery never surfaces one. The self-heal must give up after its
+        // bounded retries and surface a notice rather than loop forever.
+        let body = sseBody([
+            #"{"type":"RUN_STARTED","threadId":"test-thread","runId":"r"}"#,
+            #"{"type":"TOOL_CALL_START","toolCallId":"call_A","toolCallName":"renderTracker"}"#,
+            #"{"type":"TOOL_CALL_ARGS","toolCallId":"call_A","delta":"{}"}"#,
+            #"{"type":"TOOL_CALL_END","toolCallId":"call_A"}"#,
+            #"{"type":"RUN_FINISHED","threadId":"test-thread","runId":"r"}"#,
+        ])
+        MockURLProtocol.responder = { _ in (200, body, Self.sseHeaders) }
+
+        let outcome = await lastCompletion(session.send("render a tracker", context: { [] }))
+        #expect(outcome == .silent(.droppedInterrupt))
+        // Initial send + 2 bounded recovery re-POSTs = 3 POSTs, then it stops.
+        #expect(MockURLProtocol.requestCount == 3)
+    }
+
     @Test("Text in an early round keeps the turn .produced even if a later round settles empty")
     func completion_textThenEmptySettle_produced() async throws {
         MockURLProtocol.reset()

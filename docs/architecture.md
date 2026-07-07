@@ -39,9 +39,15 @@ handlers.
   parked. `nil` removes the breaker: the turn runs until the backend settles. The loop settles with
   `.completed(CompletionOutcome)`: `.produced` when the turn emitted
   assistant text, else `.silent(reason)` (`emptyTurn` / `maxRounds` /
-  `droppedStream` / `backend`) so the UI can flag a turn that ended with no
-  reply instead of silently dropping the spinner. `ChatViewModel` renders a
-  `.system` notice bubble for `.silent`.
+  `droppedStream` / `droppedInterrupt` / `backend`) so the UI can flag a turn
+  that ended with no reply instead of silently dropping the spinner.
+  `ChatViewModel` renders a `.system` notice bubble for `.silent`.
+  **Dropped-interrupt self-heal:** if a round settles with a registered
+  frontend tool observed but no `on_interrupt` to drive it (the upstream
+  `ag-ui-langgraph` `tasks[0]` emit bug — an interrupt parked on a non-first
+  task is dropped in-run), the loop re-POSTs a resume-less continuation to
+  trigger the backend's recovery path (which re-emits the parked interrupt),
+  bounded to 2 retries before settling `.droppedInterrupt`.
 - **[`ToolRegistry.swift`](../AGUIKit/Sources/AGUIKit/ToolRegistry.swift)**
   / **[`Tool.swift`](../AGUIKit/Sources/AGUIKit/Tool.swift)** — host
   registers `@Sendable async` handlers keyed by tool name; their

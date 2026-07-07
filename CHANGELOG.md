@@ -3,6 +3,22 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.63] — 2026-07-07
+
+### Fixed
+
+- **Chat no longer silently stops after a `render*` tool call.** An upstream
+  `ag-ui-langgraph` bug drops the `on_interrupt` for a frontend tool whose
+  interrupt parks on a non-first task (multi-task turns — batched `render*`, or
+  `render*` + a backend tool), so the run looked like a clean finish and the
+  chat stalled until the user sent another message. `AgentSession` now detects a
+  registered frontend tool that was called with no `on_interrupt` and self-heals
+  by re-POSTing a resume-less continuation, which triggers the backend's
+  recovery path (it re-emits the parked interrupt) — bounded to 2 retries, then
+  it surfaces a `.droppedInterrupt` notice. New `AgentSessionTests` cover both
+  the self-heal and the exhausted-recovery paths. AGUIKit `0.0.23` → `0.0.24`,
+  Pupa `0.0.159` → `0.0.160`.
+
 ## [0.0.62] — 2026-07-06
 
 ### Fixed
