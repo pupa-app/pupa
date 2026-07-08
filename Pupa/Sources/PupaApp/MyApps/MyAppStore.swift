@@ -241,6 +241,31 @@ public final class MyAppStore {
         persist()
     }
 
+    /// MyApps shown in the sidebar and every agent-facing list — everything
+    /// that isn't archived.
+    public var visibleMyApps: [MyApp] { myApps.filter { !$0.isArchived } }
+
+    /// Archived (hidden) MyApps, surfaced only in Settings → Archive.
+    public var archivedMyApps: [MyApp] { myApps.filter { $0.isArchived } }
+
+    /// Archive or unarchive a MyApp. Archiving hides it from the sidebar and
+    /// every agent-facing list and locks all its components (read-only);
+    /// unarchiving only un-hides it — the lock stays on, so a restored app is
+    /// re-editable via the home lock toggle. Archiving the active app repoints
+    /// `activeMyAppId` to the first still-visible app.
+    public func setMyAppArchived(_ id: UUID, _ archived: Bool) {
+        guard let idx = myApps.firstIndex(where: { $0.id == id }),
+              myApps[idx].isArchived != archived else { return }
+        myApps[idx].isArchived = archived
+        if archived {
+            setAllComponentsLocked(locked: true, myAppId: id)
+            if activeMyAppId == id, let next = visibleMyApps.first {
+                activeMyAppId = next.id
+            }
+        }
+        persist()
+    }
+
     /// Re-insert the seeded "Job Search" workspace if the user
     /// has deleted it. If a MyApp with `JobSearchExample.name` is already
     /// present, just makes it the active one — no duplicate is inserted.

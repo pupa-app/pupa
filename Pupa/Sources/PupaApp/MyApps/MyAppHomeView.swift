@@ -353,14 +353,14 @@ public struct MyAppHomeView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
 
-                if !store.myApps.isEmpty {
+                if !store.visibleMyApps.isEmpty {
                     Divider()
                     Text("Can orchestrate")
                         .font(.caption)
                         .fontWeight(.semibold)
                         .foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 4) {
-                        ForEach(store.myApps) { app in
+                        ForEach(store.visibleMyApps) { app in
                             orchestrableRow(app)
                         }
                     }

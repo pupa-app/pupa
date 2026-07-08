@@ -25,6 +25,9 @@ public struct MyApp: Codable, Hashable, Identifiable, Sendable {
     public let createdAt: Date
     /// Per-MyApp settings overrides. Keys are `SettingsKey.name` values.
     public var settings: [String: SettingValue]
+    /// Archived (hidden) apps leave the sidebar and every agent-facing app
+    /// list; their components are locked. Restored from Settings → Archive.
+    public var isArchived: Bool
 
     public init(
         id: UUID = UUID(),
@@ -36,7 +39,8 @@ public struct MyApp: Codable, Hashable, Identifiable, Sendable {
         threads: [ChatThread]? = nil,
         currentThreadId: String? = nil,
         createdAt: Date = Date(),
-        settings: [String: SettingValue] = [:]
+        settings: [String: SettingValue] = [:],
+        isArchived: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -60,6 +64,7 @@ public struct MyApp: Codable, Hashable, Identifiable, Sendable {
         self.currentThreadId = currentThreadId ?? self.threads[0].id
         self.createdAt = createdAt
         self.settings = settings
+        self.isArchived = isArchived
     }
 
     // MARK: - Component access
@@ -92,7 +97,7 @@ public struct MyApp: Codable, Hashable, Identifiable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id, name, iconSystemName, typeId, components, activeComponentId
-        case threads, currentThreadId, createdAt, settings
+        case threads, currentThreadId, createdAt, settings, isArchived
     }
 
     public init(from decoder: Decoder) throws {
@@ -103,6 +108,7 @@ public struct MyApp: Codable, Hashable, Identifiable, Sendable {
         self.typeId = try c.decode(String.self, forKey: .typeId)
         self.createdAt = try c.decode(Date.self, forKey: .createdAt)
         self.settings = (try? c.decodeIfPresent([String: SettingValue].self, forKey: .settings)) ?? [:]
+        self.isArchived = try c.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
         self.components = try c.decode([Component].self, forKey: .components)
         self.activeComponentId = try c.decodeIfPresent(String.self, forKey: .activeComponentId)
             ?? self.components.first?.id
@@ -122,5 +128,6 @@ public struct MyApp: Codable, Hashable, Identifiable, Sendable {
         try c.encode(currentThreadId, forKey: .currentThreadId)
         try c.encode(createdAt, forKey: .createdAt)
         if !settings.isEmpty { try c.encode(settings, forKey: .settings) }
+        if isArchived { try c.encode(isArchived, forKey: .isArchived) }
     }
 }

@@ -3,6 +3,17 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.70] — 2026-07-08
+
+### Added
+
+- **Archive (hide) apps.** Long-press a sidebar app → **Archive** to tuck it
+  away: it leaves the sidebar, its components lock (read-only), and it drops
+  out of every agent-facing list so no agent can drive it. Archived apps live
+  under **Settings → Archive**, each with **Unarchive** (brings it back, still
+  locked until you unlock it from its home) and **Delete**. Its memories stay
+  on disk and return with it. App `0.0.167` → `0.0.168`.
+
 ## [0.0.69] — 2026-07-08
 
 ### Fixed

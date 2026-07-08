@@ -17,6 +17,7 @@ public struct MyAppSidebarView: View {
     let busyMyApps: Set<UUID>
     var onSelectionChange: (SidebarSelection) -> Void
     var onDeleteMyApp: (UUID) -> Void
+    var onArchiveMyApp: (UUID) -> Void
 
     @State private var newSheetPresented = false
     @State private var settingsSheetPresented = false
@@ -36,7 +37,8 @@ public struct MyAppSidebarView: View {
         selection: Binding<SidebarSelection?>,
         busyMyApps: Set<UUID>,
         onSelectionChange: @escaping (SidebarSelection) -> Void,
-        onDeleteMyApp: @escaping (UUID) -> Void
+        onDeleteMyApp: @escaping (UUID) -> Void,
+        onArchiveMyApp: @escaping (UUID) -> Void
     ) {
         self.store = store
         self.memory = memory
@@ -48,6 +50,7 @@ public struct MyAppSidebarView: View {
         self.busyMyApps = busyMyApps
         self.onSelectionChange = onSelectionChange
         self.onDeleteMyApp = onDeleteMyApp
+        self.onArchiveMyApp = onArchiveMyApp
     }
 
     public var body: some View {
@@ -206,7 +209,7 @@ public struct MyAppSidebarView: View {
 
     private var myAppsSection: some View {
         Section {
-            ForEach(store.myApps) { myApp in
+            ForEach(store.visibleMyApps) { myApp in
                 myAppRow(myApp)
             }
         } header: {
@@ -267,6 +270,12 @@ public struct MyAppSidebarView: View {
             } label: {
                 Label("Rename", systemImage: "pencil")
             }
+            Button {
+                onArchiveMyApp(myApp.id)
+            } label: {
+                Label("Archive", systemImage: "archivebox")
+            }
+            .disabled(store.visibleMyApps.count <= 1)
             Button(role: .destructive) {
                 onDeleteMyApp(myApp.id)
             } label: {
