@@ -31,8 +31,8 @@ struct ICloudSyncPersistenceTests {
     }
 
     @Test("MyAppStore seeds per-file state and reloads in a fresh instance")
-    func myAppStorePerFileRoundTrip() throws {
-        MyAppStore.clearStorage()
+    func myAppStorePerFileRoundTrip() async throws {
+        await MyAppStore.clearStorage()
         let writer = MyAppStore()                     // fresh install → seeds + writes
         let newID = writer.addMyApp(typeId: "tracker", name: "Synced", iconSystemName: "star")
 
@@ -51,7 +51,7 @@ struct ICloudSyncPersistenceTests {
 
     @Test("reloadFromDisk (async, off-main) republishes an external write")
     func reloadFromDiskPicksUpExternalChange() async throws {
-        MyAppStore.clearStorage()
+        await MyAppStore.clearStorage()
         let a = MyAppStore()                          // fresh install → seeds + writes
         let initialCount = a.myApps.count
 
@@ -67,8 +67,8 @@ struct ICloudSyncPersistenceTests {
     }
 
     @Test("MyApps survive an iCloud toggle and mirror up when iCloud is on")
-    func toggleOffKeepsAppsAndMirrorsUp() throws {
-        MyAppStore.clearStorage()
+    func toggleOffKeepsAppsAndMirrorsUp() async throws {
+        await MyAppStore.clearStorage()
         let store = MyAppStore()
         let id = store.addMyApp(typeId: "tracker", name: "Keep", iconSystemName: "star")
 
@@ -80,18 +80,18 @@ struct ICloudSyncPersistenceTests {
 
         // iCloud "on": converge mirrors the local tree up; local is untouched.
         let cloud = TestStorage.root.appendingPathComponent("cloud-\(UUID().uuidString)", isDirectory: true)
-        PupaStorage.cloudMirrorOverride = cloud
-        defer { PupaStorage.cloudMirrorOverride = nil }
-        StorageMirror.converge(localRoot: PupaStorage.activeRoot, cloudRoot: cloud)
+        try await TestStorage.withCloudMirror(cloud) {
+            StorageMirror.converge(localRoot: PupaStorage.activeRoot, cloudRoot: cloud)
 
-        #expect(MyAppStore().myApps.contains { $0.id == id })       // still local
-        let mirrored = cloud.appendingPathComponent("state/apps/\(id.uuidString).json")
-        #expect(FileManager.default.fileExists(atPath: mirrored.path))  // and now in iCloud
+            #expect(MyAppStore().myApps.contains { $0.id == id })       // still local
+            let mirrored = cloud.appendingPathComponent("state/apps/\(id.uuidString).json")
+            #expect(FileManager.default.fileExists(atPath: mirrored.path))  // and now in iCloud
+        }
     }
 
     @Test("MyAppStore removeMyApp deletes that app's file")
-    func removeMyAppDeletesFile() throws {
-        MyAppStore.clearStorage()
+    func removeMyAppDeletesFile() async throws {
+        await MyAppStore.clearStorage()
         let store = MyAppStore()
         let id = store.addMyApp(typeId: "tracker", name: "Doomed", iconSystemName: "trash")
         let appURL = PupaStorage.stateRoot
@@ -120,8 +120,8 @@ struct ICloudSyncPersistenceTests {
     /// uploads the minimum. Proven via modification dates: pre-stamp every file
     /// to the distant past, mutate one app, then assert only that file moved.
     @Test("A mutation rewrites only the changed app file, not the others")
-    func dirtyHashWritesOnlyChangedFile() throws {
-        MyAppStore.clearStorage()
+    func dirtyHashWritesOnlyChangedFile() async throws {
+        await MyAppStore.clearStorage()
         let store = MyAppStore()
         let a = store.addMyApp(typeId: "tracker", name: "Alpha", iconSystemName: "a.circle")
         let b = store.addMyApp(typeId: "tracker", name: "Bravo", iconSystemName: "b.circle")
@@ -148,8 +148,8 @@ struct ICloudSyncPersistenceTests {
 
     /// A persist that changes nothing rewrites nothing (idempotent, no churn).
     @Test("Re-selecting the active app with no change rewrites no app file")
-    func noOpPersistWritesNothing() throws {
-        MyAppStore.clearStorage()
+    func noOpPersistWritesNothing() async throws {
+        await MyAppStore.clearStorage()
         let store = MyAppStore()
         let a = store.addMyApp(typeId: "tracker", name: "Alpha", iconSystemName: "a.circle")
 
@@ -176,8 +176,8 @@ struct ICloudSyncPersistenceTests {
     /// drop, reorder, or tear a rapid burst of persists (the kanban-reorder
     /// hot path).
     @Test("Rapid successive patches persist the final value to disk")
-    func rapidPatchesPersistFinalValue() throws {
-        MyAppStore.clearStorage()
+    func rapidPatchesPersistFinalValue() async throws {
+        await MyAppStore.clearStorage()
         let store = MyAppStore()
         let id = store.addMyApp(typeId: "tracker", name: "Board", iconSystemName: "star")
         store.setTracker(

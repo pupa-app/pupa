@@ -3,6 +3,21 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.69] — 2026-07-08
+
+### Fixed
+
+- **Cross-suite disk races in the Pupa test suite.** Debounced background
+  writers (the `StorageMirror` reconcile and per-app snapshot captures) could
+  outlive their test and write into the shared test storage root during a
+  later suite — the source of the intermittent `ICloudSyncPersistenceTests`
+  full-run failures. `StorageMirror` now registers its debounce synchronously
+  and exposes `drain()`; `MyAppStore.clearStorage()` is async and quiescing
+  (storage-epoch guard expires armed snapshot debounces, drains the mirror,
+  removes the merge baseline). New `StorageQuiescenceTests` guard the class.
+  Bare parallel `swift test` remains unsupported — always run `make test`.
+  App `0.0.166` → `0.0.167`.
+
 ## [0.0.68] — 2026-07-08
 
 ### Added

@@ -565,6 +565,13 @@ into one pass. The watcher's reload runs each store's `reloadFromDisk` off the
 main actor, republishing only the result on main, so a burst of remote writes
 can't stampede the UI thread.
 
+Debounced background writers are **quiescable**: `StorageMirror.drain()`
+cancels the armed debounce and awaits an in-flight pass, and
+`MyAppStore.clearStorage()` (async) bumps a storage epoch that expires armed
+snapshot debounces, drains the mirror, and removes the merge baseline. Tests
+run serially (`--no-parallel`, see Makefile) and rely on these so no
+background disk task crosses a suite boundary.
+
 There is no migration from the pre-iCloud single-blob storage — a new build
 seeds fresh. iCloud needs the CloudDocuments entitlement
 (`PupaHost.entitlements`, container `iCloud.app.pupa.ios` =
