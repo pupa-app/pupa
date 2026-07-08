@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 /// Thin `FileDocument` wrapper around raw bundle bytes, for SwiftUI's
 /// `.fileImporter` on iOS + macOS.
 ///
-/// Writes the branded `.pupaAppBundle` type (`.pupaapp`, declared in the
+/// Writes the branded `.pupaAppBundle` type (`.pupa`, declared in the
 /// PupaHost Info.plist); reads both it and legacy `.json` exports. A bundle
 /// *is* JSON, so the importer still validates via the header `format` magic,
 /// not the extension. See docs/marketplace.md.

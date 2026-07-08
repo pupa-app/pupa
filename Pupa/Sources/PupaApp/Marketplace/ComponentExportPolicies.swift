@@ -39,8 +39,9 @@ public struct ChecklistExportPolicy: ComponentExportPolicy {
     }
 }
 
-/// Slack: keep agent personas + channels (the reusable workspace); drop the
-/// chat transcript. Agent prompt text travels as structure — see the warning.
+/// Slack: keep channels (the reusable workspace); drop the chat transcript.
+/// Agent personas travel separately as `pupa/agents/<slug>/AGENTS.md` files in
+/// the app memory tree — they are not part of `SlackData`.
 public struct SlackExportPolicy: ComponentExportPolicy {
     public init() {}
     public let kind = "slack"
@@ -51,7 +52,7 @@ public struct SlackExportPolicy: ComponentExportPolicy {
         return .slack(s)
     }
     public var exportDataWarning: String? {
-        "Slack keeps agent personas & channels; chat messages are removed when records are excluded."
+        "Slack keeps channels; agent personas travel as pupa/agents/ files. Chat messages are removed when records are excluded."
     }
 }
 

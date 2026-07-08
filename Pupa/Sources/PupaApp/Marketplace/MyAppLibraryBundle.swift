@@ -2,7 +2,7 @@ import Foundation
 
 /// A portable, **inert** bundle of *many* MyApps — the multi-app transport
 /// unit. A thin container over the per-app `MyAppBundle`: it wraps an array of
-/// them plus its own `header`. Same `.pupaapp` extension as a single-app
+/// them plus its own `header`. Same `.pupa` extension as a single-app
 /// bundle; the two are told apart by the `header.format` magic (see
 /// `MyAppImporter.probeFormat`). Import loops the per-app authority unchanged,
 /// so every per-app guard (settings allow-list, memory path checks,

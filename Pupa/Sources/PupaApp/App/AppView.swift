@@ -70,7 +70,7 @@ public struct AppView: View {
     /// (`wantSettingsOpen` / `wantChatOpen` / `chatPrefill`) and `applyTourStep`
     /// drives `selection` for `.navigate` steps.
     @State private var tour = GuidedTourStore.shared
-    /// A `.pupaapp` opened from outside the app (`onOpenURL`), staged for an
+    /// A `.pupa` opened from outside the app (`onOpenURL`), staged for an
     /// explicit confirm step before it touches the store — the source is
     /// untrusted and the bundle's agent prompts run with the user's tools.
     @State private var pendingImport: PendingImport?
@@ -125,7 +125,7 @@ public struct AppView: View {
                 selection = sel
                 dispatchSelection(sel)
             }
-            // Tap-to-import: a `.pupaapp` opened from Files / Mail / a chat app
+            // Tap-to-import: a `.pupa` opened from Files / Mail / a chat app
             // arrives here. Stage it for a confirm step rather than importing
             // straight into the store (untrusted source).
             .onOpenURL { stagePendingImport($0) }
@@ -163,6 +163,17 @@ public struct AppView: View {
             // Live iCloud sync: reload the stores when another device's edits
             // land in the container. No-op when iCloud is inactive.
             .task { startCloudWatcher() }
+            // First-launch converge: `warm()` kicks a background iCloud pull but
+            // never reloads the stores, so a fresh device would show a stale
+            // (empty) memory tree until the next mutation. Await one reconcile
+            // and republish from local if it wrote anything. No-op iCloud off.
+            .task {
+                let changed = await StorageMirror.shared.reconcile()
+                guard changed else { return }
+                await store.reloadFromDisk()
+                await memory.reloadFromDisk()
+                await settings.reloadFromDisk()
+            }
             // Resumable SSE lifecycle (pupa#103): ride out short backgrounds
             // with a UIKit background task so in-flight streams survive, and
             // on return to foreground re-attach any stream the OS killed —
@@ -884,7 +895,7 @@ public struct AppView: View {
 
     // MARK: Tap-to-import
 
-    /// Read + read-only-decode an opened `.pupaapp` for the confirm preview.
+    /// Read + read-only-decode an opened `.pupa` for the confirm preview.
     /// `MyAppImporter` is the validation authority — this only extracts the app
     /// name + agent prompts and never mutates the store.
     private func stagePendingImport(_ url: URL) {
@@ -921,19 +932,17 @@ public struct AppView: View {
         }
     }
 
-    /// Slack agent personas in a bundle — the privacy review surface, mirroring
-    /// the export screen's `sharedPromptPreview`.
+    /// Slack workspace agents in a bundle — the privacy review surface. Agent
+    /// slugs referenced by the rooms; their persona text ships as
+    /// `pupa/agents/<slug>/AGENTS.md` memory files (shown in the memory review).
     private func agentPrompts(in app: MyApp) -> [String] {
-        var out: [String] = []
+        var slugs: Set<String> = []
         for comp in app.components {
             if case .slack(let s) = comp.body {
-                for agent in s.agents {
-                    let role = agent.role.isEmpty ? "" : " — \(agent.role)"
-                    out.append("\(agent.name)\(role)")
-                }
+                slugs.formUnion(s.channels.flatMap { $0.memberAgentIds })
             }
         }
-        return out
+        return slugs.sorted()
     }
 
     /// Run the real import after the user confirms, then navigate to the new
@@ -969,7 +978,7 @@ public struct AppView: View {
     }
 }
 
-/// A `.pupaapp` opened from outside the app, staged for confirmation. Holds one
+/// A `.pupa` opened from outside the app, staged for confirmation. Holds one
 /// app (single bundle) or many (library bundle).
 private struct PendingImport: Identifiable {
     let id = UUID()
@@ -986,7 +995,7 @@ private struct ImportNotice: Identifiable {
     let message: String
 }
 
-/// Confirm step for an externally-opened `.pupaapp`: names the app and lists
+/// Confirm step for an externally-opened `.pupa`: names the app and lists
 /// the agent prompts that would run with the user's tools, so an untrusted
 /// bundle can't import silently.
 private struct ImportConfirmSheet: View {

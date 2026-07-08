@@ -425,66 +425,10 @@ public struct ChecklistData: Codable, Hashable, Sendable {
 
 // MARK: - Slack component
 
-/// One agent in a Slack component. `id` is stable and used as the
-/// memory-namespace key (memory tools rebase paths under
-/// `memories/agents/{id}/` when invoked on this agent's behalf).
-/// `role` is short-form ("marketing", "dev"); `systemPromptAddition`
-/// is the persona text appended to the base system prompt for any
-/// invocation of this agent.
-public struct SlackAgent: Codable, Hashable, Sendable, Identifiable {
-    public let id: String
-    public var name: String
-    public var role: String
-    public var systemPromptAddition: String
-    /// Per-agent LLM provider override (one of `KnownLLMProvider.*`). When
-    /// `nil` the agent inherits its parent MyApp's choice (or the backend
-    /// default when neither is set). Paired with `llmModel` — both must be
-    /// non-nil for the override to apply.
-    public var llmProvider: String?
-    /// Per-agent logical LLM model id (e.g. `"claude-sonnet-4-6"`). See `llmProvider`.
-    public var llmModel: String?
-    /// Per-agent disabled tool names. Unioned with the global
-    /// `disabledBackendTools` set when this agent runs — sent as
-    /// `state.disabled_tools` so the backend drops them from the model's tool
-    /// list. `nil`/empty means "no per-agent overrides".
-    public var disabledTools: [String]?
-
-    public init(
-        id: String = UUID().uuidString,
-        name: String,
-        role: String,
-        systemPromptAddition: String,
-        llmProvider: String? = nil,
-        llmModel: String? = nil,
-        disabledTools: [String]? = nil
-    ) {
-        self.id = id
-        self.name = name
-        self.role = role
-        self.systemPromptAddition = systemPromptAddition
-        self.llmProvider = llmProvider
-        self.llmModel = llmModel
-        self.disabledTools = disabledTools
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case id, name, role, systemPromptAddition, llmProvider, llmModel, disabledTools
-    }
-
-    /// Backward-compatible decoder — `llmProvider` / `llmModel` /
-    /// `disabledTools` were added later, so any persisted SlackAgent blob
-    /// lacking them decodes cleanly with `nil`.
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.id = try c.decode(String.self, forKey: .id)
-        self.name = try c.decode(String.self, forKey: .name)
-        self.role = try c.decode(String.self, forKey: .role)
-        self.systemPromptAddition = try c.decode(String.self, forKey: .systemPromptAddition)
-        self.llmProvider = try c.decodeIfPresent(String.self, forKey: .llmProvider)
-        self.llmModel = try c.decodeIfPresent(String.self, forKey: .llmModel)
-        self.disabledTools = try c.decodeIfPresent([String].self, forKey: .disabledTools)
-    }
-}
+// Slack agents are generic filesystem subagents — `pupa/agents/<slug>/AGENTS.md`
+// discovered by `AgentStore`. A Slack component's workspace roster is *all*
+// subagents in the MyApp; the component holds no agent list of its own.
+// Channels reference agents by their subagent slug.
 
 /// How a Slack channel is presented in the sidebar and which members
 /// can post. `channel` is an open public room; `groupDM` is a fixed
@@ -568,33 +512,30 @@ public struct SlackMessage: Codable, Hashable, Sendable, Identifiable {
 /// Persists as part of the enclosing `CanvasApp` via `MyAppStore`'s
 /// UserDefaults blob.
 public struct SlackData: Codable, Hashable, Sendable {
-    public var agents: [SlackAgent]
     public var channels: [SlackChannel]
     public var messagesByChannel: [String: [SlackMessage]]
     public var activeChannelId: String?
 
     public init(
-        agents: [SlackAgent] = [],
         channels: [SlackChannel] = [],
         messagesByChannel: [String: [SlackMessage]] = [:],
         activeChannelId: String? = nil
     ) {
-        self.agents = agents
         self.channels = channels
         self.messagesByChannel = messagesByChannel
         self.activeChannelId = activeChannelId
     }
 
     enum CodingKeys: String, CodingKey {
-        case agents, channels, messagesByChannel, activeChannelId
+        case channels, messagesByChannel, activeChannelId
     }
 
     /// Backward-compatible decoder — every field defaults so a
     /// pre-Slack on-disk blob or a freshly-seeded empty body decodes
-    /// cleanly.
+    /// cleanly. A legacy `agents` key (pre-subagent) is simply ignored;
+    /// agents now live at `pupa/agents/<slug>/AGENTS.md`.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.agents = try c.decodeIfPresent([SlackAgent].self, forKey: .agents) ?? []
         self.channels = try c.decodeIfPresent([SlackChannel].self, forKey: .channels) ?? []
         self.messagesByChannel = try c.decodeIfPresent([String: [SlackMessage]].self, forKey: .messagesByChannel) ?? [:]
         self.activeChannelId = try c.decodeIfPresent(String.self, forKey: .activeChannelId)

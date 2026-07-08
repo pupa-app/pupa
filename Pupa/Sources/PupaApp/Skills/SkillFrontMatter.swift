@@ -57,6 +57,17 @@ public enum SkillFrontMatter {
         return (fields, String(body))
     }
 
+    /// Parse a comma-separated scalar field into a trimmed, non-empty list.
+    /// `nil` when the key is absent (distinct from an empty list). Used for
+    /// subagent `tools` / `disabled_tools`.
+    public static func list(_ fields: [String: String], _ key: String) -> [String]? {
+        guard let raw = fields[key] else { return nil }
+        let items = raw.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        return items.isEmpty ? nil : items
+    }
+
     /// Parse a `true`/`false` field with a default.
     public static func bool(_ fields: [String: String], _ key: String, default def: Bool) -> Bool {
         guard let raw = fields[key]?.lowercased() else { return def }

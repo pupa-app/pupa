@@ -40,30 +40,36 @@ struct PerAgentOverrideTests {
         #expect(store.myApps.first!.settings[MyAppStore.disabledToolsSettingsKey] == nil)
     }
 
-    @Test("Slack sub-agent disabled tools round-trip on the SlackAgent struct")
-    func slackAgentDisabledToolsRoundTrip() {
-        let (store, myApp) = freshStore()
-        guard let componentId = store.addComponent(kind: "slack", name: "Team", iconSystemName: "bubble.left", myAppId: myApp.id) else {
-            Issue.record("addComponent returned nil")
-            return
-        }
-        guard let agentId = store.slackAddAgent(name: "Scout", role: "researcher", systemPromptAddition: "", myAppId: myApp.id, componentId: componentId) else {
-            Issue.record("slackAddAgent returned nil")
-            return
-        }
+    @Test("Subagent disabled tools round-trip through its AGENTS.md frontmatter")
+    func subagentDisabledToolsRoundTrip() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pupa-override-\(UUID().uuidString)", isDirectory: true)
+        let agents = AgentStore(memory: MemoryStore(rootOverride: root))
+        try agents.createAgent(name: "Scout", description: "researcher", prompt: "Find things.")
 
-        func storedAgent() -> SlackAgent? {
-            store.myApps.first!.components
-                .first(where: { $0.id == componentId })
-                .flatMap { if case .slack(let s) = $0.body { return s.agents.first(where: { $0.id == agentId }) } else { return nil } }
-        }
-
-        store.setSlackAgentDisabledTools(["sendNotification"], componentId: componentId, agentId: agentId, myAppId: myApp.id)
-        #expect(storedAgent()?.disabledTools == ["sendNotification"])
+        try agents.setDisabledTools(slug: "scout", ["sendNotification"])
+        #expect(agents.agent(named: "scout")?.disabledTools == ["sendNotification"])
+        // Persona body is preserved across the frontmatter rewrite.
+        #expect(agents.agent(named: "scout")?.body.contains("Find things.") == true)
 
         // Empty clears back to nil (no per-agent overrides).
-        store.setSlackAgentDisabledTools([], componentId: componentId, agentId: agentId, myAppId: myApp.id)
-        #expect(storedAgent()?.disabledTools == nil)
+        try agents.setDisabledTools(slug: "scout", [])
+        #expect(agents.agent(named: "scout")?.disabledTools == nil)
+    }
+
+    @Test("Subagent model override round-trips through frontmatter and clears")
+    func subagentModelRoundTrip() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pupa-override-\(UUID().uuidString)", isDirectory: true)
+        let agents = AgentStore(memory: MemoryStore(rootOverride: root))
+        try agents.createAgent(name: "Scout", description: "researcher", prompt: "Find things.")
+
+        try agents.setModel(slug: "scout", provider: "anthropic", model: "claude-opus-4-8")
+        #expect(agents.agent(named: "scout")?.llmSelection?.provider == "anthropic")
+        #expect(agents.agent(named: "scout")?.llmSelection?.model == "claude-opus-4-8")
+
+        try agents.setModel(slug: "scout", provider: nil, model: nil)
+        #expect(agents.agent(named: "scout")?.llmSelection == nil)
     }
 
     @Test("llmForwardedProps builds {llm:{provider,model}} or empty when unset")
@@ -77,17 +83,6 @@ struct PerAgentOverrideTests {
                 "model": .string("claude-sonnet-4-6"),
             ])
         ]))
-    }
-
-    @Test("SlackAgent without disabledTools decodes cleanly (back-compat)")
-    func slackAgentBackCompatDecode() throws {
-        // A pre-existing blob lacking the new key.
-        let json = """
-        {"id":"a1","name":"Old","role":"","systemPromptAddition":""}
-        """.data(using: .utf8)!
-        let decoded = try JSONDecoder().decode(SlackAgent.self, from: json)
-        #expect(decoded.disabledTools == nil)
-        #expect(decoded.llmProvider == nil)
     }
 
     @Test("toolSummaryText reflects allowed count and how many are off")

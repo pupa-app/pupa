@@ -111,6 +111,11 @@ public struct MyAppBottomBar: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, Self.verticalPadding)
+        // macOS: keep the end controls (Home, ⋯) off the window edge — the
+        // borderless menu otherwise sits flush against the trailing border.
+        #if os(macOS)
+        .padding(.horizontal, 8)
+        #endif
         .background(.regularMaterial)
         .overlay(alignment: .top) { Divider() }
     }
@@ -214,6 +219,10 @@ public struct MyAppBottomBar: View {
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
+        // Claim an equal slot like the other bar buttons: on macOS the
+        // borderless menu collapses to its label's intrinsic width otherwise,
+        // shoving `⋯` against the trailing edge.
+        .frame(maxWidth: .infinity)
         .help(myAppId == nil ? "Myapps" : "Components")
         .accessibilityLabel(myAppId == nil ? "Myapps" : "Components")
     }

@@ -3,7 +3,7 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
-## [0.0.57] — 2026-07-05
+## [0.0.65] — 2026-07-08
 
 ### Changed
 
@@ -11,7 +11,134 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   sides of a merge (preserved under `conflicts/`) are no longer mirrored to
   iCloud, and are deduped by content, capped to the newest few per path, and
   aged out — so a repeatedly-conflicting file can't balloon storage on device
-  or across devices. (`PupaApp` `0.0.154`)
+  or across devices. (`PupaApp` `0.0.162`)
+
+## [0.0.64] — 2026-07-08
+
+### Changed
+
+- **Export bundle extension renamed `.pupaapp` → `.pupa`.** Shorter, no
+  stutter. New exports write `<App>.pupa`; the OS now registers `.pupa` as
+  Pupa's file type for tap-to-import. **Breaking:** already-shared
+  `.pupaapp` files no longer open in Pupa on tap (rename them to `.pupa`
+  to import — the bytes are unchanged, validation is by header magic, not
+  extension). Pupa `0.0.160` → `0.0.161`.
+- **Dropped the (i) info badge from the Settings root.** The header was
+  redundant with the per-row captions.
+
+## [0.0.63] — 2026-07-07
+
+### Fixed
+
+- **Chat no longer silently stops after a `render*` tool call.** An upstream
+  `ag-ui-langgraph` bug drops the `on_interrupt` for a frontend tool whose
+  interrupt parks on a non-first task (multi-task turns — batched `render*`, or
+  `render*` + a backend tool), so the run looked like a clean finish and the
+  chat stalled until the user sent another message. `AgentSession` now detects a
+  registered frontend tool that was called with no `on_interrupt` and self-heals
+  by re-POSTing a resume-less continuation, which triggers the backend's
+  recovery path (it re-emits the parked interrupt) — bounded to 2 retries, then
+  it surfaces a `.droppedInterrupt` notice. New `AgentSessionTests` cover both
+  the self-heal and the exhausted-recovery paths. AGUIKit `0.0.23` → `0.0.24`,
+  Pupa `0.0.159` → `0.0.160`.
+
+## [0.0.62] — 2026-07-06
+
+### Fixed
+
+- **macOS polish.** Settings → Account / Backend sheets no longer clip their
+  content (the fixed macOS frame was shorter than the form). The Memories page
+  now reloads from disk when opened, so notes/folders written after launch
+  actually appear instead of a stale "No notes yet". The floating chat card is
+  compact on macOS (was a 50%-wide slice pinned bottom-right that buried the
+  canvas), and the bottom bar's `⋯` menu no longer hugs the window edge.
+  (`PupaApp` `0.0.159`)
+
+## [0.0.61] — 2026-07-06
+
+### Added
+
+- **Generic filesystem subagents.** Drop a `pupa/agents/<slug>/AGENTS.md` file
+  (frontmatter: `name`, `description`, `when_to_use`, `tools`, `disabled_tools`,
+  `model`, `provider`) and the subagent exists — discovered by `AgentStore`
+  (mirrors the skills system). The main agent, and by default any subagent
+  (agent-to-agent), can delegate to one with the new `invoke_agent(name, prompt)`
+  tool; runs are scoped to the MyApp, narrowed to the subagent's frontmatter
+  tools, and bounded by the shared invocation gate. (`PupaApp` `0.0.158`)
+
+### Changed
+
+- **Slack is now a thin UI over subagents.** Slack agents are the generic
+  filesystem subagents rather than a bespoke inline model — a component's roster
+  is every subagent in the MyApp, channels reference them by slug, and per-agent
+  model/tool overrides live in each agent's `AGENTS.md`. Removed the
+  `slackCreateAgent` tool (author personas by writing the file, or via the
+  new-agent UI); the `SlackAgent` struct and `SlackData.agents` are gone.
+  **Breaking:** existing on-disk Slack components lose their inline agents
+  (rebuild by adding subagents).
+
+## [0.0.60] — 2026-07-06
+
+### Fixed
+
+- **Chats no longer stop silently.** A turn that settled with no assistant
+  reply (the model ended after tool use without a closing line, the client's
+  round cap was hit, or the stream dropped) used to just drop the "Working…"
+  spinner — looking like the agent had died. The chat now shows an inline note
+  explaining why it stopped and how to resume it. A delegated sub-agent /
+  Slack-agent error is surfaced too instead of being swallowed into an empty
+  reply. (`PupaApp` `0.0.157`, `AGUIKit` `0.0.23`)
+- **Frontend-tool interrupts always get their resume.** When the round cap was
+  reached mid-interrupt the client dropped the pending resume POST, stranding
+  the backend session (parked forever) and the turn with it. The resume is now
+  always sent, and the cap is raised (8 → 24) since every tool round-trip
+  consumes a round. (`AGUIKit` `0.0.23`)
+
+### Added
+
+- **Configurable tool-round cap.** Settings → Agent-to-agent → "Turn limits"
+  exposes _Tool rounds per turn_ (4–64, default 24), fed into every
+  `AgentSession`. Raise it for long multi-step turns; a turn that hits the
+  limit stops with a note rather than hanging. A **No limit** toggle removes
+  the breaker entirely (`AgentSession(maxRounds: nil)`) for turns that run as
+  long as they need. (`PupaApp` `0.0.157`, `AGUIKit` `0.0.23`)
+
+## [0.0.59] — 2026-07-06
+
+### Added
+
+- **Edit memories in place from the Memories page.** The header `+` menu adds a
+  Note or Folder at the scope root; a folder's long-press menu adds inside it,
+  and any note or folder can be renamed / moved or deleted (with a
+  confirmation). No need to route memory edits through the agent. (`PupaApp`
+  `0.0.156`)
+
+## [0.0.58] — 2026-07-06
+
+### Fixed
+
+- **Intermittent freeze when reordering a Tracker in kanban mode.** Every canvas
+  mutation persisted through an `NSFileCoordinator`-coordinated write on the main
+  actor — a synchronous XPC round-trip to `filecoordinationd` that, on device,
+  could stall the UI for hundreds of ms (never reproduced in the Simulator). The
+  local canonical store is single-process with no file presenter, so the
+  coordination bought nothing; local writes are now plain atomic. iCloud
+  coordination stays where it belongs, in the background `StorageMirror`.
+  (pupa#120, `PupaApp` `0.0.155`)
+
+## [0.0.57] — 2026-07-05
+
+### Added
+
+- **Queue messages while the agent is busy.** The composer no longer locks
+  during a turn — type and send and the message is queued (FIFO) with a clock
+  glyph above the composer. When the current turn settles the *whole* queue is
+  merged into a single next turn (texts joined in order, first image carried),
+  so you can keep adding and everything lands in one run rather than one turn
+  per message. Queued messages can be cancelled (✕) or tapped to edit before
+  they send. Draining is skipped after an error and discarded on Stop / new
+  thread. The send button is Stop only when streaming with an empty composer.
+  (pupa#119, `PupaApp` `0.0.154`)
 
 ## [0.0.56] — 2026-07-05
 

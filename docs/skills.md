@@ -15,7 +15,7 @@ memories/<myapp-slug>/pupa/
 ```
 
 `pupa/` is **visible** (not a dotfolder) so it rides the memory sidebar,
-per-turn snapshot, and the `.pupaapp` bundle unchanged. Files must be `.md` or
+per-turn snapshot, and the `.pupa` bundle unchanged. Files must be `.md` or
 `.json`; other extensions (executables) are rejected by `MemoryStore` and the
 importer — see the threat model in [marketplace.md](marketplace.md).
 
@@ -84,7 +84,7 @@ into **every** MyApp — not just examples. Seeding happens **once, at app birth
 fresh-install default app), never on later launches, so a user's or agent's
 edits *and deletions* stick. File-exists-guarded.
 
-Two defaults ship today, both riding the `.pupaapp` export bundle as config:
+Two defaults ship today, both riding the `.pupa` export bundle as config:
 
 - **`/to-memory`** — distils durable, app-level learnings from the conversation
   (conventions, preferences, mid-task realignments) into `pupa/MEMORIES.md` (or
@@ -120,3 +120,10 @@ non-markdown supporting files, and a global cross-app skills tier.
 - Model surface: `ChatViewModel.skillsContextEntry` (in all three context
   paths) + the `app_skill_view` tool (`AppTools.registerSkillTools`), always
   advertised via `MyAppType.skillToolNames`.
+
+## Sibling: subagents
+
+`pupa/agents/<slug>/AGENTS.md` is the parallel primitive — Claude-Code-style
+delegates discovered by `AgentStore` (mirrors `SkillStore`) and invoked with the
+`invoke_agent` tool. Slack agents are these subagents. See
+[architecture.md → Subagents](architecture.md#subagents).

@@ -394,6 +394,9 @@ public struct ChatPanel: View {
                     }
                 )
             }
+            if !viewModel.queuedMessages.isEmpty {
+                queuedMessagesStack
+            }
             if let pickedImage {
                 attachmentPreview(for: pickedImage)
             } else if isDropTargeted {
@@ -418,7 +421,7 @@ public struct ChatPanel: View {
                         .frame(width: 34, height: 34)
                 }
                 .buttonStyle(.plain)
-                .disabled(viewModel.isStreaming || isLoadingImage)
+                .disabled(isLoadingImage)
                 .help("Attach an image — pick from your library or take a photo (or drag & drop one onto the chat)")
                 #if os(iOS)
                 .confirmationDialog("Attach image", isPresented: $showAttachOptions, titleVisibility: .hidden) {
@@ -431,10 +434,13 @@ public struct ChatPanel: View {
                 TextField(composerPlaceholder, text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .lineLimit(1...4)
-                    .disabled(viewModel.isStreaming || viewModel.isAwaitingHumanInput)
+                    // Typing stays enabled while streaming so the user can queue
+                    // a follow-up; only a human-in-the-loop interrupt (answered
+                    // via the bubble) gates the field.
+                    .disabled(viewModel.isAwaitingHumanInput)
                     .onSubmit(send)
                 Button(action: send) {
-                    Image(systemName: (viewModel.isStreaming && !viewModel.isAwaitingHumanInput) ? "stop.fill" : "arrow.up")
+                    Image(systemName: showsStopButton ? "stop.fill" : "arrow.up")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(width: 34, height: 34)
@@ -512,7 +518,9 @@ public struct ChatPanel: View {
 
     private func handleDroppedProviders(_ providers: [NSItemProvider]) -> Bool {
         guard let provider = providers.first else { return false }
-        guard !viewModel.isStreaming, !isLoadingImage else { return false }
+        // Dropping an image while streaming is fine — it attaches to the
+        // message the user is composing, which then queues.
+        guard !isLoadingImage else { return false }
         if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
             isLoadingImage = true
             Task { await acceptImageProvider(provider) }
@@ -567,9 +575,22 @@ public struct ChatPanel: View {
 
     private var sendDisabled: Bool {
         if viewModel.isAwaitingHumanInput { return true }  // resolve via the card, not the composer
-        if viewModel.isStreaming { return false }  // tap = cancel
+        if viewModel.isStreaming { return false }  // tap = queue (has content) or Stop (empty)
         if isLoadingImage { return true }
         return draft.trimmingCharacters(in: .whitespaces).isEmpty && pickedImage == nil
+    }
+
+    /// Whether the composer has any submittable content (text or an attached
+    /// image). Drives the streaming-mode button: content → arrow-up (queue),
+    /// empty → stop (cancel the turn).
+    private var composerHasContent: Bool {
+        !draft.trimmingCharacters(in: .whitespaces).isEmpty || pickedImage != nil
+    }
+
+    /// The button shows Stop only while streaming with nothing to send. With
+    /// content typed mid-stream it becomes an arrow-up that queues the message.
+    private var showsStopButton: Bool {
+        viewModel.isStreaming && !viewModel.isAwaitingHumanInput && !composerHasContent
     }
 
     /// The TextField is disabled while a turn is in flight, so swap the
@@ -584,8 +605,54 @@ public struct ChatPanel: View {
         // only action is on the bubble, not the composer.
         if viewModel.hasPendingShellApproval { return "Approve or deny the command above…" }
         if viewModel.hasPendingQuestion { return "Answer above and tap Submit…" }
-        if viewModel.isStreaming { return "Streaming… tap Stop to cancel" }
+        if viewModel.isStreaming { return "Type to queue for when this finishes…" }
         return "Type a message or /reset…"
+    }
+
+    /// Pending-message pills shown above the composer while a turn is in
+    /// flight. Each carries a clock glyph (not-yet-sent), the message text,
+    /// and a ✕ to cancel it. Tapping the row pulls the text back into the
+    /// composer for editing and removes it from the queue. They auto-send in
+    /// order as the current turn settles (see `ChatViewModel.drainQueue`).
+    private var queuedMessagesStack: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(viewModel.queuedMessages) { queued in
+                HStack(spacing: 8) {
+                    Image(systemName: "clock")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                    Text(queued.text.isEmpty ? "Image" : queued.text)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 4)
+                    Button {
+                        viewModel.removeQueuedMessage(id: queued.id)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Cancel this queued message")
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(.ultraThinMaterial, in: Capsule())
+                .contentShape(Capsule())
+                .onTapGesture { editQueuedMessage(queued) }
+            }
+        }
+        .transition(.opacity)
+    }
+
+    /// Pull a queued message back into the composer to edit before it sends,
+    /// removing it from the queue. If the composer already holds unsent text we
+    /// don't clobber it — the tap is ignored so the user's current draft is safe.
+    private func editQueuedMessage(_ queued: QueuedMessage) {
+        guard draft.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        draft = queued.text
+        viewModel.removeQueuedMessage(id: queued.id)
     }
 
     @ViewBuilder
@@ -624,7 +691,15 @@ public struct ChatPanel: View {
         // no-op even if the button/field disabled state is ever bypassed.
         if viewModel.isAwaitingHumanInput { return }
         if viewModel.isStreaming {
-            viewModel.cancel()
+            // Mid-stream: content typed → queue it (auto-sends when the turn
+            // settles); empty composer → the button is Stop, so cancel.
+            if composerHasContent {
+                viewModel.send(draft, image: pickedImage)
+                draft = ""
+                pickedImage = nil
+            } else {
+                viewModel.cancel()
+            }
             return
         }
         viewModel.send(draft, image: pickedImage)

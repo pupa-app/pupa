@@ -27,9 +27,42 @@ public enum SessionEvent: Sendable {
     /// another POST until no further interrupt arrives.
     case roundFinished(threadId: String, runId: String)
     /// The full multi-round exchange has settled — no more pending tool calls.
-    case completed
+    /// Carries why it settled so the UI can flag a turn that ended without a
+    /// reply instead of silently dropping the spinner.
+    case completed(CompletionOutcome)
     /// The agent emitted an error event.
     case error(message: String, code: String?)
+}
+
+/// How a `send` / `reattach` settled, so the host can decide whether to show
+/// the user a "the turn ended with no reply" notice.
+public enum CompletionOutcome: Sendable, Equatable {
+    /// The turn produced assistant text (or there was nothing to surface,
+    /// e.g. a no-op reattach). Render no notice.
+    case produced
+    /// The turn ended with no assistant text and no error — the "looks like
+    /// it died" case. `reason` says why, for a user-facing notice.
+    case silent(SilentReason)
+}
+
+/// Why a turn ended without an assistant reply.
+public enum SilentReason: Sendable, Equatable {
+    /// `RUN_FINISHED` with no assistant text (tool-only or empty turn).
+    case emptyTurn
+    /// The client's runaway round cap was hit mid-turn.
+    case maxRounds
+    /// The stream ended without a `RUN_FINISHED` and without an error
+    /// (a clean socket EOF mid-turn).
+    case droppedStream
+    /// A frontend tool call arrived with no `on_interrupt` to drive it, and a
+    /// bounded recovery re-POST didn't surface one either — so the client
+    /// couldn't run the tool. Fingerprint of the upstream `ag-ui-langgraph`
+    /// emit-path bug: an interrupt parked on a non-first task is dropped at
+    /// emit time (`state.tasks[0]` only), leaving the run looking finished.
+    case droppedInterrupt
+    /// A backend-attributed reason, or a client-side dispatch failure —
+    /// carries a short human-readable message.
+    case backend(String)
 }
 
 /// Drives the interrupt-driven AG-UI loop on top of `AgentClient`.
@@ -49,11 +82,16 @@ public actor AgentSession {
     public let client: AgentClient
     public let registry: ToolRegistry
     public private(set) var threadId: String
-    /// Hard cap on rounds per send to bound runaway loops. With interrupt-
-    /// driven dispatch every iteration is either a fresh model turn or a
-    /// resume; LangGraph's `recursion_limit` counts graph steps, which this
-    /// cap doesn't, so we keep an iOS-side breaker for runaway tool loops.
-    public let maxRounds: Int
+    /// Hard cap on rounds per send to bound runaway loops, or `nil` to run
+    /// with no cap. With interrupt-driven dispatch every iteration is either a
+    /// fresh model turn or a resume; LangGraph's `recursion_limit` counts graph
+    /// steps, which this cap doesn't, so we keep an iOS-side breaker for runaway
+    /// tool loops. Kept generous because EVERY frontend-tool round-trip consumes
+    /// a round — a low cap silently truncates legitimate multi-step turns. When
+    /// the cap is hit mid-interrupt the loop still POSTs the staged resume so
+    /// the backend session is never left parked (see `runLoop`). `nil` removes
+    /// the breaker entirely — the turn runs until the backend settles.
+    public let maxRounds: Int?
 
     /// User messages accumulated across turns. Re-POSTed every round so
     /// `ag_ui_langgraph.prepare_stream` recognises the run as a continuation
@@ -91,7 +129,7 @@ public actor AgentSession {
         registry: ToolRegistry,
         threadId: String,
         initialMessages: [AgentMessage] = [],
-        maxRounds: Int = 8
+        maxRounds: Int? = 24
     ) {
         self.client = client
         self.registry = registry
@@ -100,9 +138,14 @@ public actor AgentSession {
         self.maxRounds = maxRounds
         let toolNames = registry.descriptors.map(\.name).sorted().joined(separator: ",")
         AGUIKitLog.session(
-            "AgentSession init thread=\(threadId) maxRounds=\(maxRounds) " +
+            "AgentSession init thread=\(threadId) maxRounds=\(Self.capDescription(maxRounds)) " +
             "tools=\(registry.descriptors.count) [\(toolNames)]"
         )
+    }
+
+    /// Human-readable cap for logs: the number, or "unlimited" for `nil`.
+    private static func capDescription(_ cap: Int?) -> String {
+        cap.map(String.init) ?? "unlimited"
     }
 
     /// Reset the conversation history. Optionally swap the threadId — pass a
@@ -216,22 +259,28 @@ public actor AgentSession {
         // follow-up on pupa#103.)
         guard lastEventSeq != nil else {
             AGUIKitLog.session("reattach() skipped — no replay cursor for thread=\(threadId)")
-            yield(.completed)
+            // Nothing to catch up on — not a silent stop, so no notice.
+            yield(.completed(.produced))
             return
         }
         AGUIKitLog.session(
             "reattach() thread=\(threadId) after_seq=\(lastEventSeq.map(String.init) ?? "-1")"
         )
         var input = reattachInput()
-        for round in 0..<maxRounds {
+        var producedText = false
+        var round = 0
+        while maxRounds == nil || round < maxRounds! {
+            round += 1
             var state = RoundState()
             try await consumeRoundStream(client.runSequenced(input), state: &state, yield: yield)
             finishRound(state: state, yield: yield)
+            producedText = producedText || state.outcome.producedText
 
             guard let dispatch = state.outcome.pendingDispatch else {
-                AGUIKitLog.session("reattach round \(round + 1) settled → completed")
                 if state.outcome.hadOutput { lastSendSettledCleanly = true }
-                yield(.completed)
+                let result = settleOutcome(producedText: producedText, outcome: state.outcome)
+                AGUIKitLog.session("reattach round \(round) settled → completed (\(result))")
+                yield(.completed(result))
                 return
             }
             // The replayed tail ended on a frontend-tool interrupt the app
@@ -239,7 +288,7 @@ public actor AgentSession {
             // Dispatch now and resume the parked run — same contract as
             // `runLoop`, including the mid-turn tool-surface refresh.
             AGUIKitLog.session(
-                "reattach round \(round + 1) found interrupt → dispatching \(dispatch.calls.count) tool(s)"
+                "reattach round \(round) found interrupt → dispatching \(dispatch.calls.count) tool(s)"
             )
             let toolResults = await dispatchFrontendTools(calls: dispatch.calls, yield: yield)
             let toolsAfterRound: [AnyJSON] = registry.descriptors.map { d in
@@ -264,8 +313,8 @@ public actor AgentSession {
                 ])
             )
         }
-        AGUIKitLog.session("reattach hit maxRounds=\(maxRounds) → completed")
-        yield(.completed)
+        AGUIKitLog.session("reattach hit maxRounds=\(Self.capDescription(maxRounds)) → completed")
+        yield(.completed(producedText ? .produced : .silent(.maxRounds)))
     }
 
     private func runLoop(
@@ -294,11 +343,18 @@ public actor AgentSession {
         // reach `.completed`.
         lastSendSettledCleanly = false
         let imageNote = image.map { " image=\($0.mimeType)/\($0.data.count)B" } ?? ""
-        AGUIKitLog.session("send() user=\(snippet(userText))\(imageNote) thread=\(threadId) maxRounds=\(maxRounds)")
+        AGUIKitLog.session("send() user=\(snippet(userText))\(imageNote) thread=\(threadId) maxRounds=\(Self.capDescription(maxRounds))")
 
-        var nextForwardedProps: AnyJSON = baseForwardedProps
+        // True if ANY round this turn emitted assistant text. Accumulated
+        // across rounds so a turn that narrated in round 1 then settled
+        // text-less in round 2 still counts as "produced" (no notice).
+        var producedText = false
 
-        for round in 0..<maxRounds {
+        // One round's POST body, built from `forwardedProps`. Value-in/value-out
+        // (no captured mutable var) so it stays Sendable across the actor hops.
+        // The tool/context/state closures are called once per round so the host
+        // can grow/shrink the surface mid-turn.
+        func makeInput(_ forwardedProps: AnyJSON) async -> RunAgentInput {
             let ctx = await context()
             let descriptors: [ToolDescriptor]
             if let filter = await toolFilter?() {
@@ -307,94 +363,158 @@ public actor AgentSession {
                 descriptors = registry.descriptors
             }
             let stateJSON: AnyJSON = await state?() ?? .null
-            let input = RunAgentInput(
+            return RunAgentInput(
                 threadId: threadId,
                 state: stateJSON,
                 messages: messages,
                 tools: descriptors,
                 context: ctx,
-                forwardedProps: nextForwardedProps
+                forwardedProps: forwardedProps
             )
-            AGUIKitLog.session(
-                "round \(round + 1) → POST | msgs=\(messages.count) " +
-                "(\(messageRoleSummary())) tools=\(descriptors.count) " +
-                "ctx=\(ctx.count) resume=\(nextForwardedProps != baseForwardedProps)"
-            )
-
-            let outcome = try await runOneRound(input: input, yield: yield)
-
-            // If `ag_ui_langgraph` emitted `on_interrupt` during this round
-            // the graph is paused with a batched list of frontend tool calls
-            // to dispatch locally. Run them, encode the results, and POST a
-            // resume on the next loop iteration.
-            if let dispatch = outcome.pendingDispatch {
-                AGUIKitLog.session(
-                    "round \(round + 1) paused on interrupt → dispatching \(dispatch.calls.count) " +
-                    "frontend tool(s) [" +
-                    dispatch.calls.map { $0.name }.joined(separator: ", ") + "]"
-                )
-                let toolResults = await dispatchFrontendTools(
-                    calls: dispatch.calls,
-                    yield: yield
-                )
-                // Mid-turn tool-surface refresh. After the dispatched
-                // tool handlers run (e.g. `addComponent(kind:"checklist")`
-                // updates the local store), recompute the advertised
-                // descriptor list and embed it in the resume payload so
-                // the backend can refresh `state["copilotkit"]["actions"]`
-                // before the model is re-invoked. `ag_ui_langgraph`
-                // discards `RunAgentInput.tools` on the resume branch
-                // (`Command(resume=...)` carries nothing else), so this
-                // side-channel is the only thing the model has to see
-                // the newly-unlocked tools within the same turn.
-                let postDispatchDescriptors: [ToolDescriptor]
-                if let filter = await toolFilter?() {
-                    postDispatchDescriptors = registry.descriptors.filter { filter.contains($0.name) }
-                } else {
-                    postDispatchDescriptors = registry.descriptors
-                }
-                let toolsAfterRound: [AnyJSON] = postDispatchDescriptors.map { d in
-                    .object([
-                        "name": .string(d.name),
-                        "description": .string(d.description),
-                        "parameters": d.parameters,
-                    ])
-                }
-                // Merge the resume payload on top of the caller-supplied base
-                // forwardedProps so per-turn config (e.g. `llm = {provider,
-                // model}`) survives the second-and-later rounds — without this
-                // merge, every round after the first would land at the backend
-                // without the model selection and silently fall back to env.
-                nextForwardedProps = mergeIntoObject(
-                    base: baseForwardedProps,
-                    overlay: [
-                        "command": .object([
-                            "resume": .object([
-                                "tool_results": .array(toolResults),
-                                "tools_after_round": .array(toolsAfterRound),
-                            ])
-                        ])
-                    ]
-                )
-                continue
-            }
-
-            // No interrupt — the run has settled. Treat it as a clean
-            // settle only if the round actually produced something
-            // (text or tool calls); a fully empty round (RUN_STARTED →
-            // RUN_FINISHED with nothing in between) leaves the user
-            // message orphaned, so the next send should replace it.
-            AGUIKitLog.session("round \(round + 1) settled (no interrupt) → completed (hadOutput=\(outcome.hadOutput))")
-            lastSendSettledCleanly = outcome.hadOutput
-            yield(.completed)
-            return
         }
 
-        AGUIKitLog.session("hit maxRounds=\(maxRounds) → completed")
-        // Hitting maxRounds is a runaway-loop guard, not a clean settle —
-        // leave `lastSendSettledCleanly = false` so the next send's user
-        // message replaces this orphaned one.
-        yield(.completed)
+        // Dispatch the interrupt's frontend tools and return the resume payload
+        // for the next POST. Mid-turn tool-surface refresh: after the handlers
+        // run (e.g. `addComponent` updates the local store), recompute the
+        // advertised descriptors and embed them so the backend refreshes
+        // `state["copilotkit"]["actions"]` before the model is re-invoked
+        // (`ag_ui_langgraph` discards `RunAgentInput.tools` on the resume
+        // branch). The resume merges on top of the caller's base forwardedProps
+        // so per-turn config (e.g. `llm`) survives every round.
+        func resumeProps(for dispatch: PendingFrontendDispatch) async -> AnyJSON {
+            let toolResults = await dispatchFrontendTools(calls: dispatch.calls, yield: yield)
+            let postDispatchDescriptors: [ToolDescriptor]
+            if let filter = await toolFilter?() {
+                postDispatchDescriptors = registry.descriptors.filter { filter.contains($0.name) }
+            } else {
+                postDispatchDescriptors = registry.descriptors
+            }
+            let toolsAfterRound: [AnyJSON] = postDispatchDescriptors.map { d in
+                .object([
+                    "name": .string(d.name),
+                    "description": .string(d.description),
+                    "parameters": d.parameters,
+                ])
+            }
+            return mergeIntoObject(
+                base: baseForwardedProps,
+                overlay: [
+                    "command": .object([
+                        "resume": .object([
+                            "tool_results": .array(toolResults),
+                            "tools_after_round": .array(toolsAfterRound),
+                        ])
+                    ])
+                ]
+            )
+        }
+
+        var nextForwardedProps: AnyJSON = baseForwardedProps
+        var round = 0
+        // Bounded recovery for the `ag-ui-langgraph` dropped-interrupt bug —
+        // see the settle branch below.
+        var recoveryAttempts = 0
+        let maxRecoveryAttempts = 2
+        while true {
+            let input = await makeInput(nextForwardedProps)
+            AGUIKitLog.session(
+                "round \(round + 1) → POST | msgs=\(messages.count) " +
+                "(\(messageRoleSummary())) tools=\(input.tools.count) " +
+                "resume=\(nextForwardedProps != baseForwardedProps)"
+            )
+            let outcome = try await runOneRound(input: input, yield: yield)
+            producedText = producedText || outcome.producedText
+            round += 1
+
+            // No interrupt → the run has settled. `lastSendSettledCleanly`
+            // tracks whether the round produced anything (empty round →
+            // next send replaces the orphaned user message).
+            guard let dispatch = outcome.pendingDispatch else {
+                // Self-heal the `ag-ui-langgraph` dropped-interrupt bug: a
+                // frontend tool was called this round but no `on_interrupt`
+                // arrived to drive it (the emit path reads `state.tasks[0]`
+                // only, so an interrupt parked on a non-first task is dropped
+                // in-run). The run looks finished but the backend is parked. A
+                // resume-less re-POST hits the backend's recovery path, which
+                // collects interrupts from ALL tasks and re-emits the dropped
+                // one — the next round then decodes it and dispatches normally.
+                // Bounded so a genuine no-interrupt settle can't loop.
+                let dropped = droppedFrontendCalls(in: outcome)
+                if !dropped.isEmpty, !outcome.interruptDecodeFailed,
+                   recoveryAttempts < maxRecoveryAttempts {
+                    recoveryAttempts += 1
+                    AGUIKitLog.session(
+                        "round \(round) settled with frontend tool(s) but no interrupt " +
+                        "[\(dropped.map { $0.name }.joined(separator: ", "))] → recovery re-POST " +
+                        "\(recoveryAttempts)/\(maxRecoveryAttempts) (ag-ui-langgraph tasks[0] emit bug)"
+                    )
+                    nextForwardedProps = baseForwardedProps  // resume-less continuation
+                    continue
+                }
+                lastSendSettledCleanly = outcome.hadOutput
+                // A frontend tool called with no interrupt at all (recovery
+                // exhausted) surfaces `.droppedInterrupt` even if the model also
+                // narrated. An *undecodable* interrupt keeps `settleOutcome`'s
+                // `.backend(...)` reason — re-POSTing wouldn't have helped it.
+                let result: CompletionOutcome = (!dropped.isEmpty && !outcome.interruptDecodeFailed)
+                    ? .silent(.droppedInterrupt)
+                    : settleOutcome(producedText: producedText, outcome: outcome)
+                AGUIKitLog.session("round \(round) settled → completed (\(result))")
+                yield(.completed(result))
+                return
+            }
+
+            // Interrupt: the graph is paused awaiting these tool results. A
+            // computed dispatch MUST be followed by its resume POST — dropping
+            // it strands the backend session (parked forever), the exact
+            // "agent stopped silently" failure. So we always stage the resume.
+            AGUIKitLog.session(
+                "round \(round) paused on interrupt → dispatching \(dispatch.calls.count) " +
+                "frontend tool(s) [" + dispatch.calls.map { $0.name }.joined(separator: ", ") + "]"
+            )
+            nextForwardedProps = await resumeProps(for: dispatch)
+
+            // Runaway guard. The pending dispatch's resume is now staged; when
+            // the cap is hit, POST it once to unpark the backend, consume the
+            // settling round, then stop with a notice rather than looping
+            // forever. A `nil` cap removes the breaker — keep going until the
+            // backend settles on its own.
+            if let cap = maxRounds, round >= cap {
+                AGUIKitLog.session("hit maxRounds=\(cap) mid-interrupt → final resume then stop")
+                let finalOutcome = try await runOneRound(input: await makeInput(nextForwardedProps), yield: yield)
+                producedText = producedText || finalOutcome.producedText
+                // Not a clean settle — next send replaces the orphaned user message.
+                lastSendSettledCleanly = false
+                yield(.completed(producedText ? .produced : .silent(.maxRounds)))
+                return
+            }
+        }
+    }
+
+    /// Classify a settled round for the UI: `.produced` when any assistant
+    /// text was emitted this turn, otherwise a `.silent` reason so the host
+    /// can show a "turn ended with no reply" notice.
+    private func settleOutcome(producedText: Bool, outcome: RoundOutcome) -> CompletionOutcome {
+        if producedText { return .produced }
+        if outcome.interruptDecodeFailed { return .silent(.backend("couldn't read the agent's tool request")) }
+        if !outcome.sawRunFinished { return .silent(.droppedStream) }
+        return .silent(.emptyTurn)
+    }
+
+    /// Frontend tool calls the model emitted this round that the client has
+    /// registered locally, but which arrived WITHOUT an `on_interrupt` to drive
+    /// them (no pending dispatch) and WITHOUT a backend-produced result. This is
+    /// the fingerprint of the `ag-ui-langgraph` dropped-interrupt bug: the graph
+    /// parked an interrupt on a non-first task and the emit path (`state.tasks[0]`
+    /// only) never sent the `on_interrupt`. Backend-executed tools (e.g.
+    /// `tavily_search`) don't resolve in the registry, so they're excluded.
+    private func droppedFrontendCalls(in outcome: RoundOutcome) -> [(id: String, name: String)] {
+        outcome.observedOrder.compactMap { id in
+            guard let meta = outcome.observedToolCalls[id] else { return nil }
+            guard registry.resolve(meta.name) != nil else { return nil }
+            guard outcome.backendResults[id] == nil else { return nil }
+            return (id: id, name: meta.name)
+        }
     }
 
     /// Run every frontend tool the backend asked us to dispatch. Tools
@@ -497,6 +617,18 @@ public actor AgentSession {
         /// having settled cleanly — the next send replaces the orphan
         /// user message rather than stacking on top.
         var hadOutput: Bool = false
+        /// True if the round emitted any assistant text. Distinct from
+        /// `hadOutput` (which is also true for tool-only rounds) — drives the
+        /// "turn ended with no reply" notice.
+        var producedText: Bool = false
+        /// True once a `RUN_FINISHED` arrived this round. A round that ends
+        /// without it (clean socket EOF mid-turn) is a dropped stream, not a
+        /// clean settle.
+        var sawRunFinished: Bool = false
+        /// True if an `on_interrupt` custom event arrived but its payload
+        /// couldn't be decoded into frontend tool calls — the turn would
+        /// otherwise settle silently with no dispatch.
+        var interruptDecodeFailed: Bool = false
     }
 
     private struct PendingFrontendDispatch {
@@ -604,15 +736,18 @@ public actor AgentSession {
             case .runStarted:
                 continue
             case .runFinished(let r):
+                state.outcome.sawRunFinished = true
                 yield(.roundFinished(threadId: r.threadId, runId: r.runId))
             case .runError(let e):
                 yield(.error(message: e.message, code: e.code))
             case .textMessageStart(let s):
                 state.textBuffers[s.messageId] = ""
                 state.outcome.hadOutput = true
+                state.outcome.producedText = true
                 yield(.assistantMessageStart(messageId: s.messageId))
             case .textMessageContent(let c):
                 state.textBuffers[c.messageId, default: ""].append(c.delta)
+                state.outcome.producedText = true
                 yield(.assistantMessageDelta(messageId: c.messageId, delta: c.delta))
             case .textMessageEnd(let e):
                 let final = state.textBuffers[e.messageId] ?? ""
@@ -644,8 +779,16 @@ public actor AgentSession {
                 // when the graph pauses via `langgraph.interrupt(...)`.
                 // `CopilotKitMiddlewareWithFrontendInterrupt` is the sole producer in
                 // pupa; its payload carries `frontend_tool_calls`.
-                if c.name == "on_interrupt", let parsed = decodeFrontendDispatch(c.value) {
-                    state.outcome.pendingDispatch = PendingFrontendDispatch(calls: parsed)
+                if c.name == "on_interrupt" {
+                    if let parsed = decodeFrontendDispatch(c.value) {
+                        state.outcome.pendingDispatch = PendingFrontendDispatch(calls: parsed)
+                    } else {
+                        // An interrupt we can't read is worse than an error we
+                        // can — without a dispatch the run settles silently.
+                        // Flag it so the loop surfaces a notice instead.
+                        state.outcome.interruptDecodeFailed = true
+                        AGUIKitLog.session("⚠️ on_interrupt payload undecodable — will surface as silent stop")
+                    }
                 }
                 continue
             case .stepStarted, .stepFinished, .raw, .unknown:

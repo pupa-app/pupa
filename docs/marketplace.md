@@ -6,7 +6,7 @@ Building the seeded templates that ship as bundles: [templates.md](templates.md)
 
 ## What a bundle is
 
-A `.pupaapp` file is **inert JSON** — `MyAppBundle` (`MyAppBundle.swift`):
+A `.pupa` file is **inert JSON** — `MyAppBundle` (`MyAppBundle.swift`):
 
 ```
 header   (read & validated first)   app (Codable MyApp tree)   memories[]
@@ -53,7 +53,7 @@ structure) and an `exportDataWarning`. One per kind, registered in
 ## Export + share (Settings ▸ Import & Export)
 
 Export is a **Share…** action (`ShareLink`): the current selection is encoded to
-a temp `<App>.pupaapp` and handed to the system share sheet — AirDrop, Messages,
+a temp `<App>.pupa` and handed to the system share sheet — AirDrop, Messages,
 WhatsApp, Mail, or Save to Files. The temp file is rebuilt whenever the
 component selection or the records/memories toggles change.
 
@@ -65,7 +65,7 @@ memories (drop a deselected kind's subtree; memories-off keeps only `AGENTS.md`)
 ## Import — two entry points, one authority
 
 A bundle reaches the importer two ways: the in-app **Import bundle…** picker, and
-**tap-to-open** — a `.pupaapp` opened from Files / Mail / a chat app. The OS
+**tap-to-open** — a `.pupa` opened from Files / Mail / a chat app. The OS
 routes the latter to Pupa via the registered file type (see *File type*);
 SwiftUI delivers it to `AppView.onOpenURL`. Because that source is untrusted, an
 external open is **read-only decoded for a confirm sheet** (app name + agent
@@ -90,7 +90,7 @@ fully before any store/disk mutation:
 
 `MyAppLibraryBundle` (`MyAppLibraryBundle.swift`) is a thin container —
 `header` + `apps: [MyAppBundle]` — that ships **every** MyApp in one file. Same
-`.pupaapp` extension; the two are told apart by `header.format`
+`.pupa` extension; the two are told apart by `header.format`
 (`pupa.library.bundle` vs `pupa.myapp.bundle`), probed by
 `MyAppImporter.probeFormat` so the UI routes single vs library (Files picker,
 tap-to-open confirm sheet). No new UTType.
@@ -133,12 +133,12 @@ primary defense against prompt injection, which the importer can only surface.
 
 ## File type
 
-`.pupaapp` is an **exported UTType** — `com.pupa.app-bundle`, conforming to
+`.pupa` is an **exported UTType** — `com.pupa.app-bundle`, conforming to
 `public.data` **only** (not `public.json`/`public.text`: a text conformance
 makes Files/QuickLook preview the JSON on tap instead of opening Pupa),
 declared in `PupaHost/Info.plist` (`UTExportedTypeDeclarations`) and owned by
 the app via `CFBundleDocumentTypes` (`LSHandlerRank = Owner`). That ownership +
-opacity is what lets the OS open a received `.pupaapp` in Pupa (tap-to-import).
+opacity is what lets the OS open a received `.pupa` in Pupa (tap-to-import).
 The type carries **no `public.mime-type` tag** (a prior `application/json` tag
 made chat apps preview the JSON instead of offering "Open in Pupa"), and
 `LSSupportsOpeningDocumentsInPlace=YES` so Files routes a tap straight to the

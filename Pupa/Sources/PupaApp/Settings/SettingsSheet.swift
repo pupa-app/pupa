@@ -176,17 +176,21 @@ public struct SettingsSheet: View {
                     }
                     .accessibilityLabel("Back")
                 }
-                ToolbarItem(placement: .navigation) {
-                    InfoBadge(
-                        title: "Settings",
-                        message: "Configure Pupa. The Backend section points the app at a remote server; the Tools section controls shell-command approval and which tools the agent is allowed to call this session."
-                    )
-                }
             }
-            #if os(macOS)
-            .frame(minWidth: 320, idealWidth: 380, minHeight: 360, idealHeight: 480)
-            #endif
         }
+        #if os(macOS)
+        // macOS `Form` defaults to `.columns` — tight margins, and short
+        // multi-section pages stretch their sections top-to-bottom to fill the
+        // frame. Force the iOS-like inset-grouped style (inherited by every
+        // pushed detail's Form via the environment) so pages top-align, keep
+        // sensible side margins, and scroll when taller than the sheet.
+        .formStyle(.grouped)
+        // Size the whole stack — not just the root list — so pushed detail
+        // pages (Account, Backend) fill the sheet and top-align. A modest min
+        // height keeps short pages (Agent-to-agent) from being a mostly-empty
+        // card while tall ones scroll.
+        .frame(minWidth: 480, idealWidth: 600, minHeight: 440, idealHeight: 600)
+        #endif
         // Guided tour deep-links: land directly on the requested page (its
         // Settings step opens Backend) when the sheet appears and if the tour
         // moves between settings pages while open.
@@ -411,6 +415,42 @@ public struct SettingsSheet: View {
             Text("Agent-to-agent limits")
         } footer: {
             Text("Guardrails for when one agent delegates to another — the orchestrator fanning out to myApp agents, or a Slack room. Changes take effect on the next agent call.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        Section {
+            Toggle(isOn: Binding(
+                get: { settings.toolRoundsUnlimited },
+                set: { settings.setToolRoundsUnlimited($0) }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("No limit")
+                    Text("Let a turn run as many tool rounds as it needs. Removes the safety breaker — a stuck turn can loop indefinitely.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Stepper(
+                value: Binding(
+                    get: { settings.maxToolRounds },
+                    set: { settings.setMaxToolRounds($0) }
+                ),
+                in: SettingsStore.maxToolRoundsRange
+            ) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Tool rounds per turn: \(settings.maxToolRounds)")
+                    Text("How many tool round-trips one turn may take before the client stops it. Each on-device tool call (adding a component, editing a memory…) uses one. Raise it for long multi-step turns.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .disabled(settings.toolRoundsUnlimited)
+        } header: {
+            Text("Turn limits")
+        } footer: {
+            Text("A turn that hits this limit stops with a note instead of hanging. Applies on the next message.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

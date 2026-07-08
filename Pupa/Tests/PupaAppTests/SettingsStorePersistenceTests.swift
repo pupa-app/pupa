@@ -133,6 +133,65 @@ struct SettingsStorePersistenceTests {
         #expect(edited.url.absoluteString == "https://new.example.com/")
     }
 
+    // MARK: - Max tool rounds (per-turn cap)
+
+    @Test("maxToolRounds defaults to the documented value")
+    func maxToolRounds_default() {
+        let store = freshStore()
+        #expect(store.maxToolRounds == SettingsStore.defaultMaxToolRounds)
+    }
+
+    @Test("setMaxToolRounds persists across SettingsStore instances")
+    func maxToolRounds_roundtrip() {
+        SettingsStore.clearStorage()
+        let writer = SettingsStore(credentials: InMemoryCredentialStore())
+        writer.setMaxToolRounds(40)
+
+        let reader = SettingsStore(credentials: InMemoryCredentialStore())
+        #expect(reader.maxToolRounds == 40)
+    }
+
+    @Test("setMaxToolRounds clamps to the supported range")
+    func maxToolRounds_clamps() {
+        let store = freshStore()
+        store.setMaxToolRounds(9999)
+        #expect(store.maxToolRounds == SettingsStore.maxToolRoundsRange.upperBound)
+        store.setMaxToolRounds(0)
+        #expect(store.maxToolRounds == SettingsStore.maxToolRoundsRange.lowerBound)
+    }
+
+    @Test("toolRoundsUnlimited round-trips and drives effectiveMaxToolRounds")
+    func toolRoundsUnlimited_roundtrip() {
+        SettingsStore.clearStorage()
+        let writer = SettingsStore(credentials: InMemoryCredentialStore())
+        // Off by default → effective cap is the numeric value.
+        #expect(writer.toolRoundsUnlimited == false)
+        #expect(writer.effectiveMaxToolRounds == writer.maxToolRounds)
+
+        writer.setToolRoundsUnlimited(true)
+        #expect(writer.effectiveMaxToolRounds == nil)
+
+        let reader = SettingsStore(credentials: InMemoryCredentialStore())
+        #expect(reader.toolRoundsUnlimited == true)
+        #expect(reader.effectiveMaxToolRounds == nil)
+    }
+
+    @Test("Pre-existing settings blob without maxToolRounds decodes to the default")
+    func maxToolRounds_absentDecodesToDefault() throws {
+        SettingsStore.clearStorage()
+        let id = UUID()
+        let legacy: [String: Any] = [
+            "disabledBackendTools": [],
+            "backends": [["id": id.uuidString, "label": "L", "url": "https://x.example.com/"]],
+            "activeBackendID": id.uuidString,
+        ]
+        let data = try JSONSerialization.data(withJSONObject: legacy)
+        try CloudDocument.write(data, to: SettingsStore.settingsURL)
+
+        let store = SettingsStore(credentials: InMemoryCredentialStore())
+        #expect(store.maxToolRounds == SettingsStore.defaultMaxToolRounds)
+    }
+
     @Test("settings.json with a per-entry apiKey decodes cleanly (unknown key dropped)")
     func preParingApiKey_silentlyDropped() throws {
         SettingsStore.clearStorage()

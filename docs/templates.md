@@ -1,6 +1,6 @@
 # Templates — the realism bar
 
-How to build a `.pupaapp` template that reads like a **real instance of a real
+How to build a `.pupa` template that reads like a **real instance of a real
 app** the user can augment, not a feature demo. Code:
 [Pupa/Sources/PupaApp/MyApps/](../Pupa/Sources/PupaApp/MyApps/) (one
 `*Example.swift` per template, registered in

@@ -31,7 +31,23 @@ handlers.
   results, and re-POST until the model stops. `forwardedProps` (e.g. the
   per-turn `llm = {provider, model}` selection) is captured at send time
   and re-applied on every round, including resume rounds after a frontend
-  interrupt.
+  interrupt. A computed frontend-tool dispatch **always** gets its resume
+  POST — even when the runaway round cap (`maxRounds`, from
+  `SettingsStore.effectiveMaxToolRounds`: `maxToolRounds` default 24, range
+  4–64, or `nil` when the "No limit" toggle is on; every tool round-trip
+  consumes one) is hit mid-interrupt — so the backend session is never left
+  parked. `nil` removes the breaker: the turn runs until the backend settles. The loop settles with
+  `.completed(CompletionOutcome)`: `.produced` when the turn emitted
+  assistant text, else `.silent(reason)` (`emptyTurn` / `maxRounds` /
+  `droppedStream` / `droppedInterrupt` / `backend`) so the UI can flag a turn
+  that ended with no reply instead of silently dropping the spinner.
+  `ChatViewModel` renders a `.system` notice bubble for `.silent`.
+  **Dropped-interrupt self-heal:** if a round settles with a registered
+  frontend tool observed but no `on_interrupt` to drive it (the upstream
+  `ag-ui-langgraph` `tasks[0]` emit bug — an interrupt parked on a non-first
+  task is dropped in-run), the loop re-POSTs a resume-less continuation to
+  trigger the backend's recovery path (which re-emits the parked interrupt),
+  bounded to 2 retries before settling `.droppedInterrupt`.
 - **[`ToolRegistry.swift`](../AGUIKit/Sources/AGUIKit/ToolRegistry.swift)**
   / **[`Tool.swift`](../AGUIKit/Sources/AGUIKit/Tool.swift)** — host
   registers `@Sendable async` handlers keyed by tool name; their
@@ -101,6 +117,22 @@ selectable on every platform and expose a **Copy** context-menu action
 (`ChatClipboard`, right-click on macOS / long-press on iOS) that copies the
 whole bubble.
 
+**Queued messages while busy.** The composer stays typable while a turn is in
+flight. Submitting mid-stream doesn't wait or drop — `ChatViewModel.send`
+appends the text to `queuedMessages` (FIFO) instead of starting a run. Queued
+items render as clock-marked pills above the composer; each can be cancelled
+(✕) or tapped to pull back into the composer for editing. When the current turn
+settles cleanly (`consume` → `drainQueue`), the *whole* queue is coalesced
+(`coalesceQueue`) into one fresh run — texts joined in FIFO order, the first
+attached image carried — so a burst of messages costs one turn, not one turn
+each, and it stays a single AG-UI user message. Draining is skipped after an
+error (the failure stays on screen; the user decides whether to retry) and on
+an explicit **Stop** (`cancel` Case B) / `newThread`, which discard the queue.
+While a turn is parked on a human-in-the-loop interrupt the composer is gated,
+so nothing queues until the interrupt resolves and the turn fully settles. The
+send button is **Stop** only when streaming with an empty composer; with text
+typed mid-stream it's an arrow-up that queues.
+
 On a myApp's home / component / memories / agents / history pages — and the
 orchestrator's home / memories / agent pages — the detail pane hosts a persistent
 **bottom bar** (`MyApps/MyAppBottomBar.swift`) — the per-subject "tab bar",
@@ -109,7 +141,12 @@ instead of hiding under a floating overlay. It's keyed by `MyAppHomeView.Subject
 (`.myApp(id)` / `.orchestrator`). Left to right: **Home** (`house`), **Agents**
 (`person.2`, opens `AgentsListView` / `AgentDetailView`), **Memories**
 (`brain`, opens `MyAppMemoriesView` — a browse page of the subject's note tree;
-folders drill in, files push `.myAppMemoryFile` / `.memoryFile`), **History**
+folders drill in, files push `.myAppMemoryFile` / `.memoryFile`. Direct editing
+without the agent: the header `+` menu adds a Note / Folder at the scope root; a
+folder row's long-press menu adds inside it; any row can be renamed / moved or
+deleted. Rows funnel these through `MemoryRowActions` into the shared
+`MemorySheet` shells (`New*MemorySheet` / `RenameMemorySheet`) and a delete
+confirmation over `MemoryStore`), **History**
 (`clock`, pushes `ChangeHistoryView` via `.myAppHistory` — **myApp only**; the
 orchestrator has no canvas change-log so it omits this), the **Pupa** chat launcher (toggles
 `AppView.chatOpen`, carrying the scope's `StatusBadge`), and a **⋯** menu that
@@ -125,7 +162,11 @@ via `barSubject` + `barPage`; taps flat-switch the root selection (reset
 chat launcher on these pages, `ChatOverlay` hides its fallback circle there
 (`launcherVisible`). `MyAppMemoriesView` + `MemoryLandingRow` are
 subject-generalized (a path→selection closure), so one browse view + row serve
-both scopes.
+both scopes. `MyAppMemoriesView` reloads the store from disk on appear
+(`.task(id: subject)` → `MemoryStore.reloadFromDisk`), so folders written after
+the launch scan (bootstrap `pupa/`, template seeding, an iCloud pull) show
+without waiting for a mutation or the cloud watcher; `AppView` also does one
+converge+reload at launch for the same reason.
 
 **In-app links (`pupa://`).** The agent can embed tappable navigation links in
 chat markdown (and note bodies); `Chat/ChatLink.swift` maps a `pupa://` URL to a
@@ -142,7 +183,7 @@ agent-prompt links all use — so `chatLinkAction` calls
 slug, or `orchestrator/`) before routing; otherwise the target note can't be
 read. `pupa://component/<id>` targets the current myApp; the explicit
 `pupa://myapp/<uuid>/memory/<path>` form is for cross-scope links. Distinct from
-Slack's `pupa-mention://` and the `.pupaapp` file type.
+Slack's `pupa-mention://` and the `.pupa` file type.
 
 The card header is split across two rows. The **agent selector** (`AgentDropdown`)
 sits in the card's top bar — alongside the resize / expand / close controls — so
@@ -379,15 +420,17 @@ than an abstract sentinel; the "inherits the backend's model" note still flags
 that it isn't an explicit override.
 Storage parallels the existing per-agent LLM storage: the main agent uses
 `MyApp.settings` (`llm.*`, `tools.disabled` as a `SettingValue.stringArray`),
-Slack sub-agents use the `SlackAgent` struct (`llmProvider/llmModel/disabledTools`),
-and the orchestrator uses global `SettingsStore` fields. Each agent's disabled
-set is **unioned** with the global Settings → Tools set (`disabledBackendTools`)
-and sent every turn as `state.disabled_tools`, which the backend
-`ToolGatingMiddleware` drops from the model's tool list. The three send paths —
-the main-agent chat turn (`ChatViewModel`), orchestrator→MyApp sub-runs and
-Slack sub-runs (`ChatSessionCoordinator`, via `llmForwardedProps`) — all forward
-the resolved per-agent model and disabled union, so a sub-agent runs on its own
-configured model rather than the backend default.
+subagents keep their overrides in `pupa/agents/<slug>/AGENTS.md` frontmatter
+(`model`/`provider`/`tools`/`disabled_tools`; edited via `AgentStore.setModel` /
+`setDisabledTools`), and the orchestrator uses global `SettingsStore` fields.
+Each agent's disabled set is **unioned** with the global Settings → Tools set
+(`disabledBackendTools`) and sent every turn as `state.disabled_tools`, which
+the backend `ToolGatingMiddleware` drops from the model's tool list. The send
+paths — the main-agent chat turn (`ChatViewModel`), orchestrator→MyApp sub-runs
+and generic/Slack subagent sub-runs (`ChatSessionCoordinator`, via
+`llmForwardedProps`) — all forward the resolved per-agent model and disabled
+union, so a subagent runs on its own configured model rather than the backend
+default.
 
 **Per-thread model.** Each conversation thread can pin its own model,
 overriding the agent default. A compact `ModelPickerRow(compact:)` chip sits
@@ -412,7 +455,7 @@ memory root (`memories/<slug>/pupa/`): `AGENTS.md` (main agent),
 playbook can be a skill — e.g. the Content Studio `setup` skill provides
 `/setup`).
 The orchestrator has its own `orchestrator/pupa/`. Visible (non-dot) so it
-rides the sidebar, per-turn snapshot, and the `.pupaapp` bundle; writes are
+rides the sidebar, per-turn snapshot, and the `.pupa` bundle; writes are
 limited to `.md` / `.json`.
 
 A **skill** is a markdown playbook (`SKILL.md` + optional frontmatter), the
@@ -441,6 +484,41 @@ These are **app skills** (on-device `pupa/skills/`, `app_skill_view`), distinct
 from any **backend** skills library (`~/.pupa-backend/skills/`, the backend's
 own `skill_view` tool) the client never touches — see [skills.md](skills.md).
 
+## Subagents
+
+A **subagent** is a Claude-Code-style delegate: a `pupa/agents/<slug>/AGENTS.md`
+file with frontmatter (`name`, `description`, `when_to_use`, `tools`,
+`disabled_tools`, `model`, `provider`) and a persona body. Drop the file and the
+subagent exists — `AgentStore`
+([Pupa/Sources/PupaApp/Agents/AgentStore.swift](../Pupa/Sources/PupaApp/Agents/AgentStore.swift))
+discovers them per scope by walking `pupa/agents/*/AGENTS.md`, exactly mirroring
+`SkillStore`. `AgentStore.createAgent` is the canonical writer (used by the Slack
+create-agent UI and any future `create_agent` tool); an agent can also author one
+by hand-writing the file with the memory tools.
+
+The main agent — and, by default, any subagent (A2A) — invokes one with the
+`invoke_agent(name, prompt)` frontend tool (`AppTools.registerSubagentTools`,
+advertised via `MyAppType.subagentToolNames`). The handler calls
+`ChatSessionCoordinator.runSubagent`, which spins a transient `AgentSession`
+scoped to the parent MyApp: memory + canvas surface inherited, tool set narrowed
+by `SubagentPolicy.narrowedTools` (the frontmatter `tools` allowlist minus
+`disabled_tools`, minus main-chat-only admin tools, always plus `invoke_agent`),
+persona pinned as a context entry, and the frontmatter model/provider forwarded.
+Progressive disclosure mirrors skills: `ChatViewModel.agentsContextEntry` lists
+each subagent's `{name, description, when_to_use}`; the persona loads only when
+the subagent runs.
+
+Every subagent run is gated by the shared `AgentInvocationGate` under a
+`.subagent(myAppId:slug:)` key, so reentrancy, chain-depth, and per-pair turn
+budgets bound A2A chains exactly as they bound orchestrator→MyApp delegation.
+
+**Slack is a UI over subagents.** A Slack component holds only channels +
+messages (`SlackData`); its workspace roster is *all* subagents discovered under
+the MyApp. Channels reference agents by slug; @-mentioning one (or posting in a
+DM) calls `invokeSlackAgent`, a thin Slack wrapper over the same subagent runner
+that adds channel-history context, live `SlackInvoker` bubbles, and auto-posting
+of the reply.
+
 Full reference: [skills.md](skills.md).
 
 ## Persistence
@@ -451,8 +529,11 @@ directly and never block on iCloud. iCloud is a **mirror**, not the canonical
 root — so turning it off in iOS Settings (which relaunches the app) can't hide
 MyApps ("app looks lost") or strand offline edits, the way the old
 switch-roots-per-launch design did (pupa#110). All synced file IO goes through
-`CloudDocument` (`NSFileCoordinator`-wrapped), which schedules a debounced
-`StorageMirror` pass after every write.
+`CloudDocument`, which writes the local tree with **plain atomic** writes (no
+`NSFileCoordinator`: the local store is single-process with no file presenter,
+so coordination only bought a main-thread XPC stall — pupa#120) and schedules a
+debounced `StorageMirror` pass after every write. iCloud-side coordination lives
+only in `StorageMirror`.
 
 `StorageMirror` converges the local tree with the iCloud container
 (`cloudMirrorRoot`) in the background, off the main thread. Merge is
@@ -528,11 +609,11 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
 
 ## Export / Import (marketplace)
 
-A MyApp can be exported as a portable, **inert** `.pupaapp` bundle (versioned
+A MyApp can be exported as a portable, **inert** `.pupa` bundle (versioned
 header + the `Codable` `MyApp` tree + memory files) and rebuilt on another
 install — **no code from the bundle is executed**. UI lives in Settings ▸
 Import & Export: export is a **Share…** action (`ShareLink` → AirDrop /
-Messages / WhatsApp / Files). `.pupaapp` is a registered, app-owned file type
+Messages / WhatsApp / Files). `.pupa` is a registered, app-owned file type
 (`UTType.pupaAppBundle`), so opening a shared bundle routes to Pupa via
 `AppView.onOpenURL`, which read-only-decodes it for a confirm sheet before
 running the same importer. Each Share regeneration writes a fresh unique

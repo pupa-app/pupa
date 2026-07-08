@@ -44,8 +44,7 @@ struct MarketplaceBundleTests {
         let slack = Component(
             id: "slack-1", name: "Team", iconSystemName: "bubble.left.and.bubble.right",
             body: .slack(SlackData(
-                agents: [SlackAgent(id: "a1", name: "Coach", role: "mentor", systemPromptAddition: "Be kind.")],
-                channels: [],
+                channels: [SlackChannel(id: "c1", name: "general", type: .channel, memberAgentIds: ["coach"])],
                 messagesByChannel: ["c1": [SlackMessage(channelId: "c1", authorKind: .user, authorId: "user", text: "hi")]])))
         let chart = ChartData(title: "By amount", kind: .bar, series: [
             ChartSeriesSpec(source: .tracker(componentId: "tracker-1", groupBy: "amount",
@@ -69,6 +68,19 @@ struct MarketplaceBundleTests {
 
     private func allSelected(_ app: MyApp) -> MyAppExporter.Options {
         .init(selectedComponentIds: Set(app.components.map(\.id)), includeRecords: true, includeMemories: true)
+    }
+
+    // MARK: Extension
+
+    @Test("Exported bundles carry the .pupa extension")
+    func fileExtensionIsPupa() {
+        #expect(MyAppBundle.fileExtension == "pupa")
+        #expect(MyAppLibraryBundle.fileExtension == "pupa")
+        // Mirrors ExportMyAppView.writeShareFile's filename construction.
+        let url = URL(fileURLWithPath: "/tmp/Demo")
+            .appendingPathExtension(MyAppBundle.fileExtension)
+        #expect(url.pathExtension == "pupa")
+        #expect(url.lastPathComponent == "Demo.pupa")
     }
 
     // MARK: Round-trip
@@ -115,8 +127,8 @@ struct MarketplaceBundleTests {
             #expect(t.fields.first?.name == "amount")      // schema kept
         } else { Issue.record("tracker missing") }
         if case .slack(let s) = bundle.app.component(withId: "slack-1")?.body {
-            #expect(s.messagesByChannel.isEmpty)           // transcript stripped
-            #expect(s.agents.first?.name == "Coach")       // persona kept
+            #expect(s.messagesByChannel.isEmpty)                 // transcript stripped
+            #expect(s.channels.first?.memberAgentIds == ["coach"]) // channel roster kept
         } else { Issue.record("slack missing") }
         #expect(SlackExportPolicy().exportDataWarning != nil)
     }

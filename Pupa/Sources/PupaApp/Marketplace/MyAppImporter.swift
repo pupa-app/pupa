@@ -70,7 +70,7 @@ public enum MyAppImporter {
         public let warnings: [String]
     }
 
-    /// Which `.pupaapp` payload a file holds — a single app or a library. Both
+    /// Which `.pupa` payload a file holds — a single app or a library. Both
     /// share the extension and are told apart by the `header.format` magic.
     public enum BundleFormat {
         case single
@@ -185,9 +185,6 @@ public enum MyAppImporter {
                 keepItem: { validRefs.contains($0) })
         }
 
-        // Stage 3 — drop per-agent LLM overrides not in the catalog.
-        sanitizeAgentLLM(&components, warnings: &warnings)
-
         // Resolve focused component.
         var activeId = decoded.activeComponentId
         if let a = activeId, !keptIds.contains(a) { activeId = components.first?.id }
@@ -285,11 +282,8 @@ public enum MyAppImporter {
             for (_, msgs) in s.messagesByChannel {
                 guard msgs.count <= maxSlackMessagesPerChannel else { throw ImportError.malformed("too many messages") }
             }
-            // Agent / channel ids unique within this component.
-            var agentIds: Set<String> = []
-            for a in s.agents where !agentIds.insert(a.id).inserted {
-                throw ImportError.malformed("duplicate slack agent id")
-            }
+            // Channel ids unique within this component. (Agents are filesystem
+            // subagents — validated as memory files, not here.)
             var channelIds: Set<String> = []
             for c in s.channels where !channelIds.insert(c.id).inserted {
                 throw ImportError.malformed("duplicate slack channel id")
@@ -320,29 +314,6 @@ public enum MyAppImporter {
         return (clean, dropped)
     }
 
-    private static func sanitizeAgentLLM(_ components: inout [Component], warnings: inout [String]) {
-        var droppedAny = false
-        for i in components.indices {
-            guard case .slack(var s) = components[i].body else { continue }
-            var changed = false
-            for a in s.agents.indices {
-                let p = s.agents[a].llmProvider
-                let m = s.agents[a].llmModel
-                let valid = (p != nil && m != nil) && KnownLLMModelCatalog.model(provider: p!, modelId: m!) != nil
-                if !valid && (p != nil || m != nil) {
-                    s.agents[a].llmProvider = nil
-                    s.agents[a].llmModel = nil
-                    changed = true
-                    droppedAny = true
-                }
-            }
-            if changed { components[i].body = .slack(s) }
-        }
-        if droppedAny {
-            warnings.append("Some agent model overrides weren't available and fell back to the default.")
-        }
-    }
-
     /// First free name whose display name *and* memory slug don't collide with
     /// an existing app (slug collision would clobber another app's memories).
     private static func uniqueName(base: String, store: MyAppStore) -> String {
@@ -365,7 +336,7 @@ public enum MyAppImporter {
             // writeFile's resolve() rejects `..`, absolute paths and any
             // extension outside the `.md` / `.json` allowlist; a hostile path
             // simply fails to write rather than escaping.
-            try? scoped.writeFile(path: file.path, content: file.content)
+            _ = try? scoped.writeFile(path: file.path, content: file.content)
         }
     }
 

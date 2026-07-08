@@ -181,6 +181,22 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
         "app_skill_view",
     ]
 
+    /// Generic subagent invocation. `invoke_agent` spins a transient
+    /// sub-session against a `pupa/agents/<slug>/AGENTS.md` subagent, scoped to
+    /// this MyApp. Always advertised at MyApp scope — to the main agent AND to
+    /// subagents (A2A on by default; the gate bounds chain depth).
+    public static let subagentToolNames: Set<String> = [
+        "invoke_agent",
+    ]
+
+    /// Tools only the user-facing main chat should wield. Stripped from a
+    /// subagent's advertised surface (Slack admin + workspace setup); subagents
+    /// also get a runtime refusal via `SlackToolContext`.
+    public static let subagentExcludedToolNames: Set<String> = [
+        "slackCreateChannels",
+        "slackAddAgentsToChannel",
+    ]
+
     /// Local notification scheduling. Always advertised to every scope so
     /// either a myApp agent or the orchestrator can post banners.
     public static let notificationToolNames: Set<String> = [
@@ -310,20 +326,21 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
                     "slackListChannels",
                     "slackReadChannelHistory",
                     "slackPostMessage",
-                    "slackCreateAgent",
                     "slackCreateChannels",
                     "slackAddAgentsToChannel",
                 ],
                 promptFragment: """
-                SLACK — multi-agent rooms. Setup: slackCreateAgent (persona), \
-                slackCreateChannels (seed + members). After seed, user @-mentions \
-                invoke agents in transient sessions with private memory at \
-                `memories/agents/{agentId}/`. Sub-agent: slackPostMessage to \
-                speak; @-mention another agent to fan out (reentrancy + depth caps \
-                return `{outcome: 'reentrant' | 'max_depth_exceeded'}` in `fanOut`). \
-                Admin tools (create / add) refuse for sub-agents.
+                SLACK — multi-agent rooms over generic subagents. Agents ARE \
+                `pupa/agents/<slug>/AGENTS.md` subagents (create one by writing \
+                that file with editMemoryFile; frontmatter `name`/`description`/\
+                `tools`/`model`). Setup: author the personas, then \
+                slackCreateChannels (seed + member slugs) — resolve slugs via \
+                slackListAgents. Users @-mention to invoke; sub-agent: \
+                slackPostMessage to speak, @-mention another to fan out \
+                (reentrancy + depth caps return `{outcome}` in `fanOut`). Channel \
+                admin tools refuse for sub-agents.
                 """,
-                catalogBlurb: "multi-agent chat rooms (personas, channels, @-mentions)"
+                catalogBlurb: "multi-agent chat rooms (subagent personas, channels, @-mentions)"
             ),
             "calculator": ComponentKindSpec(
                 tools: [

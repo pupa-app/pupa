@@ -172,48 +172,6 @@ public final class MyAppStore {
         return Set(names)
     }
 
-    /// Write (or clear) a Slack sub-agent's disabled tool set. Mutates the
-    /// targeted SlackAgent in place via the by-component mutator.
-    public func setSlackAgentDisabledTools(
-        _ names: Set<String>,
-        componentId: String,
-        agentId: String,
-        myAppId: UUID
-    ) {
-        mutate(myAppId: myAppId, byComponentId: componentId) { canvas in
-            guard case .slack(var s) = canvas,
-                  let aIdx = s.agents.firstIndex(where: { $0.id == agentId }) else { return false }
-            s.agents[aIdx].disabledTools = names.isEmpty ? nil : names.sorted()
-            canvas = .slack(s)
-            return true
-        }
-    }
-
-    /// Write (or clear) the per-SlackAgent LLM override. The SlackAgent lives
-    /// inside its parent `SlackData` — mutated in place via the by-component
-    /// mutator so we touch only the targeted agent.
-    public func setSlackAgentLLM(
-        provider: String?,
-        model: String?,
-        componentId: String,
-        agentId: String,
-        myAppId: UUID
-    ) {
-        mutate(myAppId: myAppId, byComponentId: componentId) { canvas in
-            guard case .slack(var s) = canvas,
-                  let aIdx = s.agents.firstIndex(where: { $0.id == agentId }) else { return false }
-            if let provider, let model, !provider.isEmpty, !model.isEmpty {
-                s.agents[aIdx].llmProvider = provider
-                s.agents[aIdx].llmModel = model
-            } else {
-                s.agents[aIdx].llmProvider = nil
-                s.agents[aIdx].llmModel = nil
-            }
-            canvas = .slack(s)
-            return true
-        }
-    }
-
     public func setActive(_ id: UUID) {
         guard myApps.contains(where: { $0.id == id }), id != activeMyAppId else { return }
         activeMyAppId = id
@@ -1922,47 +1880,14 @@ public final class MyAppStore {
     }
 
     // MARK: - Slack mutators
-
-    /// Append a `SlackAgent` to the Slack body. Returns the generated
-    /// stable id (used as the per-agent memory namespace). `componentId`
-    /// targets a specific component; nil resolves to the active /
-    /// first-found Slack component.
-    @discardableResult
-    public func slackAddAgent(
-        name: String,
-        role: String,
-        systemPromptAddition: String,
-        myAppId: UUID? = nil,
-        componentId: String? = nil
-    ) -> String? {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        var newId: String?
-        let mutator: (inout CanvasApp) -> Bool = { canvas in
-            guard case .slack(var s) = canvas else { return false }
-            let id = Self.nextSlackId(prefix: "agent", existing: s.agents.map(\.id))
-            s.agents.append(SlackAgent(
-                id: id,
-                name: trimmed,
-                role: role,
-                systemPromptAddition: systemPromptAddition
-            ))
-            canvas = .slack(s)
-            newId = id
-            return true
-        }
-        if let componentId {
-            mutate(myAppId: myAppId, byComponentId: componentId, mutator)
-        } else {
-            mutate(myAppId, kind: "slack", mutator)
-        }
-        return newId
-    }
+    //
+    // Slack agents are filesystem subagents (`pupa/agents/<slug>/AGENTS.md`);
+    // the roster is not stored in `SlackData`. These mutators therefore take
+    // member/author identifiers as subagent slugs verbatim — validation
+    // against the real roster (via `AgentStore`) is the caller's job.
 
     /// Append a `SlackChannel` to the Slack body. Returns the generated
-    /// stable id. `memberAgentIds` are validated against the component's
-    /// known agents — unknown ids are dropped silently rather than
-    /// failing the whole call.
+    /// stable id. `memberAgentIds` are subagent slugs, stored as given.
     @discardableResult
     public func slackAddChannel(
         name: String,
@@ -1976,13 +1901,12 @@ public final class MyAppStore {
         var newId: String?
         let mutator: (inout CanvasApp) -> Bool = { canvas in
             guard case .slack(var s) = canvas else { return false }
-            let known = Set(s.agents.map(\.id))
             let id = Self.nextSlackId(prefix: "channel", existing: s.channels.map(\.id))
             s.channels.append(SlackChannel(
                 id: id,
                 name: trimmed,
                 type: type,
-                memberAgentIds: memberAgentIds.filter(known.contains)
+                memberAgentIds: memberAgentIds
             ))
             if s.activeChannelId == nil {
                 s.activeChannelId = id
@@ -1999,9 +1923,9 @@ public final class MyAppStore {
         return newId
     }
 
-    /// Add agents to a channel's member roster. Idempotent — already-
-    /// present ids are skipped. Returns true if at least one new id was
-    /// appended.
+    /// Add agents (subagent slugs) to a channel's member roster. Idempotent
+    /// — already-present slugs are skipped. Returns true if at least one new
+    /// slug was appended.
     @discardableResult
     public func slackAddAgentsToChannel(
         channelId: String,
@@ -2013,10 +1937,9 @@ public final class MyAppStore {
         let mutator: (inout CanvasApp) -> Bool = { canvas in
             guard case .slack(var s) = canvas,
                   let cIdx = s.channels.firstIndex(where: { $0.id == channelId }) else { return false }
-            let known = Set(s.agents.map(\.id))
             var existing = Set(s.channels[cIdx].memberAgentIds)
             var localChanged = false
-            for id in agentIds where known.contains(id) && existing.insert(id).inserted {
+            for id in agentIds where existing.insert(id).inserted {
                 s.channels[cIdx].memberAgentIds.append(id)
                 localChanged = true
             }
@@ -2106,22 +2029,21 @@ public final class MyAppStore {
         return newId
     }
 
-    /// Find-or-create a 1-on-1 DM channel with `agentId`. A DM is the
-    /// unique channel whose `type == .dm` and `memberAgentIds == [agentId]`
-    /// — when the user clicks an agent in the sidebar we either jump to
-    /// that channel or create it on the spot, named after the agent.
-    /// Returns the channel id, or nil if `agentId` doesn't exist on this
-    /// Slack component.
+    /// Find-or-create a 1-on-1 DM channel with a subagent (`agentId` = its
+    /// slug). A DM is the unique channel whose `type == .dm` and
+    /// `memberAgentIds == [agentId]` — when the user clicks an agent in the
+    /// sidebar we either jump to that channel or create it, named
+    /// `displayName` (the subagent's label). Returns the channel id.
     @discardableResult
     public func slackOpenDM(
         agentId: String,
+        displayName: String,
         myAppId: UUID? = nil,
         componentId: String? = nil
     ) -> String? {
         var resolvedId: String?
         let mutator: (inout CanvasApp) -> Bool = { canvas in
-            guard case .slack(var s) = canvas,
-                  let agent = s.agents.first(where: { $0.id == agentId }) else { return false }
+            guard case .slack(var s) = canvas else { return false }
             if let existing = s.channels.first(where: {
                 $0.type == .dm && $0.memberAgentIds == [agentId]
             }) {
@@ -2131,7 +2053,7 @@ public final class MyAppStore {
             let id = Self.nextSlackId(prefix: "channel", existing: s.channels.map(\.id))
             s.channels.append(SlackChannel(
                 id: id,
-                name: agent.name,
+                name: displayName,
                 type: .dm,
                 memberAgentIds: [agentId]
             ))
@@ -2663,7 +2585,8 @@ public final class MyAppStore {
     }
 
     /// Write only the files whose encoded bytes changed; delete files for
-    /// removed apps. Each write is `NSFileCoordinator`-coordinated for iCloud.
+    /// removed apps. Writes are plain atomic via `CloudDocument` (no main-thread
+    /// file coordination); each schedules a background `StorageMirror` pass.
     private func persist() {
         let enc = Self.stateEncoder()
         var live = Set<UUID>()

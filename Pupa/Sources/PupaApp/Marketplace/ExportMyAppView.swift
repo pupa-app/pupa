@@ -2,7 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// Settings ▸ Import & Export hub. Splits the two flows onto their own focused
-/// screens — **Share an app** (export a `.pupaapp` bundle) and **Import an
+/// screens — **Share an app** (export a `.pupa` bundle) and **Import an
 /// app** (load one back) — so neither page mixes unrelated controls.
 struct SharingSettingsView: View {
     @Bindable var store: MyAppStore
@@ -18,17 +18,17 @@ struct SharingSettingsView: View {
                 } label: {
                     hubRow(icon: "square.and.arrow.up",
                            title: "Share an app",
-                           caption: "Send one MyApp — or all of them — as a .pupaapp bundle")
+                           caption: "Send one MyApp — or all of them — as a .\(MyAppBundle.fileExtension) bundle")
                 }
                 NavigationLink {
                     ImportAppScreen(store: store, memory: memory, onImported: onImported)
                 } label: {
                     hubRow(icon: "square.and.arrow.down",
                            title: "Import an app",
-                           caption: "Load a .pupaapp someone shared")
+                           caption: "Load a .\(MyAppBundle.fileExtension) someone shared")
                 }
             } footer: {
-                Text("Apps travel as inert .pupaapp bundles. Sharing publishes whatever you include — review the agent prompts on the Share screen before sending.")
+                Text("Apps travel as inert .\(MyAppBundle.fileExtension) bundles. Sharing publishes whatever you include — review the agent prompts on the Share screen before sending.")
             }
         }
         .navigationTitle("Import & Export")
@@ -58,10 +58,10 @@ private struct SharingNotice: Identifiable {
 
 // MARK: - Share
 
-/// Export a MyApp to a `.pupaapp` and hand it to the system share sheet:
+/// Export a MyApp to a `.pupa` and hand it to the system share sheet:
 /// component selection + records/memories toggles + a review of the agent
 /// prompts being shared. The app picker also offers **All apps** — every MyApp
-/// bundled into one `.pupaapp` library (no component picker; each app whole).
+/// bundled into one `.pupa` library (no component picker; each app whole).
 private struct ExportShareScreen: View {
     @Bindable var store: MyAppStore
     var memory: MemoryStore
@@ -74,7 +74,7 @@ private struct ExportShareScreen: View {
     @State private var includeRecords = false
     @State private var includeMemories = false
 
-    /// Temp `.pupaapp` file backing the share sheet. Rebuilt whenever the
+    /// Temp `.pupa` file backing the share sheet. Rebuilt whenever the
     /// selection or toggles change so a share always reflects the current
     /// choices; `nil` (control disabled) until at least one component is picked.
     @State private var shareURL: URL?
@@ -167,8 +167,8 @@ private struct ExportShareScreen: View {
                 }
             } footer: {
                 Text(isAllApps
-                     ? "Shares a .pupaapp file with every app — AirDrop, Messages, WhatsApp, Mail, or Save to Files. Opening it on another device imports them all into Pupa."
-                     : "Shares a .pupaapp file — AirDrop, Messages, WhatsApp, Mail, or Save to Files. Opening it on another device imports the app into Pupa.")
+                     ? "Shares a .\(MyAppBundle.fileExtension) file with every app — AirDrop, Messages, WhatsApp, Mail, or Save to Files. Opening it on another device imports them all into Pupa."
+                     : "Shares a .\(MyAppBundle.fileExtension) file — AirDrop, Messages, WhatsApp, Mail, or Save to Files. Opening it on another device imports the app into Pupa.")
             }
         } else {
             Section { Text("No apps to share.").foregroundStyle(.secondary) }
@@ -194,20 +194,19 @@ private struct ExportShareScreen: View {
         .buttonStyle(.plain)
     }
 
-    /// Slack agent personas that would ship in the current selection — the
-    /// privacy review surface. (Omitted in all-apps mode to keep it minimal.)
+    /// Slack workspace agents that would ship in the current selection — the
+    /// privacy review surface. Agent slugs referenced by the rooms; their
+    /// persona text ships as `pupa/agents/<slug>/AGENTS.md` memory files.
+    /// (Omitted in all-apps mode to keep it minimal.)
     private var sharedPromptPreview: [String] {
         guard !isAllApps, let app else { return [] }
-        var out: [String] = []
+        var slugs: Set<String> = []
         for comp in app.components where selectedComponentIds.contains(comp.id) {
             if case .slack(let s) = comp.body {
-                for agent in s.agents {
-                    let role = agent.role.isEmpty ? "" : " — \(agent.role)"
-                    out.append("\(agent.name)\(role)")
-                }
+                slugs.formUnion(s.channels.flatMap { $0.memberAgentIds })
             }
         }
-        return out
+        return slugs.sorted()
     }
 
     private func toggle(_ id: String) {
@@ -223,7 +222,7 @@ private struct ExportShareScreen: View {
         regenerateShareFile()
     }
 
-    /// Encode the current selection to a temp `.pupaapp` file the share sheet
+    /// Encode the current selection to a temp `.pupa` file the share sheet
     /// hands off — a single-app bundle, or (all-apps mode) a library of every
     /// app. `nil`s `shareURL` when nothing is selectable. Cheap enough to re-run
     /// on every toggle.
@@ -249,7 +248,7 @@ private struct ExportShareScreen: View {
         writeShareFile(named: MemoryStore.myAppFolder(myAppName: app.name)) { try bundle.encoded() }
     }
 
-    /// Write `encode()`'s bytes to a temp `<base>.pupaapp` and point the share
+    /// Write `encode()`'s bytes to a temp `<base>.pupa` and point the share
     /// sheet at it (or surface an error). Each regeneration gets a fresh
     /// unique folder: `ShareLink` keys off the item URL's identity, so
     /// rewriting one fixed path could hand off a bundle built before the
@@ -281,7 +280,7 @@ private struct ExportShareScreen: View {
 
 // MARK: - Import
 
-/// Load a `.pupaapp` bundle from the Files picker. (Opening one from Mail /
+/// Load a `.pupa` bundle from the Files picker. (Opening one from Mail /
 /// Messages / AirDrop routes through `AppView.onOpenURL` with its own confirm
 /// step — this is the manual in-app path.)
 private struct ImportAppScreen: View {
@@ -298,10 +297,10 @@ private struct ImportAppScreen: View {
                 Button {
                     presentingImporter = true
                 } label: {
-                    Label("Choose a .pupaapp file…", systemImage: "folder")
+                    Label("Choose a .\(MyAppBundle.fileExtension) file…", systemImage: "folder")
                 }
             } footer: {
-                Text("Pick a .pupaapp bundle from Files. You can also open one straight from Mail, Messages, or AirDrop — Pupa imports it after a confirm step. Imported apps are sandboxed: untrusted bundles can't change your settings.")
+                Text("Pick a .\(MyAppBundle.fileExtension) bundle from Files. You can also open one straight from Mail, Messages, or AirDrop — Pupa imports it after a confirm step. Imported apps are sandboxed: untrusted bundles can't change your settings.")
             }
         }
         .navigationTitle("Import an app")

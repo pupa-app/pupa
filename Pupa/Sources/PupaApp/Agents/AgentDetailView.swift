@@ -149,25 +149,23 @@ public struct AgentDetailView: View {
         case .myApp:
             guard let myAppId = descriptor.myAppId else { return }
             store.setMyAppLLM(provider: provider, model: modelId, for: myAppId)
-        case .slack:
-            guard let myAppId = descriptor.myAppId else { return }
-            // Slack agent ids are built as "slack:<componentId>:<slackAgentId>" —
-            // unwind to find the targeted SlackAgent. AgentRegistry.slackAgentId
-            // is the single source of truth for this format.
-            let parts = descriptor.id.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
-            guard parts.count == 3, parts[0] == "slack" else { return }
-            let componentId = String(parts[1])
-            let slackAgentId = String(parts[2])
-            store.setSlackAgentLLM(
-                provider: provider,
-                model: modelId,
-                componentId: componentId,
-                agentId: slackAgentId,
-                myAppId: myAppId
-            )
+        case .subagent:
+            guard let (myAppId, slug) = subagentTarget(descriptor) else { return }
+            let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(
+                myAppName: store.myApps.first(where: { $0.id == myAppId })?.name ?? ""))
+            _ = try? AgentStore(memory: appMemory).setModel(slug: slug, provider: provider, model: modelId)
         case .orchestrator:
             settings.setOrchestratorLLM(provider: provider, model: modelId)
         }
+    }
+
+    /// Unwind a subagent descriptor id (`subagent:<myAppId>:<slug>`) built by
+    /// `AgentRegistry.subagentId`.
+    private func subagentTarget(_ descriptor: AgentDescriptor) -> (myAppId: UUID, slug: String)? {
+        let parts = descriptor.id.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
+        guard parts.count == 3, parts[0] == "subagent",
+              let myAppId = UUID(uuidString: String(parts[1])) else { return nil }
+        return (myAppId, String(parts[2]))
     }
 
     /// Enable/disable one tool for whichever agent this view shows. Routes by
@@ -183,16 +181,11 @@ public struct AgentDetailView: View {
         case .myApp:
             guard let myAppId = descriptor.myAppId else { return }
             store.setMyAppDisabledTools(disabled, for: myAppId)
-        case .slack:
-            guard let myAppId = descriptor.myAppId else { return }
-            let parts = descriptor.id.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
-            guard parts.count == 3, parts[0] == "slack" else { return }
-            store.setSlackAgentDisabledTools(
-                disabled,
-                componentId: String(parts[1]),
-                agentId: String(parts[2]),
-                myAppId: myAppId
-            )
+        case .subagent:
+            guard let (myAppId, slug) = subagentTarget(descriptor) else { return }
+            let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(
+                myAppName: store.myApps.first(where: { $0.id == myAppId })?.name ?? ""))
+            _ = try? AgentStore(memory: appMemory).setDisabledTools(slug: slug, disabled)
         case .orchestrator:
             settings.setOrchestratorDisabledTools(disabled)
         }

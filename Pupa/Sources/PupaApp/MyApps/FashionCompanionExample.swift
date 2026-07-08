@@ -264,36 +264,19 @@ enum FashionCompanionExample: ExampleMyApp {
         }
 
         private func styleRoom() -> Component {
-            let stylist = SlackAgent(
-                id: "stylist",
-                name: "Stylist",
-                role: "Personal stylist",
-                systemPromptAddition: stylistPersona
-            )
-            let trendScout = SlackAgent(
-                id: "trendscout",
-                name: "TrendScout",
-                role: "Style trend researcher",
-                systemPromptAddition: trendScoutPersona
-            )
-            let shopper = SlackAgent(
-                id: "shopper",
-                name: "PersonalShopper",
-                role: "Wardrobe gap analyst and shopper",
-                systemPromptAddition: shopperPersona
-            )
+            // Agents are filesystem subagents seeded by `seedAgentsMd` at
+            // `pupa/agents/<slug>/AGENTS.md`; the channel references them by slug.
             let general = SlackChannel(
                 id: "general",
                 name: "general",
                 type: .channel,
-                memberAgentIds: [stylist.id, trendScout.id, shopper.id]
+                memberAgentIds: ["stylist", "trendscout", "shopper"]
             )
             return Component(
                 id: "slack-1",
                 name: "Style Room",
                 iconSystemName: "bubble.left.and.bubble.right",
                 body: .slack(SlackData(
-                    agents: [stylist, trendScout, shopper],
                     channels: [general],
                     messagesByChannel: [:],
                     activeChannelId: general.id

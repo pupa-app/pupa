@@ -1,58 +1,47 @@
 import Foundation
 
-/// Coordinated file IO for the local canonical store. Every synced read/write
-/// routes through here; each mutation schedules a debounced `StorageMirror`
-/// pass so the change propagates to iCloud (no-op when iCloud is off). The
-/// mirror uses its own primitives, so its copies never re-enter here.
+/// File IO for the local canonical store. Every synced read/write routes
+/// through here; each mutation schedules a debounced `StorageMirror` pass so
+/// the change propagates to iCloud (no-op when iCloud is off). The mirror uses
+/// its own primitives, so its copies never re-enter here.
+///
+/// **Writes are plain atomic, not `NSFileCoordinator`-coordinated.** The store
+/// of record is always the *local* Application Support tree (`PupaStorage`),
+/// which is single-process and has no `NSFilePresenter`, so there is no
+/// coordinating counterpart to synchronise with — the iCloud container is
+/// touched only by `StorageMirror`, which already treats this local tree as
+/// uncoordinated and relies on atomic writes + its baseline-aware 3-way merge
+/// for consistency. A coordinated write here only bought a synchronous XPC
+/// round-trip to `filecoordinationd`, which on device can stall the calling
+/// thread (here the main actor, via `MyAppStore.persist`) for hundreds of ms —
+/// the intermittent freeze in pupa#120. Atomic writes still guarantee no reader
+/// ever sees a torn file.
 public enum CloudDocument {
-    /// Coordinated read. Returns `nil` if the file is absent or unreadable.
+    /// Read. Returns `nil` if the file is absent or unreadable.
     public static func read(_ url: URL) -> Data? {
-        var data: Data?
-        var coordErr: NSError?
-        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordErr) { u in
-            data = try? Data(contentsOf: u)
-        }
-        return data
+        try? Data(contentsOf: url)
     }
 
-    /// Coordinated atomic write; creates intermediate directories.
+    /// Atomic write; creates intermediate directories.
     public static func write(_ data: Data, to url: URL) throws {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        var coordErr: NSError?
-        var writeErr: Error?
-        NSFileCoordinator().coordinate(writingItemAt: url, options: .forReplacing, error: &coordErr) { u in
-            do { try data.write(to: u, options: .atomic) } catch { writeErr = error }
-        }
-        if let coordErr { throw coordErr }
-        if let writeErr { throw writeErr }
+        try data.write(to: url, options: .atomic)
         StorageMirror.shared.scheduleReconcile()
     }
 
-    /// Coordinated move; creates the destination's parent directory.
+    /// Move; creates the destination's parent directory.
     public static func move(from src: URL, to dst: URL) throws {
         try FileManager.default.createDirectory(
             at: dst.deletingLastPathComponent(), withIntermediateDirectories: true)
-        var coordErr: NSError?
-        var moveErr: Error?
-        NSFileCoordinator().coordinate(
-            writingItemAt: src, options: .forMoving,
-            writingItemAt: dst, options: .forReplacing, error: &coordErr
-        ) { s, d in
-            do { try FileManager.default.moveItem(at: s, to: d) } catch { moveErr = error }
-        }
-        if let coordErr { throw coordErr }
-        if let moveErr { throw moveErr }
+        try FileManager.default.moveItem(at: src, to: dst)
         StorageMirror.shared.scheduleReconcile()
     }
 
-    /// Coordinated delete. Silent if the file is already gone.
+    /// Delete. Silent if the file is already gone.
     public static func delete(_ url: URL) {
         guard FileManager.default.fileExists(atPath: url.path) else { return }
-        var coordErr: NSError?
-        NSFileCoordinator().coordinate(writingItemAt: url, options: .forDeleting, error: &coordErr) { u in
-            try? FileManager.default.removeItem(at: u)
-        }
+        try? FileManager.default.removeItem(at: url)
         StorageMirror.shared.scheduleReconcile()
     }
 

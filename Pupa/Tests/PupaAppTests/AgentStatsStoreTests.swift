@@ -44,7 +44,7 @@ struct AgentStatsStoreTests {
         let id = UUID()
         #expect(AgentInvocationKey.orchestrator.statKey == "orchestrator")
         #expect(AgentInvocationKey.myApp(id).statKey == id.uuidString)
-        #expect(AgentInvocationKey.slack(agentId: "abc").statKey == "slack:abc")
+        #expect(AgentInvocationKey.subagent(myAppId: id, slug: "abc").statKey == "subagent:\(id.uuidString):abc")
     }
 
     @Test("gate fires onNestedEnter only for nested calls, with caller+target keys")
