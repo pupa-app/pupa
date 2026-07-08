@@ -28,6 +28,10 @@ public struct MyApp: Codable, Hashable, Identifiable, Sendable {
     /// Archived (hidden) apps leave the sidebar and every agent-facing app
     /// list; their components are locked. Restored from Settings → Archive.
     public var isArchived: Bool
+    /// Locks this app's whole memory subtree: the agent's memory-write tools
+    /// and the Memories UI refuse every mutation (read stays open) until the
+    /// user unlocks. The memory counterpart of the per-component lock.
+    public var isMemoryLocked: Bool
 
     public init(
         id: UUID = UUID(),
@@ -40,7 +44,8 @@ public struct MyApp: Codable, Hashable, Identifiable, Sendable {
         currentThreadId: String? = nil,
         createdAt: Date = Date(),
         settings: [String: SettingValue] = [:],
-        isArchived: Bool = false
+        isArchived: Bool = false,
+        isMemoryLocked: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -65,6 +70,7 @@ public struct MyApp: Codable, Hashable, Identifiable, Sendable {
         self.createdAt = createdAt
         self.settings = settings
         self.isArchived = isArchived
+        self.isMemoryLocked = isMemoryLocked
     }
 
     // MARK: - Component access
@@ -97,7 +103,7 @@ public struct MyApp: Codable, Hashable, Identifiable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id, name, iconSystemName, typeId, components, activeComponentId
-        case threads, currentThreadId, createdAt, settings, isArchived
+        case threads, currentThreadId, createdAt, settings, isArchived, isMemoryLocked
     }
 
     public init(from decoder: Decoder) throws {
@@ -109,6 +115,7 @@ public struct MyApp: Codable, Hashable, Identifiable, Sendable {
         self.createdAt = try c.decode(Date.self, forKey: .createdAt)
         self.settings = (try? c.decodeIfPresent([String: SettingValue].self, forKey: .settings)) ?? [:]
         self.isArchived = try c.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
+        self.isMemoryLocked = try c.decodeIfPresent(Bool.self, forKey: .isMemoryLocked) ?? false
         self.components = try c.decode([Component].self, forKey: .components)
         self.activeComponentId = try c.decodeIfPresent(String.self, forKey: .activeComponentId)
             ?? self.components.first?.id
@@ -129,5 +136,6 @@ public struct MyApp: Codable, Hashable, Identifiable, Sendable {
         try c.encode(createdAt, forKey: .createdAt)
         if !settings.isEmpty { try c.encode(settings, forKey: .settings) }
         if isArchived { try c.encode(isArchived, forKey: .isArchived) }
+        if isMemoryLocked { try c.encode(isMemoryLocked, forKey: .isMemoryLocked) }
     }
 }

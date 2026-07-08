@@ -3,6 +3,16 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.76] — 2026-07-09
+
+### Added
+
+- **Memory lock.** A per-MyApp lock over its whole memory subtree, the
+  counterpart of the per-component lock. Toggle it from the lock button on
+  the app's **Memories** page; while locked, the agent's memory-write tools
+  and the Memories UI (new / edit / rename / move / delete) refuse every
+  change and reads stay open. Unlock to edit again. App `0.0.174` → `0.0.175`.
+
 ## [0.0.75] — 2026-07-09
 
 ### Fixed

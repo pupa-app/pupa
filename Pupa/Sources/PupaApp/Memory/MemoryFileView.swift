@@ -11,6 +11,9 @@ import MarkdownUI
 public struct MemoryFileView: View {
     @Bindable var store: MemoryStore
     let path: String
+    /// When true (the file's app has locked memories), Edit / Delete are hidden
+    /// and the note is preview-only.
+    var readOnly: Bool = false
     var onDeleted: () -> Void
 
     /// Last content loaded from disk. The Cancel button reverts to this.
@@ -21,9 +24,15 @@ public struct MemoryFileView: View {
     @State private var error: String?
     @State private var showDiscardAlert: Bool = false
 
-    public init(store: MemoryStore, path: String, onDeleted: @escaping () -> Void) {
+    public init(
+        store: MemoryStore,
+        path: String,
+        readOnly: Bool = false,
+        onDeleted: @escaping () -> Void
+    ) {
         self.store = store
         self.path = path
+        self.readOnly = readOnly
         self.onDeleted = onDeleted
     }
 
@@ -98,7 +107,12 @@ public struct MemoryFileView: View {
                 }
             }
             Spacer()
-            if isEditing {
+            if readOnly {
+                Label("Locked", systemImage: "lock.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .labelStyle(.titleAndIcon)
+            } else if isEditing {
                 Button("Cancel", action: cancelEdits)
                     .buttonStyle(.borderless)
                 Button("Save", action: saveEdits)

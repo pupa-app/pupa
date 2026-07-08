@@ -19,6 +19,13 @@ public final class MemoryStore {
 
     private let root: URL
 
+    /// Consulted before every mutating call with the target path (relative to
+    /// this store's root). Returning `true` throws `MemoryError.locked`; reads
+    /// stay open. Scoped app stores ignore the path and return their MyApp's
+    /// `isMemoryLocked`; the global (sidebar) store maps the leading path
+    /// segment to a MyApp. Nil (the default) leaves the store fully writable.
+    public var writeGuard: ((String) -> Bool)?
+
     public init(rootOverride: URL? = nil) {
         self.root = rootOverride ?? Self.defaultRoot()
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -26,6 +33,11 @@ public final class MemoryStore {
     }
 
     // MARK: - Public filesystem API
+
+    /// Backstop for every mutating op — throws when `path` is locked.
+    private func ensureWritable(_ path: String) throws {
+        if writeGuard?(normalise(path)) == true { throw MemoryError.locked }
+    }
 
     public func ls(path: String = "", recursive: Bool = false) throws -> [Entry] {
         let url = try resolve(path, requireExists: true)
@@ -55,6 +67,7 @@ public final class MemoryStore {
 
     @discardableResult
     public func writeFile(path: String, content: String) throws -> Int {
+        try ensureWritable(path)
         let url = try resolve(path, requireExists: false, mustBeFile: true)
         try ensureParent(of: url)
         try CloudDocument.write(content.data(using: .utf8)!, to: url)
@@ -64,6 +77,7 @@ public final class MemoryStore {
 
     @discardableResult
     public func appendFile(path: String, content: String) throws -> Int {
+        try ensureWritable(path)
         let url = try resolve(path, requireExists: false, mustBeFile: true)
         try ensureParent(of: url)
         // Coordinated read-modify-write so appends are iCloud-safe.
@@ -84,6 +98,7 @@ public final class MemoryStore {
         newString: String,
         replaceAll: Bool = false
     ) throws -> Int {
+        try ensureWritable(path)
         guard !oldString.isEmpty else { throw MemoryError.invalidEdit("oldString is empty") }
         guard oldString != newString else { throw MemoryError.invalidEdit("oldString == newString") }
         let url = try resolve(path, requireExists: true, mustBeFile: true)
@@ -153,6 +168,8 @@ public final class MemoryStore {
     }
 
     public func move(from: String, to: String) throws {
+        try ensureWritable(from)   // block moving out of a locked subtree
+        try ensureWritable(to)     // …and moving into one
         let src = try resolve(from, requireExists: true)
         let dst = try resolve(to, requireExists: false)
         try CloudDocument.move(from: src, to: dst)
@@ -160,6 +177,7 @@ public final class MemoryStore {
     }
 
     public func delete(path: String, recursive: Bool = false) throws {
+        try ensureWritable(path)
         let url = try resolve(path, requireExists: true)
         guard url != root else { throw MemoryError.cannotModifyRoot }
         if isDirectory(url) {
@@ -173,6 +191,7 @@ public final class MemoryStore {
     }
 
     public func createFolder(path: String) throws {
+        try ensureWritable(path)
         let url = try resolve(path, requireExists: false)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         rescan()
@@ -604,6 +623,7 @@ public enum MemoryError: LocalizedError {
     case invalidEdit(String)
     case folderNotEmpty(String)
     case cannotModifyRoot
+    case locked
 
     public var errorDescription: String? {
         switch self {
@@ -617,6 +637,7 @@ public enum MemoryError: LocalizedError {
         case .invalidEdit(let reason): return "Invalid edit: \(reason)"
         case .folderNotEmpty(let p): return "Folder \(p) is not empty — pass recursive=true"
         case .cannotModifyRoot: return "The memories root cannot be moved or deleted"
+        case .locked: return "This app's memories are locked — unlock them to make changes"
         }
     }
 }
