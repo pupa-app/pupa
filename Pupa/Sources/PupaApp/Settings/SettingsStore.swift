@@ -250,6 +250,20 @@ public final class SettingsStore {
         return entry.id
     }
 
+    /// Append a fully-formed entry (preserving its id so an edit sheet opened on
+    /// it can pair immediately). No-op if the id is already present.
+    public func addBackend(_ entry: BackendEntry) {
+        guard !backends.contains(where: { $0.id == entry.id }) else { return }
+        backends.append(entry)
+        persist()
+    }
+
+    /// A throwaway display name for a backend the user didn't name — so pairing
+    /// never blocks on a required label. e.g. "Backend a1b2".
+    public static func randomBackendLabel() -> String {
+        "Backend " + UUID().uuidString.prefix(4).lowercased()
+    }
+
     /// Edit a backend in place. No-op if `id` is unknown.
     public func updateBackend(
         _ id: UUID,

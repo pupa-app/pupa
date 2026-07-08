@@ -51,7 +51,9 @@ public struct SettingsSheet: View {
     /// deep-link straight to a page (its Settings step lands on Backend).
     @State private var path: [SettingsCategory] = []
     @State private var editingBackend: BackendEntry?
-    @State private var presentingAddBackend: Bool = false
+    /// The id of a backend just created by "Add backend" and being edited for the
+    /// first time — discarded if the user cancels the sheet (see onCancel).
+    @State private var pendingNewBackendID: UUID?
     @State private var backendProbes: [UUID: BackendProbe] = [:]
 
     /// Result of the per-backend `/auth/config` probe shown in the Settings
@@ -209,35 +211,38 @@ public struct SettingsSheet: View {
         }
         .sheet(item: $editingBackend) { entry in
             BackendEditSheet(
-                title: "Edit backend",
+                title: pendingNewBackendID == entry.id ? "Add backend" : "Edit backend",
                 initialEntry: entry,
                 onSave: { updated in
+                    // Persist every field the sheet can edit — label (random if
+                    // left blank so pairing never blocks on a name), URL, cert
+                    // fingerprint, and the selected harness.
+                    let label = updated.label.isEmpty ? SettingsStore.randomBackendLabel() : updated.label
                     settings.updateBackend(
                         entry.id,
-                        label: updated.label,
-                        url: updated.url
+                        label: label,
+                        url: updated.url,
+                        certFingerprint: .some(updated.certFingerprint),
+                        harnessID: .some(updated.harnessID)
                     )
+                    pendingNewBackendID = nil
                     editingBackend = nil
                 },
                 onDelete: settings.backends.count > 1 ? {
                     settings.removeBackend(entry.id)
+                    pendingNewBackendID = nil
                     editingBackend = nil
                 } : nil,
-                onCancel: { editingBackend = nil },
-                settings: settings
-            )
-        }
-        .sheet(isPresented: $presentingAddBackend) {
-            BackendEditSheet(
-                title: "Add backend",
-                initialEntry: BackendEntry(label: "", url: SettingsStore.defaultBackendURL),
-                onSave: { newEntry in
-                    let id = settings.addBackend(label: newEntry.label, url: newEntry.url)
-                    settings.setActiveBackend(id)
-                    presentingAddBackend = false
+                onCancel: {
+                    // A freshly-added, never-saved backend is discarded on cancel
+                    // so an abandoned "Add" leaves no orphan row.
+                    if pendingNewBackendID == entry.id {
+                        settings.removeBackend(entry.id)
+                        pendingNewBackendID = nil
+                    }
+                    editingBackend = nil
                 },
-                onDelete: nil,
-                onCancel: { presentingAddBackend = false }
+                settings: settings
             )
         }
         .task(id: probeKey) { await probeAllBackends() }
@@ -375,7 +380,14 @@ public struct SettingsSheet: View {
             }
 
             Button {
-                presentingAddBackend = true
+                // Create the entry up front and open the full edit sheet on it,
+                // so scan/pair is available immediately (no name-then-reopen
+                // step). Cancelling the sheet discards it (pendingNewBackendID).
+                let entry = BackendEntry(label: "", url: SettingsStore.defaultBackendURL)
+                settings.addBackend(entry)
+                settings.setActiveBackend(entry.id)
+                pendingNewBackendID = entry.id
+                editingBackend = entry
             } label: {
                 Label("Add backend", systemImage: "plus")
             }

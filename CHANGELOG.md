@@ -23,6 +23,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   the model picker and Tools screen show an explicit "backend unreachable"
   state instead of a stale built-in list — the catalog comes entirely from the
   backend's `GET /harnesses` discovery. App `0.0.162` → `0.0.163`.
+- **Add-backend goes straight to scan/pair.** "Add backend" now opens the full
+  editor (URL + QR scan + pairing) on a fresh entry instead of a name-only
+  first step; cancelling discards the entry. A blank name is filled with a
+  random label on pairing, so a name is never required. App `0.0.163` →
+  `0.0.164`.
 
 ## [0.0.65] — 2026-07-08
 

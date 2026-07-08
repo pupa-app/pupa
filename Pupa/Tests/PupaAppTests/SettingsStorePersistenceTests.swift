@@ -211,6 +211,31 @@ struct SettingsStorePersistenceTests {
         #expect(reader.agentRunURL.absoluteString == "https://m.example.com/harnesses/claude_code")
     }
 
+    @Test("addBackend(entry) preserves id + harnessID and persists")
+    func addBackendEntry_preservesIdentity() {
+        SettingsStore.clearStorage()
+        let writer = SettingsStore(credentials: InMemoryCredentialStore())
+        let entry = BackendEntry(label: "", url: URL(string: "https://e.example.com/")!, harnessID: "claude_code")
+        writer.addBackend(entry)
+        writer.setActiveBackend(entry.id)
+
+        let reader = SettingsStore(credentials: InMemoryCredentialStore())
+        let stored = reader.backends.first { $0.id == entry.id }
+        #expect(stored != nil)
+        #expect(stored?.harnessID == "claude_code")
+        // Re-adding the same id is a no-op (no duplicate row).
+        reader.addBackend(entry)
+        #expect(reader.backends.filter { $0.id == entry.id }.count == 1)
+    }
+
+    @Test("randomBackendLabel is non-empty and varies")
+    func randomBackendLabel_nonEmpty() {
+        let a = SettingsStore.randomBackendLabel()
+        let b = SettingsStore.randomBackendLabel()
+        #expect(!a.isEmpty)
+        #expect(a != b)
+    }
+
     @Test("harness controls round-trip per harness id")
     func harnessControls_roundtrip() {
         SettingsStore.clearStorage()

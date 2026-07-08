@@ -455,6 +455,13 @@ struct BackendEditSheet: View {
         do {
             let result = try await client.pair(code: trimmed, label: DeviceInfo.localName)
             try settings.markPaired(backendID: initialEntry.id, deviceID: result.deviceID, token: result.token)
+            // Never force a name: if the user paired without one, mint a random
+            // label so the row isn't blank.
+            if label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let generated = SettingsStore.randomBackendLabel()
+                settings.updateBackend(initialEntry.id, label: generated)
+                label = generated
+            }
             pairCodeDraft = ""
             pairState = .idle
             showOutcome(.success)
