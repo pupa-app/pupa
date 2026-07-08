@@ -256,7 +256,6 @@ struct BackendEditSheet: View {
                 Button("Retry") { Task { await loadHarnesses() } }
             case .loaded(let harnesses):
                 Picker("Harness", selection: $harnessDraft) {
-                    Text("Backend default").tag("")
                     ForEach(harnesses) { h in
                         Text(h.isDefault ? "\(h.label) (default)" : h.label).tag(h.id)
                     }
@@ -268,7 +267,7 @@ struct BackendEditSheet: View {
         } header: {
             Text("Agent harness")
         } footer: {
-            Text("Which agent loop this backend talks to. The model list and permission controls follow the selected harness. \"Backend default\" uses whatever the server mounts at its root.")
+            Text("Which agent loop this backend talks to. The model list and permission controls follow the selected harness.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -292,9 +291,12 @@ struct BackendEditSheet: View {
         let client = BackendHarnessesClient(backendURL: url, extraHeaders: headers, session: session)
         do {
             let harnesses = try await client.list()
-            // Drop a stale selection that the backend no longer advertises.
-            if !harnessDraft.isEmpty, !harnesses.contains(where: { $0.id == harnessDraft }) {
-                harnessDraft = ""
+            // Always resolve to a concrete harness (no "backend default" entry):
+            // if nothing is selected, or the stored selection is no longer
+            // advertised, fall back to the backend's default harness.
+            if harnessDraft.isEmpty || !harnesses.contains(where: { $0.id == harnessDraft }) {
+                harnessDraft = harnesses.first(where: { $0.isDefault })?.id
+                    ?? harnesses.first?.id ?? ""
             }
             harnessLoad = .loaded(harnesses)
         } catch {
