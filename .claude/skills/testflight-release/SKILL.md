@@ -76,7 +76,7 @@ If the user wants to skip Organizer and upload via CLI: `xcrun altool --upload-a
 
 ## Failure modes to surface clearly
 
-- **Icon has alpha**: tell the user the icon must be flattened. Suggest running our flatten one-liner (composite onto white, save back). Don't auto-flatten — icon edits are visual, the user should approve.
+- **Icon has alpha**: tell the user the icon must be flattened. Suggest running our flatten one-liner (composite onto white, save back). Don't auto-flatten — icon edits are visual, the user should approve. This check is for the **iOS/universal** `icon_1024.png` only — the `mac_icon_*.png` files are *supposed* to have alpha (squircle mask + inset); regenerate them with `swift scripts/gen-macos-appicon.swift` if the source art changes.
 - **Working tree dirty (non-pbxproj files)**: refuse and ask the user to commit/stash first.
 - **`main` can't fast-forward from `dev`**: `main` has commits not on `dev` (they diverged). The script aborts before archiving. Resolve the branch state manually (or merge `main` into `dev`), then re-run. The bump commit is already on `dev` at this point — no harm in re-running.
 - **Archive fails on signing**: usually means agreements unaccepted at `developer.apple.com` or the Xcode Apple ID needs re-auth. Direct the user there; don't try to fix from the CLI.
