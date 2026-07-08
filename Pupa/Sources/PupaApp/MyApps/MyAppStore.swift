@@ -209,6 +209,7 @@ public final class MyAppStore {
     /// global sidebar on the next app-scoped write, so no `globalMemory` here.
     private func seedBirthFiles(forAppNamed name: String) {
         DefaultSkills.seed(appName: name)
+        GuideSkills.seed(appName: name)
         ExampleRegistry.seedAgentsMd(forAppNamed: name)
     }
 

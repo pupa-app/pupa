@@ -254,6 +254,10 @@ public final class MemoryStore {
     public static let pupaAgentsPath = "pupa/AGENTS.md"
     /// Skills directory, relative to a scope-rooted store: `pupa/skills`.
     public static let pupaSkillsDir = "pupa/skills"
+    /// Plugins directory, relative to a scope-rooted store: `pupa/plugins`.
+    /// A plugin bundles managed skills at `pupa/plugins/<id>/skills/<name>/SKILL.md`,
+    /// keeping them out of the user's `pupa/skills/` space.
+    public nonisolated static let pupaPluginsDir = "pupa/plugins"
     /// Subagents directory, relative to a scope-rooted store: `pupa/agents`.
     /// Each subagent is `pupa/agents/<slug>/AGENTS.md` + a private notes subtree.
     public static let pupaAgentsDir = "pupa/agents"

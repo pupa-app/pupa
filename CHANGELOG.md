@@ -3,6 +3,24 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.72] — 2026-07-08
+
+### Added
+
+- **`/pupa` guide skills plugin.** A user-facing guide seeded into the
+  orchestrator and every app: `/pupa` (what Pupa is; the
+  orchestrator / myapp / component / item boundaries) plus
+  `/pupa-components`, `/pupa-sharing`, `/pupa-memory`, `/pupa-agents` and
+  `/pupa-system` (the app/backend boundary + standing instructions).
+  Readable as slash commands, loadable by agents on demand. Bundled
+  Claude-Code-style under `pupa/plugins/pupa-guide/` so the user's
+  `pupa/skills/` folder stays theirs — skills are now discovered from both
+  roots (user skill wins a name collision). Managed content: re-seeded on
+  launch when the app ships a newer version (edits to these files are
+  overwritten on update; deletions come back). Replaces the
+  `/pupa-internals` default skill — an unmodified seeded copy is removed
+  automatically. App `0.0.170` → `0.0.171`.
+
 ## [0.0.71] — 2026-07-08
 
 ### Fixed

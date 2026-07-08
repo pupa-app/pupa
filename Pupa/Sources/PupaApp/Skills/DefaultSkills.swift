@@ -13,7 +13,6 @@ enum DefaultSkills {
     /// `(path, body)` pairs written into a MyApp's memory root when missing.
     static let files: [(path: String, body: String)] = [
         ("pupa/skills/to-memory/SKILL.md", toMemorySkillMd),
-        ("pupa/skills/pupa-internals/SKILL.md", pupaInternalsSkillMd),
     ]
 
     /// Write any missing default-skill file into `appMemory`. Returns whether
@@ -57,10 +56,10 @@ enum DefaultSkills {
     4. Tell the user in one line what you added.
     """
 
-    /// `/pupa-internals` — orient the agent on Pupa's object model and the
-    /// app(frontend)/backend boundary, so it writes the right thing in the right
-    /// place with the right tool. Loaded on demand via `app_skill_view`.
-    private static let pupaInternalsSkillMd = """
+    /// Retired `/pupa-internals` body, replaced by the `GuideSkills` plugin.
+    /// Kept verbatim only so `GuideSkills.seed` can recognise (and remove) a
+    /// pristine seeded copy on existing installs — never seeded anymore.
+    static let retiredPupaInternalsSkillMd = """
     ---
     description: How Pupa fits together — the app(on-device)/backend split, the two skill systems, and where standing behaviour lives
     when_to_use: when unsure whether something belongs in the app or the backend, which skill system you're touching, or how to change your standing behaviour

@@ -23,6 +23,9 @@ struct DefaultSkillsTests {
         #expect(skill.paletteVisible)                              // /to-memory in chat palette
         #expect(skill.description.contains("MEMORIES.md"))         // frontmatter parsed
         #expect(skill.body.contains("pupa/MEMORIES.md"))          // playbook targets the file
+
+        // /pupa-internals is retired — replaced by the GuideSkills plugin.
+        #expect(!mem.fileExists(at: "pupa/skills/pupa-internals/SKILL.md"))
     }
 
     @Test("seed is idempotent — never clobbers an existing file")
