@@ -3,6 +3,21 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.67] — 2026-07-08
+
+### Fixed
+
+- **macOS Dock/app icon is now squircle-shaped.** The `mac`-idiom AppIcon PNGs
+  were full-bleed (no padding, no mask), so the Dock/Finder icon rendered as a
+  hard square — macOS, unlike iOS, does not auto-mask. Regenerated the mac
+  icons on Apple's macOS icon grid (continuous-curvature superellipse mask +
+  ~10% transparent inset) via a new standardised generator,
+  [`scripts/gen-macos-appicon.swift`](scripts/gen-macos-appicon.swift). iOS /
+  universal 1024 icon left opaque and unchanged. The `swift run PupaDemo` dev
+  harness sets its Dock icon programmatically (no asset catalog) — it now masks
+  the same squircle at runtime (`AppIcon.macDockImage`) so the demo Dock
+  silhouette matches the shipped app. App `0.0.164` → `0.0.165`.
+
 ## [0.0.66] — 2026-07-08
 
 ### Added

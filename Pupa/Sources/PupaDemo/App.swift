@@ -13,8 +13,10 @@ final class DemoAppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         // `swift run` builds a bare binary with no Info.plist CFBundleIconFile,
-        // so set the Dock/window icon programmatically from the bundled PNG.
-        if let image = AppIcon.nsImage {
+        // so set the Dock/window icon programmatically. macOS won't auto-mask a
+        // raw square here, so use the squircle-masked variant to match the
+        // shipped app's Dock silhouette.
+        if let image = AppIcon.macDockImage ?? AppIcon.nsImage {
             NSApp.applicationIconImage = image
         }
     }
