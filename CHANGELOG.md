@@ -3,6 +3,32 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.66] — 2026-07-08
+
+### Added
+
+- **Per-connection agent harness.** Each backend connection now picks which
+  agent harness it talks to (LangGraph, Claude Code, …), chosen in the backend
+  edit sheet from the server's `GET /harnesses` discovery. Chats route to
+  `POST /harnesses/{id}`; the backend list shows the selected harness as a
+  badge. Requires backend `0.0.67+`.
+- **Harness-scoped tool & permission controls.** Settings → Tools renders the
+  *active harness's* controls from its advertised schema: LangGraph shows the
+  shell-approval toggle + backend-tool mutes, Claude Code shows its host-tool
+  scope (off/read/edit/full) + run-commands-without-asking toggle.
+
+### Changed
+
+- **No more hardcoded model/tool fallbacks.** When the backend is unreachable
+  the model picker and Tools screen show an explicit "backend unreachable"
+  state instead of a stale built-in list — the catalog comes entirely from the
+  backend's `GET /harnesses` discovery. App `0.0.162` → `0.0.163`.
+- **Add-backend goes straight to scan/pair.** "Add backend" now opens the full
+  editor (URL + QR scan + pairing) on a fresh entry instead of a name-only
+  first step; cancelling discards the entry. A blank name is filled with a
+  random label on pairing, so a name is never required. App `0.0.163` →
+  `0.0.164`.
+
 ## [0.0.65] — 2026-07-08
 
 ### Changed

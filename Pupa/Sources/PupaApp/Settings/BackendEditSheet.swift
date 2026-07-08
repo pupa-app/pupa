@@ -20,6 +20,9 @@ struct BackendEditSheet: View {
     @State private var label: String
     @State private var urlDraft: String
     @State private var certFingerprintDraft: String
+    /// Selected harness id; empty string = the backend's default harness.
+    @State private var harnessDraft: String
+    @State private var harnessLoad: HarnessLoadState = .idle
     @State private var pairCodeDraft: String = ""
     @State private var pairState: PairState = .idle
     @State private var pairOutcome: PairOutcome? = nil
@@ -31,6 +34,13 @@ struct BackendEditSheet: View {
     private enum PairState: Equatable {
         case idle
         case pairing
+        case failed(String)
+    }
+
+    private enum HarnessLoadState: Equatable {
+        case idle
+        case loading
+        case loaded([HarnessDescriptor])
         case failed(String)
     }
 
@@ -58,6 +68,7 @@ struct BackendEditSheet: View {
         self._label = State(initialValue: initialEntry.label)
         self._urlDraft = State(initialValue: initialEntry.url.absoluteString)
         self._certFingerprintDraft = State(initialValue: initialEntry.certFingerprint ?? "")
+        self._harnessDraft = State(initialValue: initialEntry.harnessID ?? "")
     }
 
     private var parsedURL: URL? {
@@ -84,6 +95,8 @@ struct BackendEditSheet: View {
         NavigationStack {
             Form {
                 connectionSection
+
+                harnessSection
 
                 if isEditMode {
                     pairSection
@@ -124,7 +137,8 @@ struct BackendEditSheet: View {
                             label: label.trimmingCharacters(in: .whitespacesAndNewlines),
                             url: url,
                             deviceID: settings?.backends.first(where: { $0.id == initialEntry.id })?.deviceID ?? initialEntry.deviceID,
-                            certFingerprint: fp.isEmpty ? nil : fp
+                            certFingerprint: fp.isEmpty ? nil : fp,
+                            harnessID: harnessDraft.isEmpty ? nil : harnessDraft
                         )
                         onSave(entry)
                     }
@@ -222,6 +236,71 @@ struct BackendEditSheet: View {
             Text("Label is a free-form display name. URL must include a scheme (http:// or https://). For self-signed HTTPS backends, paste the SHA-256 cert fingerprint printed by `pupa-backend pair`. Authentication is per-device — complete the pairing below.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var harnessSection: some View {
+        Section {
+            switch harnessLoad {
+            case .idle, .loading:
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading harnesses…").foregroundStyle(.secondary)
+                }
+            case .failed(let message):
+                // Keep whatever harness the entry already had; let the user retry.
+                Label("Couldn't reach backend", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text(message).font(.caption).foregroundStyle(.secondary)
+                Button("Retry") { Task { await loadHarnesses() } }
+            case .loaded(let harnesses):
+                Picker("Harness", selection: $harnessDraft) {
+                    ForEach(harnesses) { h in
+                        Text(h.isDefault ? "\(h.label) (default)" : h.label).tag(h.id)
+                    }
+                }
+                #if os(iOS)
+                .pickerStyle(.menu)
+                #endif
+            }
+        } header: {
+            Text("Agent harness")
+        } footer: {
+            Text("Which agent loop this backend talks to. The model list and permission controls follow the selected harness.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .task(id: parsedURL) { await loadHarnesses() }
+    }
+
+    @MainActor
+    private func loadHarnesses() async {
+        guard let url = parsedURL else {
+            harnessLoad = .failed("Enter a valid backend URL first.")
+            return
+        }
+        harnessLoad = .loading
+        let headers: [String: String]
+        if let settings, let token = settings.credentials.token(for: initialEntry.id) {
+            headers = ["Authorization": "Bearer \(token)"]
+        } else {
+            headers = [:]
+        }
+        let session = settings?.session(for: initialEntry) ?? .shared
+        let client = BackendHarnessesClient(backendURL: url, extraHeaders: headers, session: session)
+        do {
+            let harnesses = try await client.list()
+            // Always resolve to a concrete harness (no "backend default" entry):
+            // if nothing is selected, or the stored selection is no longer
+            // advertised, fall back to the backend's default harness.
+            if harnessDraft.isEmpty || !harnesses.contains(where: { $0.id == harnessDraft }) {
+                harnessDraft = harnesses.first(where: { $0.isDefault })?.id
+                    ?? harnesses.first?.id ?? ""
+            }
+            harnessLoad = .loaded(harnesses)
+        } catch {
+            harnessLoad = .failed(String(describing: error))
         }
     }
 
@@ -378,6 +457,13 @@ struct BackendEditSheet: View {
         do {
             let result = try await client.pair(code: trimmed, label: DeviceInfo.localName)
             try settings.markPaired(backendID: initialEntry.id, deviceID: result.deviceID, token: result.token)
+            // Never force a name: if the user paired without one, mint a random
+            // label so the row isn't blank.
+            if label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let generated = SettingsStore.randomBackendLabel()
+                settings.updateBackend(initialEntry.id, label: generated)
+                label = generated
+            }
             pairCodeDraft = ""
             pairState = .idle
             showOutcome(.success)

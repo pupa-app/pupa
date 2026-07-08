@@ -629,14 +629,20 @@ public final class ChatViewModel {
         let backendURL = settings.backendURL
         let authHeaders = settings.authHeaders
         let disabledByUser = settings.disabledBackendTools
+        let harnessID = settings.activeHarnessID
         let verbose = self.verbose
         Task { [weak self] in
+            // The active harness's tool list comes from `GET /harnesses`.
             let backend: [BackendToolDescriptor]?
             do {
-                backend = try await BackendToolsClient(
+                let harnesses = try await BackendHarnessesClient(
                     backendURL: backendURL,
                     extraHeaders: authHeaders
                 ).list()
+                let active = harnesses.first(where: { $0.id == harnessID })
+                    ?? harnesses.first(where: { $0.isDefault })
+                    ?? harnesses.first
+                backend = active?.tools
             } catch {
                 backend = nil
             }
@@ -807,7 +813,7 @@ public final class ChatViewModel {
         self.threadId = threadId
         self.toolGateState = toolGateState
         self.onStreamingChange = onStreamingChange
-        let initialURL = settings.backendURL
+        let initialURL = settings.agentRunURL
         let initialHeaders = settings.authHeaders
         let client = AgentClient(
             endpoint: initialURL,
@@ -830,7 +836,9 @@ public final class ChatViewModel {
     /// the same conversation. Bubbles already in `self.bubbles` stay put —
     /// they're a `ChatViewModel` property, not a session property.
     private func rebuildSessionIfSettingsChanged() {
-        let url = settings.backendURL
+        // `agentRunURL` folds in the selected harness (`/harnesses/{id}`), so a
+        // harness switch changes the path and triggers a rebuild here too.
+        let url = settings.agentRunURL
         let headers = settings.authHeaders
         guard url != sessionBackendURL || headers != sessionAuthHeaders else { return }
         let client = AgentClient(
@@ -1440,6 +1448,19 @@ public final class ChatViewModel {
             )
             if effective.resolve(ShellApprovalDisabledKey.self, at: resolveScope) {
                 entries["shell_approval_disabled"] = .bool(true)
+            }
+            // Merge the active harness's own permission-control values (e.g.
+            // Claude Code's `claude_loop_native` scope / `claude_loop_auto_approve`),
+            // keyed by the exact state key the backend gate reads. Empty for
+            // LangGraph, whose controls are the disabled_tools + shell keys above.
+            if let harnessID = settings.activeHarnessID {
+                for (key, value) in settings.harnessControls(harnessID: harnessID) {
+                    switch value {
+                    case .bool(let b): entries[key] = .bool(b)
+                    case .string(let s): entries[key] = .string(s)
+                    case .stringSet(let arr): entries[key] = .array(arr.sorted().map(AnyJSON.string))
+                    }
+                }
             }
             return .object(entries)
         }
