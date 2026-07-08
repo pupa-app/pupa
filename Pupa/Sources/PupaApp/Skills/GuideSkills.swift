@@ -15,7 +15,7 @@ import Foundation
 /// component-kind list is generated from `MyAppType.kinds` so it can't drift.
 enum GuideSkills {
     /// Bump when any guide body changes so existing installs re-seed.
-    static let version = "4"
+    static let version = "5"
 
     /// The plugin folder holding this guide's skills.
     static let pluginDir = "\(MemoryStore.pupaPluginsDir)/pupa-guide"
@@ -112,9 +112,10 @@ enum GuideSkills {
       subagents.
     - **Component** — one shape on a myapp's canvas (tracker, calendar, …).
     - **Item** — one record inside a component (row, event, task…).
-    - **Memories** — each myapp (and the orchestrator) keeps its own markdown
-      notes, edited by you and the agent alike. They persist across sessions
-      and are separate from canvas data — durable context, not records.
+    - **Memories** — each myapp (and the orchestrator) keeps its own
+      filesystem-like tree of markdown notes and folders living *inside* the
+      app — not on the device's file system. Edited by you and the agent
+      alike; persists across sessions. Durable context, not records.
 
     Items can link across components *within one myapp*. Myapps don't share
     data — an app moves between devices or people as a `.pupa` file.
@@ -176,9 +177,10 @@ enum GuideSkills {
         description: "How Pupa remembers: memories, sessions, change history, archive",
         whenToUse: "when asked what persists, how to undo changes, or how to hide an app"
     ))
-    - **Memories** — per-app markdown notes both you and the agent read and
-      write. They persist across sessions; edit them any time from the
-      Memories tab.
+    - **Memories** — a filesystem-like tree of markdown notes and folders
+      that lives *inside* the app, not on the device's file system. Browse
+      and edit it from the Memories tab; the agent reads and writes it too.
+      Persists across sessions.
     - **Sessions** — "New session" starts a fresh conversation. The canvas
       and memories stay.
     - **History** — every canvas change is recorded per myapp. Browse the
@@ -225,8 +227,9 @@ enum GuideSkills {
     a shell unless explicitly told to; if unsure where something belongs, ask.
 
     **Canvas vs memory.** Components hold data items; memory is a *separate*
-    per-app markdown filesystem for durable notes — not canvas data. Two
-    different stores; don't cross them.
+    per-app markdown note tree for durable context — not canvas data. Two
+    different stores; don't cross them. Memory paths are an in-app structure,
+    not host file paths — never reach for it via a shell.
 
     **Two skill systems.** *App* skills are on-device `SKILL.md` files —
     yours under `pupa/skills/<name>/`, bundled ones under
