@@ -346,7 +346,7 @@ public enum MyAppImporter {
 
     /// Compare dotted numeric versions ("0.0.103"). Returns true when `lhs`
     /// is strictly newer than `rhs`. Non-numeric components compare as 0.
-    static func isNewer(_ lhs: String, than rhs: String) -> Bool {
+    nonisolated static func isNewer(_ lhs: String, than rhs: String) -> Bool {
         func parts(_ s: String) -> [Int] { s.split(separator: ".").map { Int($0) ?? 0 } }
         let a = parts(lhs), b = parts(rhs)
         for i in 0..<max(a.count, b.count) {

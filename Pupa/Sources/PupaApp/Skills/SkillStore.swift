@@ -21,35 +21,63 @@ public final class SkillStore {
     }
 
     /// Rebuild the cache from disk. Idempotent and cheap (few small files).
+    /// Two roots: the user's `pupa/skills/<name>/SKILL.md` and plugin-bundled
+    /// `pupa/plugins/<id>/skills/<name>/SKILL.md`. Names share one flat
+    /// namespace; on collision the user skill wins (scanned first).
     public func rescan() {
-        let prefix = MemoryStore.pupaSkillsDir + "/"   // "pupa/skills/"
         var found: [Skill] = []
         var seen: Set<String> = []
-        for path in memory.snapshotPaths() {
-            guard path.hasPrefix(prefix) else { continue }
-            // Expect exactly `<dir>/SKILL.md` — one folder level, the entrypoint.
-            let rest = path.dropFirst(prefix.count)
-            let comps = rest.split(separator: "/", omittingEmptySubsequences: false)
-            guard comps.count == 2, comps[1] == "SKILL.md" else { continue }
-            let dir = String(comps[0])
-            guard !dir.isEmpty, !seen.contains(dir) else { continue }
-            guard let read = try? memory.readFile(path: path) else { continue }
-            seen.insert(dir)
-            let (fields, body) = SkillFrontMatter.parse(read.content)
-            found.append(Skill(
-                name: dir,
-                displayName: fields["name"],
-                description: fields["description"] ?? "",
-                whenToUse: fields["when_to_use"],
-                argumentHint: fields["argument-hint"],
-                arguments: fields["arguments"],
-                body: body,
-                disableModelInvocation: SkillFrontMatter.bool(fields, "disable-model-invocation", default: false),
-                userInvocable: SkillFrontMatter.bool(fields, "user-invocable", default: true),
-                sourcePath: path
-            ))
+        let paths = memory.snapshotPaths()
+        for path in paths {
+            guard let dir = Self.userSkillName(path) else { continue }
+            appendSkill(named: dir, at: path, into: &found, seen: &seen)
+        }
+        for path in paths {
+            guard let dir = Self.pluginSkillName(path) else { continue }
+            appendSkill(named: dir, at: path, into: &found, seen: &seen)
         }
         skills = found.sorted { $0.name < $1.name }
+    }
+
+    /// `pupa/skills/<name>/SKILL.md` → `<name>` — one folder level, the
+    /// entrypoint (supporting files ignored).
+    private static func userSkillName(_ path: String) -> String? {
+        let prefix = MemoryStore.pupaSkillsDir + "/"
+        guard path.hasPrefix(prefix) else { return nil }
+        let comps = path.dropFirst(prefix.count)
+            .split(separator: "/", omittingEmptySubsequences: false)
+        guard comps.count == 2, comps[1] == "SKILL.md", !comps[0].isEmpty else { return nil }
+        return String(comps[0])
+    }
+
+    /// `pupa/plugins/<id>/skills/<name>/SKILL.md` → `<name>` — one plugin
+    /// level, one skill level.
+    private static func pluginSkillName(_ path: String) -> String? {
+        let prefix = MemoryStore.pupaPluginsDir + "/"
+        guard path.hasPrefix(prefix) else { return nil }
+        let comps = path.dropFirst(prefix.count)
+            .split(separator: "/", omittingEmptySubsequences: false)
+        guard comps.count == 4, comps[1] == "skills", comps[3] == "SKILL.md",
+              !comps[0].isEmpty, !comps[2].isEmpty else { return nil }
+        return String(comps[2])
+    }
+
+    private func appendSkill(named dir: String, at path: String, into found: inout [Skill], seen: inout Set<String>) {
+        guard !seen.contains(dir), let read = try? memory.readFile(path: path) else { return }
+        seen.insert(dir)
+        let (fields, body) = SkillFrontMatter.parse(read.content)
+        found.append(Skill(
+            name: dir,
+            displayName: fields["name"],
+            description: fields["description"] ?? "",
+            whenToUse: fields["when_to_use"],
+            argumentHint: fields["argument-hint"],
+            arguments: fields["arguments"],
+            body: body,
+            disableModelInvocation: SkillFrontMatter.bool(fields, "disable-model-invocation", default: false),
+            userInvocable: SkillFrontMatter.bool(fields, "user-invocable", default: true),
+            sourcePath: path
+        ))
     }
 
     public func skill(named name: String) -> Skill? {

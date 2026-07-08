@@ -40,7 +40,10 @@ backend (separate repo) over a single `POST /` SSE stream.
 On any change (new shape, tool, state, persistence rule, layout): update
 [docs/architecture.md](docs/architecture.md) to reflect reality. Add an
 entry to [CHANGELOG.md](CHANGELOG.md) under the next patch bump for
-user-visible changes.
+user-visible changes. If the change alters what the user can see or do,
+also update the guide skill bodies in
+[GuideSkills.swift](Pupa/Sources/PupaApp/Skills/GuideSkills.swift) **and
+bump `GuideSkills.version`** so existing installs re-seed.
 
 ## Versioning
 

@@ -9,10 +9,14 @@ in that MyApp (main agent + Slack subagents); the orchestrator has its own.
 
 ```
 memories/<myapp-slug>/pupa/
-  AGENTS.md                 # main agent prompt
-  agents/<sub>/AGENTS.md    # subagent prompt (overrides inline persona)
-  skills/<name>/SKILL.md    # a skill — directory name is the /command
+  AGENTS.md                       # main agent prompt
+  agents/<sub>/AGENTS.md          # subagent prompt (overrides inline persona)
+  skills/<name>/SKILL.md          # a user skill — directory name is the /command
+  plugins/<id>/skills/<name>/SKILL.md  # plugin-bundled skill (managed, e.g. the guide)
 ```
+
+Skill names share one flat namespace across both roots; on a collision the
+`pupa/skills/` skill wins over the plugin one.
 
 `pupa/` is **visible** (not a dotfolder) so it rides the memory sidebar,
 per-turn snapshot, and the `.pupa` bundle unchanged. Files must be `.md` or
@@ -84,16 +88,37 @@ into **every** MyApp — not just examples. Seeding happens **once, at app birth
 fresh-install default app), never on later launches, so a user's or agent's
 edits *and deletions* stick. File-exists-guarded.
 
-Two defaults ship today, both riding the `.pupa` export bundle as config:
+One default ships today, riding the `.pupa` export bundle as config:
 
 - **`/to-memory`** — distils durable, app-level learnings from the conversation
   (conventions, preferences, mid-task realignments) into `pupa/MEMORIES.md` (or
   the relevant `AGENTS.md`).
-- **`/pupa-internals`** — orients the agent on Pupa's object model (canvas
-  components, memory, skills, `AGENTS.md`) and the app(on-device)/backend
-  boundary, so it writes the right thing in the right place with the right tool.
-  Loaded on demand via `app_skill_view`. Fully user-editable and deletable like
-  any app skill.
+
+### Guide skills (all scopes)
+
+`GuideSkills` (`Pupa/Sources/PupaApp/Skills/GuideSkills.swift`) is the
+user-facing guide plugin: **`/pupa`** (what Pupa is; the
+orchestrator/myapp/component/item boundaries) pointing at five children —
+**`/pupa-components`** (shapes + how they combine; kind list generated from
+`MyAppType.kinds` so it can't drift), **`/pupa-sharing`** (`.pupa`
+export/import), **`/pupa-memory`** (memories, sessions, history, archive),
+**`/pupa-agents`** (skills, subagents, slack rooms), **`/pupa-system`** (the
+app/backend boundary + where standing behaviour lives — the agent-facing
+successor of `/pupa-internals`). All user-invocable and model-loadable via
+`app_skill_view`.
+
+The guide lives under `pupa/plugins/pupa-guide/skills/`, not in the user's
+`pupa/skills/` space. Unlike default skills it is **managed content**: seeded
+into the orchestrator and every MyApp on **every launch**, overwritten when
+the shipped `GuideSkills.version` is newer than the file's frontmatter
+`version:` — so installs pick up new guide bodies on app update. Edits are
+clobbered on the next version bump and deletions resurrect; a custom copy
+needs a different skill name. Bodies are user-conceptual only (no
+implementation internals) — enforced by tests. The plugin replaced the
+retired `/pupa-internals` default skill; a pristine seeded copy of it is
+removed on first reseed (a user-modified copy is left alone), and guide
+copies an earlier build seeded at the root of `pupa/skills/` (identified by
+their managed `version:` frontmatter) are migrated into the plugin.
 
 ## App skills vs the backend skills library
 
@@ -102,8 +127,6 @@ loaded with `app_skill_view` and created with `writeMemoryFile`. They are the
 only skills the user or agent manages from the app. Separately, a **backend**
 may expose its own server-side skills library (`~/.pupa-backend/skills/`, read
 via a backend `skill_view` tool) — a different store the client never touches.
-The `/pupa-internals` default skill spells out this distinction for the agent so
-it doesn't confuse the two.
 
 ## Deferred (not v1)
 
@@ -112,7 +135,8 @@ non-markdown supporting files, and a global cross-app skills tier.
 
 ## Code map
 
-- `Skill`, `SkillFrontMatter`, `SkillStore` — `Pupa/Sources/PupaApp/Skills/`.
+- `Skill`, `SkillFrontMatter`, `SkillStore`, `DefaultSkills`, `GuideSkills` —
+  `Pupa/Sources/PupaApp/Skills/`.
 - Discovery: `SkillStore.rescan()` walks `pupa/skills/*/SKILL.md`; refreshed on
   memory mutation.
 - Slash: `SkillStore.slashCommands()` feeds `SlashCommandRegistry`'s live

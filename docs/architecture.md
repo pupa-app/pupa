@@ -497,13 +497,21 @@ them per scope and:
 - the agent loads a body on demand with `app_skill_view`, always advertised
   through `MyAppType.skillToolNames`.
 
-Skills are seeded two ways: per-example (each example's `seedAgentsMd`) and
+Skills are seeded three ways: per-example (each example's `seedAgentsMd`);
 universally via `DefaultSkills`, seeded **once at app birth**
 (`MyAppStore.seedBirthFiles` — `addMyApp` / example restore / fresh-install
-default), so user/agent edits *and deletions* survive later launches. Every app
-ships `/to-memory` (records durable learnings into `pupa/MEMORIES.md`) and
-`/pupa-internals` (the object-model + frontend/backend boundary primer, loaded
-on demand via `app_skill_view`). All are file-exists-guarded.
+default), file-exists-guarded so user/agent edits *and deletions* survive
+later launches — every app ships `/to-memory` (records durable learnings into
+`pupa/MEMORIES.md`); and via `GuideSkills`, the managed user-facing guide
+plugin (`/pupa` + `/pupa-components` / `/pupa-sharing` / `/pupa-memory` /
+`/pupa-agents` / `/pupa-system`) living under
+`pupa/plugins/pupa-guide/skills/` — `SkillStore` discovers both that plugin
+root and the user's `pupa/skills/` (user skill wins a name collision).
+Re-seeded **every launch** into the orchestrator and every app
+(`AppView.init`), version-gated on frontmatter `version:` so app updates
+refresh the bodies. `GuideSkills` replaced the retired `/pupa-internals`
+default skill and removes a pristine seeded copy of it on reseed. See
+[skills.md](skills.md).
 
 These are **app skills** (on-device `pupa/skills/`, `app_skill_view`), distinct
 from any **backend** skills library (`~/.pupa-backend/skills/`, the backend's

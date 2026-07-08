@@ -91,14 +91,21 @@ public struct AppView: View {
         // tree regardless; the mirror converges with iCloud off the main thread.
         PupaStorage.warm()
         let store = MyAppStore()
+        // Guide skills are managed content, re-seeded (version-gated) into
+        // the orchestrator and every app on each launch so installs pick up
+        // new guide bodies on app update — the one exception to the
+        // seed-once rule below. Runs before `MemoryStore()` so the global
+        // sidebar store's init rescan already sees the files.
+        GuideSkills.seedOrchestrator()
+        for app in store.myApps { GuideSkills.seed(appName: app.name) }
         let memory = MemoryStore()
         // Rename must move the app's slug-keyed memory folder through the
         // live store so the sidebar tree refreshes in place.
         store.globalMemory = memory
         // Persona AGENTS.md and default skills (the `/to-memory` skill) are
         // seeded once at app birth (addMyApp / restoreExample / fresh-install)
-        // — never here — so user edits *and deletions* aren't resurrected on
-        // the next launch.
+        // — never on launch — so user edits *and deletions* aren't
+        // resurrected. Guide skills (above) are the deliberate exception.
         let settings = injectedSettings ?? SettingsStore()
         self._store = State(initialValue: store)
         self._memory = State(initialValue: memory)

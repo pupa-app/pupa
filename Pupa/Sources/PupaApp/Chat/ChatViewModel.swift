@@ -1599,8 +1599,9 @@ public final class ChatViewModel {
         let json = (try? JSONEncoder().encode(["skills": payload]))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "{\"skills\":[]}"
         return AgentContextEntry(
-            description: "Skills — reusable `/command` playbooks in pupa/skills/ (the `skills` list "
-                + "below is the catalogue; empty means none yet). USE one: call app_skill_view(name:) "
+            description: "Skills — reusable `/command` playbooks in pupa/skills/ and bundled "
+                + "plugins (the `skills` list below is the catalogue; empty means none yet). "
+                + "USE one: call app_skill_view(name:) "
                 + "to load its full instructions, then follow them. CREATE one: writeMemoryFile to "
                 + "`pupa/skills/<name>/SKILL.md` — `<name>` becomes its /command. Optional YAML "
                 + "frontmatter above the markdown body: `description` (what + when to use it), "
