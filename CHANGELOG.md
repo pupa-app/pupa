@@ -13,6 +13,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   `.pupaapp` files no longer open in Pupa on tap (rename them to `.pupa`
   to import — the bytes are unchanged, validation is by header magic, not
   extension). Pupa `0.0.160` → `0.0.161`.
+- **Dropped the (i) info badge from the Settings root.** The header was
+  redundant with the per-row captions.
 
 ## [0.0.63] — 2026-07-07
 
