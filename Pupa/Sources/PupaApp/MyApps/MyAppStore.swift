@@ -927,8 +927,8 @@ public final class MyAppStore {
         return ok
     }
 
-    public func setFilter(field: String, value: String, myAppId: UUID? = nil) {
-        mutate(myAppId, kind: "tracker") { canvas in
+    public func setFilter(field: String, value: String, myAppId: UUID? = nil, componentId: String? = nil) {
+        mutate(myAppId, kind: "tracker", componentId: componentId) { canvas in
             guard case .tracker(var t) = canvas else { return false }
             if value.isEmpty { t.filter.removeValue(forKey: field) } else { t.filter[field] = value }
             canvas = .tracker(t)
@@ -937,9 +937,9 @@ public final class MyAppStore {
     }
 
     @discardableResult
-    public func addFieldOption(fieldName: String, option: String, myAppId: UUID? = nil) -> Bool {
+    public func addFieldOption(fieldName: String, option: String, myAppId: UUID? = nil, componentId: String? = nil) -> Bool {
         var ok = false
-        mutate(myAppId, kind: "tracker") { canvas in
+        mutate(myAppId, kind: "tracker", componentId: componentId) { canvas in
             guard case .tracker(var t) = canvas,
                   let idx = t.fields.firstIndex(where: { $0.name == fieldName }),
                   t.fields[idx].type == .select else { return false }
@@ -954,9 +954,9 @@ public final class MyAppStore {
     }
 
     @discardableResult
-    public func removeFieldOption(fieldName: String, option: String, myAppId: UUID? = nil) -> Bool {
+    public func removeFieldOption(fieldName: String, option: String, myAppId: UUID? = nil, componentId: String? = nil) -> Bool {
         var ok = false
-        mutate(myAppId, kind: "tracker") { canvas in
+        mutate(myAppId, kind: "tracker", componentId: componentId) { canvas in
             guard case .tracker(var t) = canvas,
                   let idx = t.fields.firstIndex(where: { $0.name == fieldName }),
                   let opts = t.fields[idx].options else { return false }
@@ -987,9 +987,9 @@ public final class MyAppStore {
     }
 
     @discardableResult
-    public func addField(_ field: FieldDef, myAppId: UUID? = nil) -> FieldMutationError? {
+    public func addField(_ field: FieldDef, myAppId: UUID? = nil, componentId: String? = nil) -> FieldMutationError? {
         var err: FieldMutationError?
-        mutate(myAppId, kind: "tracker") { canvas in
+        mutate(myAppId, kind: "tracker", componentId: componentId) { canvas in
             guard case .tracker(var t) = canvas else { err = .notTracker; return false }
             guard !t.fields.contains(where: { $0.name == field.name }) else {
                 err = .duplicateName
@@ -1021,10 +1021,11 @@ public final class MyAppStore {
     public func renameField(
         from oldName: String,
         to newName: String,
-        myAppId: UUID? = nil
+        myAppId: UUID? = nil,
+        componentId: String? = nil
     ) -> Result<FieldRenameResult, FieldMutationError> {
         var outcome: Result<FieldRenameResult, FieldMutationError> = .failure(.notTracker)
-        mutate(myAppId, kind: "tracker") { canvas in
+        mutate(myAppId, kind: "tracker", componentId: componentId) { canvas in
             guard case .tracker(var t) = canvas else { outcome = .failure(.notTracker); return false }
             guard let idx = t.fields.firstIndex(where: { $0.name == oldName }) else {
                 outcome = .failure(.unknownField)
@@ -1076,9 +1077,9 @@ public final class MyAppStore {
     /// duplicate, unknown name) rejects without mutating. Items are not
     /// touched.
     @discardableResult
-    public func reorderFields(_ order: [String], myAppId: UUID? = nil) -> FieldMutationError? {
+    public func reorderFields(_ order: [String], myAppId: UUID? = nil, componentId: String? = nil) -> FieldMutationError? {
         var err: FieldMutationError?
-        mutate(myAppId, kind: "tracker") { canvas in
+        mutate(myAppId, kind: "tracker", componentId: componentId) { canvas in
             guard case .tracker(var t) = canvas else { err = .notTracker; return false }
             let existing = Set(t.fields.map(\.name))
             guard order.count == t.fields.count,
@@ -1108,10 +1109,11 @@ public final class MyAppStore {
     public func setFieldHidden(
         name: String,
         hidden: Bool,
-        myAppId: UUID? = nil
+        myAppId: UUID? = nil,
+        componentId: String? = nil
     ) -> Result<FieldHideResult, FieldMutationError> {
         var outcome: Result<FieldHideResult, FieldMutationError> = .failure(.notTracker)
-        mutate(myAppId, kind: "tracker") { canvas in
+        mutate(myAppId, kind: "tracker", componentId: componentId) { canvas in
             guard case .tracker(var t) = canvas else { outcome = .failure(.notTracker); return false }
             guard let idx = t.fields.firstIndex(where: { $0.name == name }) else {
                 outcome = .failure(.unknownField)
@@ -1152,10 +1154,11 @@ public final class MyAppStore {
     public func setTrackerViewMode(
         _ mode: TrackerViewMode,
         columnField: String? = nil,
-        myAppId: UUID? = nil
+        myAppId: UUID? = nil,
+        componentId: String? = nil
     ) -> (mode: TrackerViewMode, columnField: String?)? {
         var result: (TrackerViewMode, String?)?
-        mutate(myAppId, kind: "tracker") { canvas in
+        mutate(myAppId, kind: "tracker", componentId: componentId) { canvas in
             guard case .tracker(var t) = canvas else { return false }
             let originalMode = t.viewMode
             let originalColumn = t.columnField
@@ -1267,9 +1270,9 @@ public final class MyAppStore {
     /// Returns the resolved mode so the tool-call echo can show what was
     /// applied. Non-calendar canvas → no-op, returns `nil`.
     @discardableResult
-    public func setCalendarViewMode(_ mode: CalendarViewMode, myAppId: UUID? = nil) -> CalendarViewMode? {
+    public func setCalendarViewMode(_ mode: CalendarViewMode, myAppId: UUID? = nil, componentId: String? = nil) -> CalendarViewMode? {
         var result: CalendarViewMode?
-        mutate(myAppId, kind: "calendar") { canvas in
+        mutate(myAppId, kind: "calendar", componentId: componentId) { canvas in
             guard case .calendar(var c) = canvas else { return false }
             let changed = c.viewMode != mode
             c.viewMode = mode
@@ -1779,8 +1782,8 @@ public final class MyAppStore {
     /// Replace the calculator body of the first calculator component in
     /// `myAppId` (preferring the active component when it's a calculator).
     /// Destructive — wipes any existing rows.
-    public func setCalculator(title: String, rows: [CalcRow] = [], myAppId: UUID? = nil) {
-        mutate(myAppId, kind: "calculator") { canvas in
+    public func setCalculator(title: String, rows: [CalcRow] = [], myAppId: UUID? = nil, componentId: String? = nil) {
+        mutate(myAppId, kind: "calculator", componentId: componentId) { canvas in
             canvas = .calculator(CalculatorData(title: title, rows: rows))
             return true
         }
@@ -1821,12 +1824,13 @@ public final class MyAppStore {
         format: String? = nil,
         kind: CalcRowKind,
         myAppId: UUID? = nil,
+        componentId: String? = nil,
         actor: ItemEventActor = .user
     ) -> String? {
-        let compId = calculatorComponentId(myAppId: myAppId)
+        let compId = componentId ?? calculatorComponentId(myAppId: myAppId)
         var resolvedKey: String?
         var rowId: UUID?
-        mutate(myAppId, kind: "calculator") { canvas in
+        mutate(myAppId, kind: "calculator", componentId: componentId) { canvas in
             guard case .calculator(var c) = canvas else { return false }
             let base = Self.slugify(key?.nonEmpty ?? name)
             let unique = Self.dedupeSlug(base, existing: Set(c.rows.map(\.key)))
@@ -1855,10 +1859,10 @@ public final class MyAppStore {
     /// then resolve to `brokenRef` — handled live by `CalculatorResolver`,
     /// not by rewriting other rows here.
     @discardableResult
-    public func removeCalcRow(key: String, myAppId: UUID? = nil, actor: ItemEventActor = .user) -> Bool {
-        let compId = calculatorComponentId(myAppId: myAppId)
+    public func removeCalcRow(key: String, myAppId: UUID? = nil, componentId: String? = nil, actor: ItemEventActor = .user) -> Bool {
+        let compId = componentId ?? calculatorComponentId(myAppId: myAppId)
         var removedId: UUID?
-        mutate(myAppId, kind: "calculator") { canvas in
+        mutate(myAppId, kind: "calculator", componentId: componentId) { canvas in
             guard case .calculator(var c) = canvas,
                   let idx = c.rows.firstIndex(where: { $0.key == key }) else { return false }
             removedId = c.rows[idx].id
@@ -1879,11 +1883,12 @@ public final class MyAppStore {
         key: String,
         patch: CalcRowPatch,
         myAppId: UUID? = nil,
+        componentId: String? = nil,
         actor: ItemEventActor = .user
     ) -> Bool {
-        let compId = calculatorComponentId(myAppId: myAppId)
+        let compId = componentId ?? calculatorComponentId(myAppId: myAppId)
         var patchedId: UUID?
-        mutate(myAppId, kind: "calculator") { canvas in
+        mutate(myAppId, kind: "calculator", componentId: componentId) { canvas in
             guard case .calculator(var c) = canvas,
                   let idx = c.rows.firstIndex(where: { $0.key == key }) else { return false }
             if let v = patch.name { c.rows[idx].name = v }
@@ -2802,6 +2807,24 @@ public final class MyAppStore {
         guard changed else { return }
         myApps[mIdx].components[cIdx].body = bodyVal
         persist()
+    }
+
+    /// Route a kind-scoped mutation to an explicit component when
+    /// `componentId` is given, else fall back to the kind resolver (first
+    /// component of the kind — never the active/view component). Central
+    /// helper for the view / filter / field-schema mutators that accept an
+    /// optional explicit target.
+    private func mutate(
+        _ myAppId: UUID?,
+        kind: String,
+        componentId: String?,
+        _ body: (inout CanvasApp) -> Bool
+    ) {
+        if let componentId {
+            mutate(myAppId: myAppId, byComponentId: componentId, body)
+        } else {
+            mutate(myAppId, kind: kind, body)
+        }
     }
 
     // MARK: - Component lock

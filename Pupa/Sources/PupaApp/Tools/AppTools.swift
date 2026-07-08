@@ -430,6 +430,7 @@ public enum AppTools {
                     "properties": [
                         "field": ["type": "string"],
                         "value": ["type": "string"],
+                        "componentId": componentIdSchema(),
                     ],
                     "required": ["field", "value"],
                 ]
@@ -437,11 +438,20 @@ public enum AppTools {
             handler: { args in
                 let field = args["field"]?.stringValue ?? ""
                 let value = args["value"]?.stringValue ?? ""
+                let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
-                    store.setFilter(field: field, value: value, myAppId: myAppId)
-                    let t = tracker(store, myAppId: myAppId)
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
+                    store.setFilter(field: field, value: value, myAppId: myAppId, componentId: resolvedId)
+                    let t = tracker(store, myAppId: myAppId, componentId: resolvedId)
                     return .object([
                         "ok": .bool(true),
+                        "componentId": .string(resolvedId),
                         "filter": .object((t?.filter ?? [:]).mapValues { .string($0) }),
                         "visibleCount": .int(visibleCount(t)),
                         "totalItems": .int(t?.items.count ?? 0),
@@ -472,6 +482,7 @@ public enum AppTools {
                     "properties": [
                         "mode": ["type": "string", "enum": ["grid", "kanban"]],
                         "columnField": ["type": "string"],
+                        "componentId": componentIdSchema(),
                     ],
                     "required": ["mode"],
                 ]
@@ -479,6 +490,7 @@ public enum AppTools {
             handler: { args in
                 let modeRaw = args["mode"]?.stringValue ?? ""
                 let requestedColumn = args["columnField"]?.stringValue
+                let componentIdArg = args["componentId"]?.stringValue
                 guard let mode = TrackerViewMode(rawValue: modeRaw) else {
                     return .object([
                         "ok": .bool(false),
@@ -486,19 +498,28 @@ public enum AppTools {
                     ])
                 }
                 return await MainActor.run {
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
                     guard let resolved = store.setTrackerViewMode(
                         mode,
                         columnField: requestedColumn,
-                        myAppId: myAppId
+                        myAppId: myAppId,
+                        componentId: resolvedId
                     ) else {
                         return .object([
                             "ok": .bool(false),
                             "error": .string("canvas is not a tracker"),
                         ])
                     }
-                    let t = tracker(store, myAppId: myAppId)
+                    let t = tracker(store, myAppId: myAppId, componentId: resolvedId)
                     return .object([
                         "ok": .bool(true),
+                        "componentId": .string(resolvedId),
                         "mode": .string(resolved.mode.rawValue),
                         "columnField": resolved.columnField.map { .string($0) } ?? .null,
                         "totalItems": .int(t?.items.count ?? 0),
@@ -519,6 +540,7 @@ public enum AppTools {
                     "properties": [
                         "fieldName": ["type": "string"],
                         "option": ["type": "string"],
+                        "componentId": componentIdSchema(),
                     ],
                     "required": ["fieldName", "option"],
                 ]
@@ -526,12 +548,21 @@ public enum AppTools {
             handler: { args in
                 let field = args["fieldName"]?.stringValue ?? ""
                 let opt = args["option"]?.stringValue ?? ""
+                let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
-                    let ok = store.addFieldOption(fieldName: field, option: opt, myAppId: myAppId)
-                    let t = tracker(store, myAppId: myAppId)
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
+                    let ok = store.addFieldOption(fieldName: field, option: opt, myAppId: myAppId, componentId: resolvedId)
+                    let t = tracker(store, myAppId: myAppId, componentId: resolvedId)
                     let opts = t?.fields.first(where: { $0.name == field })?.options ?? []
                     return .object([
                         "ok": .bool(ok),
+                        "componentId": .string(resolvedId),
                         "fieldName": .string(field),
                         "options": .array(opts.map { .string($0) }),
                     ])
@@ -551,6 +582,7 @@ public enum AppTools {
                     "properties": [
                         "fieldName": ["type": "string"],
                         "option": ["type": "string"],
+                        "componentId": componentIdSchema(),
                     ],
                     "required": ["fieldName", "option"],
                 ]
@@ -558,12 +590,21 @@ public enum AppTools {
             handler: { args in
                 let field = args["fieldName"]?.stringValue ?? ""
                 let opt = args["option"]?.stringValue ?? ""
+                let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
-                    let ok = store.removeFieldOption(fieldName: field, option: opt, myAppId: myAppId)
-                    let t = tracker(store, myAppId: myAppId)
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
+                    let ok = store.removeFieldOption(fieldName: field, option: opt, myAppId: myAppId, componentId: resolvedId)
+                    let t = tracker(store, myAppId: myAppId, componentId: resolvedId)
                     let opts = t?.fields.first(where: { $0.name == field })?.options ?? []
                     return .object([
                         "ok": .bool(ok),
+                        "componentId": .string(resolvedId),
                         "fieldName": .string(field),
                         "options": .array(opts.map { .string($0) }),
                     ])
@@ -590,6 +631,7 @@ public enum AppTools {
                         "label": ["type": "string"],
                         "type": ["type": "string", "enum": ["text", "number", "select", "image", "link"]],
                         "options": ["type": "array", "items": ["type": "string"]],
+                        "componentId": componentIdSchema(),
                     ],
                     "required": ["name", "type"],
                 ]
@@ -600,6 +642,7 @@ public enum AppTools {
                       let type = FieldType(rawValue: typeRaw) else {
                     return .object(["ok": .bool(false), "error": "missing 'name' or invalid 'type'"])
                 }
+                let componentIdArg = args["componentId"]?.stringValue
                 let field = FieldDef(
                     name: name,
                     label: args["label"]?.stringValue,
@@ -607,15 +650,23 @@ public enum AppTools {
                     options: args["options"]?.arrayValue?.compactMap(\.stringValue)
                 )
                 return await MainActor.run {
-                    if let err = store.addField(field, myAppId: myAppId) {
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
+                    if let err = store.addField(field, myAppId: myAppId, componentId: resolvedId) {
                         return .object([
                             "ok": .bool(false),
                             "error": .string(err.rawValue),
                         ])
                     }
-                    let t = tracker(store, myAppId: myAppId)
+                    let t = tracker(store, myAppId: myAppId, componentId: resolvedId)
                     return .object([
                         "ok": .bool(true),
+                        "componentId": .string(resolvedId),
                         "field": fieldAsAnyJSON(field),
                         "fieldsCount": .int(t?.fields.count ?? 0),
                         "totalItems": .int(t?.items.count ?? 0),
@@ -640,6 +691,7 @@ public enum AppTools {
                     "properties": [
                         "from": ["type": "string"],
                         "to": ["type": "string"],
+                        "componentId": componentIdSchema(),
                     ],
                     "required": ["from", "to"],
                 ]
@@ -647,17 +699,26 @@ public enum AppTools {
             handler: { args in
                 let from = args["from"]?.stringValue ?? ""
                 let to = args["to"]?.stringValue ?? ""
+                let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
-                    switch store.renameField(from: from, to: to, myAppId: myAppId) {
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
+                    switch store.renameField(from: from, to: to, myAppId: myAppId, componentId: resolvedId) {
                     case .failure(let err):
                         return .object([
                             "ok": .bool(false),
                             "error": .string(err.rawValue),
                         ])
                     case .success(let result):
-                        let t = tracker(store, myAppId: myAppId)
+                        let t = tracker(store, myAppId: myAppId, componentId: resolvedId)
                         return .object([
                             "ok": .bool(true),
+                            "componentId": .string(resolvedId),
                             "from": .string(from),
                             "to": .string(to),
                             "migratedItems": .int(result.migratedItems),
@@ -682,22 +743,32 @@ public enum AppTools {
                     "type": "object",
                     "properties": [
                         "order": ["type": "array", "items": ["type": "string"]],
+                        "componentId": componentIdSchema(),
                     ],
                     "required": ["order"],
                 ]
             ),
             handler: { args in
                 let order = args["order"]?.arrayValue?.compactMap(\.stringValue) ?? []
+                let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
-                    if let err = store.reorderFields(order, myAppId: myAppId) {
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
+                    if let err = store.reorderFields(order, myAppId: myAppId, componentId: resolvedId) {
                         return .object([
                             "ok": .bool(false),
                             "error": .string(err.rawValue),
                         ])
                     }
-                    let t = tracker(store, myAppId: myAppId)
+                    let t = tracker(store, myAppId: myAppId, componentId: resolvedId)
                     return .object([
                         "ok": .bool(true),
+                        "componentId": .string(resolvedId),
                         "order": .array((t?.fields ?? []).map { .string($0.name) }),
                     ])
                 }
@@ -719,14 +790,25 @@ public enum AppTools {
                 """,
                 parameters: [
                     "type": "object",
-                    "properties": ["name": ["type": "string"]],
+                    "properties": [
+                        "name": ["type": "string"],
+                        "componentId": componentIdSchema(),
+                    ],
                     "required": ["name"],
                 ]
             ),
             handler: { args in
                 let name = args["name"]?.stringValue ?? ""
+                let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
-                    switch store.setFieldHidden(name: name, hidden: true, myAppId: myAppId) {
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
+                    switch store.setFieldHidden(name: name, hidden: true, myAppId: myAppId, componentId: resolvedId) {
                     case .failure(let err):
                         return .object([
                             "ok": .bool(false),
@@ -735,6 +817,7 @@ public enum AppTools {
                     case .success(let result):
                         var payload: [String: AnyJSON] = [
                             "ok": .bool(true),
+                            "componentId": .string(resolvedId),
                             "name": .string(name),
                             "hidden": .bool(result.hidden),
                         ]
@@ -757,14 +840,25 @@ public enum AppTools {
                 """,
                 parameters: [
                     "type": "object",
-                    "properties": ["name": ["type": "string"]],
+                    "properties": [
+                        "name": ["type": "string"],
+                        "componentId": componentIdSchema(),
+                    ],
                     "required": ["name"],
                 ]
             ),
             handler: { args in
                 let name = args["name"]?.stringValue ?? ""
+                let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
-                    switch store.setFieldHidden(name: name, hidden: false, myAppId: myAppId) {
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
+                    switch store.setFieldHidden(name: name, hidden: false, myAppId: myAppId, componentId: resolvedId) {
                     case .failure(let err):
                         return .object([
                             "ok": .bool(false),
@@ -773,6 +867,7 @@ public enum AppTools {
                     case .success(let result):
                         return .object([
                             "ok": .bool(true),
+                            "componentId": .string(resolvedId),
                             "name": .string(name),
                             "hidden": .bool(result.hidden),
                         ])
@@ -1656,12 +1751,14 @@ public enum AppTools {
                     "type": "object",
                     "properties": [
                         "mode": ["type": "string", "enum": ["list", "month"]],
+                        "componentId": componentIdSchema(kind: "calendar"),
                     ],
                     "required": ["mode"],
                 ]
             ),
             handler: { args in
                 let raw = args["mode"]?.stringValue ?? ""
+                let componentIdArg = args["componentId"]?.stringValue
                 guard let mode = CalendarViewMode(rawValue: raw) else {
                     return .object([
                         "ok": .bool(false),
@@ -1669,7 +1766,14 @@ public enum AppTools {
                     ])
                 }
                 return await MainActor.run {
-                    guard let resolved = store.setCalendarViewMode(mode, myAppId: myAppId) else {
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "calendar", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
+                    guard let resolved = store.setCalendarViewMode(mode, myAppId: myAppId, componentId: resolvedId) else {
                         return .object([
                             "ok": .bool(false),
                             "error": .string("no calendar component in this MyApp"),
@@ -1677,6 +1781,7 @@ public enum AppTools {
                     }
                     return .object([
                         "ok": .bool(true),
+                        "componentId": .string(resolvedId),
                         "mode": .string(resolved.rawValue),
                     ])
                 }
@@ -2367,6 +2472,7 @@ public enum AppTools {
                 parameters: [
                     "type": "object",
                     "properties": [
+                        "componentId": componentIdSchema(kind: "calculator"),
                         "title": ["type": "string"],
                         "rows": ["type": "array", "items": calcRowSchema()],
                         "summary": [
@@ -2379,34 +2485,42 @@ public enum AppTools {
             handler: { args in
                 let titleArg = args["title"]?.stringValue
                 let summaryArg = args["summary"]
+                let componentIdArg = args["componentId"]?.stringValue
                 let hasSummary = summaryArg != nil
                 let hasBodyArgs = titleArg != nil
                 return await MainActor.run {
-                    if let title = titleArg {
-                        let rows = parseCalcRows(from: args["rows"])
-                        store.setCalculator(title: title, rows: rows, myAppId: myAppId)
-                    }
-                    var summarySet = false
-                    if hasSummary {
-                        summarySet = store.setComponentSummary(
-                            forKind: "calculator",
-                            summary: summaryArg?.stringValue,
-                            myAppId: myAppId
-                        )
-                    }
                     guard hasBodyArgs || hasSummary else {
                         return .object([
                             "ok": .bool(false),
                             "error": "renderCalculator called with no arguments. Pass `title` (with optional `rows`) for a full render and/or `summary` to update your content summary.",
                         ])
                     }
-                    guard let resolved = resolveCalculator(store: store, myAppId: myAppId, componentId: nil) else {
+                    let resolvedId: String
+                    switch store.resolveRenderTarget(kind: "calculator", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
+                    if let title = titleArg {
+                        let rows = parseCalcRows(from: args["rows"])
+                        store.setCalculator(title: title, rows: rows, myAppId: myAppId, componentId: resolvedId)
+                    }
+                    var summarySet = false
+                    if hasSummary {
+                        summarySet = store.setComponentSummary(
+                            forKind: "calculator",
+                            summary: summaryArg?.stringValue,
+                            myAppId: myAppId,
+                            componentId: resolvedId
+                        )
+                    }
+                    guard let data = calculator(store, myAppId: myAppId, componentId: resolvedId) else {
                         return .object([
                             "ok": .bool(false),
                             "error": "no calculator component in this MyApp — call addComponent(kind:\"calculator\", …) first",
                         ])
                     }
-                    let (data, resolvedId) = resolved
                     var result: [String: AnyJSON] = ["ok": .bool(true), "componentId": .string(resolvedId)]
                     if let title = titleArg { result["title"] = .string(title) }
                     result["rowCount"] = .int(data.rows.count)
@@ -2432,7 +2546,10 @@ public enum AppTools {
                 """,
                 parameters: [
                     "type": "object",
-                    "properties": ["rows": ["type": "array", "items": calcRowSchema()]],
+                    "properties": [
+                        "rows": ["type": "array", "items": calcRowSchema()],
+                        "componentId": componentIdSchema(kind: "calculator"),
+                    ],
                     "required": ["rows"],
                 ]
             ),
@@ -2440,26 +2557,29 @@ public enum AppTools {
                 guard let entries = args["rows"]?.arrayValue, !entries.isEmpty else {
                     return .object(["ok": .bool(false), "error": "missing 'rows' array"])
                 }
+                let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
-                    guard store.calculatorComponentId(myAppId: myAppId) != nil else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": "no calculator component in this MyApp — call addComponent(kind:\"calculator\", …) or renderCalculator first",
-                        ])
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "calculator", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
                     }
                     var added: [AnyJSON] = []
                     for entry in entries {
                         guard let (key, name, unit, format, kind) = parseCalcRowParts(from: entry) else { continue }
                         if let resolvedKey = store.addCalcRow(
                             key: key, name: name, unit: unit, format: format, kind: kind,
-                            myAppId: myAppId, actor: .agent(toolName: "addCalcRows")
+                            myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "addCalcRows")
                         ) {
                             added.append(.object(["key": .string(resolvedKey), "name": .string(name)]))
                         }
                     }
-                    let data = calculator(store, myAppId: myAppId)
+                    let data = calculator(store, myAppId: myAppId, componentId: resolvedId)
                     var result: [String: AnyJSON] = [
                         "ok": .bool(true),
+                        "componentId": .string(resolvedId),
                         "added": .array(added),
                         "rowCount": .int(data?.rows.count ?? 0),
                     ]
@@ -2494,6 +2614,7 @@ public enum AppTools {
                                 "required": ["key", "patch"],
                             ],
                         ],
+                        "componentId": componentIdSchema(kind: "calculator"),
                     ],
                     "required": ["patches"],
                 ]
@@ -2502,18 +2623,27 @@ public enum AppTools {
                 guard let entries = args["patches"]?.arrayValue, !entries.isEmpty else {
                     return .object(["ok": .bool(false), "error": "missing 'patches' array"])
                 }
+                let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "calculator", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
                     var patched: [AnyJSON] = []
                     for entry in entries {
                         guard let key = entry["key"]?.stringValue else { continue }
                         let patch = parseCalcRowPatch(from: entry["patch"])
-                        if store.patchCalcRow(key: key, patch: patch, myAppId: myAppId, actor: .agent(toolName: "patchCalcRows")) {
+                        if store.patchCalcRow(key: key, patch: patch, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "patchCalcRows")) {
                             patched.append(.string(key))
                         }
                     }
-                    let data = calculator(store, myAppId: myAppId)
+                    let data = calculator(store, myAppId: myAppId, componentId: resolvedId)
                     var result: [String: AnyJSON] = [
                         "ok": .bool(true),
+                        "componentId": .string(resolvedId),
                         "patched": .array(patched),
                         "rowCount": .int(data?.rows.count ?? 0),
                     ]
@@ -2535,7 +2665,10 @@ public enum AppTools {
                 """,
                 parameters: [
                     "type": "object",
-                    "properties": ["keys": ["type": "array", "items": ["type": "string"]]],
+                    "properties": [
+                        "keys": ["type": "array", "items": ["type": "string"]],
+                        "componentId": componentIdSchema(kind: "calculator"),
+                    ],
                     "required": ["keys"],
                 ]
             ),
@@ -2543,16 +2676,25 @@ public enum AppTools {
                 guard let keys = args["keys"]?.arrayValue?.compactMap(\.stringValue), !keys.isEmpty else {
                     return .object(["ok": .bool(false), "error": "missing 'keys' array"])
                 }
+                let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "calculator", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
                     var removed: [AnyJSON] = []
                     for key in keys {
-                        if store.removeCalcRow(key: key, myAppId: myAppId, actor: .agent(toolName: "removeCalcRows")) {
+                        if store.removeCalcRow(key: key, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "removeCalcRows")) {
                             removed.append(.string(key))
                         }
                     }
-                    let data = calculator(store, myAppId: myAppId)
+                    let data = calculator(store, myAppId: myAppId, componentId: resolvedId)
                     return .object([
                         "ok": .bool(true),
+                        "componentId": .string(resolvedId),
                         "removed": .array(removed),
                         "rowCount": .int(data?.rows.count ?? 0),
                     ])
@@ -2582,7 +2724,7 @@ public enum AppTools {
                             ],
                             "required": ["componentId", "itemId"],
                         ],
-                        "componentId": ["type": "string", "description": "Optional calculator id; defaults to the active / first calculator."],
+                        "componentId": componentIdSchema(kind: "calculator"),
                     ],
                     "required": ["key"],
                 ]
@@ -2592,17 +2734,24 @@ public enum AppTools {
                     return .object(["ok": .bool(false), "error": "missing 'key'"])
                 }
                 let ref = parseRef(from: args["ref"])
-                let componentId = args["componentId"]?.stringValue
+                let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "calculator", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
                     let ok = store.setCalcRowLinkedRef(
                         key: key,
                         ref: ref,
                         myAppId: myAppId,
-                        componentId: componentId,
+                        componentId: resolvedId,
                         actor: .agent(toolName: "setCalcRowLink")
                     )
-                    var result: [String: AnyJSON] = ["ok": .bool(ok), "key": .string(key)]
-                    if let data = calculator(store, myAppId: myAppId) {
+                    var result: [String: AnyJSON] = ["ok": .bool(ok), "componentId": .string(resolvedId), "key": .string(key)]
+                    if let data = calculator(store, myAppId: myAppId, componentId: resolvedId) {
                         result["results"] = calcResults(store: store, myAppId: myAppId, data: data)
                     }
                     return .object(result)
@@ -4964,12 +5113,20 @@ public enum AppTools {
 
     @MainActor
     private static func calculator(_ store: MyAppStore, myAppId: UUID) -> CalculatorData? {
-        guard let myApp = store.myApps.first(where: { $0.id == myAppId }) else { return nil }
-        if let active = myApp.activeComponent, case .calculator(let c) = active.body { return c }
-        for c in myApp.components {
-            if case .calculator(let cd) = c.body { return cd }
-        }
-        return nil
+        guard case .resolved(let id) = store.resolveWriteTarget(kind: "calculator", componentId: nil, myAppId: myAppId) else { return nil }
+        return calculator(store, myAppId: myAppId, componentId: id)
+    }
+
+    /// Read a specific calculator by id (to echo the correct component's
+    /// state after a targeted write). Falls back to the view-independent
+    /// lookup when `componentId` is nil.
+    @MainActor
+    private static func calculator(_ store: MyAppStore, myAppId: UUID, componentId: String?) -> CalculatorData? {
+        guard let componentId else { return calculator(store, myAppId: myAppId) }
+        guard let myApp = store.myApps.first(where: { $0.id == myAppId }),
+              let comp = myApp.components.first(where: { $0.id == componentId }),
+              case .calculator(let c) = comp.body else { return nil }
+        return c
     }
 
     @MainActor

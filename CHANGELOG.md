@@ -3,6 +3,24 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.75] — 2026-07-09
+
+### Fixed
+
+- **View / field / row tools now target a component by id too.** The
+  remaining kind-routed mutators gained the same optional `componentId` as
+  the write tools, so in a myApp holding several components of one kind
+  every one is reachable (previously only the first responded). Covers
+  tracker `setTrackerFilter` / `setTrackerViewMode` / `addFieldOption` /
+  `removeFieldOption` / `addTrackerField` / `renameTrackerField` /
+  `reorderTrackerFields` / `hideTrackerField` / `showTrackerField`,
+  `setCalendarViewMode`, and calculator `renderCalculator` / `addCalcRows`
+  / `patchCalcRows` / `removeCalcRows` / `setCalcRowLink`. Same rule as the
+  other write tools (explicit id, else the unambiguous single component of
+  that kind, else an error) and each echoes the resolved id. The store's
+  kind-router no longer consults the active/view component at all. App
+  `0.0.173` → `0.0.174`.
+
 ## [0.0.74] — 2026-07-09
 
 ### Changed
