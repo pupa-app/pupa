@@ -66,8 +66,8 @@ public struct ChatPanel: View {
     @State private var streamedDraft: String = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var draft: String = ""
-    @State private var pickerItem: PhotosPickerItem?
-    @State private var pickedImage: PickedImage?
+    @State private var pickerItems: [PhotosPickerItem] = []
+    @State private var pickedImages: [PickedImage] = []
     @State private var isLoadingImage: Bool = false
     @State private var isDropTargeted: Bool = false
     /// Presents the system photo-library picker (driven by the paperclip menu).
@@ -397,10 +397,10 @@ public struct ChatPanel: View {
             if !viewModel.queuedMessages.isEmpty {
                 queuedMessagesStack
             }
-            if let pickedImage {
-                attachmentPreview(for: pickedImage)
+            if !pickedImages.isEmpty {
+                attachmentPreviewRow
             } else if isDropTargeted {
-                Text("Drop image to attach")
+                Text("Drop images to attach")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 36)
@@ -421,8 +421,8 @@ public struct ChatPanel: View {
                         .frame(width: 34, height: 34)
                 }
                 .buttonStyle(.plain)
-                .disabled(isLoadingImage)
-                .help("Attach an image — pick from your library or take a photo (or drag & drop one onto the chat)")
+                .disabled(isLoadingImage || remainingImageSlots == 0)
+                .help("Attach images — pick from your library or take a photo (or drag & drop onto the chat). Up to \(ChatViewModel.maxImagesPerMessage) per message.")
                 #if os(iOS)
                 .confirmationDialog("Attach image", isPresented: $showAttachOptions, titleVisibility: .hidden) {
                     Button("Photo Library") { showPhotoPicker = true }
@@ -468,21 +468,29 @@ public struct ChatPanel: View {
         .onDrop(of: [UTType.image, UTType.fileURL], isTargeted: $isDropTargeted) { providers in
             handleDroppedProviders(providers)
         }
-        .onChange(of: pickerItem) { _, newItem in
-            guard let newItem else { return }
+        .onChange(of: pickerItems) { _, newItems in
+            guard !newItems.isEmpty else { return }
+            // Honour the remaining-slot budget at selection time; the picker's
+            // own `maxSelectionCount` is a soft cap that can be exceeded when
+            // combined with drops / camera captures already staged.
+            let items = Array(newItems.prefix(remainingImageSlots))
             isLoadingImage = true
             Task {
-                let prepared: PickedImage? = await loadPickedImage(from: newItem)
+                var prepared: [PickedImage] = []
+                for item in items {
+                    if let img = await loadPickedImage(from: item) { prepared.append(img) }
+                }
                 await MainActor.run {
-                    self.pickedImage = prepared
+                    self.pickedImages.append(contentsOf: prepared.prefix(self.remainingImageSlots))
                     self.isLoadingImage = false
-                    self.pickerItem = nil
+                    self.pickerItems = []
                 }
             }
         }
         .photosPicker(
             isPresented: $showPhotoPicker,
-            selection: $pickerItem,
+            selection: $pickerItems,
+            maxSelectionCount: ChatViewModel.maxImagesPerMessage,
             matching: .images,
             photoLibrary: .shared()
         )
@@ -502,13 +510,13 @@ public struct ChatPanel: View {
     /// library picks and drag-and-drop, so the attachment preview / send flow
     /// is identical regardless of source.
     private func acceptCapturedImage(_ data: Data?) {
-        guard let data else { return }
+        guard let data, remainingImageSlots > 0 else { return }
         isLoadingImage = true
         Task {
             let prepared = ImagePreparer.prepare(data)
             await MainActor.run {
-                if let prepared {
-                    self.pickedImage = PickedImage(data: prepared.data, mimeType: prepared.mimeType)
+                if let prepared, self.remainingImageSlots > 0 {
+                    self.pickedImages.append(PickedImage(data: prepared.data, mimeType: prepared.mimeType))
                 }
                 self.isLoadingImage = false
             }
@@ -517,21 +525,27 @@ public struct ChatPanel: View {
     #endif
 
     private func handleDroppedProviders(_ providers: [NSItemProvider]) -> Bool {
-        guard let provider = providers.first else { return false }
-        // Dropping an image while streaming is fine — it attaches to the
-        // message the user is composing, which then queues.
-        guard !isLoadingImage else { return false }
-        if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
-            isLoadingImage = true
-            Task { await acceptImageProvider(provider) }
-            return true
+        // Dropping images while streaming is fine — they attach to the message
+        // the user is composing, which then queues. Take as many providers as
+        // there are free slots.
+        guard !isLoadingImage, remainingImageSlots > 0 else { return false }
+        let accepted = providers.prefix(remainingImageSlots).filter {
+            $0.hasItemConformingToTypeIdentifier(UTType.image.identifier)
+                || $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
         }
-        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-            isLoadingImage = true
-            Task { await acceptFileURLProvider(provider) }
-            return true
+        guard !accepted.isEmpty else { return false }
+        isLoadingImage = true
+        Task {
+            for provider in accepted {
+                if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+                    await acceptImageProvider(provider)
+                } else {
+                    await acceptFileURLProvider(provider)
+                }
+            }
+            await MainActor.run { isLoadingImage = false }
         }
-        return false
+        return true
     }
 
     private func acceptImageProvider(_ provider: NSItemProvider) async {
@@ -555,9 +569,9 @@ public struct ChatPanel: View {
 
     @MainActor
     private func applyDroppedRawData(_ raw: Data?) {
-        defer { isLoadingImage = false }
-        guard let raw, let prepared = ImagePreparer.prepare(raw) else { return }
-        pickedImage = PickedImage(data: prepared.data, mimeType: prepared.mimeType)
+        guard remainingImageSlots > 0,
+              let raw, let prepared = ImagePreparer.prepare(raw) else { return }
+        pickedImages.append(PickedImage(data: prepared.data, mimeType: prepared.mimeType))
     }
 
     /// When the draft is a partial slash command (slash followed by zero or
@@ -577,14 +591,19 @@ public struct ChatPanel: View {
         if viewModel.isAwaitingHumanInput { return true }  // resolve via the card, not the composer
         if viewModel.isStreaming { return false }  // tap = queue (has content) or Stop (empty)
         if isLoadingImage { return true }
-        return draft.trimmingCharacters(in: .whitespaces).isEmpty && pickedImage == nil
+        return draft.trimmingCharacters(in: .whitespaces).isEmpty && pickedImages.isEmpty
     }
 
-    /// Whether the composer has any submittable content (text or an attached
-    /// image). Drives the streaming-mode button: content → arrow-up (queue),
+    /// Whether the composer has any submittable content (text or attached
+    /// images). Drives the streaming-mode button: content → arrow-up (queue),
     /// empty → stop (cancel the turn).
     private var composerHasContent: Bool {
-        !draft.trimmingCharacters(in: .whitespaces).isEmpty || pickedImage != nil
+        !draft.trimmingCharacters(in: .whitespaces).isEmpty || !pickedImages.isEmpty
+    }
+
+    /// Remaining attachment slots before the per-message image cap is hit.
+    private var remainingImageSlots: Int {
+        max(0, ChatViewModel.maxImagesPerMessage - pickedImages.count)
     }
 
     /// The button shows Stop only while streaming with nothing to send. With
@@ -655,25 +674,45 @@ public struct ChatPanel: View {
         viewModel.removeQueuedMessage(id: queued.id)
     }
 
+    /// Horizontal strip of staged attachments, each with its own remove button.
     @ViewBuilder
-    private func attachmentPreview(for image: PickedImage) -> some View {
-        HStack(spacing: 8) {
-            attachmentThumbnail(image.data)
-                .frame(width: 56, height: 56)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-            Text(byteCountLabel(image.data.count))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Button {
-                pickedImage = nil
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.secondary)
+    private var attachmentPreviewRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(Array(pickedImages.enumerated()), id: \.offset) { index, image in
+                        attachmentThumbnailCell(image, at: index)
+                    }
+                }
+                .padding(.horizontal, 2)
             }
-            .buttonStyle(.plain)
-            .help("Remove attachment")
+            if pickedImages.count > 1 {
+                Text("\(pickedImages.count)/\(ChatViewModel.maxImagesPerMessage) images")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 2)
+            }
         }
+    }
+
+    @ViewBuilder
+    private func attachmentThumbnailCell(_ image: PickedImage, at index: Int) -> some View {
+        attachmentThumbnail(image.data)
+            .frame(width: 56, height: 56)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(alignment: .topTrailing) {
+                Button {
+                    guard pickedImages.indices.contains(index) else { return }
+                    pickedImages.remove(at: index)
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.white, .black.opacity(0.5))
+                        .font(.system(size: 16))
+                }
+                .buttonStyle(.plain)
+                .padding(2)
+                .help("Remove attachment")
+            }
     }
 
     private func byteCountLabel(_ bytes: Int) -> String {
@@ -694,17 +733,17 @@ public struct ChatPanel: View {
             // Mid-stream: content typed → queue it (auto-sends when the turn
             // settles); empty composer → the button is Stop, so cancel.
             if composerHasContent {
-                viewModel.send(draft, image: pickedImage)
+                viewModel.send(draft, images: pickedImages)
                 draft = ""
-                pickedImage = nil
+                pickedImages = []
             } else {
                 viewModel.cancel()
             }
             return
         }
-        viewModel.send(draft, image: pickedImage)
+        viewModel.send(draft, images: pickedImages)
         draft = ""
-        pickedImage = nil
+        pickedImages = []
     }
 
     private func loadPickedImage(from item: PhotosPickerItem) async -> PickedImage? {
@@ -780,7 +819,7 @@ private struct MessageBubbleView: View {
             HStack {
                 if bubble.role == .user { Spacer(minLength: 40) }
                 VStack(alignment: bubble.role == .user ? .trailing : .leading, spacing: 6) {
-                    if let data = bubble.imageData {
+                    ForEach(Array(bubble.imagesData.enumerated()), id: \.offset) { _, data in
                         attachmentThumbnail(data)
                             .frame(maxWidth: 240, maxHeight: 240)
                             .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -788,7 +827,7 @@ private struct MessageBubbleView: View {
                     if let snapshot = bubble.chartSnapshot {
                         ChatChartBubble(snapshot: snapshot)
                     }
-                    if (!bubble.text.isEmpty || bubble.imageData == nil) && bubble.chartSnapshot == nil {
+                    if (!bubble.text.isEmpty || bubble.imagesData.isEmpty) && bubble.chartSnapshot == nil {
                         if bubble.role == .assistant {
                             Markdown(bubble.text.isEmpty ? "…" : bubble.text)
                                 .markdownTheme(

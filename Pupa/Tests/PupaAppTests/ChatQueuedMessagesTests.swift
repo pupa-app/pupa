@@ -152,32 +152,46 @@ struct ChatQueuedMessagesTests {
         _ = await answers
     }
 
-    @Test("The whole queue coalesces into one message: texts joined FIFO, first image wins")
+    @Test("The whole queue coalesces into one message: texts joined FIFO, every image kept in order")
     func coalesceQueue_mergesIntoSingleMessage() {
         // Empty queue → nothing to drain.
         #expect(ChatViewModel.coalesceQueue([]) == nil)
 
-        let img = Data([0xA, 0xB])
+        let imgA = PickedImage(data: Data([0xA, 0xB]), mimeType: "image/png")
+        let imgB = PickedImage(data: Data([0xC]), mimeType: "image/png")
+        let imgC = PickedImage(data: Data([0xD, 0xE]), mimeType: "image/jpeg")
         let queue = [
             QueuedMessage(text: "one"),
-            QueuedMessage(text: "two", imageData: img, mimeType: "image/png"),
-            QueuedMessage(text: "", imageData: Data([0xC]), mimeType: "image/png"),
+            QueuedMessage(text: "two", images: [imgA]),
+            QueuedMessage(text: "", images: [imgB, imgC]),  // image-only item
             QueuedMessage(text: "three"),
         ]
         let merged = ChatViewModel.coalesceQueue(queue)
         // FIFO order, blank-line separated, empty text components skipped.
         #expect(merged?.text == "one\n\ntwo\n\nthree")
-        // First attached image wins (the one on "two", not the image-only item).
-        #expect(merged?.image == PickedImage(data: img, mimeType: "image/png"))
+        // Every attached image is kept, in queue order (regression: previously
+        // only the first survived).
+        #expect(merged?.images == [imgA, imgB, imgC])
     }
 
-    @Test("A queued message carrying an image round-trips its PickedImage")
-    func queuedMessage_reconstitutesImage() {
-        let data = Data([0x1, 0x2, 0x3])
-        let withImage = QueuedMessage(text: "look", imageData: data, mimeType: "image/png")
-        #expect(withImage.pickedImage == PickedImage(data: data, mimeType: "image/png"))
+    @Test("coalesceQueue truncates merged images to the per-message cap")
+    func coalesceQueue_capsImages() {
+        let over = ChatViewModel.maxImagesPerMessage + 5
+        let queue = (0..<over).map {
+            QueuedMessage(text: "", images: [PickedImage(data: Data([UInt8($0 % 256)]), mimeType: "image/png")])
+        }
+        let merged = ChatViewModel.coalesceQueue(queue)
+        #expect(merged?.images.count == ChatViewModel.maxImagesPerMessage)
+    }
+
+    @Test("A queued message carrying images round-trips its PickedImages")
+    func queuedMessage_reconstitutesImages() {
+        let a = PickedImage(data: Data([0x1, 0x2]), mimeType: "image/png")
+        let b = PickedImage(data: Data([0x3]), mimeType: "image/jpeg")
+        let withImages = QueuedMessage(text: "look", images: [a, b])
+        #expect(withImages.pickedImages == [a, b])
 
         let noImage = QueuedMessage(text: "plain")
-        #expect(noImage.pickedImage == nil)
+        #expect(noImage.pickedImages.isEmpty)
     }
 }

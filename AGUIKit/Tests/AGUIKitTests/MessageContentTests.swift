@@ -48,7 +48,7 @@ struct MessageContentTests {
         let data = Data(bytes)
         let msg = AgentMessage.user(
             text: "what's this?",
-            image: (data: data, mimeType: "image/jpeg"),
+            images: [(data: data, mimeType: "image/jpeg")],
             id: "u1"
         )
         let json = try encode(msg)
@@ -60,11 +60,39 @@ struct MessageContentTests {
         #expect(json.contains(#""value":"\#(data.base64EncodedString())""#))
     }
 
+    @Test func userWithMultipleImagesEncodesOnePartEach() throws {
+        let a = Data([0x01, 0x02])
+        let b = Data([0x03, 0x04])
+        let c = Data([0x05, 0x06])
+        let msg = AgentMessage.user(
+            text: "compare these",
+            images: [
+                (data: a, mimeType: "image/jpeg"),
+                (data: b, mimeType: "image/png"),
+                (data: c, mimeType: "image/jpeg"),
+            ],
+            id: "u1"
+        )
+        guard case .parts(let parts) = msg.content else {
+            Issue.record("expected .parts case"); return
+        }
+        // 1 text + 3 image parts, images in submit order.
+        #expect(parts.count == 4)
+        if case .text(let t) = parts[0] { #expect(t == "compare these") }
+        else { Issue.record("expected .text first part") }
+        let expected = [a, b, c].map { $0.base64EncodedString() }
+        let got: [String] = parts.dropFirst().compactMap {
+            if case .image(.data(let b64, _)) = $0 { return b64 }
+            return nil
+        }
+        #expect(got == expected)
+    }
+
     @Test func multimodalRoundTrip() throws {
         let data = Data([0x01, 0x02, 0x03, 0x04])
         let original = AgentMessage.user(
             text: "describe this",
-            image: (data: data, mimeType: "image/png"),
+            images: [(data: data, mimeType: "image/png")],
             id: "u2"
         )
         let decoded = try decode(try encode(original))
@@ -85,12 +113,12 @@ struct MessageContentTests {
         }
     }
 
-    @Test func userImageNilFallsBackToText() throws {
-        let msg = AgentMessage.user(text: "no attachment", image: nil, id: "u3")
+    @Test func userNoImagesFallsBackToText() throws {
+        let msg = AgentMessage.user(text: "no attachment", images: [], id: "u3")
         if case .text(let s) = msg.content {
             #expect(s == "no attachment")
         } else {
-            Issue.record("expected .text fallback when image is nil")
+            Issue.record("expected .text fallback when images is empty")
         }
     }
 

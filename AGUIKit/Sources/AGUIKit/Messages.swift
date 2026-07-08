@@ -61,21 +61,22 @@ public struct AgentMessage: Codable, Hashable, Sendable {
         AgentMessage(id: id, role: .user, content: .text(content))
     }
 
-    /// Build a user message that may carry an inline image alongside text.
-    /// When `image` is nil, encodes as plain text on the wire (back-compat).
-    /// When present, encodes as a 2-element parts array: text + image.
+    /// Build a user message that may carry inline images alongside text.
+    /// When `images` is empty, encodes as plain text on the wire (back-compat).
+    /// When present, encodes as a parts array: one text part followed by one
+    /// image part per attachment, in order.
     public static func user(
         text: String,
-        image: (data: Data, mimeType: String)?,
+        images: [(data: Data, mimeType: String)],
         id: String = UUID().uuidString
     ) -> AgentMessage {
-        guard let image else {
+        guard !images.isEmpty else {
             return AgentMessage(id: id, role: .user, content: .text(text))
         }
-        let parts: [ContentPart] = [
-            .text(text),
-            .image(.data(base64: image.data.base64EncodedString(), mimeType: image.mimeType)),
-        ]
+        var parts: [ContentPart] = [.text(text)]
+        parts.append(contentsOf: images.map {
+            .image(.data(base64: $0.data.base64EncodedString(), mimeType: $0.mimeType))
+        })
         return AgentMessage(id: id, role: .user, content: .parts(parts))
     }
 
