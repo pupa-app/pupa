@@ -2,7 +2,7 @@ import Foundation
 
 /// Skills every MyApp ships with, independent of which example (if any) it was
 /// created from. Universal: written into `pupa/skills/` so the capability rides
-/// the `.pupaapp` export bundle.
+/// the `.pupa` export bundle.
 ///
 /// Seeded **once, at app birth** — `addMyApp`, `restoreExample`, and the
 /// fresh-install default app. Never on subsequent launches, so the file is the

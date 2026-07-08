@@ -53,7 +53,7 @@ public struct MyAppBundle: Codable, Sendable {
 
     public static let formatMagic = "pupa.myapp.bundle"
     public static let currentFormatVersion = 1
-    public static let fileExtension = "pupaapp"
+    public static let fileExtension = "pupa"
 
     // MARK: - Codec (stable, human-diffable JSON)
 

@@ -25,7 +25,7 @@ backend (separate repo) over a single `POST /` SSE stream.
   (AGENTS.md, subagent prompts) and how skills become slash commands +
   model-loadable playbooks (`app_skill_view`).
 - [docs/templates.md](docs/templates.md) — the realism bar for shipping
-  `.pupaapp` templates: rubric, grounded reference index, and the
+  `.pupa` templates: rubric, grounded reference index, and the
   self-maintaining agent loop. Read before adding an `ExampleMyApp`.
 - [AGUIKit/](AGUIKit/) — standalone Swift Package: AG-UI client, tool
   registry, multi-round session loop. No dependency on Pupa.

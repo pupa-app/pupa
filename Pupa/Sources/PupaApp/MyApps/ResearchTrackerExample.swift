@@ -127,7 +127,7 @@ enum ResearchTrackerExample: ExampleMyApp {
                 TrackerItem(id: rowPupa, values: [
                     "name": "Pupa (us)",
                     "platform": "Native SwiftUI",
-                    "what_it_is": "Typed persistent shapes + undo + inert .pupaapp export.",
+                    "what_it_is": "Typed persistent shapes + undo + inert .pupa export.",
                     "assets": "Yes — the only one",
                     "threat": "Us",
                     "source_url": "—",

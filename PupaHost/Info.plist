@@ -2,8 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- Only the keys Xcode can't synthesize from INFOPLIST_KEY_* build settings.
      GENERATE_INFOPLIST_FILE stays on; the generated keys merge over this file.
-     Declares the .pupaapp file type so the share sheet carries a branded
-     bundle and the OS opens received .pupaapp files in Pupa (tap-to-import). -->
+     Declares the .pupa file type so the share sheet carries a branded
+     bundle and the OS opens received .pupa files in Pupa (tap-to-import). -->
 <plist version="1.0">
 <dict>
 	<key>UTExportedTypeDeclarations</key>
@@ -30,7 +30,7 @@
 			<dict>
 				<key>public.filename-extension</key>
 				<array>
-					<string>pupaapp</string>
+					<string>pupa</string>
 				</array>
 			</dict>
 		</dict>
