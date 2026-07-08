@@ -250,4 +250,71 @@ struct StorageMirrorTests {
         #expect(get(cloud, "state/index.json") == "v1")
         #expect(get(local, "memories/a.md") == "x")
     }
+
+    // MARK: - Conflict-preservation budget
+
+    private func t(_ ti: Double) -> Date { Date(timeIntervalSince1970: ti) }
+
+    private func conflictCount(_ local: URL, _ rel: String) -> Int {
+        let dir = local.appendingPathComponent("conflicts/\(rel)", isDirectory: true)
+        return (((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [])
+            .filter { !$0.lastPathComponent.hasPrefix(".") }).count
+    }
+
+    /// Drive one genuine conflict on `state/index.json` with distinct loser
+    /// content, local winning.
+    private func makeConflict(_ local: URL, _ cloud: URL, local localBody: String, loser: String, at tick: Double) {
+        put(local, "state/index.json", localBody, mtime: t(10_000 + tick))
+        put(cloud, "state/index.json", loser, mtime: t(1_000))
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)
+    }
+
+    @Test("conflict copies are local-only — never mirrored to iCloud")
+    func conflictsNotMirrored() {
+        let (local, cloud) = (tmp(), tmp())
+        put(local, "state/index.json", "base")
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)
+        makeConflict(local, cloud, local: "LOCAL", loser: "CLOUD", at: 1)
+        #expect(exists(local, "conflicts"))    // preserved locally
+        #expect(!exists(cloud, "conflicts"))   // but not synced up
+    }
+
+    @Test("an oscillating conflict re-presenting the same loser is deduped")
+    func conflictDedup() {
+        let (local, cloud) = (tmp(), tmp())
+        put(local, "state/index.json", "base")
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)
+        makeConflict(local, cloud, local: "L1", loser: "CLOUD", at: 1)
+        makeConflict(local, cloud, local: "L2", loser: "CLOUD", at: 2)   // same loser bytes
+        #expect(conflictCount(local, "state/index.json") == 1)
+    }
+
+    @Test("preserved copies for a path are capped at the newest N")
+    func conflictCap() {
+        let (local, cloud) = (tmp(), tmp())
+        put(local, "state/index.json", "base")
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)
+        for i in 0..<(StorageMirror.maxConflictCopiesPerPath + 3) {
+            makeConflict(local, cloud, local: "L\(i)", loser: "C\(i)", at: Double(i))
+        }
+        #expect(conflictCount(local, "state/index.json") == StorageMirror.maxConflictCopiesPerPath)
+    }
+
+    @Test("preserved copies older than the max age are pruned on the next pass")
+    func conflictAgePrune() {
+        let (local, cloud) = (tmp(), tmp())
+        put(local, "state/index.json", "base")
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)
+        makeConflict(local, cloud, local: "LOCAL", loser: "CLOUD", at: 1)
+        #expect(conflictCount(local, "state/index.json") == 1)
+
+        // Backdate the copy beyond the max age, then a no-op converge prunes it.
+        let dir = local.appendingPathComponent("conflicts/state/index.json", isDirectory: true)
+        let old = Date(timeIntervalSinceNow: -StorageMirror.conflictMaxAge - 3600)
+        for f in (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [] {
+            try? FileManager.default.setAttributes([.modificationDate: old], ofItemAtPath: f.path)
+        }
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)
+        #expect(!exists(local, "conflicts/state/index.json"))   // pruned + empty dir removed
+    }
 }

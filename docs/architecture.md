@@ -542,6 +542,9 @@ file's hash as of the last sync, so an ordinary sequential edit (one side moved
 off the baseline) just propagates, while a genuine conflict (both sides moved)
 resolves newest-wins with the losing side preserved under `conflicts/` — data
 is never dropped. Deletes propagate; a delete racing an edit keeps the edit.
+The `conflicts/` tree is **local-only (never mirrored)** and **bounded**:
+losing sides are deduped by content, capped to the newest few per path, and
+aged out, so a repeatedly-conflicting file can't balloon storage.
 It's triggered at launch (`warm()`), after any local write, and by the
 `CloudWatcher` (`NSMetadataQuery`) when a remote change lands — all debounced
 into one pass. The watcher's reload runs each store's `reloadFromDisk` off the

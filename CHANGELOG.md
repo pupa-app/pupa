@@ -3,6 +3,16 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.65] — 2026-07-08
+
+### Changed
+
+- **iCloud merge conflict copies are now bounded and local-only.** The losing
+  sides of a merge (preserved under `conflicts/`) are no longer mirrored to
+  iCloud, and are deduped by content, capped to the newest few per path, and
+  aged out — so a repeatedly-conflicting file can't balloon storage on device
+  or across devices. (`PupaApp` `0.0.162`)
+
 ## [0.0.64] — 2026-07-08
 
 ### Changed
