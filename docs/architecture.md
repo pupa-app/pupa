@@ -74,7 +74,7 @@ handlers.
 | [`Chat/`](../Pupa/Sources/PupaApp/Chat/) | `ChatViewModel`, `ChatSessionCoordinator` (drives `AgentSession`), `ChatPanel` + thread-selector dropdown (`ConversationPager`), slash commands, transcript mapping. The composer attaches one image — from the photo library, the camera (`CameraPicker`, iOS), or drag-and-drop — all funnelled through `ImagePreparer` into a `PickedImage`. |
 | [`Tools/`](../Pupa/Sources/PupaApp/Tools/) | `AppTools.swift` — registers every frontend tool against the `ToolRegistry`. |
 | [`Memory/`](../Pupa/Sources/PupaApp/Memory/) | `MemoryStore` — sandboxed markdown filesystem. |
-| [`Agents/`](../Pupa/Sources/PupaApp/Agents/) | Per-agent policies, the agent overview/detail pages, `ModelCatalogStore` (live backend model list) + `KnownLLMModelCatalog` (offline fallback). |
+| [`Agents/`](../Pupa/Sources/PupaApp/Agents/) | Per-agent policies, the agent overview/detail pages, `ModelCatalogStore` (live per-harness model list + tool/permission schema from `GET /harnesses`; no offline fallback). |
 | [`Slack/`](../Pupa/Sources/PupaApp/Slack/) | `SlackInvoker` — multi-agent room invocation policy. |
 | [`ScreenShare/`](../Pupa/Sources/PupaApp/ScreenShare/) | WebRTC viewer + signalling client for the backend's `/screenshare/ws` broker. |
 | [`Settings/`](../Pupa/Sources/PupaApp/Settings/) | `SettingsStore` (backend URL, API key, disabled tools), backend-tools client. |
@@ -398,15 +398,28 @@ that `ChatViewModel` conforms to). The backend forwards their schemas to
 the model and the client executes the calls — the backend owns no
 canvas logic.
 
-The model picker catalog is fetched live from the backend's `GET /models`
-route by `BackendModelsClient` into a `ModelCatalogStore`
+**Agent harnesses.** Each backend can serve several agent loops ("harnesses" —
+LangGraph, Claude Code, …) at once, mounted at `POST /harnesses/{id}`.
+`BackendEntry.harnessID` selects which one this connection talks to (chosen in
+the backend edit sheet); `SettingsStore.agentRunURL` derives the run endpoint
+(`{url}/harnesses/{id}`, or the bare `url` for the backend default). Switching
+harness rebuilds the `AgentSession` (the URL changes), same as a URL edit.
+
+The model picker catalog + per-harness tool/permission schema are fetched live
+from `GET /harnesses` by `BackendHarnessesClient` into a `ModelCatalogStore`
 ([Agents/ModelCatalogStore.swift](../Pupa/Sources/PupaApp/Agents/ModelCatalogStore.swift)),
-owned by `AppView` and refreshed on launch and whenever the active backend
-changes. The static `KnownLLMModelCatalog`
-([Agents/KnownLLMModel.swift](../Pupa/Sources/PupaApp/Agents/KnownLLMModel.swift))
-is now only the offline fallback (backend unreachable, old backend, not
-paired). The selected `{provider, model}` is forwarded per turn in
-`RunAgentInput.forwardedProps["llm"]`.
+owned by `AppView` and refreshed on launch and whenever the active backend (or
+its harness) changes. **There is no offline fallback**: when the backend is
+unreachable the model list is empty and the picker shows an explicit
+"backend unreachable" state rather than a stale hardcoded catalog. The selected
+`{provider, model}` is forwarded per turn in `RunAgentInput.forwardedProps["llm"]`.
+
+**Harness-scoped permissions.** Settings → Tools renders controls from the
+active harness's advertised schema (`HarnessPermissionControl`): a `toolset`
+(backend-tool mutes → `state["disabled_tools"]`), `bool`
+(`shell_approval_disabled`), or `choice` (`claude_loop_native`). Values echo
+into `RunAgentInput.state` under each control's `key`; harness-specific ones
+live in `SettingsStore.backendHarnessControls` keyed by harness id.
 
 **Per-agent overrides.** Model and tool gating are configured per agent on the
 Agents page. `AgentRegistry` builds an `AgentDescriptor` per agent carrying a

@@ -26,6 +26,22 @@ public enum SubagentRunError: Error, CustomStringConvertible {
 @MainActor
 @Observable
 public final class ChatSessionCoordinator {
+    /// Merge the active backend harness's own permission-control values (e.g.
+    /// Claude Code's `claude_loop_native` / `claude_loop_auto_approve`) into a
+    /// `RunAgentInput.state` dict, keyed by the exact state key its gate reads.
+    /// Empty for LangGraph. Shared by the sub-run / A2A / slack state builders.
+    @MainActor
+    static func mergeActiveHarnessControls(into entries: inout [String: AnyJSON], settings: SettingsStore) {
+        guard let harnessID = settings.activeHarnessID else { return }
+        for (key, value) in settings.harnessControls(harnessID: harnessID) {
+            switch value {
+            case .bool(let b): entries[key] = .bool(b)
+            case .string(let s): entries[key] = .string(s)
+            case .stringSet(let arr): entries[key] = .array(arr.sorted().map(AnyJSON.string))
+            }
+        }
+    }
+
     /// MyApp ids with at least one in-flight stream right now. Derived from
     /// `busyCounts` — a refcount per myApp — so independent concurrent
     /// streams against the same myApp (e.g. the user's own chat plus an
@@ -364,7 +380,7 @@ public final class ChatSessionCoordinator {
         }
         let session = AgentSession(
             client: AgentClient(
-                endpoint: settings.backendURL,
+                endpoint: settings.agentRunURL,
                 session: urlSession,
                 extraHeaders: settings.authHeaders
             ),
@@ -393,6 +409,7 @@ public final class ChatSessionCoordinator {
                 if effective.resolve(ShellApprovalDisabledKey.self, at: .myApp(myAppId)) {
                     entries["shell_approval_disabled"] = .bool(true)
                 }
+                Self.mergeActiveHarnessControls(into: &entries, settings: settings)
                 return AnyJSON.object(entries)
             }
         }
@@ -511,7 +528,7 @@ public final class ChatSessionCoordinator {
         }
         let session = AgentSession(
             client: AgentClient(
-                endpoint: settings.backendURL,
+                endpoint: settings.agentRunURL,
                 session: urlSession,
                 extraHeaders: settings.authHeaders
             ),
@@ -541,6 +558,7 @@ public final class ChatSessionCoordinator {
                 if effective.resolve(ShellApprovalDisabledKey.self, at: .myApp(myAppId)) {
                     entries["shell_approval_disabled"] = .bool(true)
                 }
+                Self.mergeActiveHarnessControls(into: &entries, settings: settings)
                 return AnyJSON.object(entries)
             }
         }
@@ -794,7 +812,7 @@ public final class ChatSessionCoordinator {
         defer { withExtendedLifetime(hitlBridge) {} }
         let session = AgentSession(
             client: AgentClient(
-                endpoint: settings.backendURL,
+                endpoint: settings.agentRunURL,
                 session: urlSession,
                 extraHeaders: settings.authHeaders
             ),
@@ -829,6 +847,7 @@ public final class ChatSessionCoordinator {
                 if effective.resolve(ShellApprovalDisabledKey.self, at: .myApp(myAppId)) {
                     entries["shell_approval_disabled"] = .bool(true)
                 }
+                Self.mergeActiveHarnessControls(into: &entries, settings: settings)
                 return AnyJSON.object(entries)
             }
         }

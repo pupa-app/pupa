@@ -192,6 +192,69 @@ struct SettingsStorePersistenceTests {
         #expect(store.maxToolRounds == SettingsStore.defaultMaxToolRounds)
     }
 
+    // MARK: - Agent harness (per-connection selection)
+
+    @Test("harnessID persists and drives agentRunURL")
+    func harnessID_roundtripAndRunURL() {
+        SettingsStore.clearStorage()
+        let writer = SettingsStore(credentials: InMemoryCredentialStore())
+        let id = writer.addBackend(label: "Multi", url: URL(string: "https://m.example.com/")!)
+        writer.setActiveBackend(id)
+        // No harness selected → run endpoint is the bare URL (backend default).
+        #expect(writer.agentRunURL.absoluteString == "https://m.example.com/")
+
+        writer.updateBackend(id, harnessID: .some("claude_code"))
+        #expect(writer.agentRunURL.absoluteString == "https://m.example.com/harnesses/claude_code")
+
+        let reader = SettingsStore(credentials: InMemoryCredentialStore())
+        #expect(reader.activeBackend.harnessID == "claude_code")
+        #expect(reader.agentRunURL.absoluteString == "https://m.example.com/harnesses/claude_code")
+    }
+
+    @Test("harness controls round-trip per harness id")
+    func harnessControls_roundtrip() {
+        SettingsStore.clearStorage()
+        let writer = SettingsStore(credentials: InMemoryCredentialStore())
+        writer.setHarnessControl(harnessID: "claude_code", key: "claude_loop_native", value: .string("read"))
+        writer.setHarnessControl(harnessID: "claude_code", key: "claude_loop_auto_approve", value: .bool(true))
+
+        let reader = SettingsStore(credentials: InMemoryCredentialStore())
+        #expect(reader.harnessControl(harnessID: "claude_code", key: "claude_loop_native") == .string("read"))
+        #expect(reader.harnessControl(harnessID: "claude_code", key: "claude_loop_auto_approve") == .bool(true))
+        // A different harness has no controls stored.
+        #expect(reader.harnessControls(harnessID: "langgraph").isEmpty)
+    }
+
+    @Test("clearing a harness control removes it (falls back to default)")
+    func harnessControls_clear() {
+        let store = freshStore()
+        store.setHarnessControl(harnessID: "claude_code", key: "claude_loop_native", value: .string("off"))
+        store.setHarnessControl(harnessID: "claude_code", key: "claude_loop_native", value: nil)
+        #expect(store.harnessControl(harnessID: "claude_code", key: "claude_loop_native") == nil)
+    }
+
+    @Test("Pre-harness settings blob decodes: no harnessID, empty controls")
+    func preHarness_blobDecodes() throws {
+        SettingsStore.clearStorage()
+        let id = UUID()
+        let legacy: [String: Any] = [
+            "disabledBackendTools": ["tavily_search"],
+            "backends": [["id": id.uuidString, "label": "L", "url": "https://x.example.com/"]],
+            "activeBackendID": id.uuidString,
+            "shellApprovalDisabled": true,
+        ]
+        let data = try JSONSerialization.data(withJSONObject: legacy)
+        try CloudDocument.write(data, to: SettingsStore.settingsURL)
+
+        let store = SettingsStore(credentials: InMemoryCredentialStore())
+        #expect(store.activeBackend.harnessID == nil)
+        #expect(store.agentRunURL.absoluteString == "https://x.example.com/")
+        #expect(store.backendHarnessControls.isEmpty)
+        // Existing fields still migrate as before.
+        #expect(store.isEnabled("tavily_search") == false)
+        #expect(store.shellApprovalDisabled == true)
+    }
+
     @Test("settings.json with a per-entry apiKey decodes cleanly (unknown key dropped)")
     func preParingApiKey_silentlyDropped() throws {
         SettingsStore.clearStorage()

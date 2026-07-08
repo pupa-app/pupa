@@ -23,16 +23,17 @@ struct ModelPickerRow: View {
     /// Render the minimal header variant instead of the full agent-panel row.
     var compact: Bool = false
 
-    /// The model the picker rests on. With no explicit override we show the
-    /// catalog's first entry — the registry's primary, i.e. the effective
-    /// backend default — rather than an abstract "Backend default" sentinel,
-    /// so the row always names a concrete model.
+    /// The model the picker rests on. Prefers the explicit selection, else the
+    /// catalog's first entry (the backend default). When the catalog is empty
+    /// (backend unreachable) there is no concrete model — the label falls back
+    /// to a status string rather than inventing a hardcoded default.
     private var resolvedModel: KnownLLMModel? {
         options.first(where: { $0.id == selectedId }) ?? options.first
     }
 
     private var currentLabel: String {
-        resolvedModel?.label ?? "Backend default"
+        if let model = resolvedModel { return model.label }
+        return loadFailed ? "Backend unreachable" : "Backend default"
     }
 
     private var currentSecondary: String? {
@@ -51,6 +52,11 @@ struct ModelPickerRow: View {
 
     var body: some View {
         Menu {
+            if options.isEmpty {
+                // No models: never fabricate a fallback — say why the list is empty.
+                Text(loadFailed ? "Backend unreachable — models unavailable"
+                                : "No models available")
+            }
             ForEach(grouped, id: \.provider) { group in
                 Section(KnownLLMModelCatalog.providerDisplayName(group.provider)) {
                     ForEach(group.items) { model in

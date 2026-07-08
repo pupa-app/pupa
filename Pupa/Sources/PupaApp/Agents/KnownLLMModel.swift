@@ -36,31 +36,10 @@ public enum KnownLLMModelCatalog {
     /// observable to the user.
     public static let backendDefaultId = "__backend_default__"
 
-    /// The full static catalog. Keep entries in sync with `MODEL_REGISTRY` in
-    /// `backend/agent.py`. The picker groups by `provider`; ordering within a
-    /// provider is the order listed here.
-    public static let all: [KnownLLMModel] = [
-        KnownLLMModel(
-            id: "bedrock/claude-sonnet-4-6",
-            provider: KnownLLMProvider.bedrock,
-            modelId: "claude-sonnet-4-6",
-            label: "Claude Sonnet 4.6"
-        ),
-        KnownLLMModel(
-            id: "anthropic/claude-sonnet-4-6",
-            provider: KnownLLMProvider.anthropic,
-            modelId: "claude-sonnet-4-6",
-            label: "Claude Sonnet 4.6"
-        ),
-    ]
-
-    public static func model(forId id: String) -> KnownLLMModel? {
-        all.first(where: { $0.id == id })
-    }
-
-    public static func model(provider: String, modelId: String) -> KnownLLMModel? {
-        all.first(where: { $0.provider == provider && $0.modelId == modelId })
-    }
+    // No static model catalog: the live list comes from the backend's
+    // `GET /harnesses` discovery (`ModelCatalogStore`). When the backend is
+    // unreachable the picker shows an explicit empty/error state rather than a
+    // hardcoded fallback that might not match what the backend can actually run.
 
     public static func providerDisplayName(_ provider: String) -> String {
         switch provider {

@@ -26,19 +26,27 @@ public struct BackendEntry: Identifiable, Codable, Equatable, Sendable {
     /// on system trust — required for self-hosted HTTPS without a CA-signed cert.
     /// Populated automatically when pairing via QR (the QR encodes `fp=<hex>`).
     public var certFingerprint: String?
+    /// Which backend agent harness this connection talks to (`langgraph`,
+    /// `claude_code`, …). Chosen from the backend's `GET /harnesses` discovery.
+    /// `nil` → the backend's default harness (talks to `POST /`, un-migrated).
+    /// Drives the run endpoint (`/harnesses/{id}`) and which permission controls
+    /// the Settings sheet shows.
+    public var harnessID: String?
 
     public init(
         id: UUID = UUID(),
         label: String,
         url: URL,
         deviceID: UUID? = nil,
-        certFingerprint: String? = nil
+        certFingerprint: String? = nil,
+        harnessID: String? = nil
     ) {
         self.id = id
         self.label = label
         self.url = url
         self.deviceID = deviceID
         self.certFingerprint = certFingerprint
+        self.harnessID = harnessID
     }
 }
 
@@ -84,6 +92,12 @@ public final class SettingsStore {
     public static let maxToolRoundsRange = 4...64
 
     public private(set) var disabledBackendTools: Set<String>
+    /// Harness-specific permission-control values, keyed by harness id, then by
+    /// the control `key` the backend advertised (e.g. `claude_loop_native`).
+    /// The LangGraph controls (`disabled_tools`, `shell_approval_disabled`) keep
+    /// their dedicated fields above; this holds the *other* harnesses' controls
+    /// (native scope, auto-approve, …) so tool/permission UI is per-harness.
+    public private(set) var backendHarnessControls: [String: [String: HarnessSettingValue]]
     public private(set) var backends: [BackendEntry]
     public private(set) var activeBackendID: UUID
     /// User-controlled global override for the backend's `ShellApprovalMiddleware`.
@@ -139,10 +153,26 @@ public final class SettingsStore {
         backends.first(where: { $0.id == activeBackendID }) ?? backends[0]
     }
 
-    /// URL of the active backend. Computed — every `AgentClient`,
-    /// `BackendToolsClient`, and `ScreenShareSignalingClient` reads this and
-    /// continues to compile unchanged.
+    /// URL of the active backend. Computed — every REST client
+    /// (`BackendHarnessesClient`, `ScreenShareSignalingClient`, …) reads this as
+    /// the FastAPI base and appends its own path.
     public var backendURL: URL { activeBackend.url }
+
+    /// The AG-UI run endpoint for the active backend. When a harness is
+    /// selected it is `{url}/harnesses/{harnessID}`; otherwise the bare `url`
+    /// (the backend's default harness, mounted at `POST /`). This — not
+    /// `backendURL` — is what `AgentClient` posts turns to.
+    public var agentRunURL: URL {
+        guard let harnessID = activeBackend.harnessID, !harnessID.isEmpty else {
+            return activeBackend.url
+        }
+        return activeBackend.url
+            .appendingPathComponent("harnesses")
+            .appendingPathComponent(harnessID)
+    }
+
+    /// The active backend's selected harness id (`nil` → backend default).
+    public var activeHarnessID: String? { activeBackend.harnessID }
 
     /// Returns a URLSession appropriate for the active backend.
     /// When the backend has a `certFingerprint` (self-signed TLS via `make setup`),
@@ -164,6 +194,7 @@ public final class SettingsStore {
     ) {
         let snapshot = Self.load()
         self.disabledBackendTools = disabledBackendTools ?? snapshot.disabledTools
+        self.backendHarnessControls = snapshot.backendHarnessControls
         self.backends = snapshot.backends
         self.activeBackendID = snapshot.activeBackendID
         self.shellApprovalDisabled = shellApprovalDisabled ?? snapshot.shellApprovalDisabled
@@ -225,14 +256,43 @@ public final class SettingsStore {
         label: String? = nil,
         url: URL? = nil,
         deviceID: UUID?? = nil,
-        certFingerprint: String?? = nil
+        certFingerprint: String?? = nil,
+        harnessID: String?? = nil
     ) {
         guard let idx = backends.firstIndex(where: { $0.id == id }) else { return }
         if let label { backends[idx].label = label }
         if let url { backends[idx].url = url }
         if let deviceID { backends[idx].deviceID = deviceID }
         if let certFingerprint { backends[idx].certFingerprint = certFingerprint }
+        if let harnessID { backends[idx].harnessID = harnessID }
         persist()
+    }
+
+    // MARK: - Harness controls
+
+    /// Read a harness-specific control value (native scope, auto-approve, …).
+    public func harnessControl(harnessID: String, key: String) -> HarnessSettingValue? {
+        backendHarnessControls[harnessID]?[key]
+    }
+
+    /// Write a harness-specific control value. `nil` clears it (falls back to
+    /// the control's default from the discovery schema).
+    public func setHarnessControl(harnessID: String, key: String, value: HarnessSettingValue?) {
+        var forHarness = backendHarnessControls[harnessID] ?? [:]
+        if let value {
+            guard forHarness[key] != value else { return }
+            forHarness[key] = value
+        } else {
+            guard forHarness[key] != nil else { return }
+            forHarness.removeValue(forKey: key)
+        }
+        backendHarnessControls[harnessID] = forHarness.isEmpty ? nil : forHarness
+        persist()
+    }
+
+    /// All stored control values for a harness — merged into `RunAgentInput.state`.
+    public func harnessControls(harnessID: String) -> [String: HarnessSettingValue] {
+        backendHarnessControls[harnessID] ?? [:]
     }
 
     /// Remove a backend. Refuses to remove the last remaining backend (the
@@ -381,6 +441,7 @@ public final class SettingsStore {
     private func persist() {
         let snap = Snapshot(
             disabledBackendTools: Array(disabledBackendTools).sorted(),
+            backendHarnessControls: backendHarnessControls,
             backends: backends,
             activeBackendID: activeBackendID,
             shellApprovalDisabled: shellApprovalDisabled,
@@ -413,6 +474,8 @@ public final class SettingsStore {
     /// Keychain tokens; those without need to re-pair to chat.
     private struct Snapshot: Codable {
         var disabledBackendTools: [String] = []
+        // Optional so pre-existing blobs decode; `load()` substitutes [:].
+        var backendHarnessControls: [String: [String: HarnessSettingValue]]?
         var backends: [BackendEntry]?
         var activeBackendID: UUID?
         var shellApprovalDisabled: Bool?
@@ -432,6 +495,7 @@ public final class SettingsStore {
 
     private struct Loaded {
         let disabledTools: Set<String>
+        let backendHarnessControls: [String: [String: HarnessSettingValue]]
         let backends: [BackendEntry]
         let activeBackendID: UUID
         let shellApprovalDisabled: Bool
@@ -451,6 +515,7 @@ public final class SettingsStore {
             let entry = BackendEntry(label: defaultBackendLabel, url: defaultBackendURL)
             return Loaded(
                 disabledTools: [],
+                backendHarnessControls: [:],
                 backends: [entry],
                 activeBackendID: entry.id,
                 shellApprovalDisabled: false,
@@ -466,6 +531,7 @@ public final class SettingsStore {
         let (backends, activeID) = resolveBackends(snap)
         return Loaded(
             disabledTools: Set(snap.disabledBackendTools),
+            backendHarnessControls: snap.backendHarnessControls ?? [:],
             backends: backends,
             activeBackendID: activeID,
             shellApprovalDisabled: snap.shellApprovalDisabled ?? false,
@@ -503,6 +569,7 @@ public final class SettingsStore {
     public func reloadFromDisk() async {
         let loaded = await Task.detached(priority: .utility) { Self.load() }.value
         disabledBackendTools = loaded.disabledTools
+        backendHarnessControls = loaded.backendHarnessControls
         backends = loaded.backends
         activeBackendID = loaded.activeBackendID
         shellApprovalDisabled = loaded.shellApprovalDisabled

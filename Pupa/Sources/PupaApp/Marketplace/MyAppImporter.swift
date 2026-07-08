@@ -303,10 +303,14 @@ public enum MyAppImporter {
         for (k, v) in raw {
             if allowedSettingKeys.contains(k) { clean[k] = v } else { dropped.append(k) }
         }
+        // The model catalog is now backend-provided (per-harness discovery), so
+        // we can't validate the pair against a static list here. Keep it if both
+        // fields are non-empty strings; an unknown pair is rejected by the
+        // backend at request time with a clear error toast.
         if case .string(let provider)? = clean[MyAppStore.llmProviderSettingsKey],
            case .string(let model)? = clean[MyAppStore.llmModelSettingsKey],
-           KnownLLMModelCatalog.model(provider: provider, modelId: model) != nil {
-            // Valid pair — keep.
+           !provider.isEmpty, !model.isEmpty {
+            // Plausible pair — keep.
         } else {
             clean[MyAppStore.llmProviderSettingsKey] = nil
             clean[MyAppStore.llmModelSettingsKey] = nil
