@@ -844,10 +844,10 @@ public enum AppTools {
                 parameters: [
                     "type": "object",
                     "properties": [
-                        "componentId": ["type": "string", "description": "Component to lock/unlock (omit → active component)."],
+                        "componentId": ["type": "string", "description": "Component to lock/unlock. Required — name the component explicitly (see the canvas summary); there is no active/view fallback."],
                         "locked": ["type": "boolean", "description": "true to lock, false to unlock."],
                     ],
-                    "required": ["locked"],
+                    "required": ["locked", "componentId"],
                 ]
             ),
             handler: { args in
@@ -855,10 +855,8 @@ public enum AppTools {
                     guard let locked = args["locked"]?.boolValue else {
                         return .object(["ok": .bool(false), "error": .string("missing 'locked' boolean")])
                     }
-                    let cid = args["componentId"]?.stringValue
-                        ?? store.myApps.first(where: { $0.id == myAppId })?.activeComponentId
-                    guard let cid else {
-                        return .object(["ok": .bool(false), "error": .string("no component to lock")])
+                    guard let cid = args["componentId"]?.stringValue, !cid.isEmpty else {
+                        return .object(["ok": .bool(false), "error": .string("missing 'componentId' — name the component to lock/unlock")])
                     }
                     store.setComponentLocked(componentId: cid, locked: locked, myAppId: myAppId)
                     return .object([
@@ -1166,28 +1164,25 @@ public enum AppTools {
         ))
     }
 
+    // The read resolvers below resolve their target the same way writes do
+    // (`MyAppStore.resolveWriteTarget`): an explicit id is honoured or
+    // rejected; an omitted id resolves only when exactly one component of
+    // that kind exists. The active/view component is never consulted — the
+    // agent doesn't reliably know it (it's no longer in the prompt), so a
+    // read must not silently depend on it. Ambiguity returns nil, which the
+    // calling tool surfaces as an error.
+
     @MainActor
     private static func resolveTracker(
         store: MyAppStore,
         myAppId: UUID,
         componentId: String?
     ) -> (TrackerData, String)? {
-        guard let myApp = store.myApps.first(where: { $0.id == myAppId }) else { return nil }
-        if let componentId {
-            guard let component = myApp.components.first(where: { $0.id == componentId }),
-                  case .tracker(let t) = component.body else { return nil }
-            return (t, componentId)
-        }
-        let activeIdx = myApp.activeComponentId.flatMap { id in
-            myApp.components.firstIndex(where: { $0.id == id })
-        }
-        if let activeIdx, case .tracker(let t) = myApp.components[activeIdx].body {
-            return (t, myApp.components[activeIdx].id)
-        }
-        for component in myApp.components {
-            if case .tracker(let t) = component.body { return (t, component.id) }
-        }
-        return nil
+        guard case .resolved(let id) = store.resolveWriteTarget(kind: "tracker", componentId: componentId, myAppId: myAppId),
+              let myApp = store.myApps.first(where: { $0.id == myAppId }),
+              let comp = myApp.components.first(where: { $0.id == id }),
+              case .tracker(let t) = comp.body else { return nil }
+        return (t, id)
     }
 
     @MainActor
@@ -1196,22 +1191,11 @@ public enum AppTools {
         myAppId: UUID,
         componentId: String?
     ) -> (CalendarData, String)? {
-        guard let myApp = store.myApps.first(where: { $0.id == myAppId }) else { return nil }
-        if let componentId {
-            guard let component = myApp.components.first(where: { $0.id == componentId }),
-                  case .calendar(let c) = component.body else { return nil }
-            return (c, componentId)
-        }
-        let activeIdx = myApp.activeComponentId.flatMap { id in
-            myApp.components.firstIndex(where: { $0.id == id })
-        }
-        if let activeIdx, case .calendar(let c) = myApp.components[activeIdx].body {
-            return (c, myApp.components[activeIdx].id)
-        }
-        for component in myApp.components {
-            if case .calendar(let c) = component.body { return (c, component.id) }
-        }
-        return nil
+        guard case .resolved(let id) = store.resolveWriteTarget(kind: "calendar", componentId: componentId, myAppId: myAppId),
+              let myApp = store.myApps.first(where: { $0.id == myAppId }),
+              let comp = myApp.components.first(where: { $0.id == id }),
+              case .calendar(let c) = comp.body else { return nil }
+        return (c, id)
     }
 
     @MainActor
@@ -1220,22 +1204,11 @@ public enum AppTools {
         myAppId: UUID,
         componentId: String?
     ) -> (ChecklistData, String)? {
-        guard let myApp = store.myApps.first(where: { $0.id == myAppId }) else { return nil }
-        if let componentId {
-            guard let component = myApp.components.first(where: { $0.id == componentId }),
-                  case .checklist(let cl) = component.body else { return nil }
-            return (cl, componentId)
-        }
-        let activeIdx = myApp.activeComponentId.flatMap { id in
-            myApp.components.firstIndex(where: { $0.id == id })
-        }
-        if let activeIdx, case .checklist(let cl) = myApp.components[activeIdx].body {
-            return (cl, myApp.components[activeIdx].id)
-        }
-        for component in myApp.components {
-            if case .checklist(let cl) = component.body { return (cl, component.id) }
-        }
-        return nil
+        guard case .resolved(let id) = store.resolveWriteTarget(kind: "checklist", componentId: componentId, myAppId: myAppId),
+              let myApp = store.myApps.first(where: { $0.id == myAppId }),
+              let comp = myApp.components.first(where: { $0.id == id }),
+              case .checklist(let cl) = comp.body else { return nil }
+        return (cl, id)
     }
 
     // MARK: - Component lifecycle tools
@@ -1347,12 +1320,12 @@ public enum AppTools {
             descriptor: ToolDescriptor(
                 name: "setActiveComponent",
                 description: """
-                Focus a component — drives the canvas view and which component \
-                kind-targeted tools fall back to when called without a \
-                componentId. Use this after addComponent to focus the freshly \
-                created component, or when the user asks to "open" / "show" / \
-                "switch to" a specific component. Result echoes \
-                {componentId, activeComponentId}.
+                Focus a component — drives ONLY the canvas view (which \
+                component is on screen for the user). It does NOT change where \
+                tools write: tools target a component by explicit `componentId`, \
+                never the active one. Use when the user asks to "open" / "show" \
+                / "switch to" a component, or to reveal one you just created. \
+                Result echoes {componentId, activeComponentId}.
                 """,
                 parameters: [
                     "type": "object",
@@ -1369,6 +1342,43 @@ public enum AppTools {
                         "ok": .bool(ok),
                         "componentId": .string(id),
                         "activeComponentId": active.map { .string($0) } ?? .null,
+                    ])
+                }
+            }
+        ))
+
+        registry.register(ClientTool(
+            descriptor: ToolDescriptor(
+                name: "getActiveComponent",
+                description: """
+                Read which component the user is currently viewing (the \
+                "active" component). This is a pure VIEW pointer — it is \
+                deliberately NOT in the per-turn canvas summary, so fetch it \
+                here when the user says "this" / "the one I'm looking at" and \
+                you need to resolve it to a concrete `componentId` to pass to \
+                another tool. Result: {ok, activeComponentId, name, kind} \
+                (fields null when nothing is focused).
+                """,
+                parameters: ["type": "object", "properties": [:]]
+            ),
+            readOnly: true,
+            handler: { _ in
+                await MainActor.run {
+                    guard let myApp = store.myApps.first(where: { $0.id == myAppId }),
+                          let id = myApp.activeComponentId,
+                          let comp = myApp.components.first(where: { $0.id == id }) else {
+                        return .object([
+                            "ok": .bool(true),
+                            "activeComponentId": .null,
+                            "name": .null,
+                            "kind": .null,
+                        ])
+                    }
+                    return .object([
+                        "ok": .bool(true),
+                        "activeComponentId": .string(id),
+                        "name": .string(comp.name),
+                        "kind": .string(comp.kindString),
                     ])
                 }
             }
@@ -3895,19 +3905,16 @@ public enum AppTools {
         ))
     }
 
-    /// Resolve the first `SlackData` body within the MyApp,
-    /// preferring the active component if it's a Slack one.
+    /// Resolve the MyApp's `SlackData` body when it holds exactly one slack
+    /// component — else nil. The active/view component is never consulted.
     /// Mirrors `tracker(_:myAppId:)` etc.
     @MainActor
     private static func slackData(_ store: MyAppStore, myAppId: UUID) -> SlackData? {
-        guard let myApp = store.myApps.first(where: { $0.id == myAppId }) else { return nil }
-        if let activeId = myApp.activeComponentId,
-           let comp = myApp.components.first(where: { $0.id == activeId }),
-           case .slack(let s) = comp.body { return s }
-        for comp in myApp.components {
-            if case .slack(let s) = comp.body { return s }
-        }
-        return nil
+        guard case .resolved(let id) = store.resolveWriteTarget(kind: "slack", componentId: nil, myAppId: myAppId),
+              let myApp = store.myApps.first(where: { $0.id == myAppId }),
+              let comp = myApp.components.first(where: { $0.id == id }),
+              case .slack(let s) = comp.body else { return nil }
+        return s
     }
 
     /// JSON-encode one fan-out outcome for inclusion in the
@@ -4895,17 +4902,14 @@ public enum AppTools {
     }
 
     /// Find the tracker component in `myAppId`. Prefers the active
-    /// component if it's a tracker, otherwise returns the first tracker in
-    /// component order. Returns nil if the MyApp has no tracker. Symmetric
-    /// with how `MyAppStore.mutate(kind: "tracker", …)` resolves its target.
+    /// the MyApp's tracker when it holds exactly one — else nil. The
+    /// active/view component is never consulted (it's no longer agent-facing
+    /// and a read must not silently depend on it). Callers that know the id
+    /// should use the `componentId:` overload.
     @MainActor
     private static func tracker(_ store: MyAppStore, myAppId: UUID) -> TrackerData? {
-        guard let myApp = store.myApps.first(where: { $0.id == myAppId }) else { return nil }
-        if let active = myApp.activeComponent, case .tracker(let t) = active.body { return t }
-        for c in myApp.components {
-            if case .tracker(let t) = c.body { return t }
-        }
-        return nil
+        guard case .resolved(let id) = store.resolveWriteTarget(kind: "tracker", componentId: nil, myAppId: myAppId) else { return nil }
+        return tracker(store, myAppId: myAppId, componentId: id)
     }
 
     /// Read a specific tracker by id (used to echo the correct component's
@@ -4922,12 +4926,8 @@ public enum AppTools {
 
     @MainActor
     private static func calendar(_ store: MyAppStore, myAppId: UUID) -> CalendarData? {
-        guard let myApp = store.myApps.first(where: { $0.id == myAppId }) else { return nil }
-        if let active = myApp.activeComponent, case .calendar(let c) = active.body { return c }
-        for c in myApp.components {
-            if case .calendar(let cd) = c.body { return cd }
-        }
-        return nil
+        guard case .resolved(let id) = store.resolveWriteTarget(kind: "calendar", componentId: nil, myAppId: myAppId) else { return nil }
+        return calendar(store, myAppId: myAppId, componentId: id)
     }
 
     /// Read a specific calendar by id (to echo the correct component's
@@ -4944,12 +4944,8 @@ public enum AppTools {
 
     @MainActor
     private static func checklist(_ store: MyAppStore, myAppId: UUID) -> ChecklistData? {
-        guard let myApp = store.myApps.first(where: { $0.id == myAppId }) else { return nil }
-        if let active = myApp.activeComponent, case .checklist(let cl) = active.body { return cl }
-        for c in myApp.components {
-            if case .checklist(let cl) = c.body { return cl }
-        }
-        return nil
+        guard case .resolved(let id) = store.resolveWriteTarget(kind: "checklist", componentId: nil, myAppId: myAppId) else { return nil }
+        return checklist(store, myAppId: myAppId, componentId: id)
     }
 
     /// Read a specific checklist by id (to echo the correct component's
@@ -4982,22 +4978,11 @@ public enum AppTools {
         myAppId: UUID,
         componentId: String?
     ) -> (CalculatorData, String)? {
-        guard let myApp = store.myApps.first(where: { $0.id == myAppId }) else { return nil }
-        if let componentId {
-            guard let component = myApp.components.first(where: { $0.id == componentId }),
-                  case .calculator(let c) = component.body else { return nil }
-            return (c, componentId)
-        }
-        let activeIdx = myApp.activeComponentId.flatMap { id in
-            myApp.components.firstIndex(where: { $0.id == id })
-        }
-        if let activeIdx, case .calculator(let c) = myApp.components[activeIdx].body {
-            return (c, myApp.components[activeIdx].id)
-        }
-        for component in myApp.components {
-            if case .calculator(let c) = component.body { return (c, component.id) }
-        }
-        return nil
+        guard case .resolved(let id) = store.resolveWriteTarget(kind: "calculator", componentId: componentId, myAppId: myAppId),
+              let myApp = store.myApps.first(where: { $0.id == myAppId }),
+              let comp = myApp.components.first(where: { $0.id == id }),
+              case .calculator(let c) = comp.body else { return nil }
+        return (c, id)
     }
 
     /// Sibling components of `myAppId` — the pool calculator aggregate rows
@@ -5364,12 +5349,8 @@ public enum AppTools {
 
     @MainActor
     private static func chartData(_ store: MyAppStore, myAppId: UUID) -> (ChartData, String)? {
-        guard let myApp = store.myApps.first(where: { $0.id == myAppId }) else { return nil }
-        if let active = myApp.activeComponent, case .chart(let c) = active.body { return (c, active.id) }
-        for c in myApp.components {
-            if case .chart(let cd) = c.body { return (cd, c.id) }
-        }
-        return nil
+        guard case .resolved(let id) = store.resolveWriteTarget(kind: "chart", componentId: nil, myAppId: myAppId) else { return nil }
+        return chartData(store, myAppId: myAppId, componentId: id)
     }
 
     /// Read a specific chart by id (to echo the correct component's state

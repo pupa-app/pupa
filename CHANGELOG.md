@@ -3,6 +3,22 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.74] — 2026-07-09
+
+### Changed
+
+- **The active/view component is no longer agent-facing.** Dropped
+  `activeComponentId` from the per-turn "Live canvas state" summary, so
+  browsing between components no longer busts the prompt cache. No tool —
+  read or write — falls back to the active component any more: read /
+  discovery resolvers now use the same "explicit `componentId`, or the
+  unambiguous single component of that kind, else an error" rule as
+  writes. `setComponentLocked` now requires an explicit `componentId`. New
+  **`getActiveComponent`** tool lets the agent fetch "the component the
+  user is looking at" on demand and pass its id explicitly.
+  `setActiveComponent` still drives the on-screen view only. App `0.0.172`
+  → `0.0.173`.
+
 ## [0.0.73] — 2026-07-09
 
 ### Fixed

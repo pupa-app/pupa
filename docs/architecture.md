@@ -312,6 +312,15 @@ writes in a turn (e.g. a render then an item add) from silently landing
 on different same-kind components. Every write tool takes an optional
 `componentId` param and echoes the resolved id in its result.
 
+The **active/view component is not agent-facing.** It's dropped from the
+per-turn "Live canvas state" summary (so browsing between turns never
+busts the prompt cache) and no tool — read or write — falls back to it.
+Read/discovery resolvers use the same "explicit-id or unambiguous-single"
+rule as writes. When the agent genuinely needs "the component the user is
+looking at" it fetches it on demand via the `getActiveComponent` tool and
+passes the resolved id explicitly. `setActiveComponent` still exists but
+only drives the on-screen view.
+
 ### History = snapshots (not per-command undo)
 
 State is versioned by **`SnapshotStore`**

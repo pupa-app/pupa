@@ -2,12 +2,12 @@ import Foundation
 import Testing
 @testable import PupaApp
 
-/// Pins the explicit `componentId:` overloads added so the linked-item
-/// popup can edit / delete items inside a *non-active* component. The
-/// default kind-preference path on `MyAppStore.mutate` resolves to the
-/// active component when it matches, else the first matching one — which
-/// would silently misroute mutations in a MyApp that holds more than one
-/// component of the same kind.
+/// Pins the explicit `componentId:` overloads used so the linked-item
+/// popup (and the agent tools) can edit / delete items inside a specific
+/// component. The kind-routed fallback on `MyAppStore.mutate` no longer
+/// consults the active/view component at all — it resolves to the first
+/// component of the kind — so a no-id mutation never silently follows what
+/// the user happens to be looking at.
 @MainActor
 @Suite("componentId-scoped mutators")
 struct ComponentScopedMutatorTests {
@@ -34,6 +34,8 @@ struct ComponentScopedMutatorTests {
         )
         let store = MyAppStore(initial: ([myApp], myApp.id))
 
+        // Build each tracker by explicit componentId — no-id routing is
+        // deterministic-first now, not active, so setup must name its target.
         let trackerA = store.addComponent(
             kind: "tracker",
             name: "A",
@@ -43,9 +45,10 @@ struct ComponentScopedMutatorTests {
         store.setTracker(
             title: "A",
             fields: [FieldDef(name: "title", type: .text)],
-            myAppId: myApp.id
+            myAppId: myApp.id,
+            componentId: trackerA
         )
-        let rowAInA = store.addItem(["title": "in-A"], myAppId: myApp.id)!
+        let rowAInA = store.addItem(["title": "in-A"], myAppId: myApp.id, componentId: trackerA)!
 
         let trackerB = store.addComponent(
             kind: "tracker",
@@ -53,14 +56,13 @@ struct ComponentScopedMutatorTests {
             iconSystemName: "book.closed",
             myAppId: myApp.id
         )!
-        // addComponent flips active → trackerB; setTracker / addItem now
-        // target trackerB.
         store.setTracker(
             title: "B",
             fields: [FieldDef(name: "title", type: .text)],
-            myAppId: myApp.id
+            myAppId: myApp.id,
+            componentId: trackerB
         )
-        let rowAInB = store.addItem(["title": "in-B"], myAppId: myApp.id)!
+        let rowAInB = store.addItem(["title": "in-B"], myAppId: myApp.id, componentId: trackerB)!
 
         return Fixture(
             store: store,
@@ -101,29 +103,33 @@ struct ComponentScopedMutatorTests {
         #expect(trackerItem(f.store, myAppId: f.myAppId, componentId: f.trackerB, itemId: f.rowAInB)?.values["title"] == "in-B")
     }
 
-    @Test("patchItem without componentId hits the active component")
-    func patchWithoutComponentIdHitsActive() {
+    @Test("patchItem without componentId ignores the active component (deterministic first)")
+    func patchWithoutComponentIdIgnoresActive() {
         let f = freshFixture()
-        // Active is trackerB. Patch trackerB's row without specifying a
-        // componentId. Asking by id alone would only succeed if the id is
-        // found inside trackerB's items.
+        // Focus trackerB. A no-id patch must NOT follow the view — the
+        // kind-routed fallback resolves to the FIRST tracker (A) regardless.
+        f.store.setActiveComponent(componentId: f.trackerB, myAppId: f.myAppId)
+
+        // rowAInA lives in the first tracker (A) — a no-id patch reaches it
+        // even though B is active, proving active is not consulted.
         let ok = f.store.patchItem(
-            id: f.rowAInB,
-            with: ["title": "patched-B"],
+            id: f.rowAInA,
+            with: ["title": "patched"],
             myAppId: f.myAppId
         )
         #expect(ok)
-        #expect(trackerItem(f.store, myAppId: f.myAppId, componentId: f.trackerB, itemId: f.rowAInB)?.values["title"] == "patched-B")
-        // A row id from trackerA is not visible to the kind-preference
-        // resolver while trackerB is active, so the no-arg patch is a
-        // no-op rather than misrouting.
+        #expect(trackerItem(f.store, myAppId: f.myAppId, componentId: f.trackerA, itemId: f.rowAInA)?.values["title"] == "patched")
+
+        // rowAInB lives in the active tracker (B), but the resolver only
+        // looks at the first tracker (A), so a no-id patch can't find it —
+        // a no-op, not a misroute to the active component.
         let missOk = f.store.patchItem(
-            id: f.rowAInA,
+            id: f.rowAInB,
             with: ["title": "misrouted"],
             myAppId: f.myAppId
         )
         #expect(missOk == false)
-        #expect(trackerItem(f.store, myAppId: f.myAppId, componentId: f.trackerA, itemId: f.rowAInA)?.values["title"] == "in-A")
+        #expect(trackerItem(f.store, myAppId: f.myAppId, componentId: f.trackerB, itemId: f.rowAInB)?.values["title"] == "in-B")
     }
 
     @Test("removeItem(componentId:) removes from the named tracker and cascades correctly")

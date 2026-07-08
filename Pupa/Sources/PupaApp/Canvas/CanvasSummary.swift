@@ -21,13 +21,18 @@ import AGUIKit
 /// (`renderTracker(summary: "…")` etc.); the slot then round-trips back
 /// in the canvas summary on every subsequent turn until the agent
 /// overwrites it.
+///
+/// The **active** (on-screen) component is deliberately NOT here. It is a
+/// pure view pointer that changes as the user browses, so carrying it
+/// would bust the prompt cache every navigation — and tools no longer
+/// target it, so the agent doesn't need it by default. When the agent
+/// genuinely needs "the one the user is looking at" it fetches it on
+/// demand via the `getActiveComponent` tool.
 public struct CanvasSummary: Encodable, Sendable {
     public let components: [ComponentSummary]
-    public let activeComponentId: String?
 
-    public init(components: [ComponentSummary], activeComponentId: String?) {
+    public init(components: [ComponentSummary]) {
         self.components = components
-        self.activeComponentId = activeComponentId
     }
 
     /// Build a summary of `myApp`. The `previewTracker` argument is
@@ -40,7 +45,7 @@ public struct CanvasSummary: Encodable, Sendable {
     ) -> CanvasSummary {
         _ = previewTracker
         let comps = myApp.components.map { ComponentSummary.build(component: $0) }
-        return CanvasSummary(components: comps, activeComponentId: myApp.activeComponentId)
+        return CanvasSummary(components: comps)
     }
 
     /// Encode this summary as a compact JSON string (sorted keys, no

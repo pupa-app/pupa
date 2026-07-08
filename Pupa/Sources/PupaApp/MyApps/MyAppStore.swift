@@ -695,16 +695,13 @@ public final class MyAppStore {
         let target = myAppId ?? activeMyAppId
         guard let mIdx = myApps.firstIndex(where: { $0.id == target }) else { return false }
         let m = myApps[mIdx]
-        let activeIdx = m.activeComponentId.flatMap { id in
-            m.components.firstIndex(where: { $0.id == id })
-        }
         let cIdx: Int?
         if let componentId {
             // Explicit target wins — set the note on exactly this component.
             cIdx = m.components.firstIndex(where: { $0.id == componentId })
-        } else if let active = activeIdx, m.components[active].kindString == kind {
-            cIdx = active
         } else if let matching = m.components.firstIndex(where: { $0.kindString == kind }) {
+            // No id: first component of the kind. Never the active/view
+            // component — a write must not depend on what's on screen.
             cIdx = matching
         } else {
             cIdx = nil
@@ -2759,18 +2756,15 @@ public final class MyAppStore {
 
         let cIdx: Int?
         if let kind {
-            // Priority: active component if it already matches the kind,
-            // else any existing component of that kind, else active if empty,
-            // else first empty component.
-            let activeIdx = m.activeComponentId.flatMap { id in
-                m.components.firstIndex(where: { $0.id == id })
-            }
-            if let active = activeIdx, m.components[active].kindString == kind {
-                cIdx = active
-            } else if let matching = m.components.firstIndex(where: { $0.kindString == kind }) {
+            // First existing component of that kind, else first empty
+            // component to initialise. The active/view component is never
+            // consulted — a kind-routed write must not depend on what the
+            // user happens to be looking at. (Agent-facing write tools
+            // resolve an explicit id up front via `resolveWriteTarget`; this
+            // fallback only serves the view/filter mutators that still route
+            // by kind, and only when the target is unambiguous.)
+            if let matching = m.components.firstIndex(where: { $0.kindString == kind }) {
                 cIdx = matching
-            } else if let active = activeIdx, m.components[active].kindString == "empty" {
-                cIdx = active
             } else {
                 cIdx = m.components.firstIndex(where: { $0.kindString == "empty" })
             }

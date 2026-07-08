@@ -33,7 +33,8 @@ struct CanvasSummaryTests {
         myApp.activeComponentId = "tracker-1"
 
         let summary = CanvasSummary.build(myApp: myApp)
-        #expect(summary.activeComponentId == "tracker-1")
+        // The summary deliberately omits the active/view pointer (fetched on
+        // demand via getActiveComponent) so browsing never busts the cache.
         #expect(summary.components.count == 1)
         let comp = summary.components[0]
         #expect(comp.id == "tracker-1")
