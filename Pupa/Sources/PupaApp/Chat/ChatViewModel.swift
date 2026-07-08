@@ -25,9 +25,10 @@ public struct ChatBubble: Identifiable, Hashable {
     public let id: String
     public let role: Role
     public var text: String
-    /// Optional inline image attached to a user bubble. Rendered above the
-    /// text inside the bubble. Always nil for assistant / system / toolRound bubbles.
-    public var imageData: Data?
+    /// Inline images attached to a user bubble, in submit order. Rendered above
+    /// the text inside the bubble. Always empty for assistant / system /
+    /// toolRound bubbles.
+    public var imagesData: [Data]
     /// Tool calls aggregated into this bubble. Always empty for non-`toolRound`
     /// roles; populated incrementally as `.toolCallStarted` / `.toolCallFinished`
     /// events arrive within one agent round.
@@ -47,7 +48,7 @@ public struct ChatBubble: Identifiable, Hashable {
         id: String = UUID().uuidString,
         role: Role,
         text: String = "",
-        imageData: Data? = nil,
+        imagesData: [Data] = [],
         toolEntries: [ToolCallEntry] = [],
         humanQuestions: [HumanQuestionRow] = [],
         chartSnapshot: ChatChartSnapshot? = nil
@@ -55,7 +56,7 @@ public struct ChatBubble: Identifiable, Hashable {
         self.id = id
         self.role = role
         self.text = text
-        self.imageData = imageData
+        self.imagesData = imagesData
         self.toolEntries = toolEntries
         self.humanQuestions = humanQuestions
         self.chartSnapshot = chartSnapshot
@@ -146,26 +147,20 @@ public struct PickedImage: Equatable, Sendable {
 public struct QueuedMessage: Identifiable, Equatable, Sendable {
     public let id: String
     public var text: String
-    public var imageData: Data?
-    public var mimeType: String?
+    public var images: [PickedImage]
 
     public init(
         id: String = UUID().uuidString,
         text: String,
-        imageData: Data? = nil,
-        mimeType: String? = nil
+        images: [PickedImage] = []
     ) {
         self.id = id
         self.text = text
-        self.imageData = imageData
-        self.mimeType = mimeType
+        self.images = images
     }
 
-    /// Reconstitute the `PickedImage` this item carried, if any.
-    var pickedImage: PickedImage? {
-        guard let imageData, let mimeType else { return nil }
-        return PickedImage(data: imageData, mimeType: mimeType)
-    }
+    /// The `PickedImage`s this item carried, in order.
+    var pickedImages: [PickedImage] { images }
 }
 
 /// What a `ChatViewModel` is bound to for its entire lifetime. Pinned at init
@@ -181,6 +176,11 @@ public enum ChatScope: Equatable, Hashable, Sendable {
 @MainActor
 @Observable
 public final class ChatViewModel {
+    /// Max inline images attachable to a single user message. Anthropic's
+    /// per-request image limit; the composer caps selection at this and
+    /// `coalesceQueue` truncates merged queued images to it.
+    public static let maxImagesPerMessage = 20
+
     /// Immutable scope binding — set at init, never changes. Determines which
     /// myApp's canvas (if any) this session's tools mutate and which tool
     /// surface is advertised per turn.
@@ -858,16 +858,16 @@ public final class ChatViewModel {
         sessionAuthHeaders = headers
     }
 
-    public func send(_ raw: String, image: PickedImage? = nil) {
+    public func send(_ raw: String, images: [PickedImage] = []) {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         // `text` is what reaches the backend; `displayText` is what the user
         // bubble shows. They diverge only for `/skill`-style rewrites, where
         // the bubble shows `/name args` but the agent receives the rendered
         // skill body.
         var displayText = text
-        // Allow sends with an image but no text — the agent can still reason
-        // about the image alone. Block only if both inputs are empty.
-        guard !text.isEmpty || image != nil else { return }
+        // Allow sends with images but no text — the agent can still reason
+        // about the images alone. Block only if both inputs are empty.
+        guard !text.isEmpty || !images.isEmpty else { return }
 
         // Parked on a human-in-the-loop interrupt: the composer is gated and
         // resolution flows through the bubble, so a stray send is dropped
@@ -881,9 +881,7 @@ public final class ChatViewModel {
         // slash commands are re-evaluated when the item drains back through
         // `send`. Multiple queued messages preserve submit order.
         if isStreaming {
-            queuedMessages.append(
-                QueuedMessage(text: text, imageData: image?.data, mimeType: image?.mimeType)
-            )
+            queuedMessages.append(QueuedMessage(text: text, images: images))
             return
         }
 
@@ -908,7 +906,7 @@ public final class ChatViewModel {
             break
         }
 
-        appendBubble(ChatBubble(role: .user, text: displayText, imageData: image?.data))
+        appendBubble(ChatBubble(role: .user, text: displayText, imagesData: images.map(\.data)))
 
         // Capture the first user message as the thread title (set-once).
         let isFirstUserMessage = !bubbles.dropLast().contains(where: { $0.role == .user })
@@ -927,7 +925,7 @@ public final class ChatViewModel {
         let store = store
         let memory = memory
         let settings = settings
-        let imagePayload: (data: Data, mimeType: String)? = image.map { ($0.data, $0.mimeType) }
+        let imagePayloads: [(data: Data, mimeType: String)] = images.map { ($0.data, $0.mimeType) }
         let previewTracker = previewTracker
         // Resolve per-agent LLM selection at send time. The chosen model
         // is sent in `forwardedProps["llm"]` and survives across all rounds
@@ -937,7 +935,7 @@ public final class ChatViewModel {
         let baseForwardedProps = Self.forwardedPropsJSON(scope: scope, threadId: threadId, store: store, settings: settings)
         let stream = session.send(
             text,
-            image: imagePayload,
+            images: imagePayloads,
             context: { [store, memory, previewTracker] in
                 await Self.contextEntries(store: store, memory: memory, scope: scope, focusedPath: focusedPath, previewTracker: previewTracker)
             },
@@ -971,7 +969,7 @@ public final class ChatViewModel {
     public func updateQueuedMessage(id: String, text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let idx = queuedMessages.firstIndex(where: { $0.id == id }) else { return }
-        if trimmed.isEmpty && queuedMessages[idx].imageData == nil {
+        if trimmed.isEmpty && queuedMessages[idx].images.isEmpty {
             queuedMessages.remove(at: idx)
         } else {
             queuedMessages[idx].text = trimmed
@@ -1001,18 +999,19 @@ public final class ChatViewModel {
         guard !isStreaming, !isAwaitingHumanInput, lastError == nil else { return }
         guard let merged = Self.coalesceQueue(queuedMessages) else { return }
         queuedMessages.removeAll()
-        send(merged.text, image: merged.image)
+        send(merged.text, images: merged.images)
     }
 
     /// Collapse the pending queue into one outgoing message: the queued texts
-    /// joined in FIFO order (blank-line separated), carrying the first attached
-    /// image. Stays a single AG-UI user message so the backend's one-user-per-
-    /// run history contract is untouched. `nil` when the queue is empty.
-    static func coalesceQueue(_ queue: [QueuedMessage]) -> (text: String, image: PickedImage?)? {
+    /// joined in FIFO order (blank-line separated), carrying every attached
+    /// image in order (truncated to `maxImagesPerMessage`). Stays a single
+    /// AG-UI user message so the backend's one-user-per-run history contract is
+    /// untouched. `nil` when the queue is empty.
+    static func coalesceQueue(_ queue: [QueuedMessage]) -> (text: String, images: [PickedImage])? {
         guard !queue.isEmpty else { return nil }
         let text = queue.map(\.text).filter { !$0.isEmpty }.joined(separator: "\n\n")
-        let image = queue.compactMap(\.pickedImage).first
-        return (text, image)
+        let images = Array(queue.flatMap(\.pickedImages).prefix(maxImagesPerMessage))
+        return (text, images)
     }
 
     /// Update the in-progress answer for a single question row. The bubble

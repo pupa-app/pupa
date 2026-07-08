@@ -3,6 +3,20 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.68] — 2026-07-08
+
+### Added
+
+- **Attach multiple images to one message.** The chat composer now accepts up
+  to 20 images per message (Anthropic's per-request limit) — multi-select in the
+  photo picker, drag-and-drop several at once, or add camera captures — shown in
+  a horizontal preview strip with per-image remove buttons. All attached images
+  are forwarded to the agent as separate image content parts (previously only a
+  single image was supported end-to-end; queued messages kept only the first
+  image). Requires a backend that forwards multiple image blocks (pupa-backend
+  Claude-loop fix for the "does not receive photos" issue). AGUIKit `0.0.24` →
+  `0.0.25`, app `0.0.165` → `0.0.166`.
+
 ## [0.0.67] — 2026-07-08
 
 ### Fixed

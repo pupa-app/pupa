@@ -71,7 +71,7 @@ handlers.
 | [`App/`](../Pupa/Sources/PupaApp/App/) | `RootView` (launch coordinator), `SplashView`, first-install onboarding (`OnboardingFlowView` + slides), `AppView` (root split view), `PupaApp` scene, app icon. |
 | [`MyApps/`](../Pupa/Sources/PupaApp/MyApps/) | `MyApp` model + `MyAppStore` (the single mutation surface), `MyAppType` (kind registry), example apps, `ItemEventLog` (change feed captioning History). |
 | [`Canvas/`](../Pupa/Sources/PupaApp/Canvas/) | `CanvasState` + the per-shape SwiftUI views (`TrackerView`, `CalendarView`, `ChecklistView`, `KanbanView`, `SlackView`) and the cross-component link picker. |
-| [`Chat/`](../Pupa/Sources/PupaApp/Chat/) | `ChatViewModel`, `ChatSessionCoordinator` (drives `AgentSession`), `ChatPanel` + thread-selector dropdown (`ConversationPager`), slash commands, transcript mapping. The composer attaches one image — from the photo library, the camera (`CameraPicker`, iOS), or drag-and-drop — all funnelled through `ImagePreparer` into a `PickedImage`. |
+| [`Chat/`](../Pupa/Sources/PupaApp/Chat/) | `ChatViewModel`, `ChatSessionCoordinator` (drives `AgentSession`), `ChatPanel` + thread-selector dropdown (`ConversationPager`), slash commands, transcript mapping. The composer attaches up to `ChatViewModel.maxImagesPerMessage` images — from the photo library (multi-select), the camera (`CameraPicker`, iOS), or drag-and-drop — each funnelled through `ImagePreparer` into a `PickedImage` and sent as its own AG-UI image part. |
 | [`Tools/`](../Pupa/Sources/PupaApp/Tools/) | `AppTools.swift` — registers every frontend tool against the `ToolRegistry`. |
 | [`Memory/`](../Pupa/Sources/PupaApp/Memory/) | `MemoryStore` — sandboxed markdown filesystem. |
 | [`Agents/`](../Pupa/Sources/PupaApp/Agents/) | Per-agent policies, the agent overview/detail pages, `ModelCatalogStore` (live per-harness model list + tool/permission schema from `GET /harnesses`; no offline fallback). |
@@ -123,9 +123,10 @@ appends the text to `queuedMessages` (FIFO) instead of starting a run. Queued
 items render as clock-marked pills above the composer; each can be cancelled
 (✕) or tapped to pull back into the composer for editing. When the current turn
 settles cleanly (`consume` → `drainQueue`), the *whole* queue is coalesced
-(`coalesceQueue`) into one fresh run — texts joined in FIFO order, the first
-attached image carried — so a burst of messages costs one turn, not one turn
-each, and it stays a single AG-UI user message. Draining is skipped after an
+(`coalesceQueue`) into one fresh run — texts joined in FIFO order, every
+attached image carried in order (capped at `maxImagesPerMessage`) — so a burst
+of messages costs one turn, not one turn each, and it stays a single AG-UI user
+message. Draining is skipped after an
 error (the failure stays on screen; the user decides whether to retry) and on
 an explicit **Stop** (`cancel` Case B) / `newThread`, which discard the queue.
 While a turn is parked on a human-in-the-loop interrupt the composer is gated,

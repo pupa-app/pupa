@@ -165,9 +165,9 @@ public actor AgentSession {
     /// Send a user message and stream session-level events until the agent
     /// settles. Caller supplies `context` per turn (e.g. live state snapshots).
     ///
-    /// - Parameter image: Optional inline image attached to the user message.
-    ///   When non-nil, the user message is encoded as a multimodal AG-UI
-    ///   payload (text part + image part) instead of a plain string.
+    /// - Parameter images: Inline images attached to the user message. When
+    ///   non-empty, the user message is encoded as a multimodal AG-UI payload
+    ///   (text part + one image part each) instead of a plain string.
     /// - Parameter toolFilter: When non-nil, the registry's descriptors are
     ///   intersected with the returned set before being sent to the backend.
     ///   Use this to expose only a subset of locally-registered tools to the
@@ -189,7 +189,7 @@ public actor AgentSession {
     ///   silently falling back to the backend's env default.
     public nonisolated func send(
         _ text: String,
-        image: (data: Data, mimeType: String)? = nil,
+        images: [(data: Data, mimeType: String)] = [],
         context: @Sendable @escaping () async -> [AgentContextEntry],
         toolFilter: (@Sendable () async -> Set<String>)? = nil,
         state: (@Sendable () async -> AnyJSON)? = nil,
@@ -200,7 +200,7 @@ public actor AgentSession {
                 do {
                     try await runLoop(
                         userText: text,
-                        image: image,
+                        images: images,
                         context: context,
                         toolFilter: toolFilter,
                         state: state,
@@ -319,14 +319,14 @@ public actor AgentSession {
 
     private func runLoop(
         userText: String,
-        image: (data: Data, mimeType: String)?,
+        images: [(data: Data, mimeType: String)],
         context: @Sendable () async -> [AgentContextEntry],
         toolFilter: (@Sendable () async -> Set<String>)?,
         state: (@Sendable () async -> AnyJSON)?,
         baseForwardedProps: AnyJSON,
         yield: @Sendable (SessionEvent) -> Void
     ) async throws {
-        let userMessage = AgentMessage.user(text: userText, image: image)
+        let userMessage = AgentMessage.user(text: userText, images: images)
         // If the previous send was cancelled, errored, or settled with no
         // assistant output, the prior user message is sitting at the tail
         // of `messages` with no follow-up on the backend either. Stacking
@@ -342,7 +342,8 @@ public actor AgentSession {
         // Reset the flag for this send; we'll flip it back true if we
         // reach `.completed`.
         lastSendSettledCleanly = false
-        let imageNote = image.map { " image=\($0.mimeType)/\($0.data.count)B" } ?? ""
+        let imageNote = images.isEmpty ? "" :
+            " images=\(images.count)/\(images.reduce(0) { $0 + $1.data.count })B"
         AGUIKitLog.session("send() user=\(snippet(userText))\(imageNote) thread=\(threadId) maxRounds=\(Self.capDescription(maxRounds))")
 
         // True if ANY round this turn emitted assistant text. Accumulated
