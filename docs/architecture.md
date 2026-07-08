@@ -83,10 +83,21 @@ handlers.
 detail) on macOS and a custom slide-in drawer on iOS. (macOS deliberately
 avoids `NavigationSplitView`: its sidebar fails to render in the unbundled
 `swift run` PupaDemo binary, leaving an empty column.) The sidebar lists the
-MyApps as compact, **non-expanding** rows (tap a row → its home; components,
-memories, and history are reached from the MyApp home + its bottom bar, not the
-sidebar); a footer menu holds the global **Orchestrator**, the **Screen share**
-viewer, and **Settings**. The Orchestrator opens the same home layout as a
+**visible** (non-archived) MyApps as compact, **non-expanding** rows (tap a row
+→ its home; components, memories, and history are reached from the MyApp home +
+its bottom bar, not the sidebar); a footer menu holds the global
+**Orchestrator**, the **Screen share** viewer, and **Settings**. A row's
+long-press menu offers Rename · **Archive** · Delete.
+
+**Archiving** hides an app: `MyApp.isArchived` (per-app flag, round-tripped
+through `persist()`/`load()`) drops it from `MyAppStore.visibleMyApps` — the
+sidebar, the Orchestrator's "can orchestrate" list, and the agent-facing
+`listMyApps` tool all read that filtered list, so an archived app is
+sidebar-hidden **and** agent-off. Archiving also locks all its components
+(read-only) via `setAllComponentsLocked`; unarchiving un-hides it but leaves
+the lock on. Archived apps are browsed/restored/deleted from **Settings →
+Archive** (`ArchivedAppsView`). Memories are keyed on the app slug and untouched
+— they ride along, hidden with the app and back on restore. The Orchestrator opens the same home layout as a
 MyApp (`MyAppHomeView` with `subject: .orchestrator`) — an Outline explaining
 what it coordinates plus the myapps it can drive, and an empty Components panel
 — plus the same bottom bar (Home · Agents · Memories · Pupa · ⋯), rather than a

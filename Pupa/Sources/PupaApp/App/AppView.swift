@@ -305,7 +305,8 @@ public struct AppView: View {
                 selection: $selection,
                 busyMyApps: coordinator.busyMyApps,
                 onSelectionChange: dispatchSelection,
-                onDeleteMyApp: deleteMyApp
+                onDeleteMyApp: deleteMyApp,
+                onArchiveMyApp: archiveMyApp
             )
             .frame(width: 260)
             Divider()
@@ -465,7 +466,8 @@ public struct AppView: View {
                     selection: $selection,
                     busyMyApps: coordinator.busyMyApps,
                     onSelectionChange: dispatchSelection,
-                    onDeleteMyApp: deleteMyApp
+                    onDeleteMyApp: deleteMyApp,
+                    onArchiveMyApp: archiveMyApp
                 )
                 .frame(width: sidebarWidth)
                 // Bleed only the background behind the status bar / home
@@ -885,6 +887,21 @@ public struct AppView: View {
     private func deleteMyApp(_ id: UUID) {
         coordinator.discardSession(for: .myApp(id))
         store.removeMyApp(id)
+        if selection?.myAppId == id {
+            selection = .myApp(store.activeMyAppId)
+        }
+        if case .myApp(let chatId) = chatScope, chatId == id {
+            chatScope = .myApp(store.activeMyAppId)
+        }
+    }
+
+    /// Archive (hide) a myApp: tear down its session — it's now agent-off and
+    /// read-only — then flip the flag and repoint any selection / chat scope
+    /// that pointed at it to the (new) active myApp. Restorable from Settings →
+    /// Archive.
+    private func archiveMyApp(_ id: UUID) {
+        coordinator.discardSession(for: .myApp(id))
+        store.setMyAppArchived(id, true)
         if selection?.myAppId == id {
             selection = .myApp(store.activeMyAppId)
         }

@@ -92,7 +92,7 @@ public struct SettingsSheet: View {
     /// category's real controls (the existing section builders, re-hosted in
     /// their own `Form`).
     private enum SettingsCategory: Hashable {
-        case profile, backend, tools, agents, agentsOverview, notifications, examples, sharing
+        case profile, backend, tools, agents, agentsOverview, notifications, examples, sharing, archive
     }
 
     /// True when the Import & Export screen can be shown (stores wired in).
@@ -142,6 +142,12 @@ public struct SettingsSheet: View {
                     NavigationLink(value: SettingsCategory.sharing) {
                         categoryRow(icon: "square.and.arrow.up.on.square", title: "Import & Export",
                                     caption: "Share or load a MyApp bundle")
+                    }
+                }
+                if let store, !store.archivedMyApps.isEmpty {
+                    NavigationLink(value: SettingsCategory.archive) {
+                        categoryRow(icon: "archivebox", title: "Archive",
+                                    caption: "Hidden apps")
                     }
                 }
                 if let onStartTour {
@@ -291,6 +297,10 @@ public struct SettingsSheet: View {
             case .sharing:
                 if let store, let memory, let onImported {
                     SharingSettingsView(store: store, memory: memory, onImported: onImported)
+                }
+            case .archive:
+                if let store {
+                    ArchivedAppsView(store: store)
                 }
             }
         }
@@ -788,6 +798,86 @@ private struct ToolsSettingsView: View {
             }
         } catch {
             load = .failed(String(describing: error))
+        }
+    }
+}
+
+/// Settings → Archive screen: the apps hidden from the sidebar. Each row
+/// restores (`Unarchive`) or permanently deletes the app. Reached only when at
+/// least one app is archived (the row is otherwise hidden).
+private struct ArchivedAppsView: View {
+    @Bindable var store: MyAppStore
+    /// App awaiting delete confirmation.
+    @State private var pendingDelete: MyApp?
+
+    var body: some View {
+        List {
+            Section {
+                if store.archivedMyApps.isEmpty {
+                    Text("No archived apps.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(store.archivedMyApps) { app in
+                        row(app)
+                    }
+                }
+            } footer: {
+                Text("Archived apps are hidden from the sidebar and every agent, and their components are locked. Unarchive to bring one back — it stays locked until you unlock it from its home page.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("Archive")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .confirmationDialog(
+            pendingDelete.map { "Delete “\($0.name)”?" } ?? "",
+            isPresented: Binding(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingDelete
+        ) { app in
+            Button("Delete", role: .destructive) {
+                store.removeMyApp(app.id)
+                pendingDelete = nil
+            }
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
+        } message: { _ in
+            Text("This app and its canvas are permanently deleted.")
+        }
+    }
+
+    private func row(_ app: MyApp) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: app.iconSystemName)
+                .foregroundStyle(Color.color(atIndex: store.colorIndex(for: app.id)))
+            Text(app.name)
+                .foregroundStyle(.primary)
+            Spacer()
+            Button("Unarchive") { store.setMyAppArchived(app.id, false) }
+                .buttonStyle(.borderless)
+        }
+        #if os(iOS)
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) { pendingDelete = app } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            Button { store.setMyAppArchived(app.id, false) } label: {
+                Label("Unarchive", systemImage: "tray.and.arrow.up")
+            }
+            .tint(.blue)
+        }
+        #endif
+        .contextMenu {
+            Button { store.setMyAppArchived(app.id, false) } label: {
+                Label("Unarchive", systemImage: "tray.and.arrow.up")
+            }
+            Button(role: .destructive) { pendingDelete = app } label: {
+                Label("Delete", systemImage: "trash")
+            }
         }
     }
 }

@@ -3036,7 +3036,9 @@ public enum AppTools {
             readOnly: true,
             handler: { _ in
                 return await MainActor.run {
-                    let entries: [AnyJSON] = store.myApps.map { myApp in
+                    // Archived apps are agent-off — excluded from the list the
+                    // orchestrator resolves names against.
+                    let entries: [AnyJSON] = store.visibleMyApps.map { myApp in
                         .object([
                             "id": .string(myApp.id.uuidString),
                             "typeId": .string(myApp.typeId),
