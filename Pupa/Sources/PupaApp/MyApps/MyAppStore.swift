@@ -689,7 +689,8 @@ public final class MyAppStore {
     public func setComponentSummary(
         forKind kind: String,
         summary: String?,
-        myAppId: UUID? = nil
+        myAppId: UUID? = nil,
+        componentId: String? = nil
     ) -> Bool {
         let target = myAppId ?? activeMyAppId
         guard let mIdx = myApps.firstIndex(where: { $0.id == target }) else { return false }
@@ -698,7 +699,10 @@ public final class MyAppStore {
             m.components.firstIndex(where: { $0.id == id })
         }
         let cIdx: Int?
-        if let active = activeIdx, m.components[active].kindString == kind {
+        if let componentId {
+            // Explicit target wins — set the note on exactly this component.
+            cIdx = m.components.firstIndex(where: { $0.id == componentId })
+        } else if let active = activeIdx, m.components[active].kindString == kind {
             cIdx = active
         } else if let matching = m.components.firstIndex(where: { $0.kindString == kind }) {
             cIdx = matching
@@ -738,10 +742,20 @@ public final class MyAppStore {
         }
     }
 
-    public func setTracker(title: String, fields: [FieldDef], myAppId: UUID? = nil) {
-        mutate(myAppId, kind: "tracker") { canvas in
+    public func setTracker(
+        title: String,
+        fields: [FieldDef],
+        myAppId: UUID? = nil,
+        componentId: String? = nil
+    ) {
+        let body: (inout CanvasApp) -> Bool = { canvas in
             canvas = .tracker(TrackerData(title: title, fields: fields))
             return true
+        }
+        if let componentId {
+            mutate(myAppId: myAppId, byComponentId: componentId, body)
+        } else {
+            mutate(myAppId, kind: "tracker", body)
         }
     }
 
@@ -754,17 +768,23 @@ public final class MyAppStore {
     public func addItem(
         _ values: [String: String],
         myAppId: UUID? = nil,
+        componentId: String? = nil,
         actor: ItemEventActor = .user
     ) -> UUID? {
         let item = TrackerItem(id: UUID(), values: values)
-        let compId = trackerComponentId(myAppId: myAppId)
+        let compId = componentId ?? trackerComponentId(myAppId: myAppId)
         var added: UUID?
-        mutate(myAppId, kind: "tracker") { canvas in
+        let body: (inout CanvasApp) -> Bool = { canvas in
             guard case .tracker(var t) = canvas else { return false }
             t.items.append(item)
             canvas = .tracker(t)
             added = item.id
             return true
+        }
+        if let componentId {
+            mutate(myAppId: myAppId, byComponentId: componentId, body)
+        } else {
+            mutate(myAppId, kind: "tracker", body)
         }
         if added != nil, let compId {
             emitItemEvent(myAppId: myAppId, componentId: compId, kind: .added, actor: actor,
@@ -1379,6 +1399,105 @@ public final class MyAppStore {
             if case .tracker = $0.body { return true }
             return false
         })?.id
+    }
+
+    // MARK: - Deterministic write-target resolution
+    //
+    // Tracker *writes* must not depend on which component the user happens
+    // to be viewing. The active component is a pure view concept; it is
+    // never consulted below. Callers either name a `componentId` explicitly
+    // (honoured exactly, or failed loudly) or omit it — in which case the
+    // target is only unambiguous when the MyApp holds exactly one tracker.
+    // Ambiguity (multiple trackers, no id) is surfaced to the agent as an
+    // error rather than silently guessed. This is what stops columns and
+    // rows from landing on different components.
+
+    /// Outcome of resolving a tracker write target. `.failure` carries an
+    /// agent-facing message the tool layer echoes back verbatim.
+    public enum TrackerTargetResolution {
+        case resolved(String)
+        case failure(String)
+    }
+
+    private func trackers(in m: MyApp) -> [Component] {
+        m.components.filter { if case .tracker = $0.body { return true }; return false }
+    }
+
+    /// Resolve the target for an *item* write (add / patch / remove) — the
+    /// component must already be a tracker.
+    public func resolveTrackerWriteTarget(
+        componentId: String?,
+        myAppId: UUID? = nil
+    ) -> TrackerTargetResolution {
+        let target = myAppId ?? activeMyAppId
+        guard let m = myApps.first(where: { $0.id == target }) else {
+            return .failure("no active myApp to write to")
+        }
+        if let componentId {
+            guard let comp = m.components.first(where: { $0.id == componentId }) else {
+                return .failure("no component with id '\(componentId)' in this myApp\(existingTrackersSuffix(m))")
+            }
+            guard case .tracker = comp.body else {
+                return .failure("component '\(componentId)' is a \(comp.kindString), not a tracker")
+            }
+            return .resolved(componentId)
+        }
+        let ts = trackers(in: m)
+        switch ts.count {
+        case 0:
+            return .failure("this myApp has no tracker yet — create one with addComponent(kind: \"tracker\") first")
+        case 1:
+            return .resolved(ts[0].id)
+        default:
+            let ids = ts.map { "'\($0.id)' (\($0.name))" }.joined(separator: ", ")
+            return .failure("this myApp has \(ts.count) trackers: \(ids). Pass componentId to choose which one to write to.")
+        }
+    }
+
+    /// Resolve the target for `renderTracker`. Same rules as an item write,
+    /// except a lone empty seed component is an acceptable target too —
+    /// rendering converts it into a tracker, preserving the "just render a
+    /// tracker on a fresh app" bootstrap without hijacking an arbitrary
+    /// empty component when trackers already exist.
+    public func resolveTrackerRenderTarget(
+        componentId: String?,
+        myAppId: UUID? = nil
+    ) -> TrackerTargetResolution {
+        let target = myAppId ?? activeMyAppId
+        guard let m = myApps.first(where: { $0.id == target }) else {
+            return .failure("no active myApp to write to")
+        }
+        if let componentId {
+            guard let comp = m.components.first(where: { $0.id == componentId }) else {
+                return .failure("no component with id '\(componentId)' in this myApp\(existingTrackersSuffix(m))")
+            }
+            switch comp.body {
+            case .tracker, .empty:
+                return .resolved(componentId)
+            default:
+                return .failure("component '\(componentId)' is a \(comp.kindString); renderTracker only targets a tracker or an empty component")
+            }
+        }
+        let ts = trackers(in: m)
+        if ts.count == 1 { return .resolved(ts[0].id) }
+        if ts.isEmpty {
+            let empties = m.components.filter { if case .empty = $0.body { return true }; return false }
+            if empties.count == 1 { return .resolved(empties[0].id) }
+            if empties.isEmpty {
+                return .failure("this myApp has no tracker or empty component to render into — add one with addComponent(kind: \"tracker\") first")
+            }
+            let ids = empties.map { "'\($0.id)'" }.joined(separator: ", ")
+            return .failure("this myApp has \(empties.count) empty components: \(ids). Pass componentId to choose which one to render into.")
+        }
+        let ids = ts.map { "'\($0.id)' (\($0.name))" }.joined(separator: ", ")
+        return .failure("this myApp has \(ts.count) trackers: \(ids). Pass componentId to choose which one to render.")
+    }
+
+    private func existingTrackersSuffix(_ m: MyApp) -> String {
+        let ts = trackers(in: m)
+        guard !ts.isEmpty else { return "" }
+        let ids = ts.map { "'\($0.id)'" }.joined(separator: ", ")
+        return ". Existing trackers: \(ids)"
     }
 
     /// Internal: id of the first calendar component in `myAppId` (or

@@ -7,8 +7,9 @@ import AGUIKit
 ///
 /// The summary is intentionally **thin** — just enough for the agent to
 /// enumerate what exists and pivot into a discovery tool when it needs
-/// more. Per component: `id`, `name`, `kind`, `itemCount`, and the
-/// LLM-authored `summary` slot. Schema, view modes, filter, and item
+/// more. Per component: `id`, `name`, `kind`, `size` (a coarse
+/// cache-stable bucket, not an exact count), and the LLM-authored
+/// `summary` slot. Schema, view modes, filter, and item
 /// previews are NOT in here — fetch them on demand via the kind's
 /// discovery tools (`listTrackerItems`, `getTrackerItem`, …) or fall
 /// back to `getCanvasState`.
@@ -54,21 +55,28 @@ public struct CanvasSummary: Encodable, Sendable {
     }
 }
 
-/// One slot in `CanvasSummary.components`. Five fields, none of them
-/// volatile beyond `itemCount` — `summary` only changes when the agent
-/// explicitly writes a new note.
+/// One slot in `CanvasSummary.components`. Every field here is
+/// cache-stable: `summary` only changes when the agent writes a new note,
+/// and `size` is a **coarse bucket** ("empty" / "1-9" / "10-99" / "100+")
+/// rather than an exact item count. The bucket is deliberate — an exact
+/// count changes on every add/remove and, because this summary rides the
+/// cached "Live canvas state" context entry on every turn, an exact count
+/// busted the prompt cache on each mutation. The bucket only shifts at
+/// order-of-magnitude boundaries, so most mutation turns keep the cache
+/// warm. The agent fetches exact counts on demand via the discovery tools
+/// (`listTrackerItems` etc. return `totalItems`).
 public struct ComponentSummary: Encodable, Sendable {
     public let id: String
     public let name: String
     public let kind: String
-    public let itemCount: Int
+    public let size: String
     /// LLM-authored content summary. Always emitted (encoded as `null`
     /// when unset) so the agent sees the empty slot and knows it can
     /// fill it via the kind's render tool.
     public let summary: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, kind, itemCount, summary
+        case id, name, kind, size, summary
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -76,7 +84,7 @@ public struct ComponentSummary: Encodable, Sendable {
         try c.encode(id, forKey: .id)
         try c.encode(name, forKey: .name)
         try c.encode(kind, forKey: .kind)
-        try c.encode(itemCount, forKey: .itemCount)
+        try c.encode(size, forKey: .size)
         // ALWAYS emit summary so the slot is visible to the agent —
         // even when nil, the key must appear (encoded as JSON null).
         if let summary {
@@ -91,9 +99,19 @@ public struct ComponentSummary: Encodable, Sendable {
             id: component.id,
             name: component.name,
             kind: component.body.kindString,
-            itemCount: itemCount(of: component.body),
+            size: sizeBucket(itemCount(of: component.body)),
             summary: component.summary
         )
+    }
+
+    /// Map an exact count onto a coarse, cache-stable bucket label.
+    static func sizeBucket(_ count: Int) -> String {
+        switch count {
+        case ..<1: return "empty"
+        case ..<10: return "1-9"
+        case ..<100: return "10-99"
+        default: return "100+"
+        }
     }
 
     private static func itemCount(of body: CanvasApp) -> Int {

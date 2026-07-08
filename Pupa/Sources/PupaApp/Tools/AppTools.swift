@@ -94,9 +94,25 @@ public enum AppTools {
                 let titleArg = args["title"]?.stringValue
                 let fieldsArg = args["fields"]
                 let summaryArg = args["summary"]
+                let componentIdArg = args["componentId"]?.stringValue
                 let hasSummary = summaryArg != nil
                 let hasBodyArgs = titleArg != nil || fieldsArg != nil
                 return await MainActor.run {
+                    guard hasBodyArgs || hasSummary else {
+                        return .object([
+                            "ok": .bool(false),
+                            "error": "renderTracker called with no arguments. Pass `title` + `fields` for a full render and/or `summary` to update your content summary.",
+                        ])
+                    }
+                    // Resolve the target deterministically (never via the
+                    // active/view component). Surface ambiguity to the agent.
+                    let resolvedId: String
+                    switch store.resolveTrackerRenderTarget(componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
                     if hasBodyArgs {
                         guard let title = titleArg, fieldsArg != nil else {
                             return .object([
@@ -105,24 +121,19 @@ public enum AppTools {
                             ])
                         }
                         let fields = parseFields(from: fieldsArg)
-                        store.setTracker(title: title, fields: fields, myAppId: myAppId)
+                        store.setTracker(title: title, fields: fields, myAppId: myAppId, componentId: resolvedId)
                     }
                     var summarySet = false
                     if hasSummary {
                         summarySet = store.setComponentSummary(
                             forKind: "tracker",
                             summary: summaryArg?.stringValue,
-                            myAppId: myAppId
+                            myAppId: myAppId,
+                            componentId: resolvedId
                         )
                     }
-                    guard hasBodyArgs || hasSummary else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": "renderTracker called with no arguments. Pass `title` + `fields` for a full render and/or `summary` to update your content summary.",
-                        ])
-                    }
-                    let t = tracker(store, myAppId: myAppId)
-                    var result: [String: AnyJSON] = ["ok": .bool(true)]
+                    let t = tracker(store, myAppId: myAppId, componentId: resolvedId)
+                    var result: [String: AnyJSON] = ["ok": .bool(true), "componentId": .string(resolvedId)]
                     if let t {
                         result["fields"] = .array(t.fields.map { .string($0.name) })
                         result["totalItems"] = .int(t.items.count)
@@ -139,12 +150,15 @@ public enum AppTools {
             descriptor: ToolDescriptor(
                 name: "addTrackerItems",
                 description: """
-                Append one or more items to the current tracker. Always pass \
-                an `items` array — wrap a single item as `[{ ... }]`. Keys \
-                in each item must match field names. Result echoes \
-                {ids, added, totalItems}; `ids` are in the same order as \
-                `items` and are stable UUIDs to pass to `patchTrackerItems` \
-                / `removeTrackerItems` later.
+                Append one or more items to a tracker. Pass `componentId` to \
+                choose which tracker (required only when the myApp has more \
+                than one; otherwise the single tracker is used — the active/ \
+                viewed component is never assumed). Always pass an `items` \
+                array — wrap a single item as `[{ ... }]`. Keys in each item \
+                must match field names. Result echoes \
+                {componentId, ids, added, totalItems}; `ids` are in the same \
+                order as `items` and are stable UUIDs to pass to \
+                `patchTrackerItems` / `removeTrackerItems` later.
                 """,
                 parameters: [
                     "type": "object",
@@ -153,6 +167,7 @@ public enum AppTools {
                             "type": "array",
                             "items": ["type": "object"],
                         ],
+                        "componentId": componentIdSchema(),
                     ],
                     "required": ["items"],
                 ]
@@ -161,20 +176,29 @@ public enum AppTools {
                 guard let itemsArray = args["items"]?.arrayValue else {
                     return .object(["ok": .bool(false), "error": "missing 'items' array"])
                 }
+                let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
+                    let resolvedId: String
+                    switch store.resolveTrackerWriteTarget(componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
                     var ids: [AnyJSON] = []
                     var added: [AnyJSON] = []
                     for entry in itemsArray {
                         let values = (entry.objectValue ?? [:]).mapValues { stringify($0) }
-                        let id = store.addItem(values, myAppId: myAppId, actor: .agent(toolName: "addTrackerItems"))
+                        let id = store.addItem(values, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "addTrackerItems"))
                         ids.append(id.map { .string($0.uuidString) } ?? .null)
                         added.append(valuesAsAnyJSON(values))
                     }
                     return .object([
                         "ok": .bool(true),
+                        "componentId": .string(resolvedId),
                         "ids": .array(ids),
                         "added": .array(added),
-                        "totalItems": .int(tracker(store, myAppId: myAppId)?.items.count ?? 0),
+                        "totalItems": .int(tracker(store, myAppId: myAppId, componentId: resolvedId)?.items.count ?? 0),
                     ])
                 }
             }
@@ -209,6 +233,7 @@ public enum AppTools {
                                 "required": ["patch"],
                             ],
                         ],
+                        "componentId": componentIdSchema(),
                     ],
                     "required": ["patches"],
                 ]
@@ -217,7 +242,15 @@ public enum AppTools {
                 guard let patchArray = args["patches"]?.arrayValue else {
                     return .object(["ok": .bool(false), "error": "missing 'patches' array"])
                 }
+                let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
+                    let resolvedId: String
+                    switch store.resolveTrackerWriteTarget(componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
                     var results: [AnyJSON] = []
                     var allOk = true
                     for entry in patchArray {
@@ -233,7 +266,7 @@ public enum AppTools {
                         let patch = patchObj.mapValues { stringify($0) }
                         let idString = obj["id"]?.stringValue
                         let idx = obj["index"]?.intValue
-                        guard let t = tracker(store, myAppId: myAppId) else {
+                        guard let t = tracker(store, myAppId: myAppId, componentId: resolvedId) else {
                             results.append(.object([
                                 "ok": .bool(false),
                                 "error": .string("canvas is not a tracker"),
@@ -241,41 +274,40 @@ public enum AppTools {
                             allOk = false
                             continue
                         }
-                        if let idString,
-                           let uuid = UUID(uuidString: idString),
+                        // Resolve the target row to a stable UUID up front so
+                        // both the id and index paths write to the SAME
+                        // component via the id-addressed patch.
+                        let targetUUID: UUID?
+                        if let idString, let uuid = UUID(uuidString: idString),
                            t.items.contains(where: { $0.id == uuid }) {
-                            _ = store.patchItem(id: uuid, with: patch, myAppId: myAppId, actor: .agent(toolName: "patchTrackerItems"))
-                            let after = tracker(store, myAppId: myAppId)?
-                                .items.first(where: { $0.id == uuid })?.values ?? [:]
+                            targetUUID = uuid
+                        } else if let idx, t.items.indices.contains(idx) {
+                            targetUUID = t.items[idx].id
+                        } else {
+                            targetUUID = nil
+                        }
+                        guard let uuid = targetUUID else {
                             results.append(.object([
-                                "ok": .bool(true),
-                                "id": .string(uuid.uuidString),
-                                "item": valuesAsAnyJSON(after),
+                                "ok": .bool(false),
+                                "error": .string(idString != nil ? "no item with id" : "missing id or valid index"),
                             ]))
+                            allOk = false
                             continue
                         }
-                        if let idx, t.items.indices.contains(idx) {
-                            let item = t.items[idx]
-                            store.patchItem(at: idx, with: patch, myAppId: myAppId, actor: .agent(toolName: "patchTrackerItems"))
-                            let after = tracker(store, myAppId: myAppId)?
-                                .items.first(where: { $0.id == item.id })?.values ?? [:]
-                            results.append(.object([
-                                "ok": .bool(true),
-                                "id": .string(item.id.uuidString),
-                                "item": valuesAsAnyJSON(after),
-                            ]))
-                            continue
-                        }
+                        _ = store.patchItem(id: uuid, with: patch, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "patchTrackerItems"))
+                        let after = tracker(store, myAppId: myAppId, componentId: resolvedId)?
+                            .items.first(where: { $0.id == uuid })?.values ?? [:]
                         results.append(.object([
-                            "ok": .bool(false),
-                            "error": .string(idString != nil ? "no item with id" : "missing id or valid index"),
+                            "ok": .bool(true),
+                            "id": .string(uuid.uuidString),
+                            "item": valuesAsAnyJSON(after),
                         ]))
-                        allOk = false
                     }
                     return .object([
                         "ok": .bool(allOk),
+                        "componentId": .string(resolvedId),
                         "results": .array(results),
-                        "totalItems": .int(tracker(store, myAppId: myAppId)?.items.count ?? 0),
+                        "totalItems": .int(tracker(store, myAppId: myAppId, componentId: resolvedId)?.items.count ?? 0),
                     ])
                 }
             }
@@ -308,6 +340,7 @@ public enum AppTools {
                                 ],
                             ],
                         ],
+                        "componentId": componentIdSchema(),
                     ],
                     "required": ["targets"],
                 ]
@@ -316,8 +349,16 @@ public enum AppTools {
                 guard let targetArray = args["targets"]?.arrayValue else {
                     return .object(["ok": .bool(false), "error": "missing 'targets' array"])
                 }
+                let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
-                    guard let t = tracker(store, myAppId: myAppId) else {
+                    let resolvedId: String
+                    switch store.resolveTrackerWriteTarget(componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
+                    guard let t = tracker(store, myAppId: myAppId, componentId: resolvedId) else {
                         return .object(["ok": .bool(false), "error": "canvas is not a tracker"])
                     }
                     // Resolve every target to a UUID + cached values BEFORE
@@ -344,7 +385,7 @@ public enum AppTools {
                     for r in resolved {
                         switch r {
                         case .ok(let uuid, let values):
-                            let ok = store.removeItem(id: uuid, myAppId: myAppId, actor: .agent(toolName: "removeTrackerItems"))
+                            let ok = store.removeItem(id: uuid, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "removeTrackerItems"))
                             if ok {
                                 results.append(.object([
                                     "ok": .bool(true),
@@ -369,8 +410,9 @@ public enum AppTools {
                     }
                     return .object([
                         "ok": .bool(allOk),
+                        "componentId": .string(resolvedId),
                         "results": .array(results),
-                        "totalItems": .int(tracker(store, myAppId: myAppId)?.items.count ?? 0),
+                        "totalItems": .int(tracker(store, myAppId: myAppId, componentId: resolvedId)?.items.count ?? 0),
                     ])
                 }
             }
@@ -4483,10 +4525,21 @@ public enum AppTools {
 
     // MARK: - Helpers
 
+    /// Shared `componentId` parameter schema for tracker write tools. The
+    /// target is resolved deterministically and never from the active/view
+    /// component: required only when the myApp holds more than one tracker.
+    private static func componentIdSchema() -> AnyJSON {
+        [
+            "type": "string",
+            "description": "Which tracker to write to (e.g. \"tracker-1\"). Optional when the myApp has exactly one tracker; REQUIRED when it has several — otherwise the call errors and lists the candidates. Writes never fall back to the active/viewed component.",
+        ]
+    }
+
     private static func trackerSchema() -> AnyJSON {
         [
             "type": "object",
             "properties": [
+                "componentId": componentIdSchema(),
                 "title": ["type": "string"],
                 "fields": [
                     "type": "array",
@@ -4693,6 +4746,18 @@ public enum AppTools {
             if case .tracker(let t) = c.body { return t }
         }
         return nil
+    }
+
+    /// Read a specific tracker by id (used to echo the correct component's
+    /// state after a write that named its target). Falls back to the
+    /// view-independent lookup when `componentId` is nil.
+    @MainActor
+    private static func tracker(_ store: MyAppStore, myAppId: UUID, componentId: String?) -> TrackerData? {
+        guard let componentId else { return tracker(store, myAppId: myAppId) }
+        guard let myApp = store.myApps.first(where: { $0.id == myAppId }),
+              let comp = myApp.components.first(where: { $0.id == componentId }),
+              case .tracker(let t) = comp.body else { return nil }
+        return t
     }
 
     @MainActor

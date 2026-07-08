@@ -678,7 +678,7 @@ public final class ChatSessionCoordinator {
                 .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
             return [
                 AgentContextEntry(
-                    description: "Live canvas state for this sub-run's target myApp — thin enumeration. {components: [{id, name, kind, itemCount, summary}], activeComponentId}. `summary` is the LLM-authored content-summary slot (null until you write to it via the kind's render tool with only `summary` populated). Drill into items with the kind's discovery tools (`listTrackerItems` / `searchTrackerItems` / `getTrackerItem`, plus calendar / checklist equivalents) or `getCanvasState` for a full dump.",
+                    description: "Live canvas state for this sub-run's target myApp — thin enumeration. {components: [{id, name, kind, size, summary}], activeComponentId}. `size` is a coarse cache-stable bucket (empty/1-9/10-99/100+), not an exact count. `summary` is the LLM-authored content-summary slot (null until you write to it via the kind's render tool with only `summary` populated). Drill into items with the kind's discovery tools (`listTrackerItems` / `searchTrackerItems` / `getTrackerItem`, plus calendar / checklist equivalents) or `getCanvasState` for a full dump.",
                     value: canvasJSON
                 ),
                 memoriesEntry,

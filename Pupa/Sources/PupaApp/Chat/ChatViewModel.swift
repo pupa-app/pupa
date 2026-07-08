@@ -1540,7 +1540,7 @@ public final class ChatViewModel {
                 let typeJSON = (try? JSONEncoder().encode(typePayload)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
                 return [
                     AgentContextEntry(
-                        description: "Live canvas state — thin enum. Shape: {components: [{id, name, kind, itemCount, summary}], activeComponentId}. `summary` is YOUR slot — set via the kind's render tool with only `summary` arg; rides every turn until overwritten (record field names, select-option meanings, user intent, data state). Drill via list/search/get per-kind; `getCanvasState` = full-dump escape hatch.",
+                        description: "Live canvas state — thin enum. Shape: {components: [{id, name, kind, size, summary}], activeComponentId}. `size` is a coarse bucket (empty/1-9/10-99/100+), not an exact count — fetch exact counts via list/search/get per-kind (they return totalItems). `summary` is YOUR slot — set via the kind's render tool with only `summary` arg; rides every turn until overwritten (record field names, select-option meanings, user intent, data state). Writes target a component by `componentId`, never the active one. `getCanvasState` = full-dump escape hatch.",
                         value: canvasJSON
                     ),
                     memoriesEntry,
