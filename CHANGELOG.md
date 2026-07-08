@@ -5,6 +5,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
 
 ## [0.0.71] — 2026-07-08
 
+### Fixed
+
+- **Bottom-bar tab re-tap after drilling in.** Opening a component from a
+  MyApp home page (e.g. tapping **+** to create one) left the bar's root
+  `selection` unchanged, so a following **Home** tap was deduped by SwiftUI and
+  did nothing until you visited another tab first. A re-tap of the current tab
+  now pops the pushed navigation stack directly. App `0.0.169` → `0.0.170`.
+
 ### Added
 
 - **Drag components into folders on a MyApp home page.** Drag one component

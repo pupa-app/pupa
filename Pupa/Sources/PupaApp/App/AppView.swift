@@ -755,12 +755,27 @@ public struct AppView: View {
                 chatStatus: chatStatus,
                 chatOpen: chatOpen,
                 onSelect: { nav in
-                    // Only set `selection`; the `onChange(of: selection)` driver
-                    // owns `detailPath`. Writing it here too would clear-then-
-                    // refill across two transactions and blank `NavigationStack`
-                    // when switching tabs from a non-home page.
+                    // Normally only set `selection`; the `onChange(of: selection)`
+                    // driver owns `detailPath`. Writing it here too would clear-
+                    // then-refill across two transactions and blank
+                    // `NavigationStack` when switching tabs from a non-home page.
+                    //
+                    // Exception — a re-tap of the tab already held by `selection`
+                    // (e.g. Home while drilled into a component pushed onto
+                    // `detailPath`): SwiftUI dedups the identical binding value,
+                    // so neither `onChange` fires and the pushed stack never
+                    // pops — the tab looks dead. Detect that and pop the stack
+                    // directly, mirroring what each platform's `onChange` does.
+                    let isRetap = selection == nav
                     selection = nav
                     dispatchSelection(nav)
+                    if isRetap {
+                        #if os(iOS)
+                        detailPath = SidebarSelection.detailStack(picking: nav, from: detailPath)
+                        #else
+                        detailPath = []
+                        #endif
+                    }
                 },
                 onShowHistory: { id in detailPath.append(.myAppHistory(id)) },
                 onToggleChat: {
