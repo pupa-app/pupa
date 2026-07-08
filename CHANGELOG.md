@@ -3,6 +3,21 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.73] — 2026-07-09
+
+### Fixed
+
+- **Deterministic write targeting for every component kind.** Extends the
+  tracker fix to calendar, checklist, chart, and slack: their write tools
+  no longer route by whichever component the user happens to be viewing.
+  Each write tool now takes an optional `componentId` (honoured exactly or
+  failed loudly on an unknown id / wrong kind) and, when omitted, resolves
+  only when the myApp holds exactly one component of that kind — otherwise
+  it returns an error listing the candidate ids instead of silently
+  guessing. Renders may still land on a lone empty seed so fresh-app
+  bootstrap is preserved. Stops two writes in a turn from hitting different
+  same-kind components. App `0.0.171` → `0.0.172`.
+
 ## [0.0.72] — 2026-07-08
 
 ### Added

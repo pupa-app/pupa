@@ -1448,6 +1448,7 @@ public enum AppTools {
                 parameters: [
                     "type": "object",
                     "properties": [
+                        "componentId": componentIdSchema(kind: "calendar"),
                         "title": ["type": "string"],
                         "events": [
                             "type": "array",
@@ -1463,29 +1464,38 @@ public enum AppTools {
             handler: { args in
                 let titleArg = args["title"]?.stringValue
                 let summaryArg = args["summary"]
+                let componentIdArg = args["componentId"]?.stringValue
                 let hasSummary = summaryArg != nil
                 let hasBodyArgs = titleArg != nil
                 return await MainActor.run {
-                    if let title = titleArg {
-                        let events = parseEvents(from: args["events"])
-                        store.setCalendar(title: title, events: events, myAppId: myAppId)
-                    }
-                    var summarySet = false
-                    if hasSummary {
-                        summarySet = store.setComponentSummary(
-                            forKind: "calendar",
-                            summary: summaryArg?.stringValue,
-                            myAppId: myAppId
-                        )
-                    }
                     guard hasBodyArgs || hasSummary else {
                         return .object([
                             "ok": .bool(false),
                             "error": "renderCalendar called with no arguments. Pass `title` (with optional `events`) for a full render and/or `summary` to update your content summary.",
                         ])
                     }
-                    let c = calendar(store, myAppId: myAppId)
-                    var result: [String: AnyJSON] = ["ok": .bool(c != nil)]
+                    let resolvedId: String
+                    switch store.resolveRenderTarget(kind: "calendar", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
+                    if let title = titleArg {
+                        let events = parseEvents(from: args["events"])
+                        store.setCalendar(title: title, events: events, myAppId: myAppId, componentId: resolvedId)
+                    }
+                    var summarySet = false
+                    if hasSummary {
+                        summarySet = store.setComponentSummary(
+                            forKind: "calendar",
+                            summary: summaryArg?.stringValue,
+                            myAppId: myAppId,
+                            componentId: resolvedId
+                        )
+                    }
+                    let c = calendar(store, myAppId: myAppId, componentId: resolvedId)
+                    var result: [String: AnyJSON] = ["ok": .bool(c != nil), "componentId": .string(resolvedId)]
                     if let title = titleArg { result["title"] = .string(title) }
                     result["eventCount"] = .int(c?.events.count ?? 0)
                     if hasSummary {
@@ -1515,7 +1525,10 @@ public enum AppTools {
                 """,
                 parameters: [
                     "type": "object",
-                    "properties": ["event": calendarEventSchema()],
+                    "properties": [
+                        "event": calendarEventSchema(),
+                        "componentId": componentIdSchema(kind: "calendar"),
+                    ],
                     "required": ["event"],
                 ]
             ),
@@ -1528,6 +1541,7 @@ public enum AppTools {
                         "error": "missing 'event.title' or 'event.start'",
                     ])
                 }
+                let componentIdArg = args["componentId"]?.stringValue
                 let event = CalendarEvent(
                     title: title,
                     start: start,
@@ -1537,15 +1551,23 @@ public enum AppTools {
                     linkedItems: parseLinkedItems(from: obj["linkedItems"])
                 )
                 return await MainActor.run {
-                    guard let id = store.addCalendarEvent(event, myAppId: myAppId, actor: .agent(toolName: "addCalendarEvent")) else {
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "calendar", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
+                    guard let id = store.addCalendarEvent(event, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "addCalendarEvent")) else {
                         return .object([
                             "ok": .bool(false),
                             "error": "no calendar component in this MyApp — call renderCalendar or addComponent first",
                         ])
                     }
-                    let c = calendar(store, myAppId: myAppId)
+                    let c = calendar(store, myAppId: myAppId, componentId: resolvedId)
                     return .object([
                         "ok": .bool(true),
+                        "componentId": .string(resolvedId),
                         "id": .string(id.uuidString),
                         "eventCount": .int(c?.events.count ?? 0),
                         "linkCount": .int(event.linkedItems.count),
@@ -1564,7 +1586,10 @@ public enum AppTools {
                 """,
                 parameters: [
                     "type": "object",
-                    "properties": ["id": ["type": "string"]],
+                    "properties": [
+                        "id": ["type": "string"],
+                        "componentId": componentIdSchema(kind: "calendar"),
+                    ],
                     "required": ["id"],
                 ]
             ),
@@ -1576,16 +1601,25 @@ public enum AppTools {
                         "error": .string("invalid id '\(idString)' (expected a UUID)"),
                     ])
                 }
+                let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
-                    guard let removed = store.removeCalendarEvent(id: uuid, myAppId: myAppId, actor: .agent(toolName: "removeCalendarEvent")) else {
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "calendar", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
+                    guard let removed = store.removeCalendarEvent(id: uuid, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "removeCalendarEvent")) else {
                         return .object([
                             "ok": .bool(false),
                             "error": .string("no event with id \(idString)"),
                         ])
                     }
-                    let c = calendar(store, myAppId: myAppId)
+                    let c = calendar(store, myAppId: myAppId, componentId: resolvedId)
                     return .object([
                         "ok": .bool(true),
+                        "componentId": .string(resolvedId),
                         "id": .string(idString),
                         "removed": .object([
                             "title": .string(removed.title),
@@ -1675,6 +1709,7 @@ public enum AppTools {
                                 ],
                             ],
                         ],
+                        "componentId": componentIdSchema(kind: "calendar"),
                     ],
                     "required": ["id", "patch"],
                 ]
@@ -1687,6 +1722,7 @@ public enum AppTools {
                         "error": .string("invalid id '\(idString)' (expected a UUID)"),
                     ])
                 }
+                let componentIdArg = args["componentId"]?.stringValue
                 let patchObj = args["patch"]?.objectValue ?? [:]
                 var patch = MyAppStore.CalendarEventPatch()
                 if let v = patchObj["title"]?.stringValue { patch.title = v }
@@ -1704,7 +1740,14 @@ public enum AppTools {
                     patch.linkedItems = parseLinkedItems(from: patchObj["linkedItems"])
                 }
                 return await MainActor.run {
-                    guard let after = store.patchCalendarEvent(id: uuid, patch: patch, myAppId: myAppId, actor: .agent(toolName: "patchCalendarEvent")) else {
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "calendar", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
+                    guard let after = store.patchCalendarEvent(id: uuid, patch: patch, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "patchCalendarEvent")) else {
                         return .object([
                             "ok": .bool(false),
                             "error": .string("no event with id \(idString)"),
@@ -1712,6 +1755,7 @@ public enum AppTools {
                     }
                     return .object([
                         "ok": .bool(true),
+                        "componentId": .string(resolvedId),
                         "id": .string(idString),
                         "event": eventAsAnyJSON(after),
                     ])
@@ -1877,6 +1921,7 @@ public enum AppTools {
                 parameters: [
                     "type": "object",
                     "properties": [
+                        "componentId": componentIdSchema(kind: "checklist"),
                         "title": ["type": "string"],
                         "items": [
                             "type": "array",
@@ -1892,29 +1937,38 @@ public enum AppTools {
             handler: { args in
                 let titleArg = args["title"]?.stringValue
                 let summaryArg = args["summary"]
+                let componentIdArg = args["componentId"]?.stringValue
                 let hasSummary = summaryArg != nil
                 let hasBodyArgs = titleArg != nil
                 return await MainActor.run {
-                    if let title = titleArg {
-                        let items = parseChecklistItems(from: args["items"])
-                        store.setChecklist(title: title, items: items, myAppId: myAppId)
-                    }
-                    var summarySet = false
-                    if hasSummary {
-                        summarySet = store.setComponentSummary(
-                            forKind: "checklist",
-                            summary: summaryArg?.stringValue,
-                            myAppId: myAppId
-                        )
-                    }
                     guard hasBodyArgs || hasSummary else {
                         return .object([
                             "ok": .bool(false),
                             "error": "renderChecklist called with no arguments. Pass `title` (with optional `items`) for a full render and/or `summary` to update your content summary.",
                         ])
                     }
-                    let cl = checklist(store, myAppId: myAppId)
-                    var result: [String: AnyJSON] = ["ok": .bool(cl != nil)]
+                    let resolvedId: String
+                    switch store.resolveRenderTarget(kind: "checklist", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
+                    if let title = titleArg {
+                        let items = parseChecklistItems(from: args["items"])
+                        store.setChecklist(title: title, items: items, myAppId: myAppId, componentId: resolvedId)
+                    }
+                    var summarySet = false
+                    if hasSummary {
+                        summarySet = store.setComponentSummary(
+                            forKind: "checklist",
+                            summary: summaryArg?.stringValue,
+                            myAppId: myAppId,
+                            componentId: resolvedId
+                        )
+                    }
+                    let cl = checklist(store, myAppId: myAppId, componentId: resolvedId)
+                    var result: [String: AnyJSON] = ["ok": .bool(cl != nil), "componentId": .string(resolvedId)]
                     if let title = titleArg { result["title"] = .string(title) }
                     result["itemCount"] = .int(cl?.items.count ?? 0)
                     if hasSummary {
@@ -1940,6 +1994,7 @@ public enum AppTools {
                     "properties": [
                         "text": ["type": "string"],
                         "done": ["type": "boolean"],
+                        "componentId": componentIdSchema(kind: "checklist"),
                     ],
                     "required": ["text"],
                 ]
@@ -1947,16 +2002,25 @@ public enum AppTools {
             handler: { args in
                 let text = args["text"]?.stringValue ?? ""
                 let done = args["done"]?.boolValue ?? false
+                let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
-                    guard let id = store.addChecklistItem(text: text, done: done, myAppId: myAppId, actor: .agent(toolName: "addChecklistItem")) else {
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "checklist", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
+                    guard let id = store.addChecklistItem(text: text, done: done, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "addChecklistItem")) else {
                         return .object([
                             "ok": .bool(false),
                             "error": "no checklist component in this MyApp — call renderChecklist or addComponent first",
                         ])
                     }
-                    let cl = checklist(store, myAppId: myAppId)
+                    let cl = checklist(store, myAppId: myAppId, componentId: resolvedId)
                     return .object([
                         "ok": .bool(true),
+                        "componentId": .string(resolvedId),
                         "id": .string(id.uuidString),
                         "itemCount": .int(cl?.items.count ?? 0),
                     ])
@@ -1976,7 +2040,10 @@ public enum AppTools {
                 """,
                 parameters: [
                     "type": "object",
-                    "properties": ["id": ["type": "string"]],
+                    "properties": [
+                        "id": ["type": "string"],
+                        "componentId": componentIdSchema(kind: "checklist"),
+                    ],
                     "required": ["id"],
                 ]
             ),
@@ -1988,16 +2055,25 @@ public enum AppTools {
                         "error": .string("invalid id '\(idString)' (expected a UUID)"),
                     ])
                 }
+                let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
-                    guard let newValue = store.toggleChecklistItem(id: uuid, myAppId: myAppId, actor: .agent(toolName: "toggleChecklistItem")) else {
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "checklist", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
+                    guard let newValue = store.toggleChecklistItem(id: uuid, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "toggleChecklistItem")) else {
                         return .object([
                             "ok": .bool(false),
                             "error": .string("no checklist item with id \(idString)"),
                         ])
                     }
-                    let cl = checklist(store, myAppId: myAppId)
+                    let cl = checklist(store, myAppId: myAppId, componentId: resolvedId)
                     return .object([
                         "ok": .bool(true),
+                        "componentId": .string(resolvedId),
                         "id": .string(idString),
                         "done": .bool(newValue),
                         "itemCount": .int(cl?.items.count ?? 0),
@@ -2037,6 +2113,7 @@ public enum AppTools {
                                 ],
                             ],
                         ],
+                        "componentId": componentIdSchema(kind: "checklist"),
                     ],
                     "required": ["id", "patch"],
                 ]
@@ -2049,6 +2126,7 @@ public enum AppTools {
                         "error": .string("invalid id '\(idString)' (expected a UUID)"),
                     ])
                 }
+                let componentIdArg = args["componentId"]?.stringValue
                 let patchObj = args["patch"]?.objectValue ?? [:]
                 var patch = MyAppStore.ChecklistItemPatch()
                 if let v = patchObj["text"]?.stringValue { patch.text = v }
@@ -2057,7 +2135,14 @@ public enum AppTools {
                     patch.linkedItems = parseLinkedItems(from: patchObj["linkedItems"])
                 }
                 return await MainActor.run {
-                    guard let after = store.patchChecklistItem(id: uuid, patch: patch, myAppId: myAppId, actor: .agent(toolName: "patchChecklistItem")) else {
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "checklist", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
+                    guard let after = store.patchChecklistItem(id: uuid, patch: patch, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "patchChecklistItem")) else {
                         return .object([
                             "ok": .bool(false),
                             "error": .string("no checklist item with id \(idString)"),
@@ -2065,6 +2150,7 @@ public enum AppTools {
                     }
                     return .object([
                         "ok": .bool(true),
+                        "componentId": .string(resolvedId),
                         "id": .string(idString),
                         "item": checklistItemAsAnyJSON(after),
                     ])
@@ -2082,7 +2168,10 @@ public enum AppTools {
                 """,
                 parameters: [
                     "type": "object",
-                    "properties": ["id": ["type": "string"]],
+                    "properties": [
+                        "id": ["type": "string"],
+                        "componentId": componentIdSchema(kind: "checklist"),
+                    ],
                     "required": ["id"],
                 ]
             ),
@@ -2094,16 +2183,25 @@ public enum AppTools {
                         "error": .string("invalid id '\(idString)' (expected a UUID)"),
                     ])
                 }
+                let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
-                    guard let removed = store.removeChecklistItem(id: uuid, myAppId: myAppId, actor: .agent(toolName: "removeChecklistItem")) else {
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "checklist", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
+                    guard let removed = store.removeChecklistItem(id: uuid, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "removeChecklistItem")) else {
                         return .object([
                             "ok": .bool(false),
                             "error": .string("no checklist item with id \(idString)"),
                         ])
                     }
-                    let cl = checklist(store, myAppId: myAppId)
+                    let cl = checklist(store, myAppId: myAppId, componentId: resolvedId)
                     return .object([
                         "ok": .bool(true),
+                        "componentId": .string(resolvedId),
                         "id": .string(idString),
                         "removed": .object([
                             "text": .string(removed.text),
@@ -2634,6 +2732,7 @@ public enum AppTools {
                 parameters: [
                     "type": "object",
                     "properties": [
+                        "componentId": componentIdSchema(kind: "chart"),
                         "title": ["type": "string"],
                         "kind": ["type": "string", "enum": ["pie", "bar", "line"]],
                         "series": ["type": "array", "items": chartSeriesSchema()],
@@ -2647,16 +2746,18 @@ public enum AppTools {
                       let kind = ChartKind(rawValue: kindRaw) else {
                     return .object(["ok": .bool(false), "error": "renderChart needs `title`, `kind` (pie|bar|line), and `series`."])
                 }
+                let componentIdArg = args["componentId"]?.stringValue
                 let series = parseChartSeries(from: args["series"])
                 return await MainActor.run {
-                    guard store.chartComponentId(myAppId: myAppId) != nil else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": "no chart component in this MyApp — call addComponent(kind:\"chart\", …) first",
-                        ])
+                    let resolvedId: String
+                    switch store.resolveRenderTarget(kind: "chart", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
                     }
-                    store.setChart(title: title, kind: kind, series: series, myAppId: myAppId)
-                    return chartEcho(store: store, myAppId: myAppId)
+                    store.setChart(title: title, kind: kind, series: series, myAppId: myAppId, componentId: resolvedId)
+                    return chartEcho(store: store, myAppId: myAppId, componentId: resolvedId)
                 }
             }
         ))
@@ -2674,6 +2775,7 @@ public enum AppTools {
                 parameters: [
                     "type": "object",
                     "properties": [
+                        "componentId": componentIdSchema(kind: "chart"),
                         "title": ["type": "string"],
                         "kind": ["type": "string", "enum": ["pie", "bar", "line"]],
                         "series": ["type": "array", "items": chartSeriesSchema()],
@@ -2681,18 +2783,26 @@ public enum AppTools {
                 ]
             ),
             handler: { args in
+                let componentIdArg = args["componentId"]?.stringValue
                 var patch = MyAppStore.ChartPatch()
                 if let t = args["title"]?.stringValue { patch.title = t }
                 if let k = args["kind"]?.stringValue, let kind = ChartKind(rawValue: k) { patch.kind = kind }
                 if args["series"] != nil { patch.series = parseChartSeries(from: args["series"]) }
                 return await MainActor.run {
-                    guard store.patchChart(patch: patch, myAppId: myAppId) else {
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "chart", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
+                    guard store.patchChart(patch: patch, myAppId: myAppId, componentId: resolvedId) else {
                         return .object([
                             "ok": .bool(false),
                             "error": "no chart component in this MyApp — call addComponent(kind:\"chart\", …) or renderChart first",
                         ])
                     }
-                    return chartEcho(store: store, myAppId: myAppId)
+                    return chartEcho(store: store, myAppId: myAppId, componentId: resolvedId)
                 }
             }
         ))
@@ -2708,20 +2818,31 @@ public enum AppTools {
                 """,
                 parameters: [
                     "type": "object",
-                    "properties": ["series": ["type": "array", "items": chartSeriesSchema()]],
+                    "properties": [
+                        "series": ["type": "array", "items": chartSeriesSchema()],
+                        "componentId": componentIdSchema(kind: "chart"),
+                    ],
                     "required": ["series"],
                 ]
             ),
             handler: { args in
+                let componentIdArg = args["componentId"]?.stringValue
                 let specs = parseChartSeries(from: args["series"])
                 return await MainActor.run {
-                    guard store.addChartSeries(specs, myAppId: myAppId) != nil else {
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "chart", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
+                    guard store.addChartSeries(specs, myAppId: myAppId, componentId: resolvedId) != nil else {
                         return .object([
                             "ok": .bool(false),
                             "error": "no chart component in this MyApp — call addComponent(kind:\"chart\", …) or renderChart first",
                         ])
                     }
-                    return chartEcho(store: store, myAppId: myAppId)
+                    return chartEcho(store: store, myAppId: myAppId, componentId: resolvedId)
                 }
             }
         ))
@@ -2735,7 +2856,10 @@ public enum AppTools {
                 """,
                 parameters: [
                     "type": "object",
-                    "properties": ["index": ["type": "integer", "minimum": 0]],
+                    "properties": [
+                        "index": ["type": "integer", "minimum": 0],
+                        "componentId": componentIdSchema(kind: "chart"),
+                    ],
                     "required": ["index"],
                 ]
             ),
@@ -2743,14 +2867,22 @@ public enum AppTools {
                 guard let index = args["index"]?.intValue else {
                     return .object(["ok": .bool(false), "error": "removeChartSeries needs `index`."])
                 }
+                let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
-                    guard store.removeChartSeries(index: index, myAppId: myAppId) else {
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "chart", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
+                    guard store.removeChartSeries(index: index, myAppId: myAppId, componentId: resolvedId) else {
                         return .object([
                             "ok": .bool(false),
                             "error": "no chart series at that index (or no chart component).",
                         ])
                     }
-                    return chartEcho(store: store, myAppId: myAppId)
+                    return chartEcho(store: store, myAppId: myAppId, componentId: resolvedId)
                 }
             }
         ))
@@ -2765,7 +2897,10 @@ public enum AppTools {
                 """,
                 parameters: [
                     "type": "object",
-                    "properties": ["kind": ["type": "string", "enum": ["pie", "bar", "line"]]],
+                    "properties": [
+                        "kind": ["type": "string", "enum": ["pie", "bar", "line"]],
+                        "componentId": componentIdSchema(kind: "chart"),
+                    ],
                     "required": ["kind"],
                 ]
             ),
@@ -2773,15 +2908,17 @@ public enum AppTools {
                 guard let k = args["kind"]?.stringValue, let kind = ChartKind(rawValue: k) else {
                     return .object(["ok": .bool(false), "error": "setChartKind needs `kind` (pie|bar|line)."])
                 }
+                let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
-                    guard store.chartComponentId(myAppId: myAppId) != nil else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": "no chart component in this MyApp — call addComponent(kind:\"chart\", …) or renderChart first",
-                        ])
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "chart", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
                     }
-                    store.setChartKind(kind, myAppId: myAppId)
-                    return chartEcho(store: store, myAppId: myAppId)
+                    store.setChartKind(kind, myAppId: myAppId, componentId: resolvedId)
+                    return chartEcho(store: store, myAppId: myAppId, componentId: resolvedId)
                 }
             }
         ))
@@ -3652,6 +3789,7 @@ public enum AppTools {
                                 "required": ["name", "type"],
                             ],
                         ],
+                        "componentId": componentIdSchema(kind: "slack"),
                     ],
                     "required": ["channels"],
                 ]
@@ -3660,9 +3798,17 @@ public enum AppTools {
                 if context.currentAgentId != nil {
                     return Self.adminForbiddenResult()
                 }
+                let componentIdArg = args["componentId"]?.stringValue
                 let entries = args["channels"]?.arrayValue ?? []
-                var created: [AnyJSON] = []
-                await MainActor.run {
+                return await MainActor.run {
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "slack", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
+                    var created: [AnyJSON] = []
                     for entry in entries {
                         let obj = entry.objectValue ?? [:]
                         let name = obj["name"]?.stringValue ?? ""
@@ -3674,7 +3820,8 @@ public enum AppTools {
                             name: name,
                             type: type,
                             memberAgentIds: memberIds,
-                            myAppId: myAppId
+                            myAppId: myAppId,
+                            componentId: resolvedId
                         ) {
                             created.append(.object([
                                 "channelId": .string(id),
@@ -3683,11 +3830,12 @@ public enum AppTools {
                             ]))
                         }
                     }
+                    return .object([
+                        "ok": .bool(true),
+                        "componentId": .string(resolvedId),
+                        "created": .array(created),
+                    ])
                 }
-                return .object([
-                    "ok": .bool(true),
-                    "created": .array(created),
-                ])
             }
         ))
 
@@ -3709,6 +3857,7 @@ public enum AppTools {
                             "type": "array",
                             "items": ["type": "string"],
                         ],
+                        "componentId": componentIdSchema(kind: "slack"),
                     ],
                     "required": ["channelId", "agentIds"],
                 ]
@@ -3717,17 +3866,27 @@ public enum AppTools {
                 if context.currentAgentId != nil {
                     return Self.adminForbiddenResult()
                 }
+                let componentIdArg = args["componentId"]?.stringValue
                 let channelId = args["channelId"]?.stringValue ?? ""
                 let agentIds = (args["agentIds"]?.arrayValue ?? [])
                     .compactMap { $0.stringValue }
                 return await MainActor.run {
+                    let resolvedId: String
+                    switch store.resolveWriteTarget(kind: "slack", componentId: componentIdArg, myAppId: myAppId) {
+                    case .failure(let msg):
+                        return .object(["ok": .bool(false), "error": .string(msg)])
+                    case .resolved(let id):
+                        resolvedId = id
+                    }
                     let changed = store.slackAddAgentsToChannel(
                         channelId: channelId,
                         agentIds: agentIds,
-                        myAppId: myAppId
+                        myAppId: myAppId,
+                        componentId: resolvedId
                     )
                     return .object([
                         "ok": .bool(true),
+                        "componentId": .string(resolvedId),
                         "channelId": .string(channelId),
                         "added": .bool(changed),
                     ])
@@ -4525,13 +4684,14 @@ public enum AppTools {
 
     // MARK: - Helpers
 
-    /// Shared `componentId` parameter schema for tracker write tools. The
+    /// Shared `componentId` parameter schema for a kind's write tools. The
     /// target is resolved deterministically and never from the active/view
-    /// component: required only when the myApp holds more than one tracker.
-    private static func componentIdSchema() -> AnyJSON {
+    /// component: required only when the myApp holds more than one component
+    /// of `kind`.
+    private static func componentIdSchema(kind: String = "tracker") -> AnyJSON {
         [
             "type": "string",
-            "description": "Which tracker to write to (e.g. \"tracker-1\"). Optional when the myApp has exactly one tracker; REQUIRED when it has several — otherwise the call errors and lists the candidates. Writes never fall back to the active/viewed component.",
+            "description": .string("Which \(kind) to write to (e.g. \"\(kind)-1\"). Optional when the myApp has exactly one \(kind); REQUIRED when it has several — otherwise the call errors and lists the candidates. Writes never fall back to the active/viewed component."),
         ]
     }
 
@@ -4770,6 +4930,18 @@ public enum AppTools {
         return nil
     }
 
+    /// Read a specific calendar by id (to echo the correct component's
+    /// state after a targeted write). Falls back to the view-independent
+    /// lookup when `componentId` is nil.
+    @MainActor
+    private static func calendar(_ store: MyAppStore, myAppId: UUID, componentId: String?) -> CalendarData? {
+        guard let componentId else { return calendar(store, myAppId: myAppId) }
+        guard let myApp = store.myApps.first(where: { $0.id == myAppId }),
+              let comp = myApp.components.first(where: { $0.id == componentId }),
+              case .calendar(let c) = comp.body else { return nil }
+        return c
+    }
+
     @MainActor
     private static func checklist(_ store: MyAppStore, myAppId: UUID) -> ChecklistData? {
         guard let myApp = store.myApps.first(where: { $0.id == myAppId }) else { return nil }
@@ -4778,6 +4950,18 @@ public enum AppTools {
             if case .checklist(let cl) = c.body { return cl }
         }
         return nil
+    }
+
+    /// Read a specific checklist by id (to echo the correct component's
+    /// state after a targeted write). Falls back to the view-independent
+    /// lookup when `componentId` is nil.
+    @MainActor
+    private static func checklist(_ store: MyAppStore, myAppId: UUID, componentId: String?) -> ChecklistData? {
+        guard let componentId else { return checklist(store, myAppId: myAppId) }
+        guard let myApp = store.myApps.first(where: { $0.id == myAppId }),
+              let comp = myApp.components.first(where: { $0.id == componentId }),
+              case .checklist(let cl) = comp.body else { return nil }
+        return cl
     }
 
     // MARK: - Calculator helpers
@@ -5188,11 +5372,23 @@ public enum AppTools {
         return nil
     }
 
+    /// Read a specific chart by id (to echo the correct component's state
+    /// after a targeted write). Falls back to the view-independent lookup
+    /// when `componentId` is nil.
+    @MainActor
+    private static func chartData(_ store: MyAppStore, myAppId: UUID, componentId: String?) -> (ChartData, String)? {
+        guard let componentId else { return chartData(store, myAppId: myAppId) }
+        guard let myApp = store.myApps.first(where: { $0.id == myAppId }),
+              let comp = myApp.components.first(where: { $0.id == componentId }),
+              case .chart(let cd) = comp.body else { return nil }
+        return (cd, componentId)
+    }
+
     /// `{ok, componentId, title, kind, seriesCount, pointCount}` for the
     /// resolved chart. Shared by every chart mutating tool.
     @MainActor
-    private static func chartEcho(store: MyAppStore, myAppId: UUID) -> AnyJSON {
-        guard let (data, id) = chartData(store, myAppId: myAppId) else {
+    private static func chartEcho(store: MyAppStore, myAppId: UUID, componentId: String? = nil) -> AnyJSON {
+        guard let (data, id) = chartData(store, myAppId: myAppId, componentId: componentId) else {
             return .object(["ok": .bool(false), "error": "no chart component"])
         }
         let count = ChartResolver.pointCount(data, components: siblingComponents(store: store, myAppId: myAppId))

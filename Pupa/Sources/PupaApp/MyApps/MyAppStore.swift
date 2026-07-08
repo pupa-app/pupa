@@ -1198,23 +1198,33 @@ public final class MyAppStore {
     /// Replace the calendar body of the first calendar component in
     /// `myAppId` (preferring the active component when it's a calendar).
     /// Destructive — wipes any existing events.
-    public func setCalendar(title: String, events: [CalendarEvent] = [], myAppId: UUID? = nil) {
-        mutate(myAppId, kind: "calendar") { canvas in
+    public func setCalendar(title: String, events: [CalendarEvent] = [], myAppId: UUID? = nil, componentId: String? = nil) {
+        let body: (inout CanvasApp) -> Bool = { canvas in
             canvas = .calendar(CalendarData(title: title, events: events))
             return true
+        }
+        if let componentId {
+            mutate(myAppId: myAppId, byComponentId: componentId, body)
+        } else {
+            mutate(myAppId, kind: "calendar", body)
         }
     }
 
     @discardableResult
-    public func addCalendarEvent(_ event: CalendarEvent, myAppId: UUID? = nil, actor: ItemEventActor = .user) -> UUID? {
-        let compId = calendarComponentId(myAppId: myAppId)
+    public func addCalendarEvent(_ event: CalendarEvent, myAppId: UUID? = nil, componentId: String? = nil, actor: ItemEventActor = .user) -> UUID? {
+        let compId = componentId ?? calendarComponentId(myAppId: myAppId)
         var added: UUID?
-        mutate(myAppId, kind: "calendar") { canvas in
+        let body: (inout CanvasApp) -> Bool = { canvas in
             guard case .calendar(var c) = canvas else { return false }
             c.events.append(event)
             canvas = .calendar(c)
             added = event.id
             return true
+        }
+        if let componentId {
+            mutate(myAppId: myAppId, byComponentId: componentId, body)
+        } else {
+            mutate(myAppId, kind: "calendar", body)
         }
         if added != nil, let compId {
             emitItemEvent(myAppId: myAppId, componentId: compId, kind: .added, actor: actor,
@@ -1403,101 +1413,123 @@ public final class MyAppStore {
 
     // MARK: - Deterministic write-target resolution
     //
-    // Tracker *writes* must not depend on which component the user happens
-    // to be viewing. The active component is a pure view concept; it is
-    // never consulted below. Callers either name a `componentId` explicitly
-    // (honoured exactly, or failed loudly) or omit it — in which case the
-    // target is only unambiguous when the MyApp holds exactly one tracker.
-    // Ambiguity (multiple trackers, no id) is surfaced to the agent as an
-    // error rather than silently guessed. This is what stops columns and
-    // rows from landing on different components.
+    // Component *writes* must not depend on which component the user
+    // happens to be viewing. The active component is a pure view concept;
+    // it is never consulted below. Callers either name a `componentId`
+    // explicitly (honoured exactly, or failed loudly) or omit it — in
+    // which case the target is only unambiguous when the MyApp holds
+    // exactly one component of that kind. Ambiguity (several same-kind
+    // components, no id) is surfaced to the agent as an error rather than
+    // silently guessed. This is what stops two writes (e.g. columns and
+    // rows) from landing on different components. Applies to every kind
+    // (tracker / calendar / checklist / chart / slack), not just trackers.
 
-    /// Outcome of resolving a tracker write target. `.failure` carries an
+    /// Outcome of resolving a write target. `.failure` carries an
     /// agent-facing message the tool layer echoes back verbatim.
-    public enum TrackerTargetResolution {
+    public enum WriteTargetResolution {
         case resolved(String)
         case failure(String)
     }
 
-    private func trackers(in m: MyApp) -> [Component] {
-        m.components.filter { if case .tracker = $0.body { return true }; return false }
+    /// Retained name for tracker-era call sites and tests.
+    public typealias TrackerTargetResolution = WriteTargetResolution
+
+    private func components(ofKind kind: String, in m: MyApp) -> [Component] {
+        m.components.filter { $0.kindString == kind }
     }
 
-    /// Resolve the target for an *item* write (add / patch / remove) — the
-    /// component must already be a tracker.
-    public func resolveTrackerWriteTarget(
+    /// Resolve the target for an *item / body* write (add / patch /
+    /// remove / replace) to a component of `kind`. The component must
+    /// already be that kind. Never consults the active/view component.
+    public func resolveWriteTarget(
+        kind: String,
         componentId: String?,
         myAppId: UUID? = nil
-    ) -> TrackerTargetResolution {
+    ) -> WriteTargetResolution {
         let target = myAppId ?? activeMyAppId
         guard let m = myApps.first(where: { $0.id == target }) else {
             return .failure("no active myApp to write to")
         }
         if let componentId {
             guard let comp = m.components.first(where: { $0.id == componentId }) else {
-                return .failure("no component with id '\(componentId)' in this myApp\(existingTrackersSuffix(m))")
+                return .failure("no component with id '\(componentId)' in this myApp\(existingSuffix(kind: kind, in: m))")
             }
-            guard case .tracker = comp.body else {
-                return .failure("component '\(componentId)' is a \(comp.kindString), not a tracker")
+            guard comp.kindString == kind else {
+                return .failure("component '\(componentId)' is a \(comp.kindString), not a \(kind)")
             }
             return .resolved(componentId)
         }
-        let ts = trackers(in: m)
-        switch ts.count {
+        let cs = components(ofKind: kind, in: m)
+        switch cs.count {
         case 0:
-            return .failure("this myApp has no tracker yet — create one with addComponent(kind: \"tracker\") first")
+            return .failure("this myApp has no \(kind) yet — create one with addComponent(kind: \"\(kind)\") first")
         case 1:
-            return .resolved(ts[0].id)
+            return .resolved(cs[0].id)
         default:
-            let ids = ts.map { "'\($0.id)' (\($0.name))" }.joined(separator: ", ")
-            return .failure("this myApp has \(ts.count) trackers: \(ids). Pass componentId to choose which one to write to.")
+            let ids = cs.map { "'\($0.id)' (\($0.name))" }.joined(separator: ", ")
+            return .failure("this myApp has \(cs.count) \(kind) components: \(ids). Pass componentId to choose which one to write to.")
         }
     }
 
-    /// Resolve the target for `renderTracker`. Same rules as an item write,
-    /// except a lone empty seed component is an acceptable target too —
-    /// rendering converts it into a tracker, preserving the "just render a
-    /// tracker on a fresh app" bootstrap without hijacking an arbitrary
-    /// empty component when trackers already exist.
-    public func resolveTrackerRenderTarget(
+    /// Resolve the target for a *render* (full body replace) to a
+    /// component of `kind`. Same rules as `resolveWriteTarget`, except a
+    /// lone empty seed component is an acceptable target too — rendering
+    /// converts it into `kind`, preserving the "just render on a fresh
+    /// app" bootstrap without hijacking an arbitrary empty component once
+    /// components of that kind already exist.
+    public func resolveRenderTarget(
+        kind: String,
         componentId: String?,
         myAppId: UUID? = nil
-    ) -> TrackerTargetResolution {
+    ) -> WriteTargetResolution {
         let target = myAppId ?? activeMyAppId
         guard let m = myApps.first(where: { $0.id == target }) else {
             return .failure("no active myApp to write to")
         }
         if let componentId {
             guard let comp = m.components.first(where: { $0.id == componentId }) else {
-                return .failure("no component with id '\(componentId)' in this myApp\(existingTrackersSuffix(m))")
+                return .failure("no component with id '\(componentId)' in this myApp\(existingSuffix(kind: kind, in: m))")
             }
-            switch comp.body {
-            case .tracker, .empty:
-                return .resolved(componentId)
-            default:
-                return .failure("component '\(componentId)' is a \(comp.kindString); renderTracker only targets a tracker or an empty component")
+            guard comp.kindString == kind || comp.kindString == "empty" else {
+                return .failure("component '\(componentId)' is a \(comp.kindString); a \(kind) render only targets a \(kind) or an empty component")
             }
+            return .resolved(componentId)
         }
-        let ts = trackers(in: m)
-        if ts.count == 1 { return .resolved(ts[0].id) }
-        if ts.isEmpty {
-            let empties = m.components.filter { if case .empty = $0.body { return true }; return false }
+        let cs = components(ofKind: kind, in: m)
+        if cs.count == 1 { return .resolved(cs[0].id) }
+        if cs.isEmpty {
+            let empties = components(ofKind: "empty", in: m)
             if empties.count == 1 { return .resolved(empties[0].id) }
             if empties.isEmpty {
-                return .failure("this myApp has no tracker or empty component to render into — add one with addComponent(kind: \"tracker\") first")
+                return .failure("this myApp has no \(kind) or empty component to render into — add one with addComponent(kind: \"\(kind)\") first")
             }
             let ids = empties.map { "'\($0.id)'" }.joined(separator: ", ")
             return .failure("this myApp has \(empties.count) empty components: \(ids). Pass componentId to choose which one to render into.")
         }
-        let ids = ts.map { "'\($0.id)' (\($0.name))" }.joined(separator: ", ")
-        return .failure("this myApp has \(ts.count) trackers: \(ids). Pass componentId to choose which one to render.")
+        let ids = cs.map { "'\($0.id)' (\($0.name))" }.joined(separator: ", ")
+        return .failure("this myApp has \(cs.count) \(kind) components: \(ids). Pass componentId to choose which one to render.")
     }
 
-    private func existingTrackersSuffix(_ m: MyApp) -> String {
-        let ts = trackers(in: m)
-        guard !ts.isEmpty else { return "" }
-        let ids = ts.map { "'\($0.id)'" }.joined(separator: ", ")
-        return ". Existing trackers: \(ids)"
+    private func existingSuffix(kind: String, in m: MyApp) -> String {
+        let cs = components(ofKind: kind, in: m)
+        guard !cs.isEmpty else { return "" }
+        let ids = cs.map { "'\($0.id)'" }.joined(separator: ", ")
+        return ". Existing \(kind) components: \(ids)"
+    }
+
+    /// Tracker-specific wrappers preserved for existing call sites/tests.
+    public func resolveTrackerWriteTarget(
+        componentId: String?,
+        myAppId: UUID? = nil
+    ) -> WriteTargetResolution {
+        resolveWriteTarget(kind: "tracker", componentId: componentId, myAppId: myAppId)
+    }
+
+    public func resolveTrackerRenderTarget(
+        componentId: String?,
+        myAppId: UUID? = nil
+    ) -> WriteTargetResolution {
+        resolveRenderTarget(kind: "tracker", componentId: componentId, myAppId: myAppId)
     }
 
     /// Internal: id of the first calendar component in `myAppId` (or
@@ -1553,10 +1585,15 @@ public final class MyAppStore {
     /// Replace the checklist body of the first checklist component in
     /// `myAppId` (preferring the active component when it's a checklist).
     /// Destructive — wipes any existing items.
-    public func setChecklist(title: String, items: [ChecklistItem] = [], myAppId: UUID? = nil) {
-        mutate(myAppId, kind: "checklist") { canvas in
+    public func setChecklist(title: String, items: [ChecklistItem] = [], myAppId: UUID? = nil, componentId: String? = nil) {
+        let body: (inout CanvasApp) -> Bool = { canvas in
             canvas = .checklist(ChecklistData(title: title, items: items))
             return true
+        }
+        if let componentId {
+            mutate(myAppId: myAppId, byComponentId: componentId, body)
+        } else {
+            mutate(myAppId, kind: "checklist", body)
         }
     }
 
@@ -1567,17 +1604,23 @@ public final class MyAppStore {
         text: String,
         done: Bool = false,
         myAppId: UUID? = nil,
+        componentId: String? = nil,
         actor: ItemEventActor = .user
     ) -> UUID? {
-        let compId = checklistComponentId(myAppId: myAppId)
+        let compId = componentId ?? checklistComponentId(myAppId: myAppId)
         let item = ChecklistItem(text: text, done: done)
         var added: UUID?
-        mutate(myAppId, kind: "checklist") { canvas in
+        let body: (inout CanvasApp) -> Bool = { canvas in
             guard case .checklist(var cl) = canvas else { return false }
             cl.items.append(item)
             canvas = .checklist(cl)
             added = item.id
             return true
+        }
+        if let componentId {
+            mutate(myAppId: myAppId, byComponentId: componentId, body)
+        } else {
+            mutate(myAppId, kind: "checklist", body)
         }
         if added != nil, let compId {
             emitItemEvent(myAppId: myAppId, componentId: compId, kind: .added, actor: actor,
@@ -1589,16 +1632,21 @@ public final class MyAppStore {
     /// Flip the `done` flag of a checklist item. Returns the new value,
     /// or nil if the item isn't found.
     @discardableResult
-    public func toggleChecklistItem(id: UUID, myAppId: UUID? = nil, actor: ItemEventActor = .user) -> Bool? {
-        let compId = checklistComponentId(myAppId: myAppId)
+    public func toggleChecklistItem(id: UUID, myAppId: UUID? = nil, componentId: String? = nil, actor: ItemEventActor = .user) -> Bool? {
+        let compId = componentId ?? checklistComponentId(myAppId: myAppId)
         var newValue: Bool?
-        mutate(myAppId, kind: "checklist") { canvas in
+        let body: (inout CanvasApp) -> Bool = { canvas in
             guard case .checklist(var cl) = canvas,
                   let idx = cl.items.firstIndex(where: { $0.id == id }) else { return false }
             cl.items[idx].done.toggle()
             newValue = cl.items[idx].done
             canvas = .checklist(cl)
             return true
+        }
+        if let componentId {
+            mutate(myAppId: myAppId, byComponentId: componentId, body)
+        } else {
+            mutate(myAppId, kind: "checklist", body)
         }
         if newValue != nil, let compId {
             emitItemEvent(myAppId: myAppId, componentId: compId, kind: .patched, actor: actor,
@@ -2001,19 +2049,24 @@ public final class MyAppStore {
     /// Replace the chart body of the first chart component in `myAppId`
     /// (preferring the active component when it's a chart). Destructive —
     /// overwrites title / kind / series.
-    public func setChart(title: String, kind: ChartKind, series: [ChartSeriesSpec], myAppId: UUID? = nil) {
-        mutate(myAppId, kind: "chart") { canvas in
+    public func setChart(title: String, kind: ChartKind, series: [ChartSeriesSpec], myAppId: UUID? = nil, componentId: String? = nil) {
+        let body: (inout CanvasApp) -> Bool = { canvas in
             canvas = .chart(ChartData(title: title, kind: kind, series: series))
             return true
+        }
+        if let componentId {
+            mutate(myAppId: myAppId, byComponentId: componentId, body)
+        } else {
+            mutate(myAppId, kind: "chart", body)
         }
     }
 
     /// Patch a chart in place — only fields present in `patch` change.
     /// Returns true if a chart component was found and edited.
     @discardableResult
-    public func patchChart(patch: ChartPatch, myAppId: UUID? = nil) -> Bool {
+    public func patchChart(patch: ChartPatch, myAppId: UUID? = nil, componentId: String? = nil) -> Bool {
         var ok = false
-        mutate(myAppId, kind: "chart") { canvas in
+        let body: (inout CanvasApp) -> Bool = { canvas in
             guard case .chart(var c) = canvas else { return false }
             if let v = patch.title { c.title = v }
             if let v = patch.kind { c.kind = v }
@@ -2022,48 +2075,68 @@ public final class MyAppStore {
             ok = true
             return true
         }
+        if let componentId {
+            mutate(myAppId: myAppId, byComponentId: componentId, body)
+        } else {
+            mutate(myAppId, kind: "chart", body)
+        }
         return ok
     }
 
     /// Append series specs to the chart. Returns the new series count, or nil
     /// if no chart component exists.
     @discardableResult
-    public func addChartSeries(_ specs: [ChartSeriesSpec], myAppId: UUID? = nil) -> Int? {
+    public func addChartSeries(_ specs: [ChartSeriesSpec], myAppId: UUID? = nil, componentId: String? = nil) -> Int? {
         var count: Int?
-        mutate(myAppId, kind: "chart") { canvas in
+        let body: (inout CanvasApp) -> Bool = { canvas in
             guard case .chart(var c) = canvas, !specs.isEmpty else { return false }
             c.series.append(contentsOf: specs)
             canvas = .chart(c)
             count = c.series.count
             return true
         }
+        if let componentId {
+            mutate(myAppId: myAppId, byComponentId: componentId, body)
+        } else {
+            mutate(myAppId, kind: "chart", body)
+        }
         return count
     }
 
     /// Remove the series at `index` (0-based). Returns true on removal.
     @discardableResult
-    public func removeChartSeries(index: Int, myAppId: UUID? = nil) -> Bool {
+    public func removeChartSeries(index: Int, myAppId: UUID? = nil, componentId: String? = nil) -> Bool {
         var ok = false
-        mutate(myAppId, kind: "chart") { canvas in
+        let body: (inout CanvasApp) -> Bool = { canvas in
             guard case .chart(var c) = canvas, c.series.indices.contains(index) else { return false }
             c.series.remove(at: index)
             canvas = .chart(c)
             ok = true
             return true
         }
+        if let componentId {
+            mutate(myAppId: myAppId, byComponentId: componentId, body)
+        } else {
+            mutate(myAppId, kind: "chart", body)
+        }
         return ok
     }
 
     /// Set just a chart's `kind` (pie ⇄ bar ⇄ line). Returns true on change.
     @discardableResult
-    public func setChartKind(_ kind: ChartKind, myAppId: UUID? = nil) -> Bool {
+    public func setChartKind(_ kind: ChartKind, myAppId: UUID? = nil, componentId: String? = nil) -> Bool {
         var ok = false
-        mutate(myAppId, kind: "chart") { canvas in
+        let body: (inout CanvasApp) -> Bool = { canvas in
             guard case .chart(var c) = canvas, c.kind != kind else { return false }
             c.kind = kind
             canvas = .chart(c)
             ok = true
             return true
+        }
+        if let componentId {
+            mutate(myAppId: myAppId, byComponentId: componentId, body)
+        } else {
+            mutate(myAppId, kind: "chart", body)
         }
         return ok
     }

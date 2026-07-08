@@ -297,6 +297,21 @@ tools. Each mutation appends a lightweight `ItemEvent` to `ItemEventLog`
 that captions the History timeline (verb + component-kind noun); the log
 no longer drives undo.
 
+### Deterministic write targeting
+
+Agent-driven writes never route by the **active/view** component. Every
+write-bearing tool (tracker / calendar / checklist / chart / slack)
+resolves its target through `MyAppStore.resolveWriteTarget(kind:…)` (item
+/ body edits) or `resolveRenderTarget(kind:…)` (full renders, which may
+also land on a lone empty seed). Rules: an explicit `componentId` is
+honoured exactly or **fails loudly** (unknown id / wrong kind); an omitted
+id resolves only when the myApp holds **exactly one** component of that
+kind — otherwise the resolver returns a `.failure` that the tool layer
+echoes back to the agent, listing the candidate ids. This stops two
+writes in a turn (e.g. a render then an item add) from silently landing
+on different same-kind components. Every write tool takes an optional
+`componentId` param and echoes the resolved id in its result.
+
 ### History = snapshots (not per-command undo)
 
 State is versioned by **`SnapshotStore`**
