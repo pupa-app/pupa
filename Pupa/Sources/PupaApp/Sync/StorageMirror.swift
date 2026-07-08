@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Two-way file mirror between the local canonical store
 /// (`PupaStorage.activeRoot`) and the iCloud container
@@ -28,7 +29,10 @@ public actor StorageMirror {
     public static let shared = StorageMirror()
     private init() {}
 
-    private var pending: Task<Void, Never>?
+    /// Pending debounced reconcile. Lock-protected rather than actor state so
+    /// `scheduleReconcile()` registers it *synchronously* — a `drain()` ordered
+    /// after a write in program order is guaranteed to observe it.
+    private nonisolated let pending = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
     private static let debounceNanos: UInt64 = 500_000_000  // 0.5s
 
     // MARK: - Trigger
@@ -36,16 +40,27 @@ public actor StorageMirror {
     /// Debounced converge — coalesces a burst of writes into one pass. Cheap
     /// no-op when iCloud is unavailable. Safe to call from anywhere.
     nonisolated public func scheduleReconcile() {
-        Task { await self.debounceReconcile() }
+        pending.withLock { task in
+            task?.cancel()
+            task = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: Self.debounceNanos)
+                guard let self, !Task.isCancelled else { return }
+                await self.reconcile()
+            }
+        }
     }
 
-    private func debounceReconcile() {
-        pending?.cancel()
-        pending = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: Self.debounceNanos)
-            guard let self, !Task.isCancelled else { return }
-            await self.reconcile()
+    /// Quiesce: cancel any armed debounced reconcile and wait for an in-flight
+    /// pass to finish. After this returns, no mirror write scheduled before the
+    /// call can land. Tests call it at suite-isolation points
+    /// (`MyAppStore.clearStorage`) and before tearing down `cloudMirrorOverride`.
+    nonisolated public func drain() async {
+        let task = pending.withLock { t -> Task<Void, Never>? in
+            defer { t = nil }
+            t?.cancel()
+            return t
         }
+        await task?.value
     }
 
     // MARK: - Reconcile
@@ -303,6 +318,13 @@ public actor StorageMirror {
 
     private static func baselineURL(_ localRoot: URL) -> URL {
         localRoot.appendingPathComponent(".mirror-baseline.json")
+    }
+
+    /// Delete the persisted 3-way-merge baseline for `localRoot`. Test-isolation
+    /// hook: `clearStorage()` wipes `state/` but the baseline lives beside it in
+    /// the storage root and would otherwise poison the next converge.
+    static func removeBaseline(localRoot: URL) {
+        try? FileManager.default.removeItem(at: baselineURL(localRoot))
     }
 
     static func loadBaseline(_ localRoot: URL) -> [String: UInt64] {

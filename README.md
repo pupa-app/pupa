@@ -4,7 +4,7 @@
 
 # Pupa
 
-[![Pupa](https://img.shields.io/badge/Pupa-0.0.166-000000?logo=apple&logoColor=white)](Pupa/Sources/PupaApp/Version.swift)
+[![Pupa](https://img.shields.io/badge/Pupa-0.0.167-000000?logo=apple&logoColor=white)](Pupa/Sources/PupaApp/Version.swift)
 [![AGUIKit](https://img.shields.io/badge/AGUIKit-0.0.25-f05138?logo=swift&logoColor=white)](AGUIKit/Sources/AGUIKit/Version.swift)
 
 Native iOS / macOS client for the Pupa agent: a SwiftUI canvas that
@@ -29,8 +29,8 @@ SSE stream.
 
 | Component | Version | Where |
 |---|---|---|
-| **Pupa iOS / macOS app** (SwiftUI) | `0.0.165` | [`Pupa/Sources/PupaApp/Version.swift`](Pupa/Sources/PupaApp/Version.swift) |
-| **AGUIKit** (Swift Package — AG-UI client) | `0.0.24` | [`AGUIKit/Sources/AGUIKit/Version.swift`](AGUIKit/Sources/AGUIKit/Version.swift) |
+| **Pupa iOS / macOS app** (SwiftUI) | `0.0.167` | [`Pupa/Sources/PupaApp/Version.swift`](Pupa/Sources/PupaApp/Version.swift) |
+| **AGUIKit** (Swift Package — AG-UI client) | `0.0.25` | [`AGUIKit/Sources/AGUIKit/Version.swift`](AGUIKit/Sources/AGUIKit/Version.swift) |
 
 Patch-only bumps (`0.0.X` → `0.0.X+1`). See [CHANGELOG.md](CHANGELOG.md)
 for the root project version and [CONTRIBUTING.md](CONTRIBUTING.md) for

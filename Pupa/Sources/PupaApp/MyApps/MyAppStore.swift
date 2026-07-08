@@ -44,6 +44,14 @@ public final class MyAppStore {
     /// Coalesces bursts of edits into one debounced `SnapshotStore` capture
     /// per MyApp, keyed by app id.
     private var pendingSnapshotTasks: [UUID: Task<Void, Never>] = [:]
+    /// Bumped by `clearStorage()`. Armed debounced snapshot tasks capture the
+    /// epoch when scheduled and skip their write if storage was cleared in
+    /// between — a late capture can never resurrect files under a fresh root,
+    /// even from a store instance a test kept alive.
+    private static var storageEpoch = 0
+    /// Snapshot debounce window. Test hook: shrink so regression tests
+    /// don't sleep 2.5s.
+    static var snapshotDebounceNanos: UInt64 = 2_500_000_000
 
     public init(initial: ([MyApp], UUID)? = nil) {
         if let initial {
@@ -2712,9 +2720,10 @@ public final class MyAppStore {
     /// into one history entry.
     private func scheduleSnapshot(_ appId: UUID) {
         pendingSnapshotTasks[appId]?.cancel()
+        let epoch = Self.storageEpoch
         pendingSnapshotTasks[appId] = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 2_500_000_000)
-            guard !Task.isCancelled else { return }
+            try? await Task.sleep(nanoseconds: Self.snapshotDebounceNanos)
+            guard !Task.isCancelled, Self.storageEpoch == epoch else { return }
             self?.captureSnapshot(appId, reason: .edit)
         }
     }
@@ -2807,8 +2816,15 @@ public final class MyAppStore {
     }
     #endif
 
-    public static func clearStorage() {
+    /// Wipe `state/` for test isolation, quiescing every background writer
+    /// first: bumps the storage epoch (expires armed snapshot debounces),
+    /// drains the mirror (no in-flight reconcile mid-rm), and removes the
+    /// mirror baseline that lives beside `state/` in the storage root.
+    public static func clearStorage() async {
+        storageEpoch += 1
+        await StorageMirror.shared.drain()
         try? FileManager.default.removeItem(at: stateRoot)
+        StorageMirror.removeBaseline(localRoot: PupaStorage.activeRoot)
     }
 }
 
