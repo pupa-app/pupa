@@ -142,4 +142,23 @@ struct AppToolsPinningTests {
         }
         #expect(itemCount(store, myAppId: idA) == 1)
     }
+
+    @Test("getActiveComponent reports the pinned myApp's focused component")
+    func getActiveComponentReadsView() async throws {
+        let (store, idA, _) = makeStore()
+        let regA = ToolRegistry()
+        AppTools.registerMyAppTools(on: regA, store: store, myAppId: idA)
+
+        try await renderTracker(regA)
+        let compId = store.myApps.first(where: { $0.id == idA })!.components.first!.id
+        _ = store.setActiveComponent(componentId: compId, myAppId: idA)
+
+        guard let get = regA.resolve("getActiveComponent") else {
+            Issue.record("getActiveComponent not registered")
+            return
+        }
+        let result = try await get.handler(.object([:]))
+        #expect(result.objectValue?["activeComponentId"]?.stringValue == compId)
+        #expect(result.objectValue?["kind"]?.stringValue == "tracker")
+    }
 }

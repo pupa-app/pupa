@@ -297,6 +297,30 @@ tools. Each mutation appends a lightweight `ItemEvent` to `ItemEventLog`
 that captions the History timeline (verb + component-kind noun); the log
 no longer drives undo.
 
+### Deterministic write targeting
+
+Agent-driven writes never route by the **active/view** component. Every
+write-bearing tool (tracker / calendar / checklist / chart / slack)
+resolves its target through `MyAppStore.resolveWriteTarget(kind:…)` (item
+/ body edits) or `resolveRenderTarget(kind:…)` (full renders, which may
+also land on a lone empty seed). Rules: an explicit `componentId` is
+honoured exactly or **fails loudly** (unknown id / wrong kind); an omitted
+id resolves only when the myApp holds **exactly one** component of that
+kind — otherwise the resolver returns a `.failure` that the tool layer
+echoes back to the agent, listing the candidate ids. This stops two
+writes in a turn (e.g. a render then an item add) from silently landing
+on different same-kind components. Every write tool takes an optional
+`componentId` param and echoes the resolved id in its result.
+
+The **active/view component is not agent-facing.** It's dropped from the
+per-turn "Live canvas state" summary (so browsing between turns never
+busts the prompt cache) and no tool — read or write — falls back to it.
+Read/discovery resolvers use the same "explicit-id or unambiguous-single"
+rule as writes. When the agent genuinely needs "the component the user is
+looking at" it fetches it on demand via the `getActiveComponent` tool and
+passes the resolved id explicitly. `setActiveComponent` still exists but
+only drives the on-screen view.
+
 ### History = snapshots (not per-command undo)
 
 State is versioned by **`SnapshotStore`**

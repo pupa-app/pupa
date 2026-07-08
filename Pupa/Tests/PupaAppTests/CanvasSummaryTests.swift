@@ -5,9 +5,9 @@ import AGUIKit
 
 /// Tests for the thin canvas summary shipped in the `Live canvas state`
 /// context entry: a per-component enumeration of `id`, `name`, `kind`,
-/// `itemCount`, and the LLM-authored `summary` slot. Schema and items
-/// are deliberately NOT in the summary — fetched via the discovery
-/// tools (`listTrackerItems`, `getTrackerItem`, …).
+/// `size` (a coarse cache-stable bucket), and the LLM-authored `summary`
+/// slot. Schema and items are deliberately NOT in the summary — fetched
+/// via the discovery tools (`listTrackerItems`, `getTrackerItem`, …).
 @MainActor
 @Suite("Canvas summary")
 struct CanvasSummaryTests {
@@ -17,7 +17,7 @@ struct CanvasSummaryTests {
         return MyApp(name: "T", iconSystemName: "list.bullet.rectangle", typeId: MyAppType.tracker.id)
     }
 
-    @Test("Tracker summary exposes id / name / kind / itemCount only — no schema, no preview")
+    @Test("Tracker summary exposes id / name / kind / size only — no schema, no preview")
     func trackerSummaryShape() {
         var myApp = makeMyApp()
         let items = (1...5).map { i in TrackerItem(values: ["title": "Row \(i)"]) }
@@ -33,13 +33,14 @@ struct CanvasSummaryTests {
         myApp.activeComponentId = "tracker-1"
 
         let summary = CanvasSummary.build(myApp: myApp)
-        #expect(summary.activeComponentId == "tracker-1")
+        // The summary deliberately omits the active/view pointer (fetched on
+        // demand via getActiveComponent) so browsing never busts the cache.
         #expect(summary.components.count == 1)
         let comp = summary.components[0]
         #expect(comp.id == "tracker-1")
         #expect(comp.name == "Things")
         #expect(comp.kind == "tracker")
-        #expect(comp.itemCount == 5)
+        #expect(comp.size == "1-9")   // 5 items → coarse bucket
         #expect(comp.summary == "Stuff to do")
     }
 
@@ -62,7 +63,7 @@ struct CanvasSummaryTests {
         #expect(comps?.first?.keys.contains("summary") == true)
     }
 
-    @Test("itemCount tracks the right collection per kind")
+    @Test("size bucket tracks the right collection per kind")
     func itemCountPerKind() {
         var myApp = makeMyApp()
         myApp.components = [
@@ -97,11 +98,22 @@ struct CanvasSummaryTests {
         ]
         let summary = CanvasSummary.build(myApp: myApp)
         let byId = Dictionary(uniqueKeysWithValues: summary.components.map { ($0.id, $0) })
-        #expect(byId["tracker-1"]?.itemCount == 3)
-        #expect(byId["calendar-1"]?.itemCount == 2)
-        #expect(byId["checklist-1"]?.itemCount == 4)
-        #expect(byId["chart-1"]?.itemCount == 2)   // inline points
-        #expect(byId["chart-2"]?.itemCount == 0)   // tracker-sourced → 0
+        #expect(byId["tracker-1"]?.size == "1-9")   // 3 items
+        #expect(byId["calendar-1"]?.size == "1-9")  // 2 events
+        #expect(byId["checklist-1"]?.size == "1-9") // 4 rows
+        #expect(byId["chart-1"]?.size == "1-9")     // 2 inline points
+        #expect(byId["chart-2"]?.size == "empty")   // tracker-sourced → 0
+    }
+
+    @Test("size bucket boundaries are coarse and cache-stable")
+    func sizeBucketBoundaries() {
+        #expect(ComponentSummary.sizeBucket(0) == "empty")
+        #expect(ComponentSummary.sizeBucket(1) == "1-9")
+        #expect(ComponentSummary.sizeBucket(9) == "1-9")
+        #expect(ComponentSummary.sizeBucket(10) == "10-99")
+        #expect(ComponentSummary.sizeBucket(99) == "10-99")
+        #expect(ComponentSummary.sizeBucket(100) == "100+")
+        #expect(ComponentSummary.sizeBucket(5000) == "100+")
     }
 
     @Test("Component JSON without a summary field decodes with summary = nil — pre-0.0.41 blob compat")

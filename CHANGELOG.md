@@ -3,6 +3,55 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.75] — 2026-07-09
+
+### Fixed
+
+- **View / field / row tools now target a component by id too.** The
+  remaining kind-routed mutators gained the same optional `componentId` as
+  the write tools, so in a myApp holding several components of one kind
+  every one is reachable (previously only the first responded). Covers
+  tracker `setTrackerFilter` / `setTrackerViewMode` / `addFieldOption` /
+  `removeFieldOption` / `addTrackerField` / `renameTrackerField` /
+  `reorderTrackerFields` / `hideTrackerField` / `showTrackerField`,
+  `setCalendarViewMode`, and calculator `renderCalculator` / `addCalcRows`
+  / `patchCalcRows` / `removeCalcRows` / `setCalcRowLink`. Same rule as the
+  other write tools (explicit id, else the unambiguous single component of
+  that kind, else an error) and each echoes the resolved id. The store's
+  kind-router no longer consults the active/view component at all. App
+  `0.0.173` → `0.0.174`.
+
+## [0.0.74] — 2026-07-09
+
+### Changed
+
+- **The active/view component is no longer agent-facing.** Dropped
+  `activeComponentId` from the per-turn "Live canvas state" summary, so
+  browsing between components no longer busts the prompt cache. No tool —
+  read or write — falls back to the active component any more: read /
+  discovery resolvers now use the same "explicit `componentId`, or the
+  unambiguous single component of that kind, else an error" rule as
+  writes. `setComponentLocked` now requires an explicit `componentId`. New
+  **`getActiveComponent`** tool lets the agent fetch "the component the
+  user is looking at" on demand and pass its id explicitly.
+  `setActiveComponent` still drives the on-screen view only. App `0.0.172`
+  → `0.0.173`.
+
+## [0.0.73] — 2026-07-09
+
+### Fixed
+
+- **Deterministic write targeting for every component kind.** Extends the
+  tracker fix to calendar, checklist, chart, and slack: their write tools
+  no longer route by whichever component the user happens to be viewing.
+  Each write tool now takes an optional `componentId` (honoured exactly or
+  failed loudly on an unknown id / wrong kind) and, when omitted, resolves
+  only when the myApp holds exactly one component of that kind — otherwise
+  it returns an error listing the candidate ids instead of silently
+  guessing. Renders may still land on a lone empty seed so fresh-app
+  bootstrap is preserved. Stops two writes in a turn from hitting different
+  same-kind components. App `0.0.171` → `0.0.172`.
+
 ## [0.0.72] — 2026-07-08
 
 ### Added
