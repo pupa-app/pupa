@@ -142,7 +142,13 @@ public struct BackendHarnessesClient: Sendable {
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
         }
-        return try JSONDecoder().decode([Wire].self, from: data).map { $0.toDescriptor() }
+        return try Self.decode(data)
+    }
+
+    /// Decode a `GET /harnesses` response body. Exposed (not just inlined in
+    /// `list`) so the wire contract can be tested without a live session.
+    public static func decode(_ data: Data) throws -> [HarnessDescriptor] {
+        try JSONDecoder().decode([Wire].self, from: data).map { $0.toDescriptor() }
     }
 
     // Wire shapes mirror the FastAPI `GET /harnesses` document.
