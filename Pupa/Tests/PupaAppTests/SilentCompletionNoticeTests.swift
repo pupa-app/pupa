@@ -62,7 +62,7 @@ struct SilentCompletionNoticeTests {
     @Test("Each silent reason maps to a distinct, non-empty message")
     func silentReasons_haveDistinctMessages() {
         let reasons: [SilentReason] = [
-            .emptyTurn, .maxRounds, .droppedStream, .backend("boom"),
+            .emptyTurn, .maxRounds, .droppedStream, .droppedInterrupt, .backend("boom"),
         ]
         let messages = reasons.map(ChatViewModel.silentStopMessage)
         #expect(messages.allSatisfy { !$0.isEmpty })

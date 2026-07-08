@@ -54,6 +54,12 @@ public enum SilentReason: Sendable, Equatable {
     /// The stream ended without a `RUN_FINISHED` and without an error
     /// (a clean socket EOF mid-turn).
     case droppedStream
+    /// A frontend tool call arrived with no `on_interrupt` to drive it, and a
+    /// bounded recovery re-POST didn't surface one either — so the client
+    /// couldn't run the tool. Fingerprint of the upstream `ag-ui-langgraph`
+    /// emit-path bug: an interrupt parked on a non-first task is dropped at
+    /// emit time (`state.tasks[0]` only), leaving the run looking finished.
+    case droppedInterrupt
     /// A backend-attributed reason, or a client-side dispatch failure —
     /// carries a short human-readable message.
     case backend(String)
@@ -405,6 +411,10 @@ public actor AgentSession {
 
         var nextForwardedProps: AnyJSON = baseForwardedProps
         var round = 0
+        // Bounded recovery for the `ag-ui-langgraph` dropped-interrupt bug —
+        // see the settle branch below.
+        var recoveryAttempts = 0
+        let maxRecoveryAttempts = 2
         while true {
             let input = await makeInput(nextForwardedProps)
             AGUIKitLog.session(
@@ -420,8 +430,35 @@ public actor AgentSession {
             // tracks whether the round produced anything (empty round →
             // next send replaces the orphaned user message).
             guard let dispatch = outcome.pendingDispatch else {
+                // Self-heal the `ag-ui-langgraph` dropped-interrupt bug: a
+                // frontend tool was called this round but no `on_interrupt`
+                // arrived to drive it (the emit path reads `state.tasks[0]`
+                // only, so an interrupt parked on a non-first task is dropped
+                // in-run). The run looks finished but the backend is parked. A
+                // resume-less re-POST hits the backend's recovery path, which
+                // collects interrupts from ALL tasks and re-emits the dropped
+                // one — the next round then decodes it and dispatches normally.
+                // Bounded so a genuine no-interrupt settle can't loop.
+                let dropped = droppedFrontendCalls(in: outcome)
+                if !dropped.isEmpty, !outcome.interruptDecodeFailed,
+                   recoveryAttempts < maxRecoveryAttempts {
+                    recoveryAttempts += 1
+                    AGUIKitLog.session(
+                        "round \(round) settled with frontend tool(s) but no interrupt " +
+                        "[\(dropped.map { $0.name }.joined(separator: ", "))] → recovery re-POST " +
+                        "\(recoveryAttempts)/\(maxRecoveryAttempts) (ag-ui-langgraph tasks[0] emit bug)"
+                    )
+                    nextForwardedProps = baseForwardedProps  // resume-less continuation
+                    continue
+                }
                 lastSendSettledCleanly = outcome.hadOutput
-                let result = settleOutcome(producedText: producedText, outcome: outcome)
+                // A frontend tool called with no interrupt at all (recovery
+                // exhausted) surfaces `.droppedInterrupt` even if the model also
+                // narrated. An *undecodable* interrupt keeps `settleOutcome`'s
+                // `.backend(...)` reason — re-POSTing wouldn't have helped it.
+                let result: CompletionOutcome = (!dropped.isEmpty && !outcome.interruptDecodeFailed)
+                    ? .silent(.droppedInterrupt)
+                    : settleOutcome(producedText: producedText, outcome: outcome)
                 AGUIKitLog.session("round \(round) settled → completed (\(result))")
                 yield(.completed(result))
                 return
@@ -462,6 +499,22 @@ public actor AgentSession {
         if outcome.interruptDecodeFailed { return .silent(.backend("couldn't read the agent's tool request")) }
         if !outcome.sawRunFinished { return .silent(.droppedStream) }
         return .silent(.emptyTurn)
+    }
+
+    /// Frontend tool calls the model emitted this round that the client has
+    /// registered locally, but which arrived WITHOUT an `on_interrupt` to drive
+    /// them (no pending dispatch) and WITHOUT a backend-produced result. This is
+    /// the fingerprint of the `ag-ui-langgraph` dropped-interrupt bug: the graph
+    /// parked an interrupt on a non-first task and the emit path (`state.tasks[0]`
+    /// only) never sent the `on_interrupt`. Backend-executed tools (e.g.
+    /// `tavily_search`) don't resolve in the registry, so they're excluded.
+    private func droppedFrontendCalls(in outcome: RoundOutcome) -> [(id: String, name: String)] {
+        outcome.observedOrder.compactMap { id in
+            guard let meta = outcome.observedToolCalls[id] else { return nil }
+            guard registry.resolve(meta.name) != nil else { return nil }
+            guard outcome.backendResults[id] == nil else { return nil }
+            return (id: id, name: meta.name)
+        }
     }
 
     /// Run every frontend tool the backend asked us to dispatch. Tools
