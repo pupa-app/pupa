@@ -70,7 +70,7 @@ public enum MyAppImporter {
         public let warnings: [String]
     }
 
-    /// Which `.pupaapp` payload a file holds — a single app or a library. Both
+    /// Which `.pupa` payload a file holds — a single app or a library. Both
     /// share the extension and are told apart by the `header.format` magic.
     public enum BundleFormat {
         case single

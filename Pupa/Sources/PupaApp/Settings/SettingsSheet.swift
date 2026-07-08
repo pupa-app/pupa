@@ -176,12 +176,6 @@ public struct SettingsSheet: View {
                     }
                     .accessibilityLabel("Back")
                 }
-                ToolbarItem(placement: .navigation) {
-                    InfoBadge(
-                        title: "Settings",
-                        message: "Configure Pupa. The Backend section points the app at a remote server; the Tools section controls shell-command approval and which tools the agent is allowed to call this session."
-                    )
-                }
             }
         }
         #if os(macOS)

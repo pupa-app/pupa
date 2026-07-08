@@ -70,7 +70,7 @@ public struct AppView: View {
     /// (`wantSettingsOpen` / `wantChatOpen` / `chatPrefill`) and `applyTourStep`
     /// drives `selection` for `.navigate` steps.
     @State private var tour = GuidedTourStore.shared
-    /// A `.pupaapp` opened from outside the app (`onOpenURL`), staged for an
+    /// A `.pupa` opened from outside the app (`onOpenURL`), staged for an
     /// explicit confirm step before it touches the store — the source is
     /// untrusted and the bundle's agent prompts run with the user's tools.
     @State private var pendingImport: PendingImport?
@@ -125,7 +125,7 @@ public struct AppView: View {
                 selection = sel
                 dispatchSelection(sel)
             }
-            // Tap-to-import: a `.pupaapp` opened from Files / Mail / a chat app
+            // Tap-to-import: a `.pupa` opened from Files / Mail / a chat app
             // arrives here. Stage it for a confirm step rather than importing
             // straight into the store (untrusted source).
             .onOpenURL { stagePendingImport($0) }
@@ -895,7 +895,7 @@ public struct AppView: View {
 
     // MARK: Tap-to-import
 
-    /// Read + read-only-decode an opened `.pupaapp` for the confirm preview.
+    /// Read + read-only-decode an opened `.pupa` for the confirm preview.
     /// `MyAppImporter` is the validation authority — this only extracts the app
     /// name + agent prompts and never mutates the store.
     private func stagePendingImport(_ url: URL) {
@@ -978,7 +978,7 @@ public struct AppView: View {
     }
 }
 
-/// A `.pupaapp` opened from outside the app, staged for confirmation. Holds one
+/// A `.pupa` opened from outside the app, staged for confirmation. Holds one
 /// app (single bundle) or many (library bundle).
 private struct PendingImport: Identifiable {
     let id = UUID()
@@ -995,7 +995,7 @@ private struct ImportNotice: Identifiable {
     let message: String
 }
 
-/// Confirm step for an externally-opened `.pupaapp`: names the app and lists
+/// Confirm step for an externally-opened `.pupa`: names the app and lists
 /// the agent prompts that would run with the user's tools, so an untrusted
 /// bundle can't import silently.
 private struct ImportConfirmSheet: View {

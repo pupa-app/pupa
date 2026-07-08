@@ -3,6 +3,19 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.64] — 2026-07-08
+
+### Changed
+
+- **Export bundle extension renamed `.pupaapp` → `.pupa`.** Shorter, no
+  stutter. New exports write `<App>.pupa`; the OS now registers `.pupa` as
+  Pupa's file type for tap-to-import. **Breaking:** already-shared
+  `.pupaapp` files no longer open in Pupa on tap (rename them to `.pupa`
+  to import — the bytes are unchanged, validation is by header magic, not
+  extension). Pupa `0.0.160` → `0.0.161`.
+- **Dropped the (i) info badge from the Settings root.** The header was
+  redundant with the per-row captions.
+
 ## [0.0.63] — 2026-07-07
 
 ### Fixed

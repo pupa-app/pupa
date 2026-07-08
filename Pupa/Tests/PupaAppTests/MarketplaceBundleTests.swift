@@ -70,6 +70,19 @@ struct MarketplaceBundleTests {
         .init(selectedComponentIds: Set(app.components.map(\.id)), includeRecords: true, includeMemories: true)
     }
 
+    // MARK: Extension
+
+    @Test("Exported bundles carry the .pupa extension")
+    func fileExtensionIsPupa() {
+        #expect(MyAppBundle.fileExtension == "pupa")
+        #expect(MyAppLibraryBundle.fileExtension == "pupa")
+        // Mirrors ExportMyAppView.writeShareFile's filename construction.
+        let url = URL(fileURLWithPath: "/tmp/Demo")
+            .appendingPathExtension(MyAppBundle.fileExtension)
+        #expect(url.pathExtension == "pupa")
+        #expect(url.lastPathComponent == "Demo.pupa")
+    }
+
     // MARK: Round-trip
 
     @Test("Round-trip (all on) preserves structure, resets identity, drops unsafe settings")

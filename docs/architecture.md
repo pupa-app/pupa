@@ -183,7 +183,7 @@ agent-prompt links all use — so `chatLinkAction` calls
 slug, or `orchestrator/`) before routing; otherwise the target note can't be
 read. `pupa://component/<id>` targets the current myApp; the explicit
 `pupa://myapp/<uuid>/memory/<path>` form is for cross-scope links. Distinct from
-Slack's `pupa-mention://` and the `.pupaapp` file type.
+Slack's `pupa-mention://` and the `.pupa` file type.
 
 The card header is split across two rows. The **agent selector** (`AgentDropdown`)
 sits in the card's top bar — alongside the resize / expand / close controls — so
@@ -455,7 +455,7 @@ memory root (`memories/<slug>/pupa/`): `AGENTS.md` (main agent),
 playbook can be a skill — e.g. the Content Studio `setup` skill provides
 `/setup`).
 The orchestrator has its own `orchestrator/pupa/`. Visible (non-dot) so it
-rides the sidebar, per-turn snapshot, and the `.pupaapp` bundle; writes are
+rides the sidebar, per-turn snapshot, and the `.pupa` bundle; writes are
 limited to `.md` / `.json`.
 
 A **skill** is a markdown playbook (`SKILL.md` + optional frontmatter), the
@@ -606,11 +606,11 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
 
 ## Export / Import (marketplace)
 
-A MyApp can be exported as a portable, **inert** `.pupaapp` bundle (versioned
+A MyApp can be exported as a portable, **inert** `.pupa` bundle (versioned
 header + the `Codable` `MyApp` tree + memory files) and rebuilt on another
 install — **no code from the bundle is executed**. UI lives in Settings ▸
 Import & Export: export is a **Share…** action (`ShareLink` → AirDrop /
-Messages / WhatsApp / Files). `.pupaapp` is a registered, app-owned file type
+Messages / WhatsApp / Files). `.pupa` is a registered, app-owned file type
 (`UTType.pupaAppBundle`), so opening a shared bundle routes to Pupa via
 `AppView.onOpenURL`, which read-only-decodes it for a confirm sheet before
 running the same importer. Each Share regeneration writes a fresh unique
