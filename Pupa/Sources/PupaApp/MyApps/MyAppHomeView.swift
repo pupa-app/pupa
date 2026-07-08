@@ -49,6 +49,12 @@ public struct MyAppHomeView: View {
     @State private var editingComponent: EditingComponentRef?
     /// The component pending delete confirmation, or `nil`.
     @State private var deletingComponent: EditingComponentRef?
+    /// Folders shown inline-expanded on the page. Ephemeral UI — not persisted.
+    @State private var expandedFolders: Set<String> = []
+    /// The folder whose name is being edited, or `nil`.
+    @State private var renamingFolder: FolderRef?
+    /// Draft text bound to the rename-folder alert's field.
+    @State private var folderNameDraft: String = ""
 
     private let componentColumns = [GridItem(.adaptive(minimum: 92), spacing: 12)]
 
@@ -130,6 +136,24 @@ public struct MyAppHomeView: View {
                 Text("\"\(name)\" and its contents will be removed. This can't be undone.")
             }
         }
+        .alert(
+            "Rename folder",
+            isPresented: Binding(
+                get: { renamingFolder != nil },
+                set: { if !$0 { renamingFolder = nil } }
+            ),
+            presenting: renamingFolder
+        ) { ref in
+            TextField("Folder name", text: $folderNameDraft)
+            Button("Rename") {
+                let trimmed = folderNameDraft.trimmingCharacters(in: .whitespaces)
+                if !trimmed.isEmpty {
+                    store.renameComponentFolder(folderId: ref.folderId, name: trimmed, myAppId: ref.myAppId)
+                }
+                renamingFolder = nil
+            }
+            Button("Cancel", role: .cancel) { renamingFolder = nil }
+        }
     }
 
     private func header(name: String, icon: String) -> some View {
@@ -182,17 +206,54 @@ public struct MyAppHomeView: View {
         )
     }
 
-    /// Collapsible grid of component tiles + an "Add" menu. Tapping a tile
-    /// opens that component's canvas; "Add" picks a kind and creates one.
+    /// Collapsible grid of folder + component tiles + an "Add" menu. Tapping a
+    /// component opens its canvas; tapping a folder expands its contents inline.
+    /// Dragging a tile onto another groups them; dragging onto a folder adds it.
+    /// Folder layout is UI-only (`MyAppStore.componentFolders`) — invisible to
+    /// the agent and to marketplace exports.
     private func componentsPanel(_ app: MyApp) -> some View {
-        DisclosureGroup(isExpanded: $componentsExpanded) {
-            LazyVGrid(columns: componentColumns, spacing: 12) {
-                ForEach(app.components) { component in
-                    componentTile(app: app, component: component)
+        let layout = store.componentFolderLayout(forMyApp: app.id)
+        let loose = app.components.filter { layout.folderId(forComponent: $0.id) == nil }
+        return DisclosureGroup(isExpanded: $componentsExpanded) {
+            VStack(alignment: .leading, spacing: 12) {
+                LazyVGrid(columns: componentColumns, spacing: 12) {
+                    ForEach(layout.folders) { folder in
+                        FolderGridTile(
+                            folder: folder,
+                            count: members(of: folder, in: app, layout: layout).count,
+                            isExpanded: expandedFolders.contains(folder.id),
+                            onTap: { toggleFolder(folder.id) },
+                            onRename: {
+                                folderNameDraft = folder.name
+                                renamingFolder = FolderRef(myAppId: app.id, folderId: folder.id)
+                            },
+                            onDelete: { store.removeComponentFolder(folderId: folder.id, myAppId: app.id) },
+                            onDropComponent: { dragged in
+                                store.setComponentFolder(componentId: dragged, folderId: folder.id, myAppId: app.id)
+                            }
+                        )
+                    }
+                    ForEach(loose) { component in
+                        gridTile(app: app, component: component, inFolder: false)
+                    }
+                    addComponentMenu(app)
                 }
-                addComponentMenu(app)
+                ForEach(layout.folders.filter { expandedFolders.contains($0.id) }) { folder in
+                    expandedFolderSection(app: app, folder: folder, layout: layout)
+                }
             }
             .padding(.top, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            // Drop a tile into empty grid space → release it to the top level
+            // (iOS-home-screen "drag out of folder"). Tile/folder drops sit on
+            // subviews and take precedence; only gaps reach this handler.
+            .dropDestination(for: String.self) { ids, _ in
+                guard let dragged = ids.first,
+                      layout.folderId(forComponent: dragged) != nil else { return false }
+                store.setComponentFolder(componentId: dragged, folderId: nil, myAppId: app.id)
+                return true
+            }
         } label: {
             HStack(alignment: .firstTextBaseline) {
                 Text("Components")
@@ -234,43 +295,57 @@ public struct MyAppHomeView: View {
         }
     }
 
-    private func componentTile(app: MyApp, component: Component) -> some View {
-        Button {
-            onNavigate(.myAppComponent(app.id, component.id))
-        } label: {
-            VStack(spacing: 6) {
-                Image(systemName: component.iconSystemName)
-                    .font(.system(size: 22))
-                    .foregroundStyle(appColor)
-                    .frame(width: 48, height: 48)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(appColor.opacity(0.12))
-                    )
-                Text(component.name)
-                    .font(.caption)
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .contextMenu {
-            Button {
-                editingComponent = EditingComponentRef(myAppId: app.id, componentId: component.id)
-            } label: {
-                Label("Rename / icon…", systemImage: "pencil")
-            }
+    /// A draggable component tile wired to this home's edit/delete/folder
+    /// actions. `inFolder` shows the "Move out of folder" action.
+    private func gridTile(app: MyApp, component: Component, inFolder: Bool) -> some View {
+        ComponentGridTile(
+            component: component,
+            appColor: appColor,
             // Last component can't be deleted (store guards count > 1).
-            if app.components.count > 1 {
-                Button(role: .destructive) {
-                    deletingComponent = EditingComponentRef(myAppId: app.id, componentId: component.id)
-                } label: {
-                    Label("Delete", systemImage: "trash")
+            canDelete: app.components.count > 1,
+            inFolder: inFolder,
+            onTap: { onNavigate(.myAppComponent(app.id, component.id)) },
+            onEditMeta: { editingComponent = EditingComponentRef(myAppId: app.id, componentId: component.id) },
+            onDelete: { deletingComponent = EditingComponentRef(myAppId: app.id, componentId: component.id) },
+            onMoveOut: { store.setComponentFolder(componentId: component.id, folderId: nil, myAppId: app.id) },
+            onCombine: { dragged in
+                store.combineComponentsIntoFolder(dragged, component.id, myAppId: app.id)
+            }
+        )
+    }
+
+    /// Components assigned to `folder`, in the app's component order (stable).
+    private func members(of folder: ComponentFolder, in app: MyApp,
+                         layout: ComponentFolderLayout) -> [Component] {
+        app.components.filter { layout.folderId(forComponent: $0.id) == folder.id }
+    }
+
+    private func toggleFolder(_ id: String) {
+        if expandedFolders.contains(id) { expandedFolders.remove(id) }
+        else { expandedFolders.insert(id) }
+    }
+
+    /// Inline expansion of a tapped folder: its member tiles under a header.
+    /// No navigation — the section drops in below the folder row.
+    private func expandedFolderSection(app: MyApp, folder: ComponentFolder,
+                                       layout: ComponentFolderLayout) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(folder.name)
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundStyle(.secondary)
+            LazyVGrid(columns: componentColumns, spacing: 12) {
+                ForEach(members(of: folder, in: app, layout: layout)) { component in
+                    gridTile(app: app, component: component, inFolder: true)
                 }
             }
         }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.secondary.opacity(0.05))
+        )
     }
 
     /// "+" tile → a menu of the app type's component kinds. Picking one creates
@@ -571,6 +646,132 @@ private struct EditingComponentRef: Identifiable {
     let myAppId: UUID
     let componentId: String
     var id: String { "\(myAppId.uuidString)/\(componentId)" }
+}
+
+/// Identifies the folder being renamed. Folder ids are unique within a MyApp.
+private struct FolderRef: Identifiable {
+    let myAppId: UUID
+    let folderId: String
+    var id: String { "\(myAppId.uuidString)/\(folderId)" }
+}
+
+/// A component tile on the home grid: taps open the canvas, drags group tiles.
+/// Dropping another tile onto it calls `onCombine`; its context menu edits,
+/// deletes, or moves it out of a folder. Highlights while a drop is targeted.
+private struct ComponentGridTile: View {
+    let component: Component
+    let appColor: Color
+    let canDelete: Bool
+    let inFolder: Bool
+    var onTap: () -> Void
+    var onEditMeta: () -> Void
+    var onDelete: () -> Void
+    var onMoveOut: () -> Void
+    var onCombine: (_ draggedId: String) -> Void
+    @State private var dropTargeted = false
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(spacing: 6) {
+                Image(systemName: component.iconSystemName)
+                    .font(.system(size: 22))
+                    .foregroundStyle(appColor)
+                    .frame(width: 48, height: 48)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(appColor.opacity(0.12)))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(dropTargeted ? appColor : .clear, lineWidth: 2)
+                    )
+                Text(component.name)
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .draggable(component.id)
+        .dropDestination(for: String.self) { ids, _ in
+            guard let dragged = ids.first, dragged != component.id else { return false }
+            onCombine(dragged)
+            return true
+        } isTargeted: { dropTargeted = $0 }
+        .contextMenu {
+            Button { onEditMeta() } label: { Label("Rename / icon…", systemImage: "pencil") }
+            if inFolder {
+                Button { onMoveOut() } label: {
+                    Label("Move out of folder", systemImage: "folder.badge.minus")
+                }
+            }
+            if canDelete {
+                Button(role: .destructive) { onDelete() } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+        }
+    }
+}
+
+/// A folder tile on the home grid. Tapping expands its contents inline;
+/// dropping a component onto it files that component. Its context menu renames
+/// or deletes the folder. Shows a member-count badge and a drop highlight.
+private struct FolderGridTile: View {
+    let folder: ComponentFolder
+    let count: Int
+    let isExpanded: Bool
+    var onTap: () -> Void
+    var onRename: () -> Void
+    var onDelete: () -> Void
+    var onDropComponent: (_ draggedId: String) -> Void
+    @State private var dropTargeted = false
+
+    /// Folders are theme-neutral (gray), not tinted with the MyApp color, so
+    /// they read as containers rather than components.
+    private var tint: Color { .secondary }
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(spacing: 6) {
+                Image(systemName: isExpanded ? "folder.fill" : "folder")
+                    .font(.system(size: 22))
+                    .foregroundStyle(tint)
+                    .frame(width: 48, height: 48)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(tint.opacity(0.15)))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(dropTargeted ? tint : .clear, lineWidth: 2)
+                    )
+                    .overlay(alignment: .topTrailing) {
+                        Text("\(count)")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Color(white: 0.98))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(tint))
+                            .offset(x: 4, y: -4)
+                    }
+                Text(folder.name)
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .dropDestination(for: String.self) { ids, _ in
+            guard let dragged = ids.first else { return false }
+            onDropComponent(dragged)
+            return true
+        } isTargeted: { dropTargeted = $0 }
+        .contextMenu {
+            Button { onRename() } label: { Label("Rename", systemImage: "pencil") }
+            Button(role: .destructive) { onDelete() } label: {
+                Label("Delete folder", systemImage: "trash")
+            }
+        }
+    }
 }
 
 /// Edits a component's name + icon (its `id` and data are untouched). An SF

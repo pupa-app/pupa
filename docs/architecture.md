@@ -590,9 +590,17 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
 
 - **Canvas + MyApps state** → **per-file** under `state/`: one
   `apps/<uuid>.json` per MyApp plus `index.json` (active id, order,
-  orchestrator threads, audit log). One mutation rewrites only the touched
-  file (dirty-hashed in `MyAppStore`), so iCloud syncs minimal traffic and
-  per-app snapshots stay cheap.
+  orchestrator threads, audit log, and the UI-only component-folder layout).
+  One mutation rewrites only the touched file (dirty-hashed in `MyAppStore`),
+  so iCloud syncs minimal traffic and per-app snapshots stay cheap.
+- **Component folders (UI-only)** → the home-page grid
+  (`MyAppHomeView.componentsPanel`) lets you drag component tiles into folders,
+  iOS-home-screen style. The layout (`ComponentFolderLayout`: folders +
+  componentId→folderId assignments) is **presentational**, kept off-model in
+  `index.json` (`MyAppStore.componentFolders`, keyed by MyApp `id.uuidString`).
+  It is deliberately *not* on `Component`/`MyApp`, so the agent
+  (`getCanvasState`) and marketplace exports never see it. It syncs across
+  devices but is not part of per-app History snapshots.
 - **Settings** → JSON file `state/settings.json` (backend list,
   disabled backend tools, A2A guardrails). Device tokens are **excluded** —
   they stay in the Keychain, unsynced. The Settings

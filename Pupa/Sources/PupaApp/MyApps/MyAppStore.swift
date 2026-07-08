@@ -41,6 +41,11 @@ public final class MyAppStore {
     /// live-observable so the History sheet updates. Captions the timeline;
     /// state is restored from `SnapshotStore`, not replayed from this.
     public private(set) var itemEventLog = ItemEventLog()
+    /// UI-only folder grouping of each MyApp's component tiles, keyed by MyApp
+    /// `id.uuidString`. Presentational — persisted in `index.json`, never in a
+    /// `MyApp`/`Component` body, so the agent (`getCanvasState`) and marketplace
+    /// exports never see it. See `ComponentFolderLayout`.
+    public private(set) var componentFolders: [String: ComponentFolderLayout] = [:]
     /// Coalesces bursts of edits into one debounced `SnapshotStore` capture
     /// per MyApp, keyed by app id.
     private var pendingSnapshotTasks: [UUID: Task<Void, Never>] = [:]
@@ -67,6 +72,7 @@ public final class MyAppStore {
             self.memoryThreads = loaded.memoryThreads
             self.memoryCurrentThreadId = loaded.memoryCurrentThreadId
             self.itemEventLog = loaded.itemEventLog
+            self.componentFolders = loaded.componentFolders
             // Seed disk on fresh install; otherwise prime hashes so the first
             // mutation only writes the app that actually changed. On fresh
             // install also ship default skills into the seeded app (app-birth
@@ -502,9 +508,100 @@ public final class MyAppStore {
         if myApps[mIdx].activeComponentId == componentId {
             myApps[mIdx].activeComponentId = myApps[mIdx].components.first?.id
         }
+        // Drop the deleted component's folder assignment; auto-dissolve a
+        // now-empty folder. (In-memory only — persist() below writes it.)
+        dropFolderAssignment(componentId: componentId, myAppId: target)
         persist()
         emitItemEvent(myAppId: target, componentId: componentId, kind: .removed, actor: .user)
         return true
+    }
+
+    // MARK: - Component folders (UI-only)
+
+    /// The folder layout for `myAppId`, or an empty layout if none. Read-side
+    /// helper for the home-page grid.
+    public func componentFolderLayout(forMyApp myAppId: UUID) -> ComponentFolderLayout {
+        componentFolders[myAppId.uuidString] ?? ComponentFolderLayout()
+    }
+
+    /// Drop-tile-onto-tile: group `a` and `b`. If `b` already lives in a
+    /// folder, add `a` to it; otherwise create a "New Folder" holding both.
+    /// No-op when the two are the same tile.
+    public func combineComponentsIntoFolder(_ a: String, _ b: String, myAppId: UUID) {
+        guard a != b else { return }
+        let key = myAppId.uuidString
+        var layout = componentFolders[key] ?? ComponentFolderLayout()
+        if let existing = layout.assignments[b] {
+            layout.assignments[a] = existing
+        } else {
+            let folder = ComponentFolder(id: UUID().uuidString, name: "New Folder")
+            layout.folders.append(folder)
+            layout.assignments[a] = folder.id
+            layout.assignments[b] = folder.id
+        }
+        componentFolders[key] = layout
+        pruneEmptyFolders(myAppId: myAppId)
+        persist()
+    }
+
+    /// Assign `componentId` to `folderId`, or move it out with `nil`. Prunes a
+    /// folder that empties as a result.
+    public func setComponentFolder(componentId: String, folderId: String?, myAppId: UUID) {
+        let key = myAppId.uuidString
+        var layout = componentFolders[key] ?? ComponentFolderLayout()
+        if let folderId, layout.folders.contains(where: { $0.id == folderId }) {
+            layout.assignments[componentId] = folderId
+        } else {
+            layout.assignments.removeValue(forKey: componentId)
+        }
+        componentFolders[key] = layout
+        pruneEmptyFolders(myAppId: myAppId)
+        persist()
+    }
+
+    /// Rename a folder. No-op if the folder or MyApp is unknown.
+    public func renameComponentFolder(folderId: String, name: String, myAppId: UUID) {
+        let key = myAppId.uuidString
+        guard var layout = componentFolders[key],
+              let fIdx = layout.folders.firstIndex(where: { $0.id == folderId }) else { return }
+        layout.folders[fIdx].name = name
+        componentFolders[key] = layout
+        persist()
+    }
+
+    /// Delete a folder; its children return to the top level.
+    public func removeComponentFolder(folderId: String, myAppId: UUID) {
+        let key = myAppId.uuidString
+        guard var layout = componentFolders[key] else { return }
+        layout.folders.removeAll { $0.id == folderId }
+        layout.assignments = layout.assignments.filter { $0.value != folderId }
+        componentFolders[key] = normalized(layout)
+        persist()
+    }
+
+    /// Remove a single component's assignment in-memory (no persist). Used by
+    /// `removeComponent`, which persists once afterward.
+    private func dropFolderAssignment(componentId: String, myAppId: UUID) {
+        let key = myAppId.uuidString
+        guard var layout = componentFolders[key], layout.assignments[componentId] != nil else { return }
+        layout.assignments.removeValue(forKey: componentId)
+        componentFolders[key] = normalized(layout)
+    }
+
+    /// Drop folders with no members and persist the pruned layout.
+    private func pruneEmptyFolders(myAppId: UUID) {
+        let key = myAppId.uuidString
+        guard let layout = componentFolders[key] else { return }
+        componentFolders[key] = normalized(layout)
+    }
+
+    /// Remove empty folders and clear the whole entry when nothing remains, so
+    /// an app with no folders holds no dictionary key.
+    private func normalized(_ layout: ComponentFolderLayout) -> ComponentFolderLayout? {
+        var out = layout
+        let live = Set(out.assignments.values)
+        out.folders.removeAll { !live.contains($0.id) }
+        return (out.folders.isEmpty && out.assignments.isEmpty) ? nil : out
     }
 
     /// Make `componentId` the active component of `myAppId`. The active
@@ -2605,6 +2702,9 @@ public final class MyAppStore {
         var memoryThreads: [ChatThread]
         var memoryCurrentThreadId: String
         var itemEventLog: ItemEventLog?
+        /// UI-only component folder layout, keyed by MyApp `id.uuidString`.
+        /// Optional so legacy `index.json` without it still decodes.
+        var componentFolders: [String: ComponentFolderLayout]?
     }
 
     /// Encoder for persisted state. `.sortedKeys` makes the bytes
@@ -2645,7 +2745,8 @@ public final class MyAppStore {
             activeId: activeMyAppId,
             memoryThreads: memoryThreads,
             memoryCurrentThreadId: memoryCurrentThreadId,
-            itemEventLog: itemEventLog
+            itemEventLog: itemEventLog,
+            componentFolders: componentFolders
         )
         if let data = try? enc.encode(index), data.hashValue != lastIndexHash {
             try? CloudDocument.write(data, to: Self.indexURL)
@@ -2663,7 +2764,7 @@ public final class MyAppStore {
         let index = IndexFile(
             order: myApps.map(\.id), activeId: activeMyAppId,
             memoryThreads: memoryThreads, memoryCurrentThreadId: memoryCurrentThreadId,
-            itemEventLog: itemEventLog)
+            itemEventLog: itemEventLog, componentFolders: componentFolders)
         lastIndexHash = (try? enc.encode(index))?.hashValue
     }
 
@@ -2673,6 +2774,7 @@ public final class MyAppStore {
         var memoryThreads: [ChatThread]
         var memoryCurrentThreadId: String
         var itemEventLog: ItemEventLog
+        var componentFolders: [String: ComponentFolderLayout]
         var fromDisk: Bool
     }
 
@@ -2690,7 +2792,9 @@ public final class MyAppStore {
                 log.prune()
                 return Loaded(myApps: apps, activeId: active, memoryThreads: index.memoryThreads,
                               memoryCurrentThreadId: index.memoryCurrentThreadId,
-                              itemEventLog: log, fromDisk: true)
+                              itemEventLog: log,
+                              componentFolders: index.componentFolders ?? [:],
+                              fromDisk: true)
             }
         }
 
@@ -2702,7 +2806,7 @@ public final class MyAppStore {
         let firstThread = ChatThread()
         return Loaded(myApps: [myApp], activeId: myApp.id,
                       memoryThreads: [firstThread], memoryCurrentThreadId: firstThread.id,
-                      itemEventLog: ItemEventLog(), fromDisk: false)
+                      itemEventLog: ItemEventLog(), componentFolders: [:], fromDisk: false)
     }
 
     /// Reload all state from disk and republish. Called by the iCloud watcher
@@ -2735,6 +2839,7 @@ public final class MyAppStore {
         memoryThreads = loaded.memoryThreads
         memoryCurrentThreadId = loaded.memoryCurrentThreadId
         itemEventLog = loaded.itemEventLog
+        componentFolders = loaded.componentFolders
         lastAppHash.removeAll()
         primeHashes()
     }

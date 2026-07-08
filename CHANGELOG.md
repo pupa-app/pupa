@@ -3,6 +3,29 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.71] — 2026-07-08
+
+### Fixed
+
+- **Bottom-bar tab re-tap after drilling in.** Opening a component from a
+  MyApp home page (e.g. tapping **+** to create one) left the bar's root
+  `selection` unchanged, so a following **Home** tap was deduped by SwiftUI and
+  did nothing until you visited another tab first. A re-tap of the current tab
+  now pops the pushed navigation stack directly. App `0.0.169` → `0.0.170`.
+
+### Added
+
+- **Drag components into folders on a MyApp home page.** Drag one component
+  tile onto another to make a **New Folder** holding both; drop a tile onto a
+  folder to file it there. Tap a folder to expand its contents inline (no new
+  screen). Move a component out via its **Move out of folder** context action
+  or by dragging it elsewhere; **rename** / **delete** a folder from its
+  context menu (deleting returns children to the top level, and a folder
+  auto-dissolves when its last item leaves). Folder layout is **UI-only** —
+  stored off-model in `index.json`, so the agent and marketplace exports never
+  see it; it syncs across devices but is not part of History snapshots. App
+  `0.0.168` → `0.0.169`.
+
 ## [0.0.70] — 2026-07-08
 
 ### Added
