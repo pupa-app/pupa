@@ -23,6 +23,13 @@ public struct AgentPickerEntry: Identifiable {
     }
 }
 
+/// maxY of the message list's bottom marker, in the scroll view's coordinate
+/// space. Compared against the viewport height to decide if we're at the bottom.
+private struct ChatBottomMarkerKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
 public struct ChatPanel: View {
     @Bindable var viewModel: ChatViewModel
     /// All conversation threads for the current scope, oldest-first. Drives the
@@ -80,6 +87,13 @@ public struct ChatPanel: View {
     /// Presents the in-app camera capture sheet (paperclip menu → Take Photo).
     @State private var showCameraSheet: Bool = false
     #endif
+    /// Coordinate space + id for the message list's bottom marker, used to
+    /// decide whether the newest message is on screen (see the jump button).
+    private static let scrollSpaceName = "chatScroll"
+    private static let bottomMarkerID = "chatBottomMarker"
+    /// Slack (pt) within which "near the bottom" still counts as at-bottom, so
+    /// the jump button doesn't flicker on the last sliver of scroll.
+    private static let atBottomSlack: CGFloat = 40
 
     public init(
         viewModel: ChatViewModel,
@@ -111,6 +125,7 @@ public struct ChatPanel: View {
             Divider()
             ScrollViewReader { proxy in
                 ScrollView {
+                  VStack(spacing: 0) {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         ForEach(viewModel.bubbles) { bubble in
                             MessageBubbleView(
@@ -162,7 +177,21 @@ public struct ChatPanel: View {
                     // floating composer pill rather than sitting behind it.
                     .padding(.bottom, 64)
                     .frame(maxWidth: .infinity, alignment: .leading)
+
+                    // Zero-height marker at the true bottom of the content.
+                    // Its position in the scroll space (vs the viewport height)
+                    // tells us whether the newest message is on screen.
+                    Color.clear
+                        .frame(height: 1)
+                        .id(Self.bottomMarkerID)
+                        .background(GeometryReader { geo in
+                            Color.clear.preference(
+                                key: ChatBottomMarkerKey.self,
+                                value: geo.frame(in: .named(Self.scrollSpaceName)).maxY)
+                        })
+                  }
                 }
+                .coordinateSpace(.named(Self.scrollSpaceName))
                 .defaultScrollAnchor(.bottom)
                 // Fade messages into the card material as they pass behind the
                 // floating composer. Mask (not a solid overlay) because the
@@ -174,6 +203,22 @@ public struct ChatPanel: View {
                             proxy.scrollTo(last.id, anchor: .bottom)
                         }
                     }
+                }
+                // Floating "jump to latest" button — only while scrolled up.
+                // Sits above the composer pill, trailing edge. Driven purely by
+                // the bottom marker's position vs the viewport (declarative, no
+                // state mutation), so it stays correct as content streams in.
+                .overlayPreferenceValue(ChatBottomMarkerKey.self) { markerY in
+                    GeometryReader { geo in
+                        let atBottom = markerY <= geo.size.height + Self.atBottomSlack
+                        if !atBottom {
+                            scrollToBottomButton(proxy)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity,
+                                       alignment: .bottomTrailing)
+                                .transition(.opacity.combined(with: .scale(scale: 0.85)))
+                        }
+                    }
+                    .animation(.easeInOut(duration: 0.2), value: markerY)
                 }
                 // Composer floats over the messages so the chat list uses the
                 // full height; the mask above is applied first, so the pill
@@ -254,6 +299,31 @@ public struct ChatPanel: View {
                 try? await Task.sleep(for: .milliseconds(24))
             }
         }
+    }
+
+    /// Floating pill that jumps the message list back to the newest message.
+    /// Shown only when the user has scrolled up (see the bottom-marker overlay).
+    private func scrollToBottomButton(_ proxy: ScrollViewProxy) -> some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.2)) {
+                proxy.scrollTo(Self.bottomMarkerID, anchor: .bottom)
+            }
+        } label: {
+            Image(systemName: "chevron.down")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 34, height: 34)
+                .background(.ultraThinMaterial, in: Circle())
+                .overlay(
+                    Circle().strokeBorder(Color.secondary.opacity(0.2), lineWidth: 0.5)
+                )
+                .shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2)
+        }
+        .buttonStyle(.plain)
+        .padding(.trailing, 16)
+        // Clear the floating composer pill (its own bottom padding + height).
+        .padding(.bottom, 76)
+        .accessibilityLabel("Scroll to latest message")
     }
 
     /// Vertical alpha gradient masking the message ScrollView: fully opaque
