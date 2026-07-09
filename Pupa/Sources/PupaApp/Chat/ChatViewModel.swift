@@ -492,15 +492,14 @@ public final class ChatViewModel {
         }
     }
 
-    /// Accent color for the active agent — purple for the orchestrator, a
-    /// creation-order palette color per MyApp (same index as the sidebar dot).
+    /// Accent color for the active agent — purple for the orchestrator, each
+    /// MyApp's own stable palette slot (same slot as the sidebar dot), so it
+    /// never shifts when another app is deleted.
     public var agentColor: Color {
         switch pinnedScope {
         case .memory: return .orchestratorColor
         case .myApp(let id):
-            let sorted = store.myApps.sorted { $0.createdAt < $1.createdAt }
-            let index = sorted.firstIndex(where: { $0.id == id }) ?? 0
-            return .color(atIndex: index)
+            return .color(atIndex: store.colorIndex(for: id))
         }
     }
 
@@ -1490,8 +1489,10 @@ public final class ChatViewModel {
                 // Snapshot the myApps sidebar so the orchestrator can resolve
                 // user-mentioned myApp names without an extra `listMyApps`
                 // round trip. `listMyApps` is still registered for when the
-                // model wants a deterministic, fresh read mid-turn.
-                let myAppsSnapshot: [[String: String]] = store.myApps.map { myApp in
+                // model wants a deterministic, fresh read mid-turn. Archived
+                // apps are agent-off, so they're excluded here too — matching
+                // the sidebar and `listMyApps`.
+                let myAppsSnapshot: [[String: String]] = store.visibleMyApps.map { myApp in
                     [
                         "id": myApp.id.uuidString,
                         "typeId": myApp.typeId,

@@ -65,6 +65,9 @@ public final class MyAppStore {
             let first = ChatThread()
             self.memoryThreads = [first]
             self.memoryCurrentThreadId = first.id
+            // Injected apps carry no stored color slots — freeze them now so
+            // colors are stable and `nextColorIndex()` doesn't collide.
+            backfillColorIndices()
         } else {
             let loaded = Self.load()
             self.myApps = loaded.myApps
@@ -79,7 +82,11 @@ public final class MyAppStore {
             // is the only time we seed — see `DefaultSkills`).
             if loaded.fromDisk {
                 primeHashes()
+                // Freeze legacy apps' current colors into stored slots so future
+                // deletions stop sliding them. Persist only if it changed anything.
+                if backfillColorIndices() { persist() }
             } else {
+                backfillColorIndices()
                 for app in myApps { seedBirthFiles(forAppNamed: app.name) }
                 persist()
             }
@@ -192,12 +199,49 @@ public final class MyAppStore {
         persist()
     }
 
-    /// Creation-order index of a myApp, used to pick its palette color via
-    /// `Color.color(atIndex:)`. Sorting by `createdAt` keeps a myApp's color
-    /// stable as others are added/removed.
+    /// Palette slot for a myApp's accent color, resolved via
+    /// `Color.color(atIndex:)`. Returns the app's own stored `colorIndex` so
+    /// the color is stable: deleting another app never shifts it. Legacy apps
+    /// saved before the field existed are backfilled at load (`backfillColorIndices`),
+    /// so the creation-order fallback below is only a transient safety net.
     public func colorIndex(for myAppId: UUID) -> Int {
-        myApps.sorted { $0.createdAt < $1.createdAt }
+        if let stored = myApps.first(where: { $0.id == myAppId })?.colorIndex {
+            return stored
+        }
+        return myApps.sorted { $0.createdAt < $1.createdAt }
             .firstIndex(where: { $0.id == myAppId }) ?? 0
+    }
+
+    /// Next free palette slot for a newly created app: one past the highest
+    /// slot in use, so a new app never reuses a live app's color and never
+    /// depends on the current app count (which deletions would shift).
+    private func nextColorIndex() -> Int {
+        (myApps.compactMap { $0.colorIndex }.max() ?? -1) + 1
+    }
+
+    /// One-time migration: freeze each legacy app's current creation-order
+    /// color into its stored `colorIndex`, so upgrading preserves the colors
+    /// on screen and future deletions stop sliding them. No-op once every app
+    /// has a stored slot. Returns whether anything changed.
+    @discardableResult
+    private func backfillColorIndices() -> Bool {
+        guard myApps.contains(where: { $0.colorIndex == nil }) else { return false }
+        let order = myApps.sorted { $0.createdAt < $1.createdAt }.map(\.id)
+        for (slot, id) in order.enumerated() {
+            guard let idx = myApps.firstIndex(where: { $0.id == id }),
+                  myApps[idx].colorIndex == nil else { continue }
+            myApps[idx].colorIndex = slot
+        }
+        return true
+    }
+
+    /// Set a myApp's accent color to an explicit palette slot (the color is
+    /// user-choosable). Wraps within the palette via `Color.color(atIndex:)`.
+    public func setColorIndex(_ index: Int, for myAppId: UUID) {
+        guard let idx = myApps.firstIndex(where: { $0.id == myAppId }),
+              myApps[idx].colorIndex != index else { return }
+        myApps[idx].colorIndex = index
+        persist()
     }
 
     // MARK: - Lifecycle
@@ -218,7 +262,8 @@ public final class MyAppStore {
         let myApp = MyApp(
             name: name.isEmpty ? "New myapp" : name,
             iconSystemName: iconSystemName,
-            typeId: typeId
+            typeId: typeId,
+            colorIndex: nextColorIndex()
         )
         myApps.append(myApp)
         seedBirthFiles(forAppNamed: myApp.name)
@@ -294,7 +339,8 @@ public final class MyAppStore {
             }
             return existing.id
         }
-        let myApp = example.make()
+        var myApp = example.make()
+        if myApp.colorIndex == nil { myApp.colorIndex = nextColorIndex() }
         myApps.append(myApp)
         seedBirthFiles(forAppNamed: myApp.name)
         activeMyAppId = myApp.id
@@ -309,6 +355,8 @@ public final class MyAppStore {
     /// are written separately by the importer. Returns the inserted id.
     @discardableResult
     public func importMyApp(_ myApp: MyApp) -> UUID {
+        var myApp = myApp
+        if myApp.colorIndex == nil { myApp.colorIndex = nextColorIndex() }
         myApps.append(myApp)
         activeMyAppId = myApp.id
         persist()

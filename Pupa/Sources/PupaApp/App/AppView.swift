@@ -574,13 +574,16 @@ public struct AppView: View {
                 color: .orchestratorColor
             )
         ]
-        let sorted = store.myApps.sorted { $0.createdAt < $1.createdAt }
-        for (index, app) in sorted.enumerated() {
+        // Only non-archived apps (archived ones are hidden from every
+        // agent-facing list). Color comes from each app's own stable slot, not
+        // its position here, so deleting one app never slides another's color.
+        let sorted = store.visibleMyApps.sorted { $0.createdAt < $1.createdAt }
+        for app in sorted {
             entries.append(AgentPickerEntry(
                 scope: .myApp(app.id),
                 name: app.name,
                 icon: app.iconSystemName,
-                color: .color(atIndex: index)
+                color: .color(atIndex: store.colorIndex(for: app.id))
             ))
         }
         return entries

@@ -33,9 +33,7 @@ public struct AgentsListView: View {
     }
 
     private var appColor: Color {
-        let sorted = store.myApps.sorted { $0.createdAt < $1.createdAt }
-        let index = sorted.firstIndex(where: { $0.id == myAppId }) ?? 0
-        return Color.color(atIndex: index)
+        Color.color(atIndex: store.colorIndex(for: myAppId))
     }
 
     private var descriptors: [AgentDescriptor] {

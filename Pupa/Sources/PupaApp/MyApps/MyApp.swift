@@ -32,6 +32,13 @@ public struct MyApp: Codable, Hashable, Identifiable, Sendable {
     /// and the Memories UI refuse every mutation (read stays open) until the
     /// user unlocks. The memory counterpart of the per-component lock.
     public var isMemoryLocked: Bool
+    /// Stable palette slot for this app's accent color, resolved through
+    /// `Color.color(atIndex:)`. Assigned once at creation and never derived
+    /// from list position, so deleting another app never slides this app's
+    /// color onto a neighbour. `nil` on apps saved before this field existed;
+    /// `MyAppStore` backfills those from creation order on load. User-settable
+    /// (the color is choosable), so it is decoupled from creation order.
+    public var colorIndex: Int?
 
     public init(
         id: UUID = UUID(),
@@ -45,7 +52,8 @@ public struct MyApp: Codable, Hashable, Identifiable, Sendable {
         createdAt: Date = Date(),
         settings: [String: SettingValue] = [:],
         isArchived: Bool = false,
-        isMemoryLocked: Bool = false
+        isMemoryLocked: Bool = false,
+        colorIndex: Int? = nil
     ) {
         self.id = id
         self.name = name
@@ -71,6 +79,7 @@ public struct MyApp: Codable, Hashable, Identifiable, Sendable {
         self.settings = settings
         self.isArchived = isArchived
         self.isMemoryLocked = isMemoryLocked
+        self.colorIndex = colorIndex
     }
 
     // MARK: - Component access
@@ -104,6 +113,7 @@ public struct MyApp: Codable, Hashable, Identifiable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id, name, iconSystemName, typeId, components, activeComponentId
         case threads, currentThreadId, createdAt, settings, isArchived, isMemoryLocked
+        case colorIndex
     }
 
     public init(from decoder: Decoder) throws {
@@ -116,6 +126,7 @@ public struct MyApp: Codable, Hashable, Identifiable, Sendable {
         self.settings = (try? c.decodeIfPresent([String: SettingValue].self, forKey: .settings)) ?? [:]
         self.isArchived = try c.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
         self.isMemoryLocked = try c.decodeIfPresent(Bool.self, forKey: .isMemoryLocked) ?? false
+        self.colorIndex = try c.decodeIfPresent(Int.self, forKey: .colorIndex)
         self.components = try c.decode([Component].self, forKey: .components)
         self.activeComponentId = try c.decodeIfPresent(String.self, forKey: .activeComponentId)
             ?? self.components.first?.id
@@ -137,5 +148,6 @@ public struct MyApp: Codable, Hashable, Identifiable, Sendable {
         if !settings.isEmpty { try c.encode(settings, forKey: .settings) }
         if isArchived { try c.encode(isArchived, forKey: .isArchived) }
         if isMemoryLocked { try c.encode(isMemoryLocked, forKey: .isMemoryLocked) }
+        try c.encodeIfPresent(colorIndex, forKey: .colorIndex)
     }
 }
