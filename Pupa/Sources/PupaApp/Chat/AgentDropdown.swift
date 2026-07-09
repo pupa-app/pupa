@@ -49,34 +49,43 @@ struct AgentDropdown: View {
 
     @ViewBuilder
     private var popover: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(agents.enumerated()), id: \.element.id) { idx, entry in
-                if idx > 0 { Divider() }
-                Button {
-                    onSwitchAgent(entry.scope)
-                    showAgentList = false
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "checkmark")
-                            .font(.caption)
-                            .foregroundStyle(entry.color)
-                            .opacity(entry.scope == viewModel.pinnedScope ? 1 : 0)
-                            .frame(width: 16)
-                        Image(systemName: entry.icon)
-                            .foregroundStyle(entry.color)
-                            .frame(width: 20)
-                        Text(entry.name)
-                            .font(.subheadline)
-                            .foregroundStyle(entry.color)
-                        Spacer(minLength: 0)
+        // Wrap the roster in a ScrollView so a long agent list (Orchestrator +
+        // one entry per MyApp) stays fully reachable — without it the popover
+        // grows past the screen and the bottom apps become inaccessible. The
+        // max height caps the popover so it scrolls instead of overflowing;
+        // `.basedOnSize` bounce keeps a short list feeling static.
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(agents.enumerated()), id: \.element.id) { idx, entry in
+                    if idx > 0 { Divider() }
+                    Button {
+                        onSwitchAgent(entry.scope)
+                        showAgentList = false
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark")
+                                .font(.caption)
+                                .foregroundStyle(entry.color)
+                                .opacity(entry.scope == viewModel.pinnedScope ? 1 : 0)
+                                .frame(width: 16)
+                            Image(systemName: entry.icon)
+                                .foregroundStyle(entry.color)
+                                .frame(width: 20)
+                            Text(entry.name)
+                                .font(.subheadline)
+                                .foregroundStyle(entry.color)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .contentShape(Rectangle())
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
         }
+        .scrollBounceBehavior(.basedOnSize)
         .frame(minWidth: 180)
+        .frame(maxHeight: 360)
     }
 }
