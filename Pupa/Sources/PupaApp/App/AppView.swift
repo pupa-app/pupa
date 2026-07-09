@@ -102,6 +102,9 @@ public struct AppView: View {
         // Rename must move the app's slug-keyed memory folder through the
         // live store so the sidebar tree refreshes in place.
         store.globalMemory = memory
+        // Sidebar/Memories edits go through this global store; refuse writes to
+        // any app whose memories are locked, matching the agent's scoped guard.
+        memory.writeGuard = { [weak store] path in store?.isMemoryLocked(forRootPath: path) ?? false }
         // Persona AGENTS.md and default skills (the `/to-memory` skill) are
         // seeded once at app birth (addMyApp / restoreExample / fresh-install)
         // — never on launch — so user edits *and deletions* aren't
@@ -677,7 +680,7 @@ public struct AppView: View {
                 }
             )
         case .myAppMemoryFile(let id, let path):
-            MemoryFileView(store: memory, path: path) {
+            MemoryFileView(store: memory, path: path, readOnly: store.isMemoryLocked(myAppId: id)) {
                 if !detailPath.isEmpty {
                     detailPath.removeLast()
                 } else {

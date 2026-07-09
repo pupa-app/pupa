@@ -43,6 +43,13 @@ public struct MyAppMemoriesView: View {
         return store.myApps.first(where: { $0.id == id })
     }
 
+    /// Whether this app's memories are locked (read-only). Always false for the
+    /// orchestrator scope, which has no MyApp to lock.
+    private var isLocked: Bool {
+        guard let id = myAppId else { return false }
+        return store.isMemoryLocked(myAppId: id)
+    }
+
     /// Scope-root folder new items land in and the tree renders from.
     private var slug: String {
         if let app = myApp { return MemoryStore.myAppFolder(myAppName: app.name) }
@@ -148,24 +155,46 @@ public struct MyAppMemoriesView: View {
         }
     }
 
-    /// Header with a `+` menu (New Note / New Folder at the scope root).
+    /// Header with a memory lock toggle (myApp scope only) and, when unlocked,
+    /// a `+` menu (New Note / New Folder at the scope root).
     private func header(name: String, color: Color) -> some View {
-        HStack(alignment: .top) {
+        HStack(alignment: .top, spacing: 12) {
             MyAppPageHeader(page: "Memories", name: name, icon: "brain", color: color)
-            Menu {
-                Button { activeSheet = .newNote(parent: slug) } label: {
-                    Label("New Note", systemImage: "doc.badge.plus")
+            if myAppId != nil { memoryLockButton }
+            if !isLocked {
+                Menu {
+                    Button { activeSheet = .newNote(parent: slug) } label: {
+                        Label("New Note", systemImage: "doc.badge.plus")
+                    }
+                    Button { activeSheet = .newFolder(parent: slug) } label: {
+                        Label("New Folder", systemImage: "folder.badge.plus")
+                    }
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.title3)
+                        .accessibilityLabel("Add note or folder")
                 }
-                Button { activeSheet = .newFolder(parent: slug) } label: {
-                    Label("New Folder", systemImage: "folder.badge.plus")
-                }
-            } label: {
-                Image(systemName: "plus")
-                    .font(.title3)
-                    .accessibilityLabel("Add note or folder")
+                .menuStyle(.borderlessButton)
+                .fixedSize()
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
+        }
+    }
+
+    /// Locks / unlocks the whole memory subtree for this app. Mirrors the home
+    /// page's component lock toggle.
+    @ViewBuilder
+    private var memoryLockButton: some View {
+        if let id = myAppId {
+            Button {
+                store.setMemoryLocked(!isLocked, myAppId: id)
+            } label: {
+                Image(systemName: isLocked ? "lock.fill" : "lock.open")
+                    .font(.title3)
+                    .foregroundStyle(isLocked ? Color.orange : Color.secondary)
+            }
+            .buttonStyle(.plain)
+            .help(isLocked ? "Unlock memories" : "Lock memories")
+            .accessibilityLabel(isLocked ? "Unlock memories" : "Lock memories")
         }
     }
 
@@ -181,7 +210,7 @@ public struct MyAppMemoriesView: View {
 
         return VStack(alignment: .leading, spacing: 4) {
             if nodes.isEmpty {
-                Text("No notes yet — tap ＋ to add one.")
+                Text(isLocked ? "No notes yet." : "No notes yet — tap ＋ to add one.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)
@@ -193,7 +222,8 @@ public struct MyAppMemoriesView: View {
                         expanded: $expanded,
                         fileSelection: fileSelection,
                         onNavigate: onNavigate,
-                        actions: rowActions
+                        actions: rowActions,
+                        readOnly: isLocked
                     )
                 }
             }

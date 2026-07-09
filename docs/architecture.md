@@ -370,6 +370,23 @@ non-read operation. Enforcement is layered:
   a lock-all toggle (`setAllComponentsLocked`) that locks/unlocks every
   component at once.
 
+### Memory lock
+
+`MyApp.isMemoryLocked` (per-app flag, round-tripped like `isArchived`) locks
+the app's whole memory subtree read-only — the memory counterpart of the
+component lock. Enforcement is a single `MemoryStore.writeGuard` closure
+consulted (with the target path) before every mutating op; it throws
+`MemoryError.locked` when the path is locked, leaving reads open:
+
+- **Agent:** the per-session scoped store wired in `ChatSessionCoordinator`
+  returns its MyApp's `isMemoryLocked`, so a locked app's memory-write tools
+  echo `{ok:false, error:…}`.
+- **UI:** the global (sidebar) store's guard maps a path's leading slug to a
+  MyApp via `MyAppStore.isMemoryLocked(forRootPath:)`, so `MyAppMemoriesView`
+  and `MemoryFileView` refuse edits too. The **Memories** page carries the
+  lock toggle (`setMemoryLocked`) and hides its add/edit/rename/delete
+  affordances while locked.
+
 ## Shapes
 
 A "shape" (canvas component kind) is a SwiftUI view backed by a typed

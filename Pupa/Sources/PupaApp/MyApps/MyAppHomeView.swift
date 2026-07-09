@@ -536,6 +536,9 @@ struct MemoryLandingRow: View {
     let fileSelection: (String) -> SidebarSelection
     var onNavigate: (SidebarSelection) -> Void
     let actions: MemoryRowActions
+    /// When true (memories locked), the add/rename/delete context menus are
+    /// suppressed so the tree is browse-only.
+    var readOnly: Bool = false
 
     var body: some View {
         if node.isFolder {
@@ -595,7 +598,7 @@ struct MemoryLandingRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .contextMenu { folderMenu }
+        .contextMenu { if !readOnly { folderMenu } }
 
         if isOpen, let children = node.children {
             ForEach(children) { child in
@@ -605,7 +608,8 @@ struct MemoryLandingRow: View {
                     expanded: $expanded,
                     fileSelection: fileSelection,
                     onNavigate: onNavigate,
-                    actions: actions
+                    actions: actions,
+                    readOnly: readOnly
                 )
             }
         }
@@ -633,8 +637,10 @@ struct MemoryLandingRow: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            renameButton
-            deleteButton
+            if !readOnly {
+                renameButton
+                deleteButton
+            }
         }
     }
 }

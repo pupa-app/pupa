@@ -248,6 +248,7 @@ public final class ChatSessionCoordinator {
             let name = myApp?.name ?? ""
             sessionMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: name))
             sessionMemory.onDidMutate = { [weak self] in self?.memory.rescan() }
+            sessionMemory.writeGuard = { [weak store] _ in store?.isMemoryLocked(myAppId: id) ?? false }
             if let myApp { ensureMyAppMemory(myApp) }
             AppTools.registerMyAppTools(
                 on: registry,
@@ -369,6 +370,7 @@ public final class ChatSessionCoordinator {
         let myAppName = store.myApps.first(where: { $0.id == myAppId })?.name ?? ""
         let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: myAppName))
         appMemory.onDidMutate = { [weak self] in self?.memory.rescan() }
+        appMemory.writeGuard = { [weak store] _ in store?.isMemoryLocked(myAppId: myAppId) ?? false }
         AppTools.registerMyAppTools(on: registry, store: store, myAppId: myAppId, memory: appMemory)
         AppTools.registerMemoryTools(on: registry, memory: appMemory)
         AppTools.registerSkillTools(on: registry, memory: appMemory)
@@ -486,6 +488,7 @@ public final class ChatSessionCoordinator {
         let myAppName = store.myApps.first(where: { $0.id == myAppId })?.name ?? ""
         let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: myAppName))
         appMemory.onDidMutate = { [weak self] in self?.memory.rescan() }
+        appMemory.writeGuard = { [weak store] _ in store?.isMemoryLocked(myAppId: myAppId) ?? false }
         guard let subagent = AgentStore(memory: appMemory).agent(named: agentName) else {
             throw SubagentRunError.notFound(agentName)
         }
@@ -725,6 +728,7 @@ public final class ChatSessionCoordinator {
         let myAppName = store.myApps.first(where: { $0.id == myAppId })?.name ?? ""
         let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: myAppName))
         appMemory.onDidMutate = { [weak self] in self?.memory.rescan() }
+        appMemory.writeGuard = { [weak store] _ in store?.isMemoryLocked(myAppId: myAppId) ?? false }
         // Resolve the subagent (`agentId` is its slug) from the filesystem and
         // the channel from the canvas. If either is missing, fail immediately.
         let snapshot = await MainActor.run { () -> (Subagent, SlackChannel, [SlackMessage])? in

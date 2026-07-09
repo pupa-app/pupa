@@ -2896,6 +2896,38 @@ public final class MyAppStore {
         return m.components.allSatisfy { $0.isLocked }
     }
 
+    // MARK: - Memory lock
+
+    /// Whether a MyApp's memory subtree is locked (read-only). Drives the
+    /// Memories page lock toggle and the agent-facing memory-write backstop.
+    public func isMemoryLocked(myAppId: UUID? = nil) -> Bool {
+        let target = myAppId ?? activeMyAppId
+        return myApps.first(where: { $0.id == target })?.isMemoryLocked ?? false
+    }
+
+    /// Lock or unlock a MyApp's whole memory subtree. Returns false when
+    /// nothing changed. Persists; the flag is read live by scoped memory
+    /// stores' `writeGuard`, so a running agent's next write is refused too.
+    @discardableResult
+    public func setMemoryLocked(_ locked: Bool, myAppId: UUID? = nil) -> Bool {
+        let target = myAppId ?? activeMyAppId
+        guard let mIdx = myApps.firstIndex(where: { $0.id == target }),
+              myApps[mIdx].isMemoryLocked != locked else { return false }
+        myApps[mIdx].isMemoryLocked = locked
+        persist()
+        return true
+    }
+
+    /// Whether a global-root memory `path` (e.g. `"my-fitness-app/notes/a.md"`)
+    /// falls under a locked MyApp — the leading segment is the app slug. Wired
+    /// into the global (sidebar) `MemoryStore.writeGuard` so the Memories UI
+    /// refuses edits to a locked app just like the agent's scoped store does.
+    public func isMemoryLocked(forRootPath path: String) -> Bool {
+        let slug = path.split(separator: "/").first.map(String.init) ?? ""
+        guard !slug.isEmpty else { return false }
+        return myApps.contains { $0.isMemoryLocked && MemoryStore.myAppFolder(myAppName: $0.name) == slug }
+    }
+
     // MARK: - Per-file persistence
 
     private nonisolated static var stateRoot: URL { PupaStorage.stateRoot }
