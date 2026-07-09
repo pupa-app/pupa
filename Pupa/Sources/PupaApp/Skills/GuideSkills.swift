@@ -15,7 +15,7 @@ import Foundation
 /// component-kind list is generated from `MyAppType.kinds` so it can't drift.
 enum GuideSkills {
     /// Bump when any guide body changes so existing installs re-seed.
-    static let version = "5"
+    static let version = "7"
 
     /// The plugin folder holding this guide's skills.
     static let pluginDir = "\(MemoryStore.pupaPluginsDir)/pupa-guide"
@@ -184,7 +184,11 @@ enum GuideSkills {
     - **Sessions** — "New session" starts a fresh conversation. The canvas
       and memories stay.
     - **History** — every canvas change is recorded per myapp. Browse the
-      History tab and restore any earlier state in one tap.
+      History tab and restore any earlier state in one tap. Tap **Take
+      snapshot** to pin the current state permanently (kept forever); pinned
+      snapshots can be **Export**ed as a `.pupa` file. Pins survive deleting
+      the myapp — find them all in **Settings ▸ Pinned snapshots**, where a
+      deleted app can be restored (revived) from a pin.
     - **Archive** — hide a myapp without deleting it (its data and memories
       are kept). Browse, restore or delete from Settings ▸ Archive.
     """

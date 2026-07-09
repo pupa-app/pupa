@@ -164,4 +164,130 @@ struct SnapshotHistoryTests {
             versions: [(versionData, Date())])
         #expect(winner == versionData)
     }
+
+    // MARK: - Pinned snapshots (permanent, exportable)
+
+    private func tempMemory() -> MemoryStore {
+        MemoryStore(rootOverride: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true))
+    }
+
+    @Test("a pinned snapshot survives a prune that evicts every automatic edit")
+    func pinnedSurvivesPrune() {
+        let (store, id) = freshTrackerStore()
+        store.addItem(["title": "milestone"], myAppId: id)  // 1 item
+        let pin = SnapshotStore.record(app(store, id), reason: .pinned, label: "v1", now: t(0))!
+
+        // Churn far past the cap with automatic edits; the pin is the oldest
+        // snapshot, so this exercises the "pin older than the evicted block"
+        // re-base path.
+        for i in 1...50 {
+            store.addItem(["title": "r\(i)"], myAppId: id)
+            SnapshotStore.record(app(store, id), reason: .edit, now: t(i))
+        }
+        SnapshotStore.prune(id, now: t(1000), ttl: SnapshotStore.defaultTTL, cap: 3)
+
+        let metas = SnapshotStore.metas(id)
+        // Pin kept; it does not consume the cap of 3 automatic survivors.
+        #expect(metas.contains { $0.id == pin })
+        #expect(SnapshotStore.pinnedCount(id) == 1)
+        #expect(metas.filter { $0.reason == .edit }.count == 3)
+        // Pin resolves to its exact 1-item state.
+        #expect(trackerItemCount(SnapshotStore.restoredApp(id, id: pin)!) == 1)
+        // Newest automatic survivor still resolves despite deleted mid-chain links.
+        #expect(trackerItemCount(SnapshotStore.restoredApp(id, id: metas.first!.id)!) == 51)
+    }
+
+    @Test("pinned snapshots never dedup, even with identical content")
+    func pinnedNoDedup() {
+        let (store, id) = freshTrackerStore()
+        let a = SnapshotStore.record(app(store, id), reason: .pinned, label: "one", now: t(0))!
+        let b = SnapshotStore.record(app(store, id), reason: .pinned, label: "two", now: t(1))!
+        #expect(a != b)
+        #expect(SnapshotStore.pinnedCount(id) == 2)
+        #expect(Set(SnapshotStore.pinnedMetas(id).compactMap(\.label)) == ["one", "two"])
+    }
+
+    @Test("takeSnapshot pins current state and export round-trips through the importer")
+    func takeSnapshotExportRoundTrip() throws {
+        let (store, id) = freshTrackerStore()
+        let mem = tempMemory()
+        store.globalMemory = mem
+
+        store.addItem(["title": "keep-me"], myAppId: id)
+        #expect(store.takeSnapshot(myAppId: id, label: "milestone") != nil)
+        #expect(store.pinnedSnapshotCount(forMyApp: id) == 1)
+
+        let pin = try #require(SnapshotStore.pinnedMetas(id).first)
+        let data = try #require(store.snapshotBundleData(forSnapshot: pin.id, appId: id))
+
+        // Import the exported pin into a fresh store → the tracker row survives.
+        let dest = MyAppStore(initial: ([], UUID()))
+        let result = try MyAppImporter.importBundle(data, into: dest, memory: mem)
+        let imported = try #require(dest.myApps.first { $0.id == result.myAppId })
+        if case .tracker(let t) = imported.component(withId: "tracker-1")?.body {
+            #expect(t.items.count == 1)
+        } else { Issue.record("tracker missing after import") }
+    }
+
+    // MARK: - Pins survive deletion
+
+    @Test("deleteNonPinned keeps pins, drops automatic edits")
+    func deleteNonPinnedKeepsPins() {
+        let (store, id) = freshTrackerStore()
+        store.addItem(["title": "x"], myAppId: id)
+        SnapshotStore.record(app(store, id), reason: .edit, now: t(0))
+        let pin = SnapshotStore.record(app(store, id), reason: .pinned, label: "keep", now: t(1))!
+
+        SnapshotStore.deleteNonPinned(id)
+        let metas = SnapshotStore.metas(id)
+        #expect(metas.count == 1)
+        #expect(metas.first?.id == pin)
+        #expect(SnapshotStore.restoredApp(id, id: pin) != nil)
+    }
+
+    @Test("deleteNonPinned with no pins removes the whole dir")
+    func deleteNonPinnedNoPins() {
+        let (store, id) = freshTrackerStore()
+        SnapshotStore.record(app(store, id), reason: .edit, now: t(0))
+        SnapshotStore.deleteNonPinned(id)
+        #expect(SnapshotStore.metas(id).isEmpty)
+        #expect(!SnapshotStore.allAppIds().contains(id))
+    }
+
+    @Test("restorePinnedSnapshot revives a deleted app from its surviving pin")
+    func revivesDeletedApp() {
+        // Two apps so the first can be removed (removeMyApp needs count > 1).
+        MyAppTypeRegistry.shared.registerBuiltins()
+        let a = MyApp(name: "Alpha", iconSystemName: "a.circle", typeId: MyAppType.tracker.id)
+        let b = MyApp(name: "Beta", iconSystemName: "b.circle", typeId: MyAppType.tracker.id)
+        let store = MyAppStore(initial: ([a, b], a.id))
+        store.globalMemory = tempMemory()
+        SnapshotStore.deleteAll(a.id)
+
+        store.setTracker(title: "T", fields: [FieldDef(name: "title", type: .text)], myAppId: a.id)
+        store.addItem(["title": "important"], myAppId: a.id)
+        #expect(store.takeSnapshot(myAppId: a.id, label: "v1") != nil)
+        let pin = SnapshotStore.pinnedMetas(a.id).first!
+
+        // Delete the app; its pin must survive.
+        store.removeMyApp(a.id)
+        #expect(!store.myApps.contains { $0.id == a.id })
+        #expect(SnapshotStore.pinnedCount(a.id) == 1)
+
+        // The Settings page sees it as a deleted (non-live) group.
+        let groups = store.pinnedSnapshotGroups()
+        let alpha = groups.first { $0.appId == a.id }
+        #expect(alpha?.isLive == false)
+        #expect(alpha?.appName == "Alpha")
+
+        // Restore revives the whole app under its original id.
+        let revivedId = store.restorePinnedSnapshot(appId: a.id, snapshotId: pin.id)
+        #expect(revivedId == a.id)
+        let revived = store.myApps.first { $0.id == a.id }
+        #expect(revived != nil)
+        if case .tracker(let tr) = revived?.component(withId: "tracker-1")?.body {
+            #expect(tr.items.count == 1)
+        } else { Issue.record("revived tracker missing") }
+    }
 }

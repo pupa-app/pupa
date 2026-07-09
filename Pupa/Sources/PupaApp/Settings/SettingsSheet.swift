@@ -92,7 +92,7 @@ public struct SettingsSheet: View {
     /// category's real controls (the existing section builders, re-hosted in
     /// their own `Form`).
     private enum SettingsCategory: Hashable {
-        case profile, backend, tools, agents, agentsOverview, notifications, examples, sharing, archive
+        case profile, backend, tools, agents, agentsOverview, notifications, examples, sharing, pinned, archive
     }
 
     /// True when the Import & Export screen can be shown (stores wired in).
@@ -142,6 +142,12 @@ public struct SettingsSheet: View {
                     NavigationLink(value: SettingsCategory.sharing) {
                         categoryRow(icon: "square.and.arrow.up.on.square", title: "Import & Export",
                                     caption: "Share or load a MyApp bundle")
+                    }
+                }
+                if let store, store.hasAnyPinnedSnapshots {
+                    NavigationLink(value: SettingsCategory.pinned) {
+                        categoryRow(icon: "pin", title: "Pinned snapshots",
+                                    caption: "Saved states per app — survive deletion")
                     }
                 }
                 if let store, !store.archivedMyApps.isEmpty {
@@ -297,6 +303,10 @@ public struct SettingsSheet: View {
             case .sharing:
                 if let store, let memory, let onImported {
                     SharingSettingsView(store: store, memory: memory, onImported: onImported)
+                }
+            case .pinned:
+                if let store {
+                    PinnedSnapshotsView(store: store, onRestored: onImported)
                 }
             case .archive:
                 if let store {

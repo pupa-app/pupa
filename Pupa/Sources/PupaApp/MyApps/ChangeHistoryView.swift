@@ -4,6 +4,8 @@ import SwiftUI
 /// given MyApp, grouped by calendar day. The newest snapshot is the current
 /// state; every older one has a **Restore** button. Restore is append-only
 /// (the current state is snapshotted first), so nothing is ever lost.
+/// **Take snapshot** captures a permanent, labelled pin (kept forever, exempt
+/// from prune) that can be **Export**ed as a `.pupa` bundle.
 /// Pushed onto the detail `NavigationStack` from the bottom bar's History
 /// button (the parent stack supplies the nav bar + back button).
 public struct ChangeHistoryView: View {
@@ -11,6 +13,9 @@ public struct ChangeHistoryView: View {
     let myAppId: UUID
 
     @State private var pendingRestore: SnapshotMeta?
+    @State private var showingSnapshotPrompt = false
+    @State private var draftLabel = ""
+    @State private var exportItem: SnapshotExportItem?
 
     private let cal = Calendar.autoupdatingCurrent
     private let relFmt: RelativeDateTimeFormatter = {
@@ -59,10 +64,11 @@ public struct ChangeHistoryView: View {
                                     reason: snap.reason,
                                     isCurrent: snap.id == snapshots.first?.id,
                                     fromThisDevice: snap.device == SnapshotStore.deviceLabel,
-                                    relative: relFmt.localizedString(for: snap.timestamp, relativeTo: Date())
-                                ) {
-                                    pendingRestore = snap
-                                }
+                                    relative: relFmt.localizedString(for: snap.timestamp, relativeTo: Date()),
+                                    onRestore: { pendingRestore = snap },
+                                    onExport: snap.reason == .pinned
+                                        ? { exportSnapshot(snap) } : nil
+                                )
                             }
                         }
                     }
@@ -71,6 +77,26 @@ public struct ChangeHistoryView: View {
                 .listStyle(.insetGrouped)
                 #endif
             }
+        }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    draftLabel = ""
+                    showingSnapshotPrompt = true
+                } label: {
+                    Label("Take snapshot", systemImage: "pin")
+                }
+            }
+        }
+        .alert("Save a snapshot", isPresented: $showingSnapshotPrompt) {
+            TextField("Label (e.g. \"before redesign\")", text: $draftLabel)
+            Button("Save") { store.takeSnapshot(myAppId: myAppId, label: draftLabel) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Pins this exact state to your history and keeps it forever. You can export it later.")
+        }
+        .sheet(item: $exportItem) { item in
+            SnapshotExportSheet(url: item.url)
         }
         .confirmationDialog(
             "Restore this version?",
@@ -112,6 +138,7 @@ public struct ChangeHistoryView: View {
     /// restore, else the most recent change-feed summary at that moment.
     private func caption(for snap: SnapshotMeta) -> String {
         switch snap.reason {
+        case .pinned: return snap.label?.isEmpty == false ? snap.label! : "Saved snapshot"
         case .conflict: return "Recovered from a sync conflict"
         case .preReload: return "Before syncing another device"
         case .restored: return "Restored an earlier version"
@@ -132,6 +159,14 @@ public struct ChangeHistoryView: View {
         fmt.timeStyle = .none
         return fmt.string(from: date)
     }
+
+    /// Encode the pinned snapshot to a temp `.pupa` file and present the share
+    /// sheet. Reuses `makeSnapshotExportItem` (shared with Settings).
+    private func exportSnapshot(_ snap: SnapshotMeta) {
+        exportItem = makeSnapshotExportItem(
+            store: store, snapshotId: snap.id, appId: myAppId,
+            baseName: app?.name ?? "snapshot")
+    }
 }
 
 private struct SnapshotRow: View {
@@ -141,6 +176,10 @@ private struct SnapshotRow: View {
     let fromThisDevice: Bool
     let relative: String
     var onRestore: () -> Void
+    /// Non-nil only for pinned snapshots — drives the Export affordance.
+    var onExport: (() -> Void)?
+
+    private var isPinned: Bool { reason == .pinned }
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
@@ -150,7 +189,16 @@ private struct SnapshotRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(caption)
                     .font(.subheadline)
+                    .fontWeight(isPinned ? .semibold : .regular)
                 HStack(spacing: 4) {
+                    if isPinned {
+                        Text("Saved")
+                            .font(.caption2)
+                            .foregroundStyle(.tint)
+                        Text("·")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                     Text(relative)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -169,6 +217,12 @@ private struct SnapshotRow: View {
 
             Spacer()
 
+            if let onExport {
+                Button("Export") { onExport() }
+                    .font(.caption)
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+            }
             if !isCurrent {
                 Button("Restore") { onRestore() }
                     .font(.caption)
@@ -182,6 +236,9 @@ private struct SnapshotRow: View {
     @ViewBuilder
     private var glyph: some View {
         switch reason {
+        case .pinned:
+            Image(systemName: "pin.fill")
+                .foregroundStyle(.tint)
         case .conflict:
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)

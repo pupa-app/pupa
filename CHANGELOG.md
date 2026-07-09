@@ -3,6 +3,27 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.79] — 2026-07-09
+
+### Added
+
+- **Pinned snapshots survive deletion + a Settings hub.** Deleting a MyApp
+  now keeps its permanent pins. A new **Settings ▸ Pinned snapshots** page
+  lists every pin grouped per app — including deleted apps (flagged
+  "deleted") — with **Export** and **Restore**. Restoring a deleted app's
+  pin revives the whole app. Each app's pins collapse under a disclosure row
+  to stay contained. App `0.0.177` → `0.0.179`.
+
+## [0.0.78] — 2026-07-09
+
+### Added
+
+- **Permanent snapshots.** A **Take snapshot** action on a MyApp's History
+  page pins the current state as a labelled restore point that is kept
+  forever — exempt from the automatic history's age/cap eviction. Pinned
+  entries show a pin glyph and an **Export** button that shares them as a
+  `.pupa` bundle. App `0.0.176` → `0.0.177`.
+
 ## [0.0.77] — 2026-07-09
 
 ### Changed
