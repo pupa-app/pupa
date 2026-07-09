@@ -421,7 +421,7 @@ public struct AppView: View {
                                 Button {
                                     withAnimation(.spring(duration: 0.3)) { showSidebar.toggle() }
                                 } label: {
-                                    Image(systemName: "sidebar.leading")
+                                    Image(systemName: "line.3.horizontal")
                                 }
                             }
                         }
@@ -433,7 +433,7 @@ public struct AppView: View {
                                         Button {
                                             withAnimation(.spring(duration: 0.3)) { showSidebar.toggle() }
                                         } label: {
-                                            Image(systemName: "sidebar.leading")
+                                            Image(systemName: "line.3.horizontal")
                                         }
                                     }
                                 }
