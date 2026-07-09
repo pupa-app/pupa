@@ -231,11 +231,10 @@ public struct MyAppSidebarView: View {
         }
     }
 
-    /// Color index for a myApp based on its creation order — guarantees no
-    /// two apps share a color within a palette-sized group.
+    /// Palette slot for a myApp's dot — the app's own stable stored slot, so
+    /// deleting another app never slides this dot's color onto a neighbour.
     private func colorIndex(for myApp: MyApp) -> Int {
-        let sorted = store.myApps.sorted { $0.createdAt < $1.createdAt }
-        return sorted.firstIndex(where: { $0.id == myApp.id }) ?? 0
+        store.colorIndex(for: myApp.id)
     }
 
     private func myAppRow(_ myApp: MyApp) -> some View {
