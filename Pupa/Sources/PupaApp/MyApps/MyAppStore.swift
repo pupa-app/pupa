@@ -3025,7 +3025,9 @@ public final class MyAppStore {
         }
         for gone in Set(lastAppHash.keys).subtracting(live) {
             CloudDocument.delete(Self.appURL(gone))
-            SnapshotStore.deleteAll(gone)
+            // Keep the user's permanent pins so they survive deletion — surfaced
+            // in Settings ▸ Pinned snapshots for restore/export.
+            SnapshotStore.deleteNonPinned(gone)
             pendingSnapshotTasks[gone]?.cancel()
             pendingSnapshotTasks[gone] = nil
             lastAppHash[gone] = nil
@@ -3136,6 +3138,12 @@ public final class MyAppStore {
 
     // MARK: - Snapshot history
 
+    /// Bumped whenever the on-disk snapshot timeline changes out-of-band
+    /// (pins, restores). `snapshots(forMyApp:)` reads it, so History views
+    /// observing the store re-read the timeline after a mutation that doesn't
+    /// touch `myApps`.
+    public private(set) var historyRevision = 0
+
     /// Debounce a snapshot capture for `appId`, collapsing a burst of edits
     /// into one history entry.
     private func scheduleSnapshot(_ appId: UUID) {
@@ -3156,7 +3164,110 @@ public final class MyAppStore {
 
     /// History entries for a MyApp, newest-first, for the History timeline.
     public func snapshots(forMyApp myAppId: UUID) -> [SnapshotMeta] {
-        SnapshotStore.metas(myAppId)
+        _ = historyRevision  // establish observation dependency
+        return SnapshotStore.metas(myAppId)
+    }
+
+    /// How many permanent pinned snapshots a MyApp currently has.
+    public func pinnedSnapshotCount(forMyApp myAppId: UUID) -> Int {
+        _ = historyRevision
+        return SnapshotStore.pinnedCount(myAppId)
+    }
+
+    /// Capture a permanent, user-labelled snapshot ("pin") of a MyApp. Unlike
+    /// automatic `.edit` captures, pins are kept forever (exempt from
+    /// `SnapshotStore.prune`) and can be exported. Returns the new snapshot
+    /// id, or nil if the app is missing.
+    @discardableResult
+    public func takeSnapshot(myAppId: UUID, label: String) -> UUID? {
+        guard let app = myApps.first(where: { $0.id == myAppId }) else { return nil }
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let id = SnapshotStore.record(
+            app, reason: .pinned, label: trimmed.isEmpty ? nil : trimmed)
+        historyRevision += 1
+        return id
+    }
+
+    /// Encode an exportable `.pupa` bundle for a snapshot: resolve it to its
+    /// MyApp state and hand it to `MyAppExporter`. The whole app is exported
+    /// with records + memories included — a pin is a personal keepsake, not a
+    /// stripped share. Returns nil if the snapshot can't be resolved or no
+    /// memory store is wired.
+    public func snapshotBundleData(forSnapshot snapshotId: UUID, appId: UUID) -> Data? {
+        guard let app = SnapshotStore.restoredApp(appId, id: snapshotId),
+              let memory = globalMemory else { return nil }
+        let bundle = MyAppExporter.makeBundle(
+            app: app,
+            options: .init(
+                selectedComponentIds: Set(app.components.map(\.id)),
+                includeRecords: true,
+                includeMemories: true),
+            memory: memory)
+        return try? bundle.encoded()
+    }
+
+    /// One MyApp's permanent pins, for the Settings ▸ Pinned snapshots page.
+    /// `isLive` is false for a deleted app whose pins were kept — its name and
+    /// icon are then resolved from the newest pin's own state.
+    public struct PinnedSnapshotGroup: Identifiable, Sendable {
+        public let appId: UUID
+        public let appName: String
+        public let iconSystemName: String
+        public let isLive: Bool
+        public let snapshots: [SnapshotMeta]
+        public var id: UUID { appId }
+    }
+
+    /// True when any app (live or deleted) has at least one permanent pin.
+    public var hasAnyPinnedSnapshots: Bool {
+        _ = historyRevision
+        return SnapshotStore.allAppIds().contains { SnapshotStore.pinnedCount($0) > 0 }
+    }
+
+    /// All permanent pins grouped by MyApp, newest-first within a group and
+    /// sorted by app name. Includes deleted apps whose pins survived.
+    public func pinnedSnapshotGroups() -> [PinnedSnapshotGroup] {
+        _ = historyRevision
+        var groups: [PinnedSnapshotGroup] = []
+        for appId in SnapshotStore.allAppIds() {
+            let pins = SnapshotStore.pinnedMetas(appId)
+            guard let newest = pins.first else { continue }
+            let live = myApps.first { $0.id == appId }
+            let name: String
+            let icon: String
+            if let live {
+                name = live.name
+                icon = live.iconSystemName
+            } else if let revived = SnapshotStore.restoredApp(appId, id: newest.id) {
+                name = revived.name
+                icon = revived.iconSystemName
+            } else {
+                name = "Deleted app"
+                icon = "questionmark.app.dashed"
+            }
+            groups.append(PinnedSnapshotGroup(
+                appId: appId, appName: name, iconSystemName: icon,
+                isLive: live != nil, snapshots: pins))
+        }
+        return groups.sorted { $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending }
+    }
+
+    /// Restore a pinned snapshot. If its MyApp still exists, this is the normal
+    /// append-only restore (git-`revert`). If the app was deleted, the whole
+    /// MyApp is **revived** from the pin (re-inserted under its original id, so
+    /// its surviving pins stay attached) and selected. Returns the affected
+    /// app's id, or nil if the pin can't be resolved.
+    @discardableResult
+    public func restorePinnedSnapshot(appId: UUID, snapshotId: UUID) -> UUID? {
+        if myApps.contains(where: { $0.id == appId }) {
+            return restore(myAppId: appId, snapshotId: snapshotId) ? appId : nil
+        }
+        guard let revived = SnapshotStore.restoredApp(appId, id: snapshotId) else { return nil }
+        myApps.append(revived)
+        activeMyAppId = revived.id
+        historyRevision += 1
+        persist()
+        return revived.id
     }
 
     /// Restore a MyApp to an earlier snapshot. Non-destructive / append-only
@@ -3175,6 +3286,7 @@ public final class MyAppStore {
         SnapshotStore.record(myApps[idx], reason: .edit, now: now)
         myApps[idx] = restored
         SnapshotStore.record(restored, reason: .restored, now: now.addingTimeInterval(0.01))
+        historyRevision += 1
         persist()
         emitItemEvent(myAppId: myAppId,
                       componentId: restored.activeComponentId ?? "",

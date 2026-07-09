@@ -15,6 +15,10 @@ public enum SnapshotReason: String, Codable, Sendable {
     /// A user restore — the new head produced by reverting to an earlier
     /// snapshot (restore is append-only; see `MyAppStore.restore`).
     case restored
+    /// A user-pinned permanent snapshot: labelled, always stored as a full
+    /// base, and never evicted by `prune`. The "keep this state forever"
+    /// milestone.
+    case pinned
 }
 
 /// One history entry. Identity is a unique `id` (so a restore can add a new
@@ -36,6 +40,26 @@ public struct Snapshot: Codable, Sendable {
     public let base: AnyJSON?
     /// Delta from `parentId`'s resolved state — set otherwise.
     public let diff: JSONPatch?
+    /// User-supplied caption for a `.pinned` snapshot; `nil` otherwise and on
+    /// legacy records.
+    public let label: String?
+
+    public init(
+        id: UUID, contentHash: String, appId: UUID, timestamp: Date,
+        device: String, parentId: UUID?, reason: SnapshotReason,
+        base: AnyJSON?, diff: JSONPatch?, label: String? = nil
+    ) {
+        self.id = id
+        self.contentHash = contentHash
+        self.appId = appId
+        self.timestamp = timestamp
+        self.device = device
+        self.parentId = parentId
+        self.reason = reason
+        self.base = base
+        self.diff = diff
+        self.label = label
+    }
 }
 
 /// Lightweight listing entry (no resolved state) for the History timeline.
@@ -48,6 +72,8 @@ public struct SnapshotMeta: Sendable, Identifiable, Hashable {
     public let parentId: UUID?
     public let reason: SnapshotReason
     public let isBase: Bool
+    /// User caption for a `.pinned` snapshot; `nil` otherwise.
+    public let label: String?
 }
 
 /// Git-style snapshot history per MyApp. Files live at
@@ -107,13 +133,24 @@ public enum SnapshotStore {
     /// The current head (most recent snapshot) for `appId`, if any.
     public static func head(_ appId: UUID) -> SnapshotMeta? { metas(appId).first }
 
+    /// Newest-first listing of the user's permanent pinned snapshots.
+    public static func pinnedMetas(_ appId: UUID) -> [SnapshotMeta] {
+        metas(appId).filter { $0.reason == .pinned }
+    }
+
+    /// How many permanent pins `appId` currently has.
+    public static func pinnedCount(_ appId: UUID) -> Int { pinnedMetas(appId).count }
+
     /// Record `app`'s current state as a new snapshot; returns its id. On the
     /// `.edit` path, a state identical to the current head dedups (no write,
-    /// returns the head id). Chooses a full base at the chain root / every
-    /// `baseInterval` links, else a diff from the current head.
+    /// returns the head id). A `.pinned` snapshot never dedups and is always
+    /// written as a full `base` (self-contained → survives neighbour prune and
+    /// exports standalone), carrying the user `label`. Otherwise chooses a
+    /// full base at the chain root / every `baseInterval` links, else a diff
+    /// from the current head.
     @discardableResult
     public static func record(
-        _ app: MyApp, reason: SnapshotReason, now: Date = Date()
+        _ app: MyApp, reason: SnapshotReason, label: String? = nil, now: Date = Date()
     ) -> UUID? {
         guard let json = stateJSON(app) else { return nil }
         let contentHash = hash(json)
@@ -125,7 +162,8 @@ public enum SnapshotStore {
         let sid = UUID()
         let parentId = headMeta?.id
         let record: Snapshot
-        if let parentId,
+        if reason != .pinned,
+           let parentId,
            chainDepth(app.id, id: parentId) + 1 < baseInterval,
            let parentState = resolve(app.id, id: parentId),
            let d = JSONDiff.diff(parentState, json) {
@@ -135,7 +173,7 @@ public enum SnapshotStore {
         } else {
             record = Snapshot(id: sid, contentHash: contentHash, appId: app.id,
                               timestamp: now, device: deviceLabel, parentId: parentId,
-                              reason: reason, base: json, diff: nil)
+                              reason: reason, base: json, diff: nil, label: label)
         }
         try? writeRecord(record, to: url(app.id, sid))
         prune(app.id, now: now)
@@ -153,6 +191,27 @@ public enum SnapshotStore {
     /// Drop all history for `appId` (called when the MyApp is deleted).
     public static func deleteAll(_ appId: UUID) {
         try? FileManager.default.removeItem(at: dir(appId))
+    }
+
+    /// Drop only the automatic (non-pinned) history for `appId`, keeping the
+    /// user's permanent pins so they survive deleting the MyApp. Removes the
+    /// whole dir when no pins remain. Pins are self-contained full bases, so
+    /// deleting their non-pinned siblings never dangles a chain.
+    public static func deleteNonPinned(_ appId: UUID) {
+        let all = metas(appId)
+        guard all.contains(where: { $0.reason == .pinned }) else {
+            deleteAll(appId); return
+        }
+        for m in all where m.reason != .pinned { CloudDocument.delete(url(appId, m.id)) }
+    }
+
+    /// Every app id that currently has a snapshot directory on disk — including
+    /// deleted apps whose pins were kept. Backs the "pinned snapshots survive
+    /// deletion" Settings list.
+    public static func allAppIds() -> [UUID] {
+        guard let dirs = try? FileManager.default.contentsOfDirectory(
+            at: root, includingPropertiesForKeys: nil) else { return [] }
+        return dirs.compactMap { UUID(uuidString: $0.lastPathComponent) }
     }
 
     // MARK: - Resolution
@@ -198,6 +257,9 @@ public enum SnapshotStore {
 
     /// TTL + cap eviction. Before deleting old links, re-base the oldest
     /// surviving snapshot to a full base so no survivor's diff chain dangles.
+    /// `.pinned` snapshots are permanent: never aged out, never counted toward
+    /// the cap, always kept. (They are stored as full bases, so keeping them
+    /// while evicting neighbours never dangles a chain.)
     public static func prune(
         _ appId: UUID, now: Date = Date(),
         ttl: TimeInterval = defaultTTL, cap: Int = defaultCap
@@ -206,23 +268,36 @@ public enum SnapshotStore {
         guard !all.isEmpty else { return }
 
         let cutoff = now.addingTimeInterval(-ttl)
-        var survivors = all.filter { $0.timestamp >= cutoff }
-        if survivors.count > cap { survivors = Array(survivors.prefix(cap)) }
-        // Never evict the whole history — always keep the newest snapshot.
-        if survivors.isEmpty, let newest = all.first { survivors = [newest] }
+        // Pins always survive and don't consume the cap; only the automatic
+        // (non-pinned) snapshots are subject to TTL + cap eviction.
+        let evictable = all.filter { $0.reason != .pinned }
+        var keptEvictable = evictable.filter { $0.timestamp >= cutoff }
+        if keptEvictable.count > cap { keptEvictable = Array(keptEvictable.prefix(cap)) }
+        // Never evict the whole automatic history — keep the newest snapshot
+        // if it isn't already a permanent pin.
+        if keptEvictable.isEmpty, let newest = all.first, newest.reason != .pinned {
+            keptEvictable = [newest]
+        }
 
-        let survivorIds = Set(survivors.map(\.id))
+        var survivorIds = Set(keptEvictable.map(\.id))
+        survivorIds.formUnion(all.filter { $0.reason == .pinned }.map(\.id))
         let losers = all.filter { !survivorIds.contains($0.id) }
         guard !losers.isEmpty else { return }
 
-        // Re-base the oldest survivor (survivors are newest-first → `.last`)
-        // so it no longer depends on any about-to-be-deleted loser.
-        if let oldest = survivors.last, !oldest.isBase {
+        // Newest-first survivors, for the oldest-survivor re-base below.
+        let survivors = all.filter { survivorIds.contains($0.id) }
+
+        // Re-base the oldest *non-base* survivor (survivors are newest-first →
+        // `.last(where:)`) so its diff chain no longer walks back through an
+        // about-to-be-deleted loser. Parent links are strictly chronological,
+        // so every newer diff survivor terminates at this new base (or an even
+        // newer pin/base). Pins older than it are already self-contained bases.
+        if let oldest = survivors.last(where: { !$0.isBase }) {
             guard let state = resolve(appId, id: oldest.id) else { return }
             let rebased = Snapshot(
                 id: oldest.id, contentHash: oldest.contentHash, appId: appId,
                 timestamp: oldest.timestamp, device: oldest.device, parentId: nil,
-                reason: oldest.reason, base: state, diff: nil)
+                reason: oldest.reason, base: state, diff: nil, label: oldest.label)
             try? writeRecord(rebased, to: url(appId, oldest.id))
         }
         for loser in losers { CloudDocument.delete(url(appId, loser.id)) }
@@ -233,7 +308,7 @@ public enum SnapshotStore {
     private static func meta(_ rec: Snapshot) -> SnapshotMeta {
         SnapshotMeta(id: rec.id, contentHash: rec.contentHash, appId: rec.appId,
                      timestamp: rec.timestamp, device: rec.device, parentId: rec.parentId,
-                     reason: rec.reason, isBase: rec.base != nil)
+                     reason: rec.reason, isBase: rec.base != nil, label: rec.label)
     }
 
     private static func stateJSON(_ app: MyApp) -> AnyJSON? {

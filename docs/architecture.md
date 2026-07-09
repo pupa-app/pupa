@@ -331,8 +331,27 @@ devices. Each snapshot stores either a full `base` state or a `JSONPatch`
 delta from its parent (`AGUIKit/JSONDiff`), diff-chained with a full base at
 the root and every ~20 links, so history keeps only what changed. Consecutive
 identical edits dedup by content hash; `prune` bounds each app (cap + TTL,
-mirroring `ItemEventLog.prune`) and re-bases the oldest survivor so eviction
-never breaks a chain.
+mirroring `ItemEventLog.prune`) and re-bases the oldest *non-base* survivor so
+eviction never breaks a chain.
+
+**Pinned snapshots (permanent).** A user can **Take snapshot** from the
+History page to capture a labelled `.pinned` restore point — a "keep this
+state forever" milestone. Pins are always stored as a full `base`
+(self-contained) and are **exempt from `prune`**: never aged out, never
+counted toward the cap. Each pinned row carries an **Export** button that
+resolves the snapshot to its `MyApp` and hands it to `MyAppExporter` as a
+`.pupa` bundle (`MyAppStore.snapshotBundleData`), reusing the marketplace
+export path. Pinning is unlimited (no gate).
+
+**Pins survive deletion.** Deleting a MyApp keeps its pins:
+`persist()` calls `SnapshotStore.deleteNonPinned` (drops only automatic
+snapshots; removes the dir only when no pins remain). **Settings ▸ Pinned
+snapshots** (`PinnedSnapshotsView`, shown when any pin exists) lists every
+pin grouped per MyApp — including deleted apps, flagged "deleted", with
+name/icon resolved from the pin's own state. Each row **Export**s or
+**Restore**s: a live app restores append-only; a deleted app is *revived*
+(`MyAppStore.restorePinnedSnapshot` re-inserts it under its original id, so
+its surviving pins stay attached).
 
 Snapshots are captured at three hook points in `MyAppStore`: a **debounced
 edit** capture in `persist()`, a **pre-reload checkpoint** before a remote
@@ -346,7 +365,8 @@ newest-first, grouped by day, with a **Restore** button per older entry.
 Restore is **append-only** (git-`revert`, not `git reset`): the current state
 is checkpointed first, then the chosen state is applied and recorded as a new
 head — so the pre-restore state stays recoverable and the restore is the newest
-entry.
+entry. A toolbar **Take snapshot** action pins the current state (labelled,
+permanent); pinned entries show a `pin.fill` glyph and an **Export** action.
 
 ### Component lock
 
