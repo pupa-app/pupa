@@ -125,8 +125,8 @@ public struct MyAppSidebarView: View {
                 onSelectionChange(.orchestrator)
             } label: {
                 Label("Orchestrator", systemImage: "square.stack.3d.up.fill")
-                    .imageScale(.large)
-                    .font(.title3)
+                    .font(.system(size: 18))
+                    .frame(height: 30)
             }
             .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
@@ -140,8 +140,8 @@ public struct MyAppSidebarView: View {
                 onSelectionChange(.screenShare)
             } label: {
                 Label("Screen share", systemImage: "rectangle.on.rectangle")
-                    .imageScale(.large)
-                    .font(.title3)
+                    .font(.system(size: 18))
+                    .frame(height: 30)
             }
             .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
@@ -154,8 +154,8 @@ public struct MyAppSidebarView: View {
                 settingsSheetPresented = true
             } label: {
                 Label("Settings", systemImage: "gearshape")
-                    .imageScale(.large)
-                    .font(.title3)
+                    .font(.system(size: 18))
+                    .frame(height: 30)
             }
             .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
@@ -164,7 +164,8 @@ public struct MyAppSidebarView: View {
 
             Spacer()
         }
-        .padding(12)
+        .padding(.vertical, 4)
+        .padding(.horizontal, 8)
     }
 
     @ViewBuilder

@@ -3,6 +3,15 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.77] — 2026-07-09
+
+### Changed
+
+- **Sidebar chrome polish.** The MyApps drawer toggle now uses the common
+  3-line hamburger glyph, and the sidebar footer (Orchestrator /
+  Screen share / Settings) thinned to match the MyApp bottom bar height.
+  App `0.0.175` → `0.0.176`.
+
 ## [0.0.76] — 2026-07-09
 
 ### Added
