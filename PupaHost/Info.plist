@@ -35,6 +35,31 @@
 			</dict>
 		</dict>
 	</array>
+	<!-- Legacy alias: the type was `com.pupa.app-bundle` before the reverse-DNS
+	     rename. Kept as an IMPORTED type (not exported — the new one is canonical)
+	     so any file, share item, or cached OS binding still tagged with the old
+	     UTI keeps routing to Pupa. Makes the rename fully non-breaking; safe to
+	     drop once no old-tagged `.pupa` files remain in circulation. -->
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.pupa.app-bundle</string>
+			<key>UTTypeDescription</key>
+			<string>Pupa app</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>pupa</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
 	<!-- YES so Files.app routes a tap straight to Pupa: this key governs
 	     in-place URL delivery vs an Inbox copy, NOT import semantics. Pupa
 	     reads the original URL under startAccessingSecurityScopedResource()
@@ -57,6 +82,7 @@
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>com.pupa-app.app-bundle</string>
+				<string>com.pupa.app-bundle</string>
 			</array>
 		</dict>
 	</array>

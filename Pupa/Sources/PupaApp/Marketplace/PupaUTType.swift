@@ -9,9 +9,9 @@ extension UTType {
     /// Uses the owned-domain reverse-DNS prefix `com.pupa-app`, matching the
     /// app bundle-id namespace (`com.pupa-app.*`). Target-neutral (no `.ios` /
     /// `.client`) because the same document type is shared by the iOS and macOS
-    /// apps. This is a permanent wire identifier: the OS maps the `.pupa`
-    /// extension to it for tap-to-open, so a `.pupa` exported before this
-    /// rename must be re-exported to route again. `.pupa` file *bytes* and the
-    /// marketplace catalog are unaffected — the UTType is not embedded in them.
+    /// apps. Renamed from the earlier `com.pupa.app-bundle`, which the
+    /// Info.plist keeps as a legacy imported/accepted type so files tagged with
+    /// the old UTI still open in Pupa (non-breaking). `.pupa` file *bytes* and
+    /// the marketplace catalog are unaffected — the UTType is not embedded.
     static var pupaAppBundle: UTType { UTType(exportedAs: "com.pupa-app.app-bundle") }
 }

@@ -13,9 +13,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   old limit; the app importer stays the authoritative security boundary. The
   exported `.pupa` document type is renamed `com.pupa.app-bundle` →
   `com.pupa-app.app-bundle` to match the owned-domain bundle-id namespace and
-  stay target-neutral across iOS + macOS. **Breaking:** `.pupa` files exported
-  before this build must be re-exported to tap-to-open again; file bytes and
-  the marketplace catalog are unaffected. App `0.0.180` → `0.0.181`.
+  stay target-neutral across iOS + macOS. Non-breaking: the old identifier is
+  kept as a legacy imported/accepted type, so existing `.pupa` files still open
+  in Pupa; file bytes and the marketplace catalog are unaffected.
+  App `0.0.180` → `0.0.181`.
 
 ## [0.0.80] — 2026-07-10
 
