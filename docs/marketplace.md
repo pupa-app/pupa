@@ -133,7 +133,7 @@ primary defense against prompt injection, which the importer can only surface.
 
 ## File type
 
-`.pupa` is an **exported UTType** — `com.pupa.app-bundle`, conforming to
+`.pupa` is an **exported UTType** — `com.pupa-app.app-bundle`, conforming to
 `public.data` **only** (not `public.json`/`public.text`: a text conformance
 makes Files/QuickLook preview the JSON on tap instead of opening Pupa),
 declared in `PupaHost/Info.plist` (`UTExportedTypeDeclarations`) and owned by

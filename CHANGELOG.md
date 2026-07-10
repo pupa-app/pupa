@@ -3,6 +3,20 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.81] — 2026-07-10
+
+### Changed
+
+- **Bigger import ceiling + reverse-DNS bundle UTType.** The single-app import
+  cap rises 8 MB → 64 MB (and the library aggregate 64 MB → 256 MB) so apps
+  with large memories or long record sets export/import without hitting the
+  old limit; the app importer stays the authoritative security boundary. The
+  exported `.pupa` document type is renamed `com.pupa.app-bundle` →
+  `com.pupa-app.app-bundle` to match the owned-domain bundle-id namespace and
+  stay target-neutral across iOS + macOS. **Breaking:** `.pupa` files exported
+  before this build must be re-exported to tap-to-open again; file bytes and
+  the marketplace catalog are unaffected. App `0.0.180` → `0.0.181`.
+
 ## [0.0.80] — 2026-07-10
 
 ### Changed
