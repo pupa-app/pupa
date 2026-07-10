@@ -3,6 +3,16 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.85] — 2026-07-10
+
+### Fixed
+
+- **Orphan sweep no longer runs on the fresh-install fallback.** If
+  `index.json` is missing or corrupt, `load()` seeds a fresh install — the
+  sweep then saw every existing app file as an orphan and would delete
+  week-old ones, destroying recovery material. The sweep now runs only when
+  the index was actually read. App `0.0.184` → `0.0.185`.
+
 ## [0.0.84] — 2026-07-10
 
 ### Fixed
