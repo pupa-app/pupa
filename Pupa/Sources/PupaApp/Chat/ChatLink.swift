@@ -15,7 +15,7 @@ import Foundation
 /// into one app); the per-app agent never needs it.
 public enum ChatLink {
     /// URL scheme reserved for in-app navigation. Distinct from
-    /// `pupa-mention` (Slack DMs) and the `com.pupa.app-bundle` file type.
+    /// `pupa-mention` (Slack DMs) and the `com.pupa-app.app-bundle` file type.
     public static let scheme = "pupa"
 
     /// Resolve a `pupa://` URL to a navigation target, or `nil` if it isn't
