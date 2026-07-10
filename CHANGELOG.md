@@ -3,6 +3,15 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.80] — 2026-07-10
+
+### Changed
+
+- **Tap outside the chat field closes the keyboard (iOS).** Tapping the
+  message list — or starting to scroll it — now resigns the composer so the
+  soft keyboard drops, reclaiming screen space on phones. App `0.0.179` →
+  `0.0.180`.
+
 ## [0.0.79] — 2026-07-09
 
 ### Added
