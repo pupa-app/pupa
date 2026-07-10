@@ -13,7 +13,8 @@ VERSION_SWIFT="Pupa/Sources/PupaApp/Version.swift"
 ICON="PupaHost/PupaHost/Assets.xcassets/AppIcon.appiconset/icon_1024.png"
 SCHEME="PupaHost"
 PROJECT="PupaHost/PupaHost.xcodeproj"
-ARCHIVE="build/Pupa.xcarchive"
+ARCHIVE_IOS="build/Pupa.xcarchive"
+ARCHIVE_MACOS="build/Pupa-macOS.xcarchive"
 
 # Release git flow: bump lands on $DEV_BRANCH, then $MAIN_BRANCH is
 # fast-forwarded from it, so the branches stay aligned (no post-hoc realign).
@@ -172,25 +173,42 @@ if [[ $NO_FLOW -eq 0 ]]; then
   note "fast-forwarded $MAIN_BRANCH from $DEV_BRANCH (push both with: git push origin $DEV_BRANCH $MAIN_BRANCH)"
 fi
 
-# --- archive --------------------------------------------------------------
-note "archiving (this takes 3–5 min)..."
+# --- archive (iOS + macOS — one Universal Purchase record, both ship together) ---
 mkdir -p build
-rm -rf "$ARCHIVE"
-xcodebuild \
-  -project "$PROJECT" \
-  -scheme "$SCHEME" \
-  -configuration Release \
-  -destination "generic/platform=iOS" \
-  -archivePath "$ARCHIVE" \
-  -allowProvisioningUpdates \
-  archive \
-  >/tmp/pupa-archive.log 2>&1 \
-  || { tail -40 /tmp/pupa-archive.log >&2; die "xcodebuild archive failed. See /tmp/pupa-archive.log for full output."; }
+
+archive_platform() {
+  local platform="$1" archive_path="$2"
+  note "archiving $platform (this takes 3–5 min)..."
+  rm -rf "$archive_path"
+  xcodebuild \
+    -project "$PROJECT" \
+    -scheme "$SCHEME" \
+    -configuration Release \
+    -destination "generic/platform=$platform" \
+    -archivePath "$archive_path" \
+    -allowProvisioningUpdates \
+    archive \
+    >/tmp/pupa-archive-"${platform// /-}".log 2>&1 \
+    || { tail -40 /tmp/pupa-archive-"${platform// /-}".log >&2; die "xcodebuild archive failed for $platform. See /tmp/pupa-archive-${platform// /-}.log for full output."; }
+}
+
+archive_platform "iOS" "$ARCHIVE_IOS"
+archive_platform "macOS" "$ARCHIVE_MACOS"
 
 # --- verify ---------------------------------------------------------------
-A_VERSION=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleShortVersionString" "$ARCHIVE/Info.plist")
-A_BUILD=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleVersion" "$ARCHIVE/Info.plist")
-A_BUNDLE=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleIdentifier" "$ARCHIVE/Info.plist")
+verify_archive() {
+  local archive_path="$1"
+  local v b i
+  v=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleShortVersionString" "$archive_path/Info.plist")
+  b=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleVersion" "$archive_path/Info.plist")
+  i=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleIdentifier" "$archive_path/Info.plist")
+  echo "$v|$b|$i"
+}
+
+IOS_INFO=$(verify_archive "$ARCHIVE_IOS")
+MACOS_INFO=$(verify_archive "$ARCHIVE_MACOS")
+IFS='|' read -r IOS_VERSION IOS_BUILD IOS_BUNDLE <<< "$IOS_INFO"
+IFS='|' read -r MACOS_VERSION MACOS_BUILD MACOS_BUNDLE <<< "$MACOS_INFO"
 
 PUSH_HINT=""
 [[ $NO_FLOW -eq 0 ]] && PUSH_HINT="
@@ -199,11 +217,14 @@ PUSH_HINT=""
 
 cat <<EOF
 
-ARCHIVE READY
-  Path:    $ARCHIVE
-  Version: $A_VERSION
-  Build:   $A_BUILD
-  Bundle:  $A_BUNDLE$PUSH_HINT
+ARCHIVES READY
+  iOS:     $ARCHIVE_IOS
+           Version $IOS_VERSION, Build $IOS_BUILD, Bundle $IOS_BUNDLE
+  macOS:   $ARCHIVE_MACOS
+           Version $MACOS_VERSION, Build $MACOS_BUILD, Bundle $MACOS_BUNDLE$PUSH_HINT
 
-Next step: Open Xcode → Window → Organizer (⌥⇧⌘O), select this archive, click Distribute App → App Store Connect → Upload.
+Next step: Open Xcode → Window → Organizer (⌥⇧⌘O). Both archives should appear
+(if not, run: open $ARCHIVE_IOS $ARCHIVE_MACOS). Select each in turn → Distribute
+App → App Store Connect → Upload. Same tester group covers both platforms once
+each build clears export compliance.
 EOF

@@ -1,6 +1,6 @@
 ---
 name: testflight-release
-description: Archive Pupa iOS app for TestFlight upload. Verifies the App Store icon is opaque, syncs MARKETING_VERSION to PupaAppVersion, bumps CURRENT_PROJECT_VERSION, runs xcodebuild archive, and reports the .xcarchive path so the user can upload via Xcode Organizer. Invoke when the user says "ship to TestFlight", "archive for TestFlight", "release ios", "distribute ios", or "/testflight-release".
+description: Archive Pupa iOS + macOS for TestFlight upload (one Universal Purchase record, both ship together). Verifies the App Store icon is opaque, syncs MARKETING_VERSION to PupaAppVersion, bumps CURRENT_PROJECT_VERSION, runs xcodebuild archive for both platforms, and reports both .xcarchive paths so the user can upload via Xcode Organizer. Invoke when the user says "ship to TestFlight", "archive for TestFlight", "release ios", "distribute ios", or "/testflight-release".
 ---
 
 > **Workflow note:** The script lands the build-number bump on `dev`, then fast-forwards `main` from `dev`, then archives `main`. So the bump is part of `dev`'s history *before* it reaches `main`, and the branches stay aligned — no post-hoc realign. You don't need to be on any particular branch first; the script switches to `dev` itself. (Use `--no-flow` to bump+archive the current branch in place, skipping the dev→main dance — for local validation builds only.)
@@ -11,7 +11,7 @@ Run `archive.sh` next to this file. Do not re-implement its logic with sequentia
 
 ## When to use
 
-User wants a `.xcarchive` ready for TestFlight upload. Typical phrasings: "ship to TestFlight", "archive for TestFlight", "make a build for TestFlight", "release the iOS app". The skill stops at producing the `.xcarchive` — uploading is done manually via Xcode Organizer (avoids needing App Store Connect API credentials).
+User wants `.xcarchive`s ready for TestFlight upload. Typical phrasings: "ship to TestFlight", "archive for TestFlight", "make a build for TestFlight", "release the iOS app". Pupa ships iOS + macOS under one Universal Purchase App Store Connect record, so the script always archives both platforms from the single `PupaHost` target (`SUPPORTED_PLATFORMS` covers both — same `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION`, no per-platform version skew possible). The skill stops at producing the `.xcarchive`s — uploading is done manually via Xcode Organizer (avoids needing App Store Connect API credentials).
 
 ## Before invoking the script
 
@@ -48,25 +48,25 @@ Branch names default to `dev`/`main`; override with `DEV_BRANCH=` / `MAIN_BRANCH
 4. Bumps `CURRENT_PROJECT_VERSION` for the app target's buildSettings blocks only (matched by the app `MARKETING_VERSION`; test targets stay at `1`).
 5. If pbxproj changed, commits the bump on `dev` with a generic `chore(ios): bump build to N` message. Stops if working tree is otherwise dirty.
 6. Fast-forwards `main` from `dev` (`--ff-only`; aborts if diverged), then archives `main`.
-7. Runs `xcodebuild archive` into `build/Pupa.xcarchive`.
-8. Verifies the produced archive's `Info.plist` reports the expected version + build + bundle ID.
+7. Runs `xcodebuild archive` twice: `-destination generic/platform=iOS` into `build/Pupa.xcarchive`, then `-destination generic/platform=macOS` into `build/Pupa-macOS.xcarchive`.
+8. Verifies each archive's `Info.plist` reports the expected version + build + bundle ID.
 
 Nothing is pushed — both branches are aligned locally and the script prints the `git push origin dev main` command for you to run.
 
 ## After the script
 
-1. Run `open build/Pupa.xcarchive` — this registers the archive with Xcode so it appears in Organizer. (Organizer only auto-lists archives from `~/Library/Developer/Xcode/Archives/`; the script writes to `build/` instead, so opening it manually is required.)
+1. Run `open build/Pupa.xcarchive build/Pupa-macOS.xcarchive` — this registers both archives with Xcode so they appear in Organizer. (Organizer only auto-lists archives from `~/Library/Developer/Xcode/Archives/`; the script writes to `build/` instead, so opening them manually is required.)
 
 2. Report to the user:
-   - The archive path: `build/Pupa.xcarchive`
-   - Verified version + build + bundle ID
+   - Both archive paths: `build/Pupa.xcarchive`, `build/Pupa-macOS.xcarchive`
+   - Verified version + build + bundle ID for each
    - The next manual step:
 
-     > Open Xcode → **Window → Organizer** (⌥⇧⌘O). The archive should now appear under the *Archives* tab. Select it → **Distribute App** → *App Store Connect* → *Upload*. Wait ~10–30 min for Apple processing, then check the **TestFlight** tab in App Store Connect.
+     > Open Xcode → **Window → Organizer** (⌥⇧⌘O). Both archives should now appear under the *Archives* tab. Select each in turn → **Distribute App** → *App Store Connect* → *Upload*. Wait ~10–30 min for Apple processing per platform, then check the **TestFlight** tab in App Store Connect — iOS and macOS builds list separately, but the same tester group covers both once each clears export compliance.
      >
-     > If the archive still doesn't appear, close and reopen Organizer.
+     > If an archive doesn't appear, close and reopen Organizer.
 
-3. **Push both branches yourself to conclude the realignment — but only once every step above succeeded** (archive produced + verified, `open` registered it with Organizer). Do not push on any earlier failure. The script bumped `dev` and fast-forwarded `main` from it, so they share the same history (no realign needed). The push is a plain fast-forward, no `--force`, so run it directly without asking:
+3. **Push both branches yourself to conclude the realignment — but only once every step above succeeded** (both archives produced + verified, `open` registered them with Organizer). Do not push on any earlier failure. The script bumped `dev` and fast-forwarded `main` from it, so they share the same history (no realign needed). The push is a plain fast-forward, no `--force`, so run it directly without asking:
    ```bash
    git push origin dev main
    ```
