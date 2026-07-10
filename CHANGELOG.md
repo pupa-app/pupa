@@ -3,6 +3,18 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.84] — 2026-07-10
+
+### Fixed
+
+- **Orphaned app files are now swept at launch.** `persist()` only deletes
+  `state/apps/*.json` files it saw during its own session, so files leaked by
+  earlier bugs or stray writes accumulated forever (one install had 900+ for a
+  single live app), inflating every iCloud mirror pass. `MyAppStore` now
+  deletes unreferenced app files at load, age-gated to one week so an iCloud
+  merge that delivers an app file before its index is never clipped mid-sync.
+  App `0.0.183` → `0.0.184`.
+
 ## [0.0.83] — 2026-07-10
 
 ### Changed

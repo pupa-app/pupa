@@ -90,6 +90,10 @@ public final class MyAppStore {
                 for app in myApps { seedBirthFiles(forAppNamed: app.name) }
                 persist()
             }
+            // Drop app files the index doesn't reference — `persist()` only
+            // deletes files it saw during its own session, so orphans
+            // accumulate forever otherwise.
+            Self.sweepOrphanAppFiles(keeping: Set(myApps.map(\.id)))
         }
     }
 
@@ -3044,6 +3048,33 @@ public final class MyAppStore {
             try? CloudDocument.write(data, to: Self.indexURL)
             lastIndexHash = data.hashValue
         }
+    }
+
+    /// Delete `apps/<UUID>.json` files not in `keeping` whose modification
+    /// date is older than `minAge`. Age-gated because an iCloud merge can land
+    /// an app file *before* the index that references it — a week-old orphan
+    /// is garbage, a fresh one may be a sync in flight. Non-UUID / non-JSON
+    /// files are never touched. Returns the number of files deleted.
+    @discardableResult
+    nonisolated static func sweepOrphanAppFiles(
+        keeping live: Set<UUID>,
+        minAge: TimeInterval = 7 * 24 * 3600,
+        now: Date = Date()
+    ) -> Int {
+        let fm = FileManager.default
+        guard let names = try? fm.contentsOfDirectory(atPath: appsDir.path) else { return 0 }
+        var deleted = 0
+        for name in names {
+            guard name.hasSuffix(".json"),
+                  let id = UUID(uuidString: String(name.dropLast(".json".count))),
+                  !live.contains(id) else { continue }
+            let url = appsDir.appendingPathComponent(name)
+            guard let mtime = (try? fm.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date,
+                  now.timeIntervalSince(mtime) > minAge else { continue }
+            CloudDocument.delete(url)
+            deleted += 1
+        }
+        return deleted
     }
 
     /// Fill the dirty-hash caches from current state without writing, so the

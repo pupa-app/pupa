@@ -669,7 +669,12 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
   `apps/<uuid>.json` per MyApp plus `index.json` (active id, order,
   orchestrator threads, audit log, and the UI-only component-folder layout).
   One mutation rewrites only the touched file (dirty-hashed in `MyAppStore`),
-  so iCloud syncs minimal traffic and per-app snapshots stay cheap.
+  so iCloud syncs minimal traffic and per-app snapshots stay cheap. On load,
+  `sweepOrphanAppFiles` deletes `apps/` files the index doesn't reference and
+  that haven't been touched for a week — `persist()` only deletes files it saw
+  during its own session, so leaked files would otherwise accumulate forever;
+  the age gate protects an iCloud merge that lands an app file before its
+  index.
 - **Component folders (UI-only)** → the home-page grid
   (`MyAppHomeView.componentsPanel`) lets you drag component tiles into folders,
   iOS-home-screen style. The layout (`ComponentFolderLayout`: folders +
