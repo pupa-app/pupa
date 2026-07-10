@@ -65,7 +65,10 @@ public struct AgentsListView: View {
     }
 
     private var agentsPanel: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        // Bind once: the getter enumerates agents off disk — don't run it
+        // per subview.
+        let descriptors = self.descriptors
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 Text("Agents")
                     .font(.subheadline)

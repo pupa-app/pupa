@@ -31,6 +31,9 @@ public struct AppView: View {
     /// Watches the iCloud container for remote edits; reloads the synced
     /// stores so changes from another device appear live. Nil until started.
     @State private var cloudWatcher: CloudWatcher?
+    /// The sidebar list's row highlight + tap signal. Navigation itself lives
+    /// in `rootPage`; the sidebar's `onChange` routes taps through `setRoot`.
+    /// iOS clears this back to nil after each tap so re-taps re-fire.
     @State private var selection: SidebarSelection?
     #if os(iOS)
     /// Whether the slide-in sidebar/menu is open. Persisted so the app opens to
@@ -46,10 +49,16 @@ public struct AppView: View {
     /// Which chat session is shown in the overlay. Decoupled from `selection`
     /// so the agent dropdown can switch chat context without moving the canvas.
     @State private var chatScope: ChatScope
-    /// Navigation stack pushed on top of the root detail view. The sidebar
-    /// `selection` is the stack root; tapping a component card or memory file
-    /// inside `MyAppHomeView` pushes onto this path so Back returns to the
-    /// landing page instead of clearing the whole detail pane.
+    /// The detail pane's `NavigationStack` root — the current top-level page
+    /// (bottom-bar tab, sidebar pick, orchestrator, screen share). Replaced in
+    /// place (never pushed) with animations disabled; combined with the
+    /// keep-alive panes in `content`, a page switch is an opacity flip instead
+    /// of the 100–200ms click→frame teardown/rebuild it used to be. All
+    /// writers go through `setRoot`.
+    @State private var rootPage: SidebarSelection
+    /// Navigation stack pushed on top of `rootPage` — true drill-ins only
+    /// (component card from the landing page, memory file, agent detail,
+    /// history), so Back returns to the page the user came from.
     @State private var detailPath: [SidebarSelection] = []
     /// Whether the chat card is open. Owned here so the per-MyApp bottom bar's
     /// pupa button and the guided tour can both drive it, and `ChatOverlay`
@@ -120,7 +129,31 @@ public struct AppView: View {
         ))
         self._screenShare = State(initialValue: ScreenShareViewModel(settings: settings))
         self._selection = State(initialValue: .myAppHome(store.activeMyAppId))
+        self._rootPage = State(initialValue: .myAppHome(store.activeMyAppId))
         self._chatScope = State(initialValue: .myApp(store.activeMyAppId))
+    }
+
+    /// Single entry point for top-level navigation: swaps the detail root in
+    /// place with animations disabled (instant page switch, no push
+    /// transition), clears any drill-in pushes, keeps the macOS sidebar
+    /// highlight in sync, and routes the chat scope. Re-entrant safe — the
+    /// sidebar's selection `onChange` calls back into here.
+    private func setRoot(_ sel: SidebarSelection) {
+        if rootPage != sel || !detailPath.isEmpty {
+            var tx = Transaction()
+            tx.disablesAnimations = true
+            withTransaction(tx) {
+                rootPage = sel
+                detailPath = []
+            }
+        }
+        #if os(macOS)
+        // iOS deliberately skips this: `selection` is cleared to nil after
+        // every drawer tap so a re-tap of the same row re-fires — writing it
+        // back here would defeat that.
+        if selection != sel { selection = sel }
+        #endif
+        dispatchSelection(sel)
     }
 
     public var body: some View {
@@ -131,9 +164,7 @@ public struct AppView: View {
             .sheet(isPresented: $showBackendSheet) { backendPairingSheet }
             .onReceive(NotificationCenter.default.publisher(for: .pupaNotificationTap)) { note in
                 guard let sel = note.userInfo?["selection"] as? SidebarSelection else { return }
-                detailPath = []
-                selection = sel
-                dispatchSelection(sel)
+                setRoot(sel)
             }
             // Tap-to-import: a `.pupa` opened from Files / Mail / a chat app
             // arrives here. Stage it for a confirm step rather than importing
@@ -280,19 +311,7 @@ public struct AppView: View {
         tour.chatPrefill = step.chatPrefill
         tour.wantHighlight = step.highlight
         if let sel = step.selection {
-            dispatchSelection(sel)
-            #if os(iOS)
-            // The iOS body resets `selection` to nil right after it changes (so
-            // a sidebar re-tap re-fires), which collapses any non-home page back
-            // to the active MyApp home. So drive navigation through `detailPath`
-            // — the same persistent push the bottom bar uses — instead of the
-            // transient `selection`. Home is the stack root (empty path).
-            selection = nil
-            detailPath = sel.iOSDetailStack
-            #else
-            detailPath = []
-            selection = sel
-            #endif
+            setRoot(sel)
         }
     }
 
@@ -314,7 +333,7 @@ public struct AppView: View {
                 coordinator: coordinator,
                 selection: $selection,
                 busyMyApps: coordinator.busyMyApps,
-                onSelectionChange: dispatchSelection,
+                onSelectionChange: setRoot,
                 onDeleteMyApp: deleteMyApp,
                 onArchiveMyApp: archiveMyApp
             )
@@ -475,7 +494,7 @@ public struct AppView: View {
                     coordinator: coordinator,
                     selection: $selection,
                     busyMyApps: coordinator.busyMyApps,
-                    onSelectionChange: dispatchSelection,
+                    onSelectionChange: setRoot,
                     onDeleteMyApp: deleteMyApp,
                     onArchiveMyApp: archiveMyApp
                 )
@@ -501,22 +520,14 @@ public struct AppView: View {
         }
         .animation(.spring(duration: 0.3), value: showSidebar)
         .onChange(of: selection) { _, new in
-            // Ignore our own clear-to-nil (below) so it doesn't wipe a freshly
-            // pushed page.
-            guard let new else { return }
-            // Only the active MyApp's home / canvas resolves through
-            // `activeMyAppId` once `selection` clears; every other page must be
-            // pushed onto `detailPath` (which survives the clear-to-nil below)
-            // so it doesn't bounce back to the canvas. See `iOSDetailStack`.
-            // Single source of truth for the stack — the bottom bar / sidebar
-            // only set `selection`; this replaces the stack wholesale so a tab
-            // switch from a non-home page doesn't clear-then-refill (which
-            // blanks `NavigationStack`).
-            detailPath = SidebarSelection.detailStack(picking: new, from: detailPath)
+            // Ignore our own clear-to-nil (below). Navigation itself happens in
+            // `setRoot`, invoked by the sidebar's `onSelectionChange` — this
+            // handler only closes the drawer and re-arms the row highlight.
+            guard new != nil else { return }
             withAnimation(.spring(duration: 0.3)) { showSidebar = false }
             // List(selection:) won't re-fire onChange for an identical value, so a
             // re-tap of the same row is dropped. Reset the highlight after the tap
-            // is dispatched; the active MyApp drives `content` while nil.
+            // is dispatched; `rootPage` keeps the detail pane in place while nil.
             DispatchQueue.main.async { selection = nil }
         }
     }
@@ -557,12 +568,6 @@ public struct AppView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             myAppBottomBar
         }
-        // Sidebar tap replaces the stack root, so any drilled-in landing-page
-        // pushes are stale — reset the path so we don't leave a phantom Back
-        // arrow pointing at a view the user didn't navigate from.
-        .onChange(of: selection) { _, _ in
-            detailPath = []
-        }
     }
 
     private var agentPickerEntries: [AgentPickerEntry] {
@@ -597,11 +602,67 @@ public struct AppView: View {
         chatScope = scope
     }
 
+    /// The `NavigationStack` root. The current subject's bar tabs (home /
+    /// agents / memories) stay mounted in a `ZStack` and switch by opacity —
+    /// rebuilding a page tree on every tab click measured 100–145ms
+    /// click→frame even in release; an opacity flip is near-free. Pages
+    /// outside that set (component canvas, history, screen share, memory
+    /// files, agent details) build on demand as before.
     @ViewBuilder
     private var content: some View {
-        // Transient nil on iOS between a tap and the highlight reset, or after
-        // the drawer is dismissed without a pick — resolve to the active home.
-        detailView(for: .detailRoot(for: selection, activeMyAppId: store.activeMyAppId))
+        let keepAlive = keepAlivePages(for: rootPage)
+        ZStack {
+            ForEach(keepAlive, id: \.self) { page in
+                DetailPane(
+                    page: page,
+                    isActive: page == rootPage,
+                    content: AnyView(detailView(for: page))
+                )
+            }
+            if !keepAlive.contains(rootPage) {
+                detailView(for: rootPage)
+            }
+        }
+    }
+
+    /// Keep-alive pane. `Equatable` on `(page, isActive)` so a mounted page's
+    /// body is NOT re-evaluated when unrelated `AppView` state changes — the
+    /// pages read `@Observable` stores directly, so real data changes still
+    /// invalidate them from within. Without this, every click re-ran all
+    /// mounted page bodies (AgentsListView's does synchronous disk scans).
+    private struct DetailPane: View, Equatable {
+        nonisolated static func == (a: DetailPane, b: DetailPane) -> Bool {
+            a.page == b.page && a.isActive == b.isActive
+        }
+        let page: SidebarSelection
+        let isActive: Bool
+        let content: AnyView
+        var body: some View {
+            content
+                .opacity(isActive ? 1 : 0)
+                .allowsHitTesting(isActive)
+                .accessibilityHidden(!isActive)
+        }
+    }
+
+    /// The always-mounted tab pages for the subject `root` belongs to: the
+    /// bar's fixed tabs plus the app's active component canvas (the page users
+    /// bounce to most). Other component canvases can be numerous and heavy, so
+    /// they stay build-on-demand; switching the active component swaps the
+    /// pane's identity and rebuilds once.
+    private func keepAlivePages(for root: SidebarSelection) -> [SidebarSelection] {
+        switch barSubject(for: root) {
+        case .myApp(let id):
+            var pages: [SidebarSelection] = [.myAppHome(id), .myAppAgents(id), .myAppMemories(id)]
+            if let comp = store.myApps.first(where: { $0.id == id })?.activeComponentId {
+                pages.append(.myAppComponent(id, comp))
+            }
+            return pages
+        case .orchestrator:
+            return [.orchestrator, .orchestratorAgentDetail, .orchestratorMemories]
+        case nil:
+            return []
+        }
     }
 
     /// Renders the detail view for a given selection. Used for both the
@@ -687,7 +748,7 @@ public struct AppView: View {
                 if !detailPath.isEmpty {
                     detailPath.removeLast()
                 } else {
-                    selection = .myApp(id)
+                    setRoot(.myApp(id))
                 }
             }
         case .memoryFile(let path):
@@ -695,7 +756,7 @@ public struct AppView: View {
                 if !detailPath.isEmpty {
                     detailPath.removeLast()
                 } else {
-                    selection = .myApp(store.activeMyAppId)
+                    setRoot(.myApp(store.activeMyAppId))
                 }
             }
         case .orchestrator:
@@ -729,9 +790,9 @@ public struct AppView: View {
     }
 
     /// The selection driving the detail pane right now: the top of the pushed
-    /// stack if any, else the sidebar root, else the active myApp's canvas.
+    /// stack if any, else the root page.
     private var effectiveSelection: SidebarSelection {
-        detailPath.last ?? selection ?? .myApp(store.activeMyAppId)
+        detailPath.last ?? rootPage
     }
 
     /// Whether the bottom bar is showing — also gates whether `ChatOverlay`
@@ -752,10 +813,9 @@ public struct AppView: View {
     }
 
     /// Persistent per-MyApp bottom bar, shown on a myApp's home / component /
-    /// memories pages. The effective page is `detailPath.last ?? selection` so
-    /// a home→component push still marks the component active. Taps reset the
-    /// stack, set the root selection, and run `dispatchSelection` so the chat
-    /// scope follows.
+    /// memories pages. The effective page is `detailPath.last ?? rootPage` so
+    /// a home→component push still marks the component active. Taps swap the
+    /// root via `setRoot`, which also routes the chat scope.
     @ViewBuilder
     private var myAppBottomBar: some View {
         let effective = effectiveSelection
@@ -767,29 +827,9 @@ public struct AppView: View {
                 appColor: barColor(for: subject),
                 chatStatus: chatStatus,
                 chatOpen: chatOpen,
-                onSelect: { nav in
-                    // Normally only set `selection`; the `onChange(of: selection)`
-                    // driver owns `detailPath`. Writing it here too would clear-
-                    // then-refill across two transactions and blank
-                    // `NavigationStack` when switching tabs from a non-home page.
-                    //
-                    // Exception — a re-tap of the tab already held by `selection`
-                    // (e.g. Home while drilled into a component pushed onto
-                    // `detailPath`): SwiftUI dedups the identical binding value,
-                    // so neither `onChange` fires and the pushed stack never
-                    // pops — the tab looks dead. Detect that and pop the stack
-                    // directly, mirroring what each platform's `onChange` does.
-                    let isRetap = selection == nav
-                    selection = nav
-                    dispatchSelection(nav)
-                    if isRetap {
-                        #if os(iOS)
-                        detailPath = SidebarSelection.detailStack(picking: nav, from: detailPath)
-                        #else
-                        detailPath = []
-                        #endif
-                    }
-                },
+                // Root swap handles both a tab switch and a re-tap (which just
+                // pops any drill-in pushes back to the tab's own page).
+                onSelect: setRoot,
                 onShowHistory: { id in detailPath.append(.myAppHistory(id)) },
                 onToggleChat: {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
@@ -839,31 +879,38 @@ public struct AppView: View {
         }
     }
 
+    /// Same-value writes to an `@Observable`-adjacent `@State` still invalidate
+    /// the chat overlay subtree; every page click routes through here, so skip
+    /// the no-op rebinds.
+    private func setChatScope(_ scope: ChatScope) {
+        if chatScope != scope { chatScope = scope }
+    }
+
     private func dispatchSelection(_ sel: SidebarSelection) {
         switch sel {
         case .myAppHome(let id):
             store.setActive(id)
-            chatScope = .myApp(id)
+            setChatScope(.myApp(id))
         case .myApp(let id):
             // Pure rebind — other sessions keep streaming. Updating
             // activeMyAppId is what makes CanvasView show the right myApp.
             store.setActive(id)
-            chatScope = .myApp(id)
+            setChatScope(.myApp(id))
         case .myAppComponent(let id, let componentId):
             store.setActive(id)
             // Sidebar tap drives the active-component selection so the
             // canvas + kind-targeted mutators agree on what's focused.
             _ = store.setActiveComponent(componentId: componentId, myAppId: id)
-            chatScope = .myApp(id)
+            setChatScope(.myApp(id))
         case .myAppMemoryFile(let id, _), .myAppMemories(let id), .myAppHistory(let id):
             store.setActive(id)
-            chatScope = .myApp(id)
+            setChatScope(.myApp(id))
         case .myAppAgents(let id), .myAppAgentDetail(let id, _):
             // Agents pages don't change the chat scope — they stay on
             // the owning MyApp so the user can keep chatting while
             // inspecting agent metadata.
             store.setActive(id)
-            chatScope = .myApp(id)
+            setChatScope(.myApp(id))
         case .memoryFile(let path):
             // `path` is global-root-relative (`orchestrator/x.md`); the
             // orchestrator agent's `focusedFile` context is scope-relative —
@@ -871,10 +918,10 @@ public struct AppView: View {
             let prefix = MemoryStore.orchestratorFolder() + "/"
             let scoped = path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : path
             coordinator.session(for: .memory).memoryFocusedPath = scoped
-            chatScope = .memory
+            setChatScope(.memory)
         case .orchestrator, .orchestratorAgentDetail, .orchestratorMemories:
             coordinator.session(for: .memory).memoryFocusedPath = ""
-            chatScope = .memory
+            setChatScope(.memory)
         case .screenShare:
             // Screen share doesn't change the chat scope — the overlay just
             // floats over the panel and keeps using the memory session.
@@ -915,8 +962,8 @@ public struct AppView: View {
     private func deleteMyApp(_ id: UUID) {
         coordinator.discardSession(for: .myApp(id))
         store.removeMyApp(id)
-        if selection?.myAppId == id {
-            selection = .myApp(store.activeMyAppId)
+        if rootPage.myAppId == id || selection?.myAppId == id {
+            setRoot(.myApp(store.activeMyAppId))
         }
         if case .myApp(let chatId) = chatScope, chatId == id {
             chatScope = .myApp(store.activeMyAppId)
@@ -930,8 +977,8 @@ public struct AppView: View {
     private func archiveMyApp(_ id: UUID) {
         coordinator.discardSession(for: .myApp(id))
         store.setMyAppArchived(id, true)
-        if selection?.myAppId == id {
-            selection = .myApp(store.activeMyAppId)
+        if rootPage.myAppId == id || selection?.myAppId == id {
+            setRoot(.myApp(store.activeMyAppId))
         }
         if case .myApp(let chatId) = chatScope, chatId == id {
             chatScope = .myApp(store.activeMyAppId)
@@ -1001,18 +1048,14 @@ public struct AppView: View {
                     importNotice = ImportNotice(message: "The bundle had no apps to import.")
                     return
                 }
-                detailPath = []
-                selection = .myAppHome(first)
-                dispatchSelection(.myAppHome(first))
+                setRoot(.myAppHome(first))
                 let n = result.myAppIds.count
                 var lines = ["Imported \(n) app\(n == 1 ? "" : "s")."]
                 lines.append(contentsOf: result.warnings)
                 importNotice = ImportNotice(message: lines.joined(separator: "\n"))
             } else {
                 let result = try MyAppImporter.importBundle(pending.data, into: store, memory: memory)
-                detailPath = []
-                selection = .myAppHome(result.myAppId)
-                dispatchSelection(.myAppHome(result.myAppId))
+                setRoot(.myAppHome(result.myAppId))
                 if !result.warnings.isEmpty {
                     importNotice = ImportNotice(message: result.warnings.joined(separator: "\n"))
                 }

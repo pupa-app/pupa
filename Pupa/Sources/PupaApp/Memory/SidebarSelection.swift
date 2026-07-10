@@ -57,39 +57,6 @@ public enum SidebarSelection: Hashable, Sendable {
     /// screenshare broker and renders the incoming WebRTC video track.
     case screenShare
 
-    /// Detail-pane root for an optional sidebar selection. `nil` falls back to
-    /// the active MyApp's home — the iOS drawer clears `selection` after each
-    /// tap (so re-tapping the same row re-fires `List.onChange`), and the home
-    /// is where a tap lands, so the fallback matches with no visible flip.
-    public static func detailRoot(for selection: SidebarSelection?, activeMyAppId: UUID) -> SidebarSelection {
-        selection ?? .myAppHome(activeMyAppId)
-    }
-
-    /// The pushed detail stack that navigates to this selection on iOS, where
-    /// the `NavigationStack` root resolves to the active MyApp home once
-    /// `selection` clears to nil. The home / canvas resolves through
-    /// `activeMyAppId`, so it needs no push (empty stack); **every other page**
-    /// — a MyApp's agents / memories / component / history, the orchestrator,
-    /// screen-share — must be pushed so it survives the clear-to-nil instead of
-    /// bouncing straight back to the canvas. Pure so the routing rule is unit
-    /// tested away from the view layer.
-    public var iOSDetailStack: [SidebarSelection] {
-        switch self {
-        case .myAppHome, .myApp: return []
-        default: return [self]
-        }
-    }
-
-    /// The detail stack after the user picks `nav` from any source (bottom bar,
-    /// sidebar, chat link) on iOS. The stack is **replaced wholesale** — picking
-    /// a tab must never clear-to-empty then refill across two transactions, which
-    /// blanks `NavigationStack` when the prior stack was non-empty. Pure so the
-    /// "replace, don't clear-first" rule is unit tested away from the view.
-    public static func detailStack(picking nav: SidebarSelection,
-                                   from current: [SidebarSelection]) -> [SidebarSelection] {
-        nav.iOSDetailStack
-    }
-
     /// MyApp id the selection belongs to, if any.
     public var myAppId: UUID? {
         switch self {

@@ -169,8 +169,16 @@ current page highlighted; the pupa keeps its own look. Every page these reach
 shares a `MyAppPageHeader` (`MyApps/MyAppPageHeader.swift`): a tinted page-name
 eyebrow (Home / Agents / Memories / History) above the subject's icon + name, so
 the active page is always self-labelling. `AppView` gates the bar
-via `barSubject` + `barPage`; taps flat-switch the root selection (reset
-`detailPath`, set `selection`, run `dispatchSelection`). Because the bar owns the
+via `barSubject` + `barPage`; taps call `setRoot`, the single entry point for
+top-level navigation: it swaps `rootPage` (the `NavigationStack` root) in place
+with animations disabled, clears drill-in pushes from `detailPath`, and runs
+`dispatchSelection`. The subject's tab pages (home / agents / memories / the
+active component canvas) stay mounted in a `ZStack` and switch by opacity
+(`DetailPane`, `Equatable` so hidden panes skip body re-evaluation) — measured
+~3× faster click→frame than rebuilding the page tree per tap. `selection` is
+only the sidebar's row highlight + tap signal (iOS clears it to nil after each
+tap so re-taps re-fire); navigation state lives in `rootPage` + `detailPath`.
+Because the bar owns the
 chat launcher on these pages, `ChatOverlay` hides its fallback circle there
 (`launcherVisible`). `MyAppMemoriesView` + `MemoryLandingRow` are
 subject-generalized (a path→selection closure), so one browse view + row serve
@@ -254,8 +262,8 @@ carries **composable, independent intents** (a step may navigate *and* open the
 chat with a prefill) — `selection`, `opensSidebar`, `settingsPage`, `opensChat`,
 `chatPrefill`, `highlight` — that target the stable routing layer, never
 geometry.
-`AppView.applyTourStep()` reconciles them: it routes `selection`/`detailPath`
-(via `dispatchSelection`, so the chat scope follows), opens the sidebar, and
+`AppView.applyTourStep()` reconciles them: it routes the step's selection
+through `setRoot` (so the chat scope follows), opens the sidebar, and
 writes the store's intent flags (`wantSettingsOpen` / `wantSettingsPage` /
 `wantChatOpen` / `chatPrefill` / `wantHighlight`). Host views then mirror those
 declaratively:
