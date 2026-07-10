@@ -3,6 +3,22 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.82] — 2026-06-29
+
+### Changed
+
+- **Renamed the app bundle ID to domain-based reverse-DNS.** The placeholder
+  `app.pupa.ios` becomes `com.pupa-app.client` (reverse-DNS of the owned domain
+  `pupa-app.com`; platform-neutral so a single Universal Purchase record covers
+  iOS + macOS). Tests/UITests use `.tests` / `.uitests` suffixes. The iCloud
+  CloudDocuments container changes to `iCloud.com.pupa-app.client`
+  (`PupaStorage.containerID`). App `0.0.181` → `0.0.182`.
+  - **Existing TestFlight users lose synced data.** The container rename makes
+    the old `iCloud.app.pupa.ios` data unreachable — pre-stable, internal
+    testers only. Re-import any `.pupa` bundles after installing the new app
+    entry (the `.pupa` UTType `com.pupa-app.app-bundle` is unchanged, so
+    existing exports stay valid).
+
 ## [0.0.81] — 2026-07-10
 
 ### Changed
