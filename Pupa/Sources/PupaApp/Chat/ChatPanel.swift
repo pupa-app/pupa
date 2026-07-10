@@ -73,6 +73,9 @@ public struct ChatPanel: View {
     @State private var streamedDraft: String = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var draft: String = ""
+    /// Focus binding for the composer; lets a tap outside / scroll resign
+    /// first responder so the iOS soft keyboard closes.
+    @FocusState private var composerFocused: Bool
     @State private var pickerItems: [PhotosPickerItem] = []
     @State private var pickedImages: [PickedImage] = []
     @State private var isLoadingImage: Bool = false
@@ -190,7 +193,17 @@ public struct ChatPanel: View {
                                 value: geo.frame(in: .named(Self.scrollSpaceName)).maxY)
                         })
                   }
+                  // Tap the message area (no scroll) → drop composer focus so
+                  // the soft keyboard closes. `simultaneousGesture` so it does
+                  // not swallow taps on interactive bubble content.
+                  #if os(iOS)
+                  .simultaneousGesture(TapGesture().onEnded { composerFocused = false })
+                  #endif
                 }
+                // Start scrolling the messages → close the keyboard too.
+                #if os(iOS)
+                .scrollDismissesKeyboard(.immediately)
+                #endif
                 .coordinateSpace(.named(Self.scrollSpaceName))
                 .defaultScrollAnchor(.bottom)
                 // Fade messages into the card material as they pass behind the
@@ -503,6 +516,7 @@ public struct ChatPanel: View {
                 #endif
                 TextField(composerPlaceholder, text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
+                    .focused($composerFocused)
                     .lineLimit(1...4)
                     // Typing stays enabled while streaming so the user can queue
                     // a follow-up; only a human-in-the-loop interrupt (answered
