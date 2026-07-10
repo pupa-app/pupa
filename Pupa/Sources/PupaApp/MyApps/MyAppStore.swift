@@ -85,15 +85,18 @@ public final class MyAppStore {
                 // Freeze legacy apps' current colors into stored slots so future
                 // deletions stop sliding them. Persist only if it changed anything.
                 if backfillColorIndices() { persist() }
+                // Drop app files the index doesn't reference — `persist()` only
+                // deletes files it saw during its own session, so orphans
+                // accumulate forever otherwise. Only when the index was
+                // actually read: on the fresh-install fallback (missing or
+                // corrupt index) existing app files are potential recovery
+                // material, not orphans.
+                Self.sweepOrphanAppFiles(keeping: Set(myApps.map(\.id)))
             } else {
                 backfillColorIndices()
                 for app in myApps { seedBirthFiles(forAppNamed: app.name) }
                 persist()
             }
-            // Drop app files the index doesn't reference — `persist()` only
-            // deletes files it saw during its own session, so orphans
-            // accumulate forever otherwise.
-            Self.sweepOrphanAppFiles(keeping: Set(myApps.map(\.id)))
         }
     }
 

@@ -17,6 +17,7 @@ struct OrphanSweepTests {
     }
 
     private func writeOrphan(_ name: String, age: TimeInterval = 0) throws -> URL {
+        try FileManager.default.createDirectory(at: appsDir, withIntermediateDirectories: true)
         let url = appsDir.appendingPathComponent(name)
         try Data("{}".utf8).write(to: url)
         if age > 0 {
@@ -63,5 +64,18 @@ struct OrphanSweepTests {
 
         _ = MyAppStore()  // relaunch → sweep
         #expect(!FileManager.default.fileExists(atPath: stale.path))
+    }
+
+    @Test("no readable index (fresh-install fallback) → sweep must not run")
+    func noSweepWithoutIndex() async throws {
+        await MyAppStore.clearStorage()
+        // App files exist but index.json is gone (corruption / partial sync).
+        // load() falls back to the fresh-install seed; sweeping here would
+        // delete files a hand-repaired index could still recover.
+        let week: TimeInterval = 7 * 24 * 3600
+        let unreferenced = try writeOrphan("\(UUID().uuidString).json", age: week + 3600)
+
+        _ = MyAppStore()  // seeds fresh — index was unreadable
+        #expect(FileManager.default.fileExists(atPath: unreferenced.path))
     }
 }
