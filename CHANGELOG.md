@@ -3,6 +3,20 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.83] — 2026-07-10
+
+### Changed
+
+- **~3× faster page navigation.** Top-level pages (bottom-bar tabs, sidebar
+  picks) now swap the `NavigationStack` root in place instead of pushing, and
+  the subject's tab pages (home / agents / memories / active component canvas)
+  stay mounted, switching by opacity behind an `Equatable` pane that skips
+  hidden-page re-evaluation. Measured click→frame on an M-series Mac (release):
+  tab switches 110–145ms → 35–60ms. Also stops `AgentsListView` from
+  re-scanning agent files off disk twice per render. Navigation state now lives
+  in `AppView.rootPage` + `detailPath` (drill-ins only); all writers route
+  through `setRoot`. App `0.0.182` → `0.0.183`.
+
 ## [0.0.82] — 2026-06-29
 
 ### Changed
