@@ -459,13 +459,15 @@ stays the **Codable persistence discriminator** (its `case` arms, `Kind`,
 `init(from:)`/`encode(to:)`, `mapLinkedItems`, `componentReferences`) — the one
 boring, safe switch Tier 1 keeps as the safety net.
 
-**Tracker is the reference** ([`Canvas/Components/Tracker/`](../Pupa/Sources/PupaApp/Canvas/Components/Tracker/)):
-its view files, `TrackerData` model, `TrackerModule`, tools (`AppTools+Tracker`),
-and item/export policies all live in one folder, with tests under
-[`Tests/PupaAppTests/Components/Tracker/`](../Pupa/Tests/PupaAppTests/Components/Tracker/).
-The other kinds are unmigrated (registry lookup returns `nil` → legacy switch)
-until they get their own module + folder. `ComponentRegistry.assertComplete` is
-wired once every supported kind ships one.
+**All six built-in kinds are migrated** — each owns a
+`Canvas/Components/<Kind>/` folder (view files, data model, `<Kind>Module`, tools
+`AppTools+<Kind>`, item/export policies) with tests under
+`Tests/PupaAppTests/Components/<Kind>/`; tracker was the reference. The legacy
+switches remain only as the `nil`-module fallback (dead for built-ins, live for
+any future kind before its module lands). Per-kind export policies live in their
+folders (`Marketplace/ComponentExportPolicies.swift` is gone). `ComponentRegistry.assertComplete`
+is wired once the `MyAppType.kinds` literal is assembled from the modules'
+`kindSpec` (the remaining Tier 1 finalize step).
 
 A `Component`'s `id` is permanent (the key every cross-component ref, active
 selection, and tool dispatch resolves by), but its `name`, `iconSystemName`,

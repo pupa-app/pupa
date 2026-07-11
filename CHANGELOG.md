@@ -3,6 +3,24 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.94] — 2026-07-11
+
+### Changed
+
+- **Remaining five shapes migrated to `ComponentModule` (issue #162).** Calendar,
+  checklist, slack, calculator, and chart now each own a
+  `Canvas/Components/<Kind>/` folder (view, data model carved out of CanvasState,
+  `<Kind>Module`, `AppTools+<Kind>` tools, item/export policies, co-located
+  tests), following the tracker reference. All six modules register in
+  `MyAppTypeRegistry.registerBuiltins()`; the inverted central sites (component
+  view, empty-state copy, canvas-summary item count, default icon) now route
+  every built-in kind through the registry. `AppTools`' per-kind tool
+  registration relocated into the folders (private helper deps downgraded to
+  `internal` where shared); `Marketplace/ComponentExportPolicies.swift` deleted
+  (its policies now live per-folder). The `CanvasApp` enum + its Codable /
+  `emptyBody` / `mapLinkedItems` stay in `CanvasState.swift` as the persistence
+  discriminator. No behaviour change. App `0.0.189` → `0.0.194`. (#162)
+
 ## [0.0.88] — 2026-07-11
 
 ### Changed
