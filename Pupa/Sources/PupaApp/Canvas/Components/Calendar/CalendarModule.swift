@@ -34,6 +34,19 @@ public struct CalendarModule: ComponentModule {
     public var itemPolicy: (any AnyItemPolicy)? { CalendarEventPolicy() }
     public var exportPolicy: any ComponentExportPolicy { CalendarExportPolicy() }
 
+    public var isLinkable: Bool { true }
+    public var linkPickerEmptyHint: String { "No events on this calendar yet" }
+    public func linkableItems(
+        in component: Component,
+        store: MyAppStore,
+        myAppId: UUID
+    ) -> [(id: UUID, displayName: String)] {
+        guard case .calendar(let c) = component.body else { return [] }
+        return c.sortedEvents.map { event in
+            (event.id, event.title.isEmpty ? "(untitled event)" : event.title)
+        }
+    }
+
     public func makeEmptyBody() -> CanvasApp {
         .calendar(CalendarData(title: "", events: []))
     }

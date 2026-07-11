@@ -566,11 +566,11 @@ public enum AppTools {
                             "error": .string("kind '\(kind)' not supported by this MyApp"),
                         ])
                     }
-                    // Registered kinds seed their icon from the module (issue
-                    // #162); unmigrated kinds fall back to the legacy switch.
+                    // Each kind seeds its own icon via its module (issue #162);
+                    // an unknown/module-less kind gets the generic placeholder.
                     let icon = explicitIcon
                         ?? ComponentRegistry.shared.module(forKind: kind)?.defaultIcon
-                        ?? defaultIcon(forKind: kind)
+                        ?? "square.dashed"
                     guard let id = store.addComponent(
                         kind: kind, name: name, iconSystemName: icon, myAppId: myAppId
                     ) else {
@@ -2175,18 +2175,6 @@ public enum AppTools {
             })
         }
         return .object(obj)
-    }
-
-    private static func defaultIcon(forKind kind: String) -> String {
-        switch kind {
-        case "tracker": return "list.bullet.rectangle"
-        case "calendar": return "calendar"
-        case "checklist": return "checklist"
-        case "calculator": return "function"
-        case "chart": return "chart.pie"
-        case "slack": return "bubble.left.and.bubble.right"
-        default: return "square.dashed"
-        }
     }
 
     static func parseFields(from json: AnyJSON?) -> [FieldDef] {

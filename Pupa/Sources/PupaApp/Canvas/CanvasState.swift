@@ -119,11 +119,16 @@ public enum CanvasApp: Codable, Hashable, Sendable {
     }
 
     /// Empty typed body for a component of the given kind. Used by
-    /// `MyAppStore.addComponent` and `MyApp.init` so a freshly created
-    /// component carries the right `kindString` before any render tool
-    /// runs — that's what lets the kind-gated tool filter (see
-    /// `MyAppType.resolvedToolNames`) advertise the per-kind tools on the
-    /// next agent round. Unknown kinds fall back to `.empty`.
+    /// `MyAppStore.addComponent` so a freshly created component carries the
+    /// right `kindString` before any render tool runs — that's what lets the
+    /// kind-gated tool filter (see `MyAppType.resolvedToolNames`) advertise the
+    /// per-kind tools on the next agent round. Unknown kinds fall back to
+    /// `.empty`.
+    ///
+    /// Kept as a switch (mirrored by each `ComponentModule.makeEmptyBody`)
+    /// rather than a registry lookup: `addComponent` is a core, heavily-tested
+    /// path, and a nonisolated switch stays correct without depending on the
+    /// `@MainActor` registry being bootstrapped first.
     public static func emptyBody(forKind kind: String) -> CanvasApp {
         switch kind {
         case "tracker": return .tracker(TrackerData(title: "", fields: []))

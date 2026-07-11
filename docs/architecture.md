@@ -451,23 +451,27 @@ singleton keyed by the lowercase kind string, populated at bootstrap in
 `itemPolicy`, `exportPolicy`, `registerTools` — each doing its own single-case
 unwrap on `CanvasApp` instead of the central exhaustive switch.
 
-The central sites are **inverted** to a registry lookup with a fallback:
-`ComponentRegistry.shared.module(forKind:)?.…` first, else the legacy switch.
-Migrated so far: `CanvasView.componentContent`, the `EmptyComponentHint` copy,
-`CanvasSummary` item count, and `AppTools` default icon. The `CanvasApp` enum
-stays the **Codable persistence discriminator** (its `case` arms, `Kind`,
-`init(from:)`/`encode(to:)`, `mapLinkedItems`, `componentReferences`) — the one
-boring, safe switch Tier 1 keeps as the safety net.
+The central sites **look up the module** instead of switching on the enum:
+`CanvasView.componentContent` → `makeView`, `EmptyComponentHint` copy →
+`emptyHint`, `CanvasSummary` size → `itemCount`, `addComponent` icon →
+`defaultIcon`, and `ComponentItemPickerSheet`'s linkable filter / section header
+/ empty hint / item enumeration → `isLinkable` / `linkableItems` /
+`linkPickerEmptyHint`. `MyAppType.kinds` is **assembled** from each module's
+`nonisolated static let kindSpec` (no literal), and `ComponentRegistry.assertComplete`
+traps at bootstrap if a supported kind lacks a module. The `CanvasApp` enum stays
+the **Codable persistence discriminator** (its `case` arms, `Kind`,
+`init(from:)`/`encode(to:)`, `mapLinkedItems`, `componentReferences`, and
+`emptyBody` — kept as a nonisolated switch on the core `addComponent` path).
 
 **All six built-in kinds are migrated** — each owns a
 `Canvas/Components/<Kind>/` folder (view files, data model, `<Kind>Module`, tools
 `AppTools+<Kind>`, item/export policies) with tests under
-`Tests/PupaAppTests/Components/<Kind>/`; tracker was the reference. The legacy
-switches remain only as the `nil`-module fallback (dead for built-ins, live for
-any future kind before its module lands). Per-kind export policies live in their
-folders (`Marketplace/ComponentExportPolicies.swift` is gone). `ComponentRegistry.assertComplete`
-is wired once the `MyAppType.kinds` literal is assembled from the modules'
-`kindSpec` (the remaining Tier 1 finalize step).
+`Tests/PupaAppTests/Components/<Kind>/`; tracker was the reference. Per-kind
+export policies live in their folders (`Marketplace/ComponentExportPolicies.swift`
+is gone). A `nil` module lookup means only `.empty` (or a future kind before its
+module lands — `assertComplete` catches that at bootstrap). Still shared in
+`MyAppStore`: the per-kind mutators, deliberately kept on the store's single
+guarded-mutation path rather than split into folders.
 
 A `Component`'s `id` is permanent (the key every cross-component ref, active
 selection, and tool dispatch resolves by), but its `name`, `iconSystemName`,

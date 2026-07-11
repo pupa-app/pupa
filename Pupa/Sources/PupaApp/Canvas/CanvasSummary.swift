@@ -122,23 +122,9 @@ public struct ComponentSummary: Encodable, Sendable {
 
     @MainActor
     private static func itemCount(of body: CanvasApp) -> Int {
-        // Registered kinds count via their module (issue #162); unmigrated
-        // kinds use the switch below.
-        if let module = ComponentRegistry.shared.module(forKind: body.kindString) {
-            return module.itemCount(body)
-        }
-        switch body {
-        case .empty: return 0
-        case .tracker(let t): return t.items.count
-        case .calendar(let c): return c.events.count
-        case .checklist(let cl): return cl.items.count
-        case .slack(let s): return s.messagesByChannel.values.reduce(0) { $0 + $1.count }
-        case .calculator(let c): return c.rows.count
-        // Resolved series live elsewhere (tracker / calculator), so a chart's
-        // own item count is just its literal inline points (0 for the other
-        // source arms).
-        case .chart(let c): return c.inlinePointCount
-        }
+        // Each kind counts its own items via its module (issue #162); `.empty`
+        // has no module and counts as 0.
+        ComponentRegistry.shared.module(forKind: body.kindString)?.itemCount(body) ?? 0
     }
 }
 

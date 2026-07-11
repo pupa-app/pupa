@@ -50,6 +50,22 @@ public struct TrackerModule: ComponentModule {
     public var itemPolicy: (any AnyItemPolicy)? { TrackerItemPolicy() }
     public var exportPolicy: any ComponentExportPolicy { TrackerExportPolicy() }
 
+    public var isLinkable: Bool { true }
+    public var linkPickerEmptyHint: String { "No items in this tracker yet" }
+    public func linkableItems(
+        in component: Component,
+        store: MyAppStore,
+        myAppId: UUID
+    ) -> [(id: UUID, displayName: String)] {
+        guard case .tracker(let t) = component.body else { return [] }
+        return t.items.map { item in
+            let name = store.displayNameForTrackerItem(
+                componentId: component.id, itemId: item.id, myAppId: myAppId)
+                ?? "Item \(item.id.uuidString.prefix(6))"
+            return (item.id, name)
+        }
+    }
+
     public func makeEmptyBody() -> CanvasApp {
         .tracker(TrackerData(title: "", fields: []))
     }

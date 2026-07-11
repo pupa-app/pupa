@@ -106,60 +106,22 @@ struct ComponentItemPickerSheet: View {
     private var linkableComponents: [Component] {
         guard let myApp = store.myApps.first(where: { $0.id == myAppId }) else { return [] }
         return myApp.components.filter {
-            switch $0.body {
-            case .tracker, .calendar, .checklist: return true
-            case .empty, .slack, .calculator, .chart: return false
-            }
+            ComponentRegistry.shared.module(forKind: $0.kindString)?.isLinkable ?? false
         }
     }
 
     private func sectionHeader(for comp: Component) -> String {
-        switch comp.body {
-        case .tracker: return "\(comp.name) (tracker)"
-        case .calendar: return "\(comp.name) (calendar)"
-        case .checklist: return "\(comp.name) (checklist)"
-        case .slack: return "\(comp.name) (slack)"
-        case .calculator: return "\(comp.name) (calculator)"
-        case .chart: return "\(comp.name) (chart)"
-        case .empty: return comp.name
-        }
+        "\(comp.name) (\(comp.kindString))"
     }
 
     private func emptyHint(for comp: Component) -> String {
-        switch comp.body {
-        case .tracker: return "No items in this tracker yet"
-        case .calendar: return "No events on this calendar yet"
-        case .checklist: return "No rows on this checklist yet"
-        case .slack: return "Nothing to link here"
-        case .calculator: return "Nothing to link here"
-        case .chart: return "Nothing to link here"
-        case .empty: return "Nothing to link here yet"
-        }
+        ComponentRegistry.shared.module(forKind: comp.kindString)?.linkPickerEmptyHint
+            ?? "Nothing to link here yet"
     }
 
     private func items(in comp: Component) -> [(UUID, String)] {
-        switch comp.body {
-        case .tracker(let t):
-            return t.items.map { item in
-                let name = store.displayNameForTrackerItem(
-                    componentId: comp.id,
-                    itemId: item.id,
-                    myAppId: myAppId
-                ) ?? "Item \(item.id.uuidString.prefix(6))"
-                return (item.id, name)
-            }
-        case .calendar(let c):
-            return c.sortedEvents.map { event in
-                let name = event.title.isEmpty ? "(untitled event)" : event.title
-                return (event.id, name)
-            }
-        case .checklist(let cl):
-            return cl.items.map { item in
-                let name = item.text.isEmpty ? "(empty item)" : item.text
-                return (item.id, name)
-            }
-        case .slack, .empty, .calculator, .chart:
-            return []
-        }
+        guard let module = ComponentRegistry.shared.module(forKind: comp.kindString) else { return [] }
+        return module.linkableItems(in: comp, store: store, myAppId: myAppId)
+            .map { ($0.id, $0.displayName) }
     }
 }
