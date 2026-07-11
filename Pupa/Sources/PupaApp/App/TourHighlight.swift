@@ -101,10 +101,13 @@ struct TourHighlightOverlay: View {
             .strokeBorder(Color.brandColor, lineWidth: 2.5)
             .shadow(color: Color.brandColor.opacity(0.6), radius: 8)
             .frame(width: ring.width, height: ring.height)
-            .position(x: ring.midX, y: ring.midY)
             // Pulse: enlarge then back to base. Floor is 1 (the emphasised
             // size) — the ring never shrinks below the control it rings.
+            // Scale BEFORE positioning so it grows about the ring's own
+            // centre; scaling after `.position` scales about the full
+            // overlay centre and drags the ring up/down.
             .scaleEffect(reduceMotion ? 1 : (pulse ? 1.08 : 1))
+            .position(x: ring.midX, y: ring.midY)
             .animation(
                 reduceMotion
                     ? nil
