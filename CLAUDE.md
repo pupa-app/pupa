@@ -95,3 +95,10 @@ to `dev`, fast-forward `main` from `dev` for releases.
 against a backend on `:8004`; `make build` / `make test` compile and
 test both Swift packages. Open `PupaHost/PupaHost.xcodeproj` in Xcode
 for iOS simulator / device runs.
+
+## CI
+
+GitHub Actions currently **fails from a billing block, not real test
+failures** — a blocked job shows 0 steps and "fails" in ~2s. Ignore red
+CI; verify locally with `make test` (the source of truth until billing
+is restored).
