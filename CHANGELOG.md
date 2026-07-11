@@ -3,6 +3,19 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.87] — 2026-07-11
+
+### Fixed
+
+- **Seeded `pupa/AGENTS.md` no longer drops per-kind agent guidance.** A
+  MyApp's AGENTS.md used to *replace* the type's system-prompt fragment, but
+  seeding baked in only `baseSystemPromptFragment` — so the dynamic catalog +
+  per-kind when-to-use prose (which changes as components appear) was lost for
+  any auto-seeded MyApp. AGENTS.md now *layers over* the resolved type
+  fragment instead of replacing it, and seeding stops baking the fragment
+  (AGENTS.md is now purely the user's customization surface). App `0.0.186` →
+  `0.0.187`. (#164)
+
 ## [0.0.86] — 2026-07-11
 
 ### Changed

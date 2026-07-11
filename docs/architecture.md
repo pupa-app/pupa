@@ -552,6 +552,13 @@ The orchestrator has its own `orchestrator/pupa/`. Visible (non-dot) so it
 rides the sidebar, per-turn snapshot, and the `.pupa` bundle; writes are
 limited to `.md` / `.json`.
 
+`AGENTS.md` *layers over* the resolved type fragment, it does not replace it
+(`MyAppPolicy.buildSystemPrompt`): the dynamic base + `kindCatalogLine` +
+per-kind prose is always prepended, then AGENTS.md rides on top as the user's
+customization. Seeding therefore no longer bakes the fragment into AGENTS.md —
+otherwise per-kind guidance froze at creation and was lost as the canvas
+changed (#164).
+
 A **skill** is a markdown playbook (`SKILL.md` + optional frontmatter), the
 directory name being its `/command`. `SkillStore`
 ([Pupa/Sources/PupaApp/Skills/](../Pupa/Sources/PupaApp/Skills/)) discovers
