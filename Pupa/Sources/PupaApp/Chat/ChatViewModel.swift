@@ -1477,7 +1477,7 @@ public final class ChatViewModel {
             let memoriesPayload: [String: [String]] = ["paths": memory.snapshotPaths()]
             let memoriesJSON = (try? JSONEncoder().encode(memoriesPayload)).flatMap { String(data: $0, encoding: .utf8) } ?? "{\"paths\":[]}"
             let memoriesEntry = AgentContextEntry(
-                description: "User memories — sandboxed markdown FileSystem persisted across sessions. Payload: flat list of paths relative to memories root. Explore via ls/read/grepMemories; write/append/editMemoryFile to save user-volunteered facts (e.g. diet.md, notes/goals.md); move/delete/createMemoryFolder for organisation.",
+                description: "User memories — sandboxed markdown FileSystem persisted across sessions. Lives app-side (on the client device), not on this backend host — reach it only via the memory tools, never as a host path. Payload: flat list of paths relative to memories root. Explore via ls/read/grepMemories; write/append/editMemoryFile to save user-volunteered facts (e.g. diet.md, notes/goals.md); move/delete/createMemoryFolder for organisation.",
                 value: memoriesJSON
             )
             // Skills available in this scope (pupa/skills/). Always present so
@@ -1541,7 +1541,7 @@ public final class ChatViewModel {
                 let typeJSON = (try? JSONEncoder().encode(typePayload)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
                 return [
                     AgentContextEntry(
-                        description: "Live canvas state — thin enum. Shape: {components: [{id, name, kind, size, summary}]}. `size` is a coarse bucket (empty/1-9/10-99/100+), not an exact count — fetch exact counts via list/search/get per-kind (they return totalItems). `summary` is YOUR slot — set via the kind's render tool with only `summary` arg; rides every turn until overwritten (record field names, select-option meanings, user intent, data state). Every tool targets a component by explicit `componentId` (omit only when exactly one of that kind exists) — there is NO active/view fallback; call `getActiveComponent` to resolve \"the one I'm looking at\". `getCanvasState` = full-dump escape hatch.",
+                        description: "Live canvas state — thin enum. This canvas lives app-side (on the client device), not on this backend host; you touch it only through the frontend tools below. Shape: {components: [{id, name, kind, size, summary}]}. `size` is a coarse bucket (empty/1-9/10-99/100+), not an exact count — fetch exact counts via list/search/get per-kind (they return totalItems). `summary` is YOUR slot — set via the kind's render tool with only `summary` arg; rides every turn until overwritten (record field names, select-option meanings, user intent, data state). Every tool targets a component by explicit `componentId` (omit only when exactly one of that kind exists) — there is NO active/view fallback; call `getActiveComponent` to resolve \"the one I'm looking at\". `getCanvasState` = full-dump escape hatch.",
                         value: canvasJSON
                     ),
                     memoriesEntry,
@@ -1568,8 +1568,10 @@ public final class ChatViewModel {
         let json = (try? JSONEncoder().encode(["agents": payload]))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "{\"agents\":[]}"
         return AgentContextEntry(
-            description: "Subagents — Claude-Code-style delegates in pupa/agents/ (the `agents` list "
-                + "below is the roster; empty means none yet). DELEGATE to one: call "
+            description: "Subagents —  Delegates in the Memories folder pupa/agents/ (the `agents` list "
+                + "below is the roster; empty means none yet). These live app-side (on the client "
+                + "device), not on your backend host — invoke and author them only via the frontend tools "
+                + "below, never as host paths. DELEGATE to one: call "
                 + "invoke_agent(name:, prompt:) — it runs in a scoped sub-session and returns its "
                 + "reply. CREATE one: writeMemoryFile to `pupa/agents/<slug>/AGENTS.md` — `<slug>` "
                 + "becomes its invoke name. Optional YAML frontmatter above the persona body: "
@@ -1602,6 +1604,8 @@ public final class ChatViewModel {
         return AgentContextEntry(
             description: "Skills — reusable `/command` playbooks in pupa/skills/ and bundled "
                 + "plugins (the `skills` list below is the catalogue; empty means none yet). "
+                + "These live app-side (on the client device), not on this backend host — load and "
+                + "author them only via the frontend tools below, never as host paths. "
                 + "USE one: call app_skill_view(name:) "
                 + "to load its full instructions, then follow them. CREATE one: writeMemoryFile to "
                 + "`pupa/skills/<name>/SKILL.md` — `<name>` becomes its /command. Optional YAML "
