@@ -3,6 +3,21 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.91] — 2026-07-11
+
+### Changed
+
+- **Slack migrated to a `ComponentModule` (issue #162).** Slack now owns
+  `Canvas/Components/Slack/` (`SlackView`, `SlackData` model, `SlackModule`,
+  `AppTools+Slack` tools + their slack-local helpers, export policy, tests).
+  `SlackModule` has no `itemPolicy` (messages aren't link targets), its
+  `makeView` takes the live `coordinator`, and its `registerTools` only fires
+  when a `SlackToolContext` is present. Registered in `registerBuiltins()`.
+  `registerSlackTools` (and its private `slackData` / `encodeFanOutOutcome` /
+  `adminForbiddenResult` helpers) relocated wholesale from the `AppTools`
+  monolith — no visibility changes needed. No behaviour change. App `0.0.191` →
+  `0.0.192`. (#162)
+
 ## [0.0.88] — 2026-07-11
 
 ### Changed

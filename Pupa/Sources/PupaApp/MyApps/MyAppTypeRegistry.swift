@@ -41,6 +41,9 @@ public final class MyAppTypeRegistry {
         if !ComponentRegistry.shared.isRegistered(forKind: "tracker") {
             ComponentRegistry.shared.register(TrackerModule())
         }
+        if !ComponentRegistry.shared.isRegistered(forKind: "slack") {
+            ComponentRegistry.shared.register(SlackModule())
+        }
 
         if !ItemPolicyRegistry.shared.isRegistered(forKind: "tracker") {
             ItemPolicyRegistry.shared.register(TrackerItemPolicy(), forKind: "tracker")
