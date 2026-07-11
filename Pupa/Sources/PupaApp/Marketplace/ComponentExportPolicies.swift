@@ -15,17 +15,6 @@ public struct CalendarExportPolicy: ComponentExportPolicy {
     }
 }
 
-/// Checklist: keep title; drop items.
-public struct ChecklistExportPolicy: ComponentExportPolicy {
-    public init() {}
-    public let kind = "checklist"
-    public func strippingUserData(_ body: CanvasApp) -> CanvasApp {
-        guard case .checklist(var cl) = body else { return body }
-        cl.items = []
-        return .checklist(cl)
-    }
-}
-
 /// Slack: keep channels (the reusable workspace); drop the chat transcript.
 /// Agent personas travel separately as `pupa/agents/<slug>/AGENTS.md` files in
 /// the app memory tree — they are not part of `SlackData`.

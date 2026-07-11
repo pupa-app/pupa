@@ -3,6 +3,19 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.90] — 2026-07-11
+
+### Changed
+
+- **Checklist migrated to a `ComponentModule` (issue #162).** Follows the
+  tracker/calendar references: checklist now owns `Canvas/Components/Checklist/`
+  (`ChecklistView`, `ChecklistData` model, `ChecklistModule`, `AppTools+Checklist`
+  tools, item + export policies, tests). `ChecklistModule` registered in
+  `registerBuiltins()`, so the already-inverted central sites route checklist
+  through the registry. `registerChecklistTools` relocated from the `AppTools`
+  monolith (private helper deps downgraded to `internal`). No behaviour change.
+  App `0.0.190` → `0.0.191`. (#162)
+
 ## [0.0.88] — 2026-07-11
 
 ### Changed
