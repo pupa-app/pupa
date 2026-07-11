@@ -11,14 +11,20 @@ public struct ChecklistView: View {
     @Bindable var store: MyAppStore
     let data: ChecklistData
     let myAppId: UUID
+    /// Component being rendered. Threaded into every mutation (add / toggle
+    /// / remove / edit) so writes land on THIS checklist, not the first
+    /// checklist in the myApp (the kind-routed fallback ignores which
+    /// component is on screen).
+    let componentId: String?
 
     @State private var draft: String = ""
     @State private var editorTarget: ChecklistItem?
 
-    public init(store: MyAppStore, data: ChecklistData, myAppId: UUID) {
+    public init(store: MyAppStore, data: ChecklistData, myAppId: UUID, componentId: String? = nil) {
         self.store = store
         self.data = data
         self.myAppId = myAppId
+        self.componentId = componentId
     }
 
     public var body: some View {
@@ -33,6 +39,7 @@ public struct ChecklistView: View {
                         ChecklistRow(
                             store: store,
                             myAppId: myAppId,
+                            componentId: componentId,
                             item: item,
                             onEdit: { editorTarget = item }
                         )
@@ -53,6 +60,7 @@ public struct ChecklistView: View {
                 store: store,
                 myAppId: myAppId,
                 item: item,
+                componentId: componentId,
                 onClose: { editorTarget = nil }
             )
         }
@@ -79,7 +87,7 @@ public struct ChecklistView: View {
     private func commitDraft() {
         let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        _ = store.addChecklistItem(text: trimmed, myAppId: myAppId)
+        _ = store.addChecklistItem(text: trimmed, myAppId: myAppId, componentId: componentId)
         draft = ""
     }
 }
@@ -117,13 +125,14 @@ private struct ChecklistTitleBar: View {
 private struct ChecklistRow: View {
     @Bindable var store: MyAppStore
     let myAppId: UUID
+    var componentId: String? = nil
     let item: ChecklistItem
     let onEdit: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Button {
-                _ = store.setChecklistItemDone(id: item.id, done: !item.done, myAppId: myAppId)
+                _ = store.setChecklistItemDone(id: item.id, done: !item.done, myAppId: myAppId, componentId: componentId)
             } label: {
                 Image(systemName: item.done ? "checkmark.square.fill" : "square")
                     .font(.title3)
@@ -150,7 +159,7 @@ private struct ChecklistRow: View {
             .buttonStyle(.plain)
             .help("Edit item")
             Button(role: .destructive) {
-                _ = store.removeChecklistItem(id: item.id, myAppId: myAppId)
+                _ = store.removeChecklistItem(id: item.id, myAppId: myAppId, componentId: componentId)
             } label: {
                 Image(systemName: "trash")
                     .font(.caption)

@@ -12,13 +12,19 @@ public struct CalendarView: View {
     /// MyApp the calendar lives in. Threaded down so linked-event
     /// resolution can find sibling tracker components in the same MyApp.
     let myAppId: UUID
+    /// Component being rendered. Threaded into the view-mode toggle and the
+    /// event editor so mutations land on THIS calendar, not the first
+    /// calendar in the myApp (the kind-routed fallback ignores which
+    /// component is on screen).
+    let componentId: String?
 
     @State private var editorTarget: EditorTarget?
 
-    public init(store: MyAppStore, data: CalendarData, myAppId: UUID) {
+    public init(store: MyAppStore, data: CalendarData, myAppId: UUID, componentId: String? = nil) {
         self.store = store
         self.data = data
         self.myAppId = myAppId
+        self.componentId = componentId
     }
 
     public var body: some View {
@@ -26,6 +32,7 @@ public struct CalendarView: View {
             CalendarTitleBar(
                 store: store,
                 data: data,
+                componentId: componentId,
                 onAddEvent: { editorTarget = .new }
             )
 
@@ -52,6 +59,7 @@ public struct CalendarView: View {
                 store: store,
                 myAppId: myAppId,
                 target: target,
+                componentId: componentId,
                 onClose: { editorTarget = nil }
             )
         }
@@ -77,6 +85,7 @@ enum EditorTarget: Identifiable {
 private struct CalendarTitleBar: View {
     @Bindable var store: MyAppStore
     let data: CalendarData
+    var componentId: String? = nil
     let onAddEvent: () -> Void
 
     var body: some View {
@@ -97,7 +106,7 @@ private struct CalendarTitleBar: View {
             // uses.
             Picker("View", selection: Binding(
                 get: { data.viewMode },
-                set: { store.setCalendarViewMode($0) }
+                set: { store.setCalendarViewMode($0, componentId: componentId) }
             )) {
                 Image(systemName: "list.bullet").tag(CalendarViewMode.list)
                 Image(systemName: "square.grid.3x3").tag(CalendarViewMode.month)
@@ -672,7 +681,7 @@ struct CalendarEventEditorSheet: View {
                 notes: normalisedNotes,
                 linkedItems: linkedItems
             )
-            _ = store.addCalendarEvent(event, myAppId: myAppId)
+            _ = store.addCalendarEvent(event, myAppId: myAppId, componentId: componentId)
         case .edit(let original):
             var patch = MyAppStore.CalendarEventPatch()
             patch.title = trimmedTitle

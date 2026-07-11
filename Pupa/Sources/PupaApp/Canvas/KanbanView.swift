@@ -21,10 +21,10 @@ public struct KanbanView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            CanvasTitleBar(store: store, data: data)
+            CanvasTitleBar(store: store, data: data, componentId: componentId)
 
             if let column = resolvedColumnField {
-                GroupByBar(store: store, fields: data.visibleFields, currentColumn: column)
+                GroupByBar(store: store, fields: data.visibleFields, currentColumn: column, componentId: componentId)
                 LanesScroller(
                     data: data,
                     column: column,
@@ -35,12 +35,12 @@ public struct KanbanView: View {
                         let current = item.values[column.name] ?? ""
                         guard current != newValue else { return }
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                            _ = store.patchItem(id: itemId, with: [column.name: newValue], myAppId: myAppId)
+                            _ = store.patchItem(id: itemId, with: [column.name: newValue], myAppId: myAppId, componentId: componentId)
                         }
                     }
                 )
             } else {
-                EmptyKanbanHint(store: store)
+                EmptyKanbanHint(store: store, componentId: componentId)
             }
         }
         .sheet(item: $sheet) { target in
@@ -102,6 +102,7 @@ private struct GroupByBar: View {
     @Bindable var store: MyAppStore
     let fields: [FieldDef]
     let currentColumn: FieldDef
+    var componentId: String? = nil
 
     var body: some View {
         HStack(spacing: 8) {
@@ -147,7 +148,7 @@ private struct GroupByBar: View {
     private func select(_ name: String) {
         guard name != currentColumn.name else { return }
         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-            _ = store.setTrackerViewMode(.kanban, columnField: name)
+            _ = store.setTrackerViewMode(.kanban, columnField: name, componentId: componentId)
         }
     }
 }
@@ -334,6 +335,7 @@ private struct Lane: View {
 
 private struct EmptyKanbanHint: View {
     @Bindable var store: MyAppStore
+    var componentId: String? = nil
 
     var body: some View {
         SectionCard {
@@ -345,7 +347,7 @@ private struct EmptyKanbanHint: View {
                     .foregroundStyle(.secondary)
                 Button {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                        _ = store.setTrackerViewMode(.grid)
+                        _ = store.setTrackerViewMode(.grid, componentId: componentId)
                     }
                 } label: {
                     Label("Back to grid", systemImage: "square.grid.2x2")
