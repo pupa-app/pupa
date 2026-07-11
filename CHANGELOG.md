@@ -3,6 +3,20 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.89] — 2026-07-11
+
+### Changed
+
+- **Calendar migrated to a `ComponentModule` (issue #162, second shape).**
+  Follows the tracker reference: calendar now owns
+  `Canvas/Components/Calendar/` (`CalendarView`, `CalendarData` model,
+  `CalendarModule`, `AppTools+Calendar` tools, event + export policies, tests).
+  `CalendarModule` is registered in `registerBuiltins()`, so the already-inverted
+  central sites (component view, empty-state copy, summary item count, default
+  icon) now route calendar through the registry too. `registerCalendarTools` was
+  relocated from the `AppTools` monolith (its private helper deps downgraded to
+  `internal`). No behaviour change. App `0.0.189` → `0.0.190`. (#162)
+
 ## [0.0.88] — 2026-07-11
 
 ### Changed

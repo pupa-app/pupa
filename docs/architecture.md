@@ -463,9 +463,11 @@ boring, safe switch Tier 1 keeps as the safety net.
 its view files, `TrackerData` model, `TrackerModule`, tools (`AppTools+Tracker`),
 and item/export policies all live in one folder, with tests under
 [`Tests/PupaAppTests/Components/Tracker/`](../Pupa/Tests/PupaAppTests/Components/Tracker/).
-The other kinds are unmigrated (registry lookup returns `nil` → legacy switch)
-until they get their own module + folder. `ComponentRegistry.assertComplete` is
-wired once every supported kind ships one.
+**Calendar** ([`Canvas/Components/Calendar/`](../Pupa/Sources/PupaApp/Canvas/Components/Calendar/))
+follows the same layout. The remaining kinds (checklist, slack, calculator,
+chart) are unmigrated (registry lookup returns `nil` → legacy switch) until they
+get their own module + folder. `ComponentRegistry.assertComplete` is wired once
+every supported kind ships one.
 
 A `Component`'s `id` is permanent (the key every cross-component ref, active
 selection, and tool dispatch resolves by), but its `name`, `iconSystemName`,

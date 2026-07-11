@@ -4,17 +4,6 @@ import Foundation
 /// `MyAppTypeRegistry.registerBuiltins()`. "Records" = user-entered rows;
 /// "structure" = the reusable schema/formulas/personas a template keeps.
 
-/// Calendar: keep title + view mode; drop events.
-public struct CalendarExportPolicy: ComponentExportPolicy {
-    public init() {}
-    public let kind = "calendar"
-    public func strippingUserData(_ body: CanvasApp) -> CanvasApp {
-        guard case .calendar(var cal) = body else { return body }
-        cal.events = []
-        return .calendar(cal)
-    }
-}
-
 /// Checklist: keep title; drop items.
 public struct ChecklistExportPolicy: ComponentExportPolicy {
     public init() {}
