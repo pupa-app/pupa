@@ -3,6 +3,16 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.86] — 2026-07-11
+
+### Changed
+
+- **Guided-tour highlight ring now pulses in size instead of fading.** The
+  ring around a tour step's target grows and shrinks (scale `1` → `1.08` →
+  `1`) with its floor at the emphasised control's size — it never shrinks
+  below what it rings. Dropped the opacity fade that read as a flicker.
+  Reduce Motion still holds it flat. App `0.0.185` → `0.0.186`.
+
 ## [0.0.85] — 2026-07-10
 
 ### Fixed
