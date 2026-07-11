@@ -3,6 +3,40 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.95] — 2026-07-11
+
+### Changed
+
+- **Component-module Tier-1 finalize (issue #162).** Two invariant-tightening
+  steps now that all six kinds ship a module:
+  - `ComponentRegistry.assertComplete` is wired at bootstrap — traps if a
+    supported kind lacks a module (runtime replacement for the enum's
+    compile-time exhaustiveness on the inverted central sites).
+  - Each kind's `ComponentKindSpec` (tools + prompt + catalog blurb) now lives
+    on its module as `nonisolated static let kindSpec`; `MyAppType.tracker.kinds`
+    is **assembled** from those instead of a hand-maintained literal — the module
+    is the single source of truth, so there's no parallel map to drift.
+
+  No behaviour change. App `0.0.194` → `0.0.195`. (#162)
+
+## [0.0.94] — 2026-07-11
+
+### Changed
+
+- **Remaining five shapes migrated to `ComponentModule` (issue #162).** Calendar,
+  checklist, slack, calculator, and chart now each own a
+  `Canvas/Components/<Kind>/` folder (view, data model carved out of CanvasState,
+  `<Kind>Module`, `AppTools+<Kind>` tools, item/export policies, co-located
+  tests), following the tracker reference. All six modules register in
+  `MyAppTypeRegistry.registerBuiltins()`; the inverted central sites (component
+  view, empty-state copy, canvas-summary item count, default icon) now route
+  every built-in kind through the registry. `AppTools`' per-kind tool
+  registration relocated into the folders (private helper deps downgraded to
+  `internal` where shared); `Marketplace/ComponentExportPolicies.swift` deleted
+  (its policies now live per-folder). The `CanvasApp` enum + its Codable /
+  `emptyBody` / `mapLinkedItems` stay in `CanvasState.swift` as the persistence
+  discriminator. No behaviour change. App `0.0.189` → `0.0.194`. (#162)
+
 ## [0.0.88] — 2026-07-11
 
 ### Changed

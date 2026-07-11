@@ -258,132 +258,16 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
             "linkItem",
             "unlinkItem",
         ],
+        // Assembled from each component's `ComponentModule.kindSpec` — the
+        // modules own their tools + prompt + catalog blurb (issue #162). Adding
+        // a kind = write its module and add one line here; no literal to drift.
         kinds: [
-            "tracker": ComponentKindSpec(
-                tools: [
-                    "renderTracker",
-                    "addTrackerItems",
-                    "removeTrackerItems",
-                    "patchTrackerItems",
-                    "setTrackerFilter",
-                    "setTrackerViewMode",
-                    "addFieldOption",
-                    "removeFieldOption",
-                    "addTrackerField",
-                    "renameTrackerField",
-                    "reorderTrackerFields",
-                    "hideTrackerField",
-                    "showTrackerField",
-                    "listTrackerItems",
-                    "searchTrackerItems",
-                    "getTrackerItem",
-                ],
-                promptFragment: """
-                TRACKER — multi-field rows (form + filter + card/kanban). Pick \
-                TRACKER when rows carry multiple fields (status, category, image); \
-                CHECKLIST otherwise. Explore via list/search/getTrackerItem; \
-                `summary` slot — set via renderTracker(summary:).
-                """,
-                catalogBlurb: "multi-field records in a table/kanban (fields, filters, cards)"
-            ),
-            "calendar": ComponentKindSpec(
-                tools: [
-                    "renderCalendar",
-                    "addCalendarEvent",
-                    "removeCalendarEvent",
-                    "patchCalendarEvent",
-                    "setCalendarViewMode",
-                    "listCalendarEvents",
-                    "getCalendarEvent",
-                ],
-                promptFragment: """
-                CALENDAR — time-indexed events (list or month grid). Pick when \
-                date is the primary axis. Explore via list/getCalendarEvent; \
-                `summary` slot — set via renderCalendar(summary:).
-                """,
-                catalogBlurb: "time-indexed events in a list or month grid"
-            ),
-            "checklist": ComponentKindSpec(
-                tools: [
-                    "renderChecklist",
-                    "addChecklistItem",
-                    "toggleChecklistItem",
-                    "patchChecklistItem",
-                    "removeChecklistItem",
-                    "listChecklistItems",
-                    "getChecklistItem",
-                ],
-                promptFragment: """
-                CHECKLIST — done/not-done rows, no per-row metadata. Switch to \
-                TRACKER once rows need multiple fields. Explore via \
-                list/getChecklistItem; `summary` slot — set via renderChecklist(summary:).
-                """,
-                catalogBlurb: "simple done/not-done items, no per-row fields"
-            ),
-            "slack": ComponentKindSpec(
-                tools: [
-                    "slackListAgents",
-                    "slackListChannels",
-                    "slackReadChannelHistory",
-                    "slackPostMessage",
-                    "slackCreateChannels",
-                    "slackAddAgentsToChannel",
-                ],
-                promptFragment: """
-                SLACK — multi-agent rooms over generic subagents. Agents ARE \
-                `pupa/agents/<slug>/AGENTS.md` subagents (create one by writing \
-                that file with editMemoryFile; frontmatter `name`/`description`/\
-                `tools`/`model`). Setup: author the personas, then \
-                slackCreateChannels (seed + member slugs) — resolve slugs via \
-                slackListAgents. Users @-mention to invoke; sub-agent: \
-                slackPostMessage to speak, @-mention another to fan out \
-                (reentrancy + depth caps return `{outcome}` in `fanOut`). Channel \
-                admin tools refuse for sub-agents.
-                """,
-                catalogBlurb: "multi-agent chat rooms (subagent personas, channels, @-mentions)"
-            ),
-            "calculator": ComponentKindSpec(
-                tools: [
-                    "renderCalculator",
-                    "addCalcRows",
-                    "patchCalcRows",
-                    "removeCalcRows",
-                    "setCalcRowLink",
-                    "listCalcRows",
-                    "getCalcRow",
-                    "embedComponent",
-                ],
-                promptFragment: """
-                CALCULATOR — live numeric model. Rows: tunable inputs (VARIABLE), \
-                formulas over other rows by key (FORMULA), tracker aggregates \
-                (AGGREGATE), one field off a linked tracker item (LINKED_FIELD — \
-                swap the item with setCalcRowLink to re-run the model), array \
-                output for charts (LIST, incl. linkedCompare to compare a set of \
-                linked items on a target row), section labels (HEADER). Use when \
-                user wants a model to tune in real time. Explore via \
-                list/getCalcRow; `summary` slot — set via renderCalculator(summary:).
-                """,
-                catalogBlurb: "live numeric model with tunable inputs + formula rows"
-            ),
-            "chart": ComponentKindSpec(
-                tools: [
-                    "renderChart",
-                    "patchChart",
-                    "setChartKind",
-                    "addChartSeries",
-                    "removeChartSeries",
-                    "embedComponent",
-                ],
-                promptFragment: """
-                CHART — pie/bar/line with overlaid series. Sources: tracker (group \
-                by field), calculator rows (by key), calculator list row \
-                (sweep/column), or inline points. Multi-series over a shared x \
-                axis = line chart with multiple CALCULATOR_LIST or TRACKER series. \
-                Pairs naturally with a calculator LIST row. To show the user a chart \
-                inline in the conversation, embedComponent(hostKind:"chat").
-                """,
-                catalogBlurb: "pie/bar/line visualisation of tracker or calculator data"
-            ),
+            "tracker": TrackerModule.kindSpec,
+            "calendar": CalendarModule.kindSpec,
+            "checklist": ChecklistModule.kindSpec,
+            "slack": SlackModule.kindSpec,
+            "calculator": CalculatorModule.kindSpec,
+            "chart": ChartModule.kindSpec,
         ]
         // No cross-kind gates as of project `0.0.41`. The generic
         // `linkItem` / `unlinkItem` pair lives in `baseToolNames` and

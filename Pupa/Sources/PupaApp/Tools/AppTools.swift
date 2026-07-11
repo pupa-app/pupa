@@ -482,7 +482,7 @@ public enum AppTools {
     }
 
     @MainActor
-    private static func resolveCalendar(
+    static func resolveCalendar(
         store: MyAppStore,
         myAppId: UUID,
         componentId: String?
@@ -495,7 +495,7 @@ public enum AppTools {
     }
 
     @MainActor
-    private static func resolveChecklist(
+    static func resolveChecklist(
         store: MyAppStore,
         myAppId: UUID,
         componentId: String?
@@ -724,1565 +724,6 @@ public enum AppTools {
                         "componentId": .string(id),
                         "changed": .bool(changed),
                     ])
-                }
-            }
-        ))
-    }
-
-    // MARK: - Calendar tools
-
-    @MainActor
-    private static func registerCalendarTools(
-        on registry: ToolRegistry,
-        store: MyAppStore,
-        myAppId: UUID
-    ) {
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "renderCalendar",
-                description: """
-                Render a calendar on the first calendar component in this MyApp \
-                (or the active component if it's a calendar) and/or set the \
-                calendar's LLM-authored content `summary`. Passing `title` is a \
-                DESTRUCTIVE full render — replaces the existing event list. For \
-                incremental changes use addCalendarEvent / patchCalendarEvent / \
-                removeCalendarEvent. `events` is optional; pass [] to start \
-                empty. Each event needs {title, start (ISO-8601), end? \
-                (ISO-8601), location?, notes?}. If no calendar component exists \
-                yet, call `addComponent(kind:"calendar", name:…)` first. \
-                Pass `summary` alone (no `title`) to update your content \
-                summary without re-rendering — round-trips back in every \
-                turn's canvas state. Result echoes {title, eventCount, \
-                summarySet?}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "componentId": componentIdSchema(kind: "calendar"),
-                        "title": ["type": "string"],
-                        "events": [
-                            "type": "array",
-                            "items": calendarEventSchema(),
-                        ],
-                        "summary": [
-                            "type": "string",
-                            "description": "Your content summary for this calendar — what its events represent, recurring intent, who attends. Pass alone (without `title`) to update without re-rendering. Round-trips back in canvas state every turn.",
-                        ],
-                    ],
-                ]
-            ),
-            handler: { args in
-                let titleArg = args["title"]?.stringValue
-                let summaryArg = args["summary"]
-                let componentIdArg = args["componentId"]?.stringValue
-                let hasSummary = summaryArg != nil
-                let hasBodyArgs = titleArg != nil
-                return await MainActor.run {
-                    guard hasBodyArgs || hasSummary else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": "renderCalendar called with no arguments. Pass `title` (with optional `events`) for a full render and/or `summary` to update your content summary.",
-                        ])
-                    }
-                    let resolvedId: String
-                    switch store.resolveRenderTarget(kind: "calendar", componentId: componentIdArg, myAppId: myAppId) {
-                    case .failure(let msg):
-                        return .object(["ok": .bool(false), "error": .string(msg)])
-                    case .resolved(let id):
-                        resolvedId = id
-                    }
-                    if let title = titleArg {
-                        let events = parseEvents(from: args["events"])
-                        store.setCalendar(title: title, events: events, myAppId: myAppId, componentId: resolvedId)
-                    }
-                    var summarySet = false
-                    if hasSummary {
-                        summarySet = store.setComponentSummary(
-                            forKind: "calendar",
-                            summary: summaryArg?.stringValue,
-                            myAppId: myAppId,
-                            componentId: resolvedId
-                        )
-                    }
-                    let c = calendar(store, myAppId: myAppId, componentId: resolvedId)
-                    var result: [String: AnyJSON] = ["ok": .bool(c != nil), "componentId": .string(resolvedId)]
-                    if let title = titleArg { result["title"] = .string(title) }
-                    result["eventCount"] = .int(c?.events.count ?? 0)
-                    if hasSummary {
-                        result["summarySet"] = .bool(summarySet)
-                    }
-                    return .object(result)
-                }
-            }
-        ))
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "addCalendarEvent",
-                description: """
-                Append one event to the calendar. `start` (and optional `end`) \
-                are ISO-8601 strings (e.g. "2026-05-14T10:00:00Z"). Resolve \
-                relative user phrases ("tomorrow 3pm") against today's date \
-                before calling. `linkedItems` optionally attaches one or \
-                more tracker rows to the event — each rendered as an inline \
-                chain-link pill under the title and kept live (edits to the \
-                tracker row update the pill). To show a tracker on a \
-                calendar, prefer ONE addCalendarEvent per intent with \
-                `linkedItems` populated over creating separate ad-hoc + \
-                linked events. Result echoes {id, eventCount}. Use the \
-                returned `id` to refer to the event in subsequent \
-                patchCalendarEvent / removeCalendarEvent / linkItem calls.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "event": calendarEventSchema(),
-                        "componentId": componentIdSchema(kind: "calendar"),
-                    ],
-                    "required": ["event"],
-                ]
-            ),
-            handler: { args in
-                guard let obj = args["event"]?.objectValue,
-                      let title = obj["title"]?.stringValue,
-                      let start = obj["start"]?.stringValue else {
-                    return .object([
-                        "ok": .bool(false),
-                        "error": "missing 'event.title' or 'event.start'",
-                    ])
-                }
-                let componentIdArg = args["componentId"]?.stringValue
-                let event = CalendarEvent(
-                    title: title,
-                    start: start,
-                    end: obj["end"]?.stringValue,
-                    location: obj["location"]?.stringValue,
-                    notes: obj["notes"]?.stringValue,
-                    linkedItems: parseLinkedItems(from: obj["linkedItems"])
-                )
-                return await MainActor.run {
-                    let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "calendar", componentId: componentIdArg, myAppId: myAppId) {
-                    case .failure(let msg):
-                        return .object(["ok": .bool(false), "error": .string(msg)])
-                    case .resolved(let id):
-                        resolvedId = id
-                    }
-                    guard let id = store.addCalendarEvent(event, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "addCalendarEvent")) else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": "no calendar component in this MyApp — call renderCalendar or addComponent first",
-                        ])
-                    }
-                    let c = calendar(store, myAppId: myAppId, componentId: resolvedId)
-                    return .object([
-                        "ok": .bool(true),
-                        "componentId": .string(resolvedId),
-                        "id": .string(id.uuidString),
-                        "eventCount": .int(c?.events.count ?? 0),
-                        "linkCount": .int(event.linkedItems.count),
-                    ])
-                }
-            }
-        ))
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "removeCalendarEvent",
-                description: """
-                Remove a calendar event by `id` (the stable UUID returned by \
-                addCalendarEvent / getCanvasState). Result echoes \
-                {removed, id, eventCount}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "id": ["type": "string"],
-                        "componentId": componentIdSchema(kind: "calendar"),
-                    ],
-                    "required": ["id"],
-                ]
-            ),
-            handler: { args in
-                let idString = args["id"]?.stringValue ?? ""
-                guard let uuid = UUID(uuidString: idString) else {
-                    return .object([
-                        "ok": .bool(false),
-                        "error": .string("invalid id '\(idString)' (expected a UUID)"),
-                    ])
-                }
-                let componentIdArg = args["componentId"]?.stringValue
-                return await MainActor.run {
-                    let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "calendar", componentId: componentIdArg, myAppId: myAppId) {
-                    case .failure(let msg):
-                        return .object(["ok": .bool(false), "error": .string(msg)])
-                    case .resolved(let id):
-                        resolvedId = id
-                    }
-                    guard let removed = store.removeCalendarEvent(id: uuid, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "removeCalendarEvent")) else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": .string("no event with id \(idString)"),
-                        ])
-                    }
-                    let c = calendar(store, myAppId: myAppId, componentId: resolvedId)
-                    return .object([
-                        "ok": .bool(true),
-                        "componentId": .string(resolvedId),
-                        "id": .string(idString),
-                        "removed": .object([
-                            "title": .string(removed.title),
-                            "start": .string(removed.start),
-                        ]),
-                        "eventCount": .int(c?.events.count ?? 0),
-                    ])
-                }
-            }
-        ))
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "setCalendarViewMode",
-                description: """
-                Switch the calendar's rendering between 'list' (upcoming \
-                events grouped by day) and 'month' (7-column grid with the \
-                selected day's events expanded below). Same data — only the \
-                view changes. Use this when the user asks to "show as month" \
-                / "switch to month view" / "go back to list". Result echoes \
-                {mode}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "mode": ["type": "string", "enum": ["list", "month"]],
-                        "componentId": componentIdSchema(kind: "calendar"),
-                    ],
-                    "required": ["mode"],
-                ]
-            ),
-            handler: { args in
-                let raw = args["mode"]?.stringValue ?? ""
-                let componentIdArg = args["componentId"]?.stringValue
-                guard let mode = CalendarViewMode(rawValue: raw) else {
-                    return .object([
-                        "ok": .bool(false),
-                        "error": .string("invalid mode '\(raw)' (expected 'list' or 'month')"),
-                    ])
-                }
-                return await MainActor.run {
-                    let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "calendar", componentId: componentIdArg, myAppId: myAppId) {
-                    case .failure(let msg):
-                        return .object(["ok": .bool(false), "error": .string(msg)])
-                    case .resolved(let id):
-                        resolvedId = id
-                    }
-                    guard let resolved = store.setCalendarViewMode(mode, myAppId: myAppId, componentId: resolvedId) else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": .string("no calendar component in this MyApp"),
-                        ])
-                    }
-                    return .object([
-                        "ok": .bool(true),
-                        "componentId": .string(resolvedId),
-                        "mode": .string(resolved.rawValue),
-                    ])
-                }
-            }
-        ))
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "patchCalendarEvent",
-                description: """
-                Edit one calendar event by `id`. Only fields included in the \
-                `patch` object are changed. To clear an optional field, pass \
-                an empty string. `start` and `end` are ISO-8601 strings. \
-                `linkedItems` in the patch REPLACES the full list of refs \
-                (use linkItem / unlinkItem for fine-grained edits). Result \
-                echoes {event, id}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "id": ["type": "string"],
-                        "patch": [
-                            "type": "object",
-                            "properties": [
-                                "title": ["type": "string"],
-                                "start": ["type": "string"],
-                                "end": ["type": "string"],
-                                "location": ["type": "string"],
-                                "notes": ["type": "string"],
-                                "linkedItems": [
-                                    "type": "array",
-                                    "items": [
-                                        "type": "object",
-                                        "properties": [
-                                            "componentId": ["type": "string"],
-                                            "itemId": ["type": "string"],
-                                        ],
-                                        "required": ["componentId", "itemId"],
-                                    ],
-                                ],
-                            ],
-                        ],
-                        "componentId": componentIdSchema(kind: "calendar"),
-                    ],
-                    "required": ["id", "patch"],
-                ]
-            ),
-            handler: { args in
-                let idString = args["id"]?.stringValue ?? ""
-                guard let uuid = UUID(uuidString: idString) else {
-                    return .object([
-                        "ok": .bool(false),
-                        "error": .string("invalid id '\(idString)' (expected a UUID)"),
-                    ])
-                }
-                let componentIdArg = args["componentId"]?.stringValue
-                let patchObj = args["patch"]?.objectValue ?? [:]
-                var patch = MyAppStore.CalendarEventPatch()
-                if let v = patchObj["title"]?.stringValue { patch.title = v }
-                if let v = patchObj["start"]?.stringValue { patch.start = v }
-                if let v = patchObj["end"]?.stringValue {
-                    patch.end = .some(v.isEmpty ? nil : v)
-                }
-                if let v = patchObj["location"]?.stringValue {
-                    patch.location = .some(v.isEmpty ? nil : v)
-                }
-                if let v = patchObj["notes"]?.stringValue {
-                    patch.notes = .some(v.isEmpty ? nil : v)
-                }
-                if patchObj["linkedItems"] != nil {
-                    patch.linkedItems = parseLinkedItems(from: patchObj["linkedItems"])
-                }
-                return await MainActor.run {
-                    let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "calendar", componentId: componentIdArg, myAppId: myAppId) {
-                    case .failure(let msg):
-                        return .object(["ok": .bool(false), "error": .string(msg)])
-                    case .resolved(let id):
-                        resolvedId = id
-                    }
-                    guard let after = store.patchCalendarEvent(id: uuid, patch: patch, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "patchCalendarEvent")) else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": .string("no event with id \(idString)"),
-                        ])
-                    }
-                    return .object([
-                        "ok": .bool(true),
-                        "componentId": .string(resolvedId),
-                        "id": .string(idString),
-                        "event": eventAsAnyJSON(after),
-                    ])
-                }
-            }
-        ))
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "listCalendarEvents",
-                description: """
-                Paginated read of a calendar's events as one-line previews \
-                (`title @ start — location?` with long values cut by \
-                ` [PREVIEW END]`). Use this — not `getCanvasState` — to \
-                drill into a calendar beyond the 2-event sticky preview \
-                in the stable canvas summary. Events are pre-sorted \
-                ascending by `start`. Optional `dateRange: {from, to}` \
-                (ISO-8601 strings, both inclusive) bounds which events \
-                are paginated; either bound is itself optional. `offset` \
-                (default 0) and `limit` (default 20, max 100) slice the \
-                filtered list. `componentId` optional — resolves to the \
-                active / first calendar. Result: {ok, componentId, \
-                totalEvents, offset, limit, items: [{id, preview}]}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "componentId": ["type": "string"],
-                        "offset": ["type": "integer", "minimum": 0],
-                        "limit": ["type": "integer", "minimum": 1, "maximum": 100],
-                        "dateRange": [
-                            "type": "object",
-                            "properties": [
-                                "from": ["type": "string", "description": "ISO-8601 inclusive lower bound on event.start"],
-                                "to": ["type": "string", "description": "ISO-8601 inclusive upper bound on event.start"],
-                            ],
-                        ],
-                    ],
-                ]
-            ),
-            readOnly: true,
-            handler: { args in
-                let componentId = args["componentId"]?.stringValue
-                let offset = max(0, args["offset"]?.intValue ?? 0)
-                let limit = min(100, max(1, args["limit"]?.intValue ?? 20))
-                let from = args["dateRange"]?["from"]?.stringValue
-                let to = args["dateRange"]?["to"]?.stringValue
-                return await MainActor.run {
-                    guard let resolved = resolveCalendar(store: store, myAppId: myAppId, componentId: componentId) else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": "no calendar component matches that componentId (or this myApp has no calendar).",
-                        ])
-                    }
-                    let (cal, resolvedId) = resolved
-                    let filtered = cal.sortedEvents.filter { event in
-                        if let from, event.start < from { return false }
-                        if let to, event.start > to { return false }
-                        return true
-                    }
-                    let total = filtered.count
-                    let slice = offset >= total ? [] : Array(filtered[offset..<min(offset + limit, total)])
-                    let items: [AnyJSON] = slice.map { event in
-                        .object([
-                            "id": .string(event.id.uuidString),
-                            "preview": .string(CanvasPreview.calendarEvent(event)),
-                        ])
-                    }
-                    return .object([
-                        "ok": .bool(true),
-                        "componentId": .string(resolvedId),
-                        "totalEvents": .int(total),
-                        "offset": .int(offset),
-                        "limit": .int(limit),
-                        "items": .array(items),
-                    ])
-                }
-            }
-        ))
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "getCalendarEvent",
-                description: """
-                Full read of one calendar event — title, start, end?, \
-                location?, notes?, linkedItems. No truncation. \
-                `componentId` optional — resolves to the active / first \
-                calendar. `eventId` is the stable UUID returned by \
-                addCalendarEvent / listCalendarEvents. Result: {ok, \
-                componentId, event: {id, title, start, end?, location?, \
-                notes?, linkedItems: [{componentId, itemId}]}}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "componentId": ["type": "string"],
-                        "eventId": ["type": "string"],
-                    ],
-                    "required": ["eventId"],
-                ]
-            ),
-            readOnly: true,
-            handler: { args in
-                let componentId = args["componentId"]?.stringValue
-                guard let eventIdString = args["eventId"]?.stringValue,
-                      let eventId = UUID(uuidString: eventIdString) else {
-                    return .object([
-                        "ok": .bool(false),
-                        "error": "missing or malformed `eventId` (expected UUID).",
-                    ])
-                }
-                return await MainActor.run {
-                    guard let resolved = resolveCalendar(store: store, myAppId: myAppId, componentId: componentId) else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": "no calendar component matches that componentId (or this myApp has no calendar).",
-                        ])
-                    }
-                    let (cal, resolvedId) = resolved
-                    guard let event = cal.events.first(where: { $0.id == eventId }) else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": .string("no event with id '\(eventIdString)' in calendar '\(resolvedId)'."),
-                        ])
-                    }
-                    return .object([
-                        "ok": .bool(true),
-                        "componentId": .string(resolvedId),
-                        "event": eventAsAnyJSON(event),
-                    ])
-                }
-            }
-        ))
-    }
-
-    // MARK: - Checklist tools
-
-    @MainActor
-    private static func registerChecklistTools(
-        on registry: ToolRegistry,
-        store: MyAppStore,
-        myAppId: UUID
-    ) {
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "renderChecklist",
-                description: """
-                Render a checklist on the first checklist component in this \
-                MyApp (or the active component if it's a checklist) and/or set \
-                the checklist's LLM-authored content `summary`. Passing `title` \
-                is a DESTRUCTIVE full render — replaces the existing item \
-                list. For incremental changes use addChecklistItem / \
-                patchChecklistItem / removeChecklistItem / \
-                toggleChecklistItem. `items` is optional; pass [] to start \
-                empty. Each item needs {text, done? (default false)}. If no \
-                checklist component exists yet, call \
-                `addComponent(kind:"checklist", name:…)` first. \
-                Pass `summary` alone (no `title`) to update your content \
-                summary without re-rendering — round-trips back in every \
-                turn's canvas state. Result echoes {title, itemCount, \
-                summarySet?}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "componentId": componentIdSchema(kind: "checklist"),
-                        "title": ["type": "string"],
-                        "items": [
-                            "type": "array",
-                            "items": checklistItemSchema(),
-                        ],
-                        "summary": [
-                            "type": "string",
-                            "description": "Your content summary for this checklist — what its rows represent, the user's intent, current state. Pass alone (without `title`) to update without re-rendering. Round-trips back in canvas state every turn.",
-                        ],
-                    ],
-                ]
-            ),
-            handler: { args in
-                let titleArg = args["title"]?.stringValue
-                let summaryArg = args["summary"]
-                let componentIdArg = args["componentId"]?.stringValue
-                let hasSummary = summaryArg != nil
-                let hasBodyArgs = titleArg != nil
-                return await MainActor.run {
-                    guard hasBodyArgs || hasSummary else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": "renderChecklist called with no arguments. Pass `title` (with optional `items`) for a full render and/or `summary` to update your content summary.",
-                        ])
-                    }
-                    let resolvedId: String
-                    switch store.resolveRenderTarget(kind: "checklist", componentId: componentIdArg, myAppId: myAppId) {
-                    case .failure(let msg):
-                        return .object(["ok": .bool(false), "error": .string(msg)])
-                    case .resolved(let id):
-                        resolvedId = id
-                    }
-                    if let title = titleArg {
-                        let items = parseChecklistItems(from: args["items"])
-                        store.setChecklist(title: title, items: items, myAppId: myAppId, componentId: resolvedId)
-                    }
-                    var summarySet = false
-                    if hasSummary {
-                        summarySet = store.setComponentSummary(
-                            forKind: "checklist",
-                            summary: summaryArg?.stringValue,
-                            myAppId: myAppId,
-                            componentId: resolvedId
-                        )
-                    }
-                    let cl = checklist(store, myAppId: myAppId, componentId: resolvedId)
-                    var result: [String: AnyJSON] = ["ok": .bool(cl != nil), "componentId": .string(resolvedId)]
-                    if let title = titleArg { result["title"] = .string(title) }
-                    result["itemCount"] = .int(cl?.items.count ?? 0)
-                    if hasSummary {
-                        result["summarySet"] = .bool(summarySet)
-                    }
-                    return .object(result)
-                }
-            }
-        ))
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "addChecklistItem",
-                description: """
-                Append one row to the checklist. `text` is the displayed \
-                line; `done` defaults to false. Result echoes {id, \
-                itemCount}. Use the returned `id` to refer to the row in \
-                subsequent toggleChecklistItem / patchChecklistItem / \
-                removeChecklistItem / linkItem calls.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "text": ["type": "string"],
-                        "done": ["type": "boolean"],
-                        "componentId": componentIdSchema(kind: "checklist"),
-                    ],
-                    "required": ["text"],
-                ]
-            ),
-            handler: { args in
-                let text = args["text"]?.stringValue ?? ""
-                let done = args["done"]?.boolValue ?? false
-                let componentIdArg = args["componentId"]?.stringValue
-                return await MainActor.run {
-                    let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "checklist", componentId: componentIdArg, myAppId: myAppId) {
-                    case .failure(let msg):
-                        return .object(["ok": .bool(false), "error": .string(msg)])
-                    case .resolved(let id):
-                        resolvedId = id
-                    }
-                    guard let id = store.addChecklistItem(text: text, done: done, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "addChecklistItem")) else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": "no checklist component in this MyApp — call renderChecklist or addComponent first",
-                        ])
-                    }
-                    let cl = checklist(store, myAppId: myAppId, componentId: resolvedId)
-                    return .object([
-                        "ok": .bool(true),
-                        "componentId": .string(resolvedId),
-                        "id": .string(id.uuidString),
-                        "itemCount": .int(cl?.items.count ?? 0),
-                    ])
-                }
-            }
-        ))
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "toggleChecklistItem",
-                description: """
-                Flip a checklist row's `done` flag (true → false, false → \
-                true). Identify the row with its stable UUID `id`. Use \
-                patchChecklistItem when you want to set `done` to a specific \
-                value rather than flip it. Result echoes {id, done, \
-                itemCount}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "id": ["type": "string"],
-                        "componentId": componentIdSchema(kind: "checklist"),
-                    ],
-                    "required": ["id"],
-                ]
-            ),
-            handler: { args in
-                let idString = args["id"]?.stringValue ?? ""
-                guard let uuid = UUID(uuidString: idString) else {
-                    return .object([
-                        "ok": .bool(false),
-                        "error": .string("invalid id '\(idString)' (expected a UUID)"),
-                    ])
-                }
-                let componentIdArg = args["componentId"]?.stringValue
-                return await MainActor.run {
-                    let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "checklist", componentId: componentIdArg, myAppId: myAppId) {
-                    case .failure(let msg):
-                        return .object(["ok": .bool(false), "error": .string(msg)])
-                    case .resolved(let id):
-                        resolvedId = id
-                    }
-                    guard let newValue = store.toggleChecklistItem(id: uuid, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "toggleChecklistItem")) else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": .string("no checklist item with id \(idString)"),
-                        ])
-                    }
-                    let cl = checklist(store, myAppId: myAppId, componentId: resolvedId)
-                    return .object([
-                        "ok": .bool(true),
-                        "componentId": .string(resolvedId),
-                        "id": .string(idString),
-                        "done": .bool(newValue),
-                        "itemCount": .int(cl?.items.count ?? 0),
-                    ])
-                }
-            }
-        ))
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "patchChecklistItem",
-                description: """
-                Edit one checklist row by `id`. Only fields included in the \
-                `patch` object are changed. `linkedItems` in the patch \
-                REPLACES the full list of refs (use linkItem / unlinkItem \
-                for fine-grained edits). Result echoes {id, item}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "id": ["type": "string"],
-                        "patch": [
-                            "type": "object",
-                            "properties": [
-                                "text": ["type": "string"],
-                                "done": ["type": "boolean"],
-                                "linkedItems": [
-                                    "type": "array",
-                                    "items": [
-                                        "type": "object",
-                                        "properties": [
-                                            "componentId": ["type": "string"],
-                                            "itemId": ["type": "string"],
-                                        ],
-                                        "required": ["componentId", "itemId"],
-                                    ],
-                                ],
-                            ],
-                        ],
-                        "componentId": componentIdSchema(kind: "checklist"),
-                    ],
-                    "required": ["id", "patch"],
-                ]
-            ),
-            handler: { args in
-                let idString = args["id"]?.stringValue ?? ""
-                guard let uuid = UUID(uuidString: idString) else {
-                    return .object([
-                        "ok": .bool(false),
-                        "error": .string("invalid id '\(idString)' (expected a UUID)"),
-                    ])
-                }
-                let componentIdArg = args["componentId"]?.stringValue
-                let patchObj = args["patch"]?.objectValue ?? [:]
-                var patch = MyAppStore.ChecklistItemPatch()
-                if let v = patchObj["text"]?.stringValue { patch.text = v }
-                if let v = patchObj["done"]?.boolValue { patch.done = v }
-                if patchObj["linkedItems"] != nil {
-                    patch.linkedItems = parseLinkedItems(from: patchObj["linkedItems"])
-                }
-                return await MainActor.run {
-                    let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "checklist", componentId: componentIdArg, myAppId: myAppId) {
-                    case .failure(let msg):
-                        return .object(["ok": .bool(false), "error": .string(msg)])
-                    case .resolved(let id):
-                        resolvedId = id
-                    }
-                    guard let after = store.patchChecklistItem(id: uuid, patch: patch, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "patchChecklistItem")) else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": .string("no checklist item with id \(idString)"),
-                        ])
-                    }
-                    return .object([
-                        "ok": .bool(true),
-                        "componentId": .string(resolvedId),
-                        "id": .string(idString),
-                        "item": checklistItemAsAnyJSON(after),
-                    ])
-                }
-            }
-        ))
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "removeChecklistItem",
-                description: """
-                Remove a checklist row by `id` (the stable UUID returned by \
-                addChecklistItem / getCanvasState). Result echoes \
-                {removed, id, itemCount}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "id": ["type": "string"],
-                        "componentId": componentIdSchema(kind: "checklist"),
-                    ],
-                    "required": ["id"],
-                ]
-            ),
-            handler: { args in
-                let idString = args["id"]?.stringValue ?? ""
-                guard let uuid = UUID(uuidString: idString) else {
-                    return .object([
-                        "ok": .bool(false),
-                        "error": .string("invalid id '\(idString)' (expected a UUID)"),
-                    ])
-                }
-                let componentIdArg = args["componentId"]?.stringValue
-                return await MainActor.run {
-                    let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "checklist", componentId: componentIdArg, myAppId: myAppId) {
-                    case .failure(let msg):
-                        return .object(["ok": .bool(false), "error": .string(msg)])
-                    case .resolved(let id):
-                        resolvedId = id
-                    }
-                    guard let removed = store.removeChecklistItem(id: uuid, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "removeChecklistItem")) else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": .string("no checklist item with id \(idString)"),
-                        ])
-                    }
-                    let cl = checklist(store, myAppId: myAppId, componentId: resolvedId)
-                    return .object([
-                        "ok": .bool(true),
-                        "componentId": .string(resolvedId),
-                        "id": .string(idString),
-                        "removed": .object([
-                            "text": .string(removed.text),
-                            "done": .bool(removed.done),
-                        ]),
-                        "itemCount": .int(cl?.items.count ?? 0),
-                    ])
-                }
-            }
-        ))
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "listChecklistItems",
-                description: """
-                Paginated read of a checklist's rows as one-line previews \
-                (`[x] text` / `[ ] text` with long text cut by \
-                ` [PREVIEW END]`). Use this — not `getCanvasState` — to \
-                drill into a checklist beyond the 2-row sticky preview in \
-                the stable canvas summary. `status` filters: \"open\" \
-                (done=false), \"done\" (done=true), or \"all\" (default). \
-                `offset` (default 0) and `limit` (default 20, max 100) \
-                slice the filtered list (preserves insertion order). \
-                `componentId` optional — resolves to the active / first \
-                checklist. Result: {ok, componentId, totalItems, offset, \
-                limit, items: [{id, preview, done}]}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "componentId": ["type": "string"],
-                        "offset": ["type": "integer", "minimum": 0],
-                        "limit": ["type": "integer", "minimum": 1, "maximum": 100],
-                        "status": ["type": "string", "enum": ["open", "done", "all"]],
-                    ],
-                ]
-            ),
-            readOnly: true,
-            handler: { args in
-                let componentId = args["componentId"]?.stringValue
-                let offset = max(0, args["offset"]?.intValue ?? 0)
-                let limit = min(100, max(1, args["limit"]?.intValue ?? 20))
-                let status = args["status"]?.stringValue ?? "all"
-                return await MainActor.run {
-                    guard let resolved = resolveChecklist(store: store, myAppId: myAppId, componentId: componentId) else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": "no checklist component matches that componentId (or this myApp has no checklist).",
-                        ])
-                    }
-                    let (cl, resolvedId) = resolved
-                    let filtered: [ChecklistItem] = {
-                        switch status {
-                        case "open": return cl.items.filter { !$0.done }
-                        case "done": return cl.items.filter { $0.done }
-                        default: return cl.items
-                        }
-                    }()
-                    let total = filtered.count
-                    let slice = offset >= total ? [] : Array(filtered[offset..<min(offset + limit, total)])
-                    let items: [AnyJSON] = slice.map { item in
-                        .object([
-                            "id": .string(item.id.uuidString),
-                            "preview": .string(CanvasPreview.checklistItem(item)),
-                            "done": .bool(item.done),
-                        ])
-                    }
-                    return .object([
-                        "ok": .bool(true),
-                        "componentId": .string(resolvedId),
-                        "totalItems": .int(total),
-                        "offset": .int(offset),
-                        "limit": .int(limit),
-                        "items": .array(items),
-                    ])
-                }
-            }
-        ))
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "getChecklistItem",
-                description: """
-                Full read of one checklist row — text, done, linkedItems. \
-                No truncation. `componentId` optional — resolves to the \
-                active / first checklist. `itemId` is the stable UUID \
-                returned by addChecklistItem / listChecklistItems. \
-                Result: {ok, componentId, item: {id, text, done, \
-                linkedItems: [{componentId, itemId}]}}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "componentId": ["type": "string"],
-                        "itemId": ["type": "string"],
-                    ],
-                    "required": ["itemId"],
-                ]
-            ),
-            readOnly: true,
-            handler: { args in
-                let componentId = args["componentId"]?.stringValue
-                guard let itemIdString = args["itemId"]?.stringValue,
-                      let itemId = UUID(uuidString: itemIdString) else {
-                    return .object([
-                        "ok": .bool(false),
-                        "error": "missing or malformed `itemId` (expected UUID).",
-                    ])
-                }
-                return await MainActor.run {
-                    guard let resolved = resolveChecklist(store: store, myAppId: myAppId, componentId: componentId) else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": "no checklist component matches that componentId (or this myApp has no checklist).",
-                        ])
-                    }
-                    let (cl, resolvedId) = resolved
-                    guard let item = cl.items.first(where: { $0.id == itemId }) else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": .string("no item with id '\(itemIdString)' in checklist '\(resolvedId)'."),
-                        ])
-                    }
-                    return .object([
-                        "ok": .bool(true),
-                        "componentId": .string(resolvedId),
-                        "item": checklistItemAsAnyJSON(item),
-                    ])
-                }
-            }
-        ))
-    }
-
-    // MARK: - Calculator tools
-
-    @MainActor
-    private static func registerCalculatorTools(
-        on registry: ToolRegistry,
-        store: MyAppStore,
-        myAppId: UUID
-    ) {
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "renderCalculator",
-                description: """
-                Render a calculator and/or set its `summary`. `title` = \
-                DESTRUCTIVE full render — replaces all rows; for incremental \
-                use addCalcRows / patchCalcRows / removeCalcRows. `summary` \
-                alone = update without re-render. Row shapes: see `rows` \
-                schema (variable / aggregate / formula / list / header). \
-                Result: {rowCount, results:[{key, value, status}], summarySet?}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "componentId": componentIdSchema(kind: "calculator"),
-                        "title": ["type": "string"],
-                        "rows": ["type": "array", "items": calcRowSchema()],
-                        "summary": [
-                            "type": "string",
-                            "description": "Your content summary for this calculator — what it models, which rows are the tunable inputs, what the key outputs mean. Pass alone (without `title`) to update without re-rendering. Round-trips back in canvas state every turn.",
-                        ],
-                    ],
-                ]
-            ),
-            handler: { args in
-                let titleArg = args["title"]?.stringValue
-                let summaryArg = args["summary"]
-                let componentIdArg = args["componentId"]?.stringValue
-                let hasSummary = summaryArg != nil
-                let hasBodyArgs = titleArg != nil
-                return await MainActor.run {
-                    guard hasBodyArgs || hasSummary else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": "renderCalculator called with no arguments. Pass `title` (with optional `rows`) for a full render and/or `summary` to update your content summary.",
-                        ])
-                    }
-                    let resolvedId: String
-                    switch store.resolveRenderTarget(kind: "calculator", componentId: componentIdArg, myAppId: myAppId) {
-                    case .failure(let msg):
-                        return .object(["ok": .bool(false), "error": .string(msg)])
-                    case .resolved(let id):
-                        resolvedId = id
-                    }
-                    if let title = titleArg {
-                        let rows = parseCalcRows(from: args["rows"])
-                        store.setCalculator(title: title, rows: rows, myAppId: myAppId, componentId: resolvedId)
-                    }
-                    var summarySet = false
-                    if hasSummary {
-                        summarySet = store.setComponentSummary(
-                            forKind: "calculator",
-                            summary: summaryArg?.stringValue,
-                            myAppId: myAppId,
-                            componentId: resolvedId
-                        )
-                    }
-                    guard let data = calculator(store, myAppId: myAppId, componentId: resolvedId) else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": "no calculator component in this MyApp — call addComponent(kind:\"calculator\", …) first",
-                        ])
-                    }
-                    var result: [String: AnyJSON] = ["ok": .bool(true), "componentId": .string(resolvedId)]
-                    if let title = titleArg { result["title"] = .string(title) }
-                    result["rowCount"] = .int(data.rows.count)
-                    result["results"] = calcResults(store: store, myAppId: myAppId, data: data)
-                    if hasSummary { result["summarySet"] = .bool(summarySet) }
-                    return .object(result)
-                }
-            }
-        ))
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "addCalcRows",
-                description: """
-                Append one or more rows to the calculator. Always pass a \
-                `rows` array — wrap a single row as `[{ ... }]`. Each row is \
-                {key?, name, unit?, format?, kind} (see renderCalculator for \
-                the kind shapes). `key` is the stable slug formulas reference; \
-                omit it to derive one from `name`. Duplicate keys are \
-                de-duplicated (`spend`, `spend_2`, …) — the resolved keys are \
-                returned. Result echoes {added:[{key,name}], rowCount, \
-                results}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "rows": ["type": "array", "items": calcRowSchema()],
-                        "componentId": componentIdSchema(kind: "calculator"),
-                    ],
-                    "required": ["rows"],
-                ]
-            ),
-            handler: { args in
-                guard let entries = args["rows"]?.arrayValue, !entries.isEmpty else {
-                    return .object(["ok": .bool(false), "error": "missing 'rows' array"])
-                }
-                let componentIdArg = args["componentId"]?.stringValue
-                return await MainActor.run {
-                    let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "calculator", componentId: componentIdArg, myAppId: myAppId) {
-                    case .failure(let msg):
-                        return .object(["ok": .bool(false), "error": .string(msg)])
-                    case .resolved(let id):
-                        resolvedId = id
-                    }
-                    var added: [AnyJSON] = []
-                    for entry in entries {
-                        guard let (key, name, unit, format, kind) = parseCalcRowParts(from: entry) else { continue }
-                        if let resolvedKey = store.addCalcRow(
-                            key: key, name: name, unit: unit, format: format, kind: kind,
-                            myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "addCalcRows")
-                        ) {
-                            added.append(.object(["key": .string(resolvedKey), "name": .string(name)]))
-                        }
-                    }
-                    let data = calculator(store, myAppId: myAppId, componentId: resolvedId)
-                    var result: [String: AnyJSON] = [
-                        "ok": .bool(true),
-                        "componentId": .string(resolvedId),
-                        "added": .array(added),
-                        "rowCount": .int(data?.rows.count ?? 0),
-                    ]
-                    if let data { result["results"] = calcResults(store: store, myAppId: myAppId, data: data) }
-                    return .object(result)
-                }
-            }
-        ))
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "patchCalcRows",
-                description: """
-                Edit one or more rows by `key`. Always pass a `patches` array \
-                — wrap a single edit as `[{ ... }]`. Each entry is {key, \
-                patch} where `patch` may contain {name?, unit?, format?, \
-                kind?}. `key` itself is immutable (so formulas never break); \
-                `kind` replaces the whole row behaviour. Result echoes \
-                {patched:[keys], rowCount, results}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "patches": [
-                            "type": "array",
-                            "items": [
-                                "type": "object",
-                                "properties": [
-                                    "key": ["type": "string"],
-                                    "patch": calcRowPatchSchema(),
-                                ],
-                                "required": ["key", "patch"],
-                            ],
-                        ],
-                        "componentId": componentIdSchema(kind: "calculator"),
-                    ],
-                    "required": ["patches"],
-                ]
-            ),
-            handler: { args in
-                guard let entries = args["patches"]?.arrayValue, !entries.isEmpty else {
-                    return .object(["ok": .bool(false), "error": "missing 'patches' array"])
-                }
-                let componentIdArg = args["componentId"]?.stringValue
-                return await MainActor.run {
-                    let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "calculator", componentId: componentIdArg, myAppId: myAppId) {
-                    case .failure(let msg):
-                        return .object(["ok": .bool(false), "error": .string(msg)])
-                    case .resolved(let id):
-                        resolvedId = id
-                    }
-                    var patched: [AnyJSON] = []
-                    for entry in entries {
-                        guard let key = entry["key"]?.stringValue else { continue }
-                        let patch = parseCalcRowPatch(from: entry["patch"])
-                        if store.patchCalcRow(key: key, patch: patch, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "patchCalcRows")) {
-                            patched.append(.string(key))
-                        }
-                    }
-                    let data = calculator(store, myAppId: myAppId, componentId: resolvedId)
-                    var result: [String: AnyJSON] = [
-                        "ok": .bool(true),
-                        "componentId": .string(resolvedId),
-                        "patched": .array(patched),
-                        "rowCount": .int(data?.rows.count ?? 0),
-                    ]
-                    if let data { result["results"] = calcResults(store: store, myAppId: myAppId, data: data) }
-                    return .object(result)
-                }
-            }
-        ))
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "removeCalcRows",
-                description: """
-                Remove one or more rows by `key`. Always pass a `keys` array \
-                — wrap a single key as `["..."]`. Formulas that referenced a \
-                removed key then resolve to a `brokenRef` status (handled \
-                live; other rows are not rewritten). Result echoes \
-                {removed:[keys], rowCount}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "keys": ["type": "array", "items": ["type": "string"]],
-                        "componentId": componentIdSchema(kind: "calculator"),
-                    ],
-                    "required": ["keys"],
-                ]
-            ),
-            handler: { args in
-                guard let keys = args["keys"]?.arrayValue?.compactMap(\.stringValue), !keys.isEmpty else {
-                    return .object(["ok": .bool(false), "error": "missing 'keys' array"])
-                }
-                let componentIdArg = args["componentId"]?.stringValue
-                return await MainActor.run {
-                    let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "calculator", componentId: componentIdArg, myAppId: myAppId) {
-                    case .failure(let msg):
-                        return .object(["ok": .bool(false), "error": .string(msg)])
-                    case .resolved(let id):
-                        resolvedId = id
-                    }
-                    var removed: [AnyJSON] = []
-                    for key in keys {
-                        if store.removeCalcRow(key: key, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "removeCalcRows")) {
-                            removed.append(.string(key))
-                        }
-                    }
-                    let data = calculator(store, myAppId: myAppId, componentId: resolvedId)
-                    return .object([
-                        "ok": .bool(true),
-                        "componentId": .string(resolvedId),
-                        "removed": .array(removed),
-                        "rowCount": .int(data?.rows.count ?? 0),
-                    ])
-                }
-            }
-        ))
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "setCalcRowLink",
-                description: """
-                Point a `linkedField` row at a tracker item (the "pick a \
-                house" swap) — every formula above re-runs against the new \
-                item's fields. `key` is the linkedField row. `ref` is \
-                {componentId, itemId}; pass null to clear the link. Result \
-                echoes {ok, key, results}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "key": ["type": "string"],
-                        "ref": [
-                            "type": "object",
-                            "properties": [
-                                "componentId": ["type": "string"],
-                                "itemId": ["type": "string"],
-                            ],
-                            "required": ["componentId", "itemId"],
-                        ],
-                        "componentId": componentIdSchema(kind: "calculator"),
-                    ],
-                    "required": ["key"],
-                ]
-            ),
-            handler: { args in
-                guard let key = args["key"]?.stringValue else {
-                    return .object(["ok": .bool(false), "error": "missing 'key'"])
-                }
-                let ref = parseRef(from: args["ref"])
-                let componentIdArg = args["componentId"]?.stringValue
-                return await MainActor.run {
-                    let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "calculator", componentId: componentIdArg, myAppId: myAppId) {
-                    case .failure(let msg):
-                        return .object(["ok": .bool(false), "error": .string(msg)])
-                    case .resolved(let id):
-                        resolvedId = id
-                    }
-                    let ok = store.setCalcRowLinkedRef(
-                        key: key,
-                        ref: ref,
-                        myAppId: myAppId,
-                        componentId: resolvedId,
-                        actor: .agent(toolName: "setCalcRowLink")
-                    )
-                    var result: [String: AnyJSON] = ["ok": .bool(ok), "componentId": .string(resolvedId), "key": .string(key)]
-                    if let data = calculator(store, myAppId: myAppId, componentId: resolvedId) {
-                        result["results"] = calcResults(store: store, myAppId: myAppId, data: data)
-                    }
-                    return .object(result)
-                }
-            }
-        ))
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "listCalcRows",
-                description: """
-                Read a calculator's rows with their live-resolved values. \
-                `componentId` optional — resolves to the active / first \
-                calculator. `offset` (default 0) and `limit` (default 50, max \
-                100) slice the row list in order. Result: {ok, componentId, \
-                title, totalRows, offset, limit, rows:[{key, name, kind, \
-                value, status}]}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "componentId": ["type": "string"],
-                        "offset": ["type": "integer", "minimum": 0],
-                        "limit": ["type": "integer", "minimum": 1, "maximum": 100],
-                    ],
-                ]
-            ),
-            readOnly: true,
-            handler: { args in
-                let componentId = args["componentId"]?.stringValue
-                let offset = max(0, args["offset"]?.intValue ?? 0)
-                let limit = min(100, max(1, args["limit"]?.intValue ?? 50))
-                return await MainActor.run {
-                    guard let resolved = resolveCalculator(store: store, myAppId: myAppId, componentId: componentId) else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": "no calculator component matches that componentId (or this myApp has no calculator).",
-                        ])
-                    }
-                    let (data, resolvedId) = resolved
-                    let results = CalculatorResolver.resolve(data, components: siblingComponents(store: store, myAppId: myAppId))
-                    let total = data.rows.count
-                    let slice = offset >= total ? [] : Array(data.rows[offset..<min(offset + limit, total)])
-                    let rows: [AnyJSON] = slice.map { calcRowAsAnyJSON($0, result: results.result(forKey: $0.key), full: false) }
-                    return .object([
-                        "ok": .bool(true),
-                        "componentId": .string(resolvedId),
-                        "title": .string(data.title),
-                        "totalRows": .int(total),
-                        "offset": .int(offset),
-                        "limit": .int(limit),
-                        "rows": .array(rows),
-                    ])
-                }
-            }
-        ))
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "getCalcRow",
-                description: """
-                Full read of one calculator row by `key` — name, unit, \
-                format, the complete kind spec (variable value/control, \
-                aggregate source/field/reduce/filter, or formula expression), \
-                plus the live-resolved {value, status}. `componentId` optional \
-                — resolves to the active / first calculator. Result: {ok, \
-                componentId, row}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "componentId": ["type": "string"],
-                        "key": ["type": "string"],
-                    ],
-                    "required": ["key"],
-                ]
-            ),
-            readOnly: true,
-            handler: { args in
-                let componentId = args["componentId"]?.stringValue
-                guard let key = args["key"]?.stringValue else {
-                    return .object(["ok": .bool(false), "error": "missing `key`."])
-                }
-                return await MainActor.run {
-                    guard let resolved = resolveCalculator(store: store, myAppId: myAppId, componentId: componentId) else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": "no calculator component matches that componentId (or this myApp has no calculator).",
-                        ])
-                    }
-                    let (data, resolvedId) = resolved
-                    guard let row = data.rows.first(where: { $0.key == key }) else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": .string("no row with key '\(key)' in calculator '\(resolvedId)'."),
-                        ])
-                    }
-                    let results = CalculatorResolver.resolve(data, components: siblingComponents(store: store, myAppId: myAppId))
-                    return .object([
-                        "ok": .bool(true),
-                        "componentId": .string(resolvedId),
-                        "row": calcRowAsAnyJSON(row, result: results.result(forKey: key), full: true),
-                    ])
-                }
-            }
-        ))
-    }
-
-    // MARK: - Chart tools
-
-    @MainActor
-    private static func registerChartTools(
-        on registry: ToolRegistry,
-        store: MyAppStore,
-        myAppId: UUID
-    ) {
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "renderChart",
-                description: """
-                Render a chart on the first chart component in this MyApp (or \
-                the active component if it's a chart). DESTRUCTIVE — overwrites \
-                title / kind / series. `kind` is one of pie | bar | line. \
-                `series` is an ARRAY of overlaid series (line/bar overlay with \
-                a colour each + legend; pie uses series[0] only). Each series \
-                is {name?, colorHex?, source} where `source` is one of: \
-                {type:"tracker", componentId, groupBy, valueField, \
-                reduce:"sum|avg|min|max|count", filter?, xIsNumericOrDate?}; \
-                {type:"calculatorRows", componentId, keys:[...]}; \
-                {type:"calculatorList", componentId, key} — plot one \
-                calculator `.list` row (a sweep / column array); or \
-                {type:"inline", points:[{label, x?, y}]}. If no chart \
-                component exists yet, call addComponent(kind:"chart", name:…) \
-                first. Result echoes {ok, componentId, title, kind, \
-                seriesCount, pointCount}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "componentId": componentIdSchema(kind: "chart"),
-                        "title": ["type": "string"],
-                        "kind": ["type": "string", "enum": ["pie", "bar", "line"]],
-                        "series": ["type": "array", "items": chartSeriesSchema()],
-                    ],
-                    "required": ["title", "kind", "series"],
-                ]
-            ),
-            handler: { args in
-                guard let title = args["title"]?.stringValue,
-                      let kindRaw = args["kind"]?.stringValue,
-                      let kind = ChartKind(rawValue: kindRaw) else {
-                    return .object(["ok": .bool(false), "error": "renderChart needs `title`, `kind` (pie|bar|line), and `series`."])
-                }
-                let componentIdArg = args["componentId"]?.stringValue
-                let series = parseChartSeries(from: args["series"])
-                return await MainActor.run {
-                    let resolvedId: String
-                    switch store.resolveRenderTarget(kind: "chart", componentId: componentIdArg, myAppId: myAppId) {
-                    case .failure(let msg):
-                        return .object(["ok": .bool(false), "error": .string(msg)])
-                    case .resolved(let id):
-                        resolvedId = id
-                    }
-                    store.setChart(title: title, kind: kind, series: series, myAppId: myAppId, componentId: resolvedId)
-                    return chartEcho(store: store, myAppId: myAppId, componentId: resolvedId)
-                }
-            }
-        ))
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "patchChart",
-                description: """
-                Edit the chart in place — only the fields you pass change. \
-                {title?, kind?, series?} (same shapes as renderChart; `series` \
-                replaces the whole list — use addChartSeries / \
-                removeChartSeries for incremental). Result echoes {ok, \
-                componentId, title, kind, seriesCount, pointCount}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "componentId": componentIdSchema(kind: "chart"),
-                        "title": ["type": "string"],
-                        "kind": ["type": "string", "enum": ["pie", "bar", "line"]],
-                        "series": ["type": "array", "items": chartSeriesSchema()],
-                    ],
-                ]
-            ),
-            handler: { args in
-                let componentIdArg = args["componentId"]?.stringValue
-                var patch = MyAppStore.ChartPatch()
-                if let t = args["title"]?.stringValue { patch.title = t }
-                if let k = args["kind"]?.stringValue, let kind = ChartKind(rawValue: k) { patch.kind = kind }
-                if args["series"] != nil { patch.series = parseChartSeries(from: args["series"]) }
-                return await MainActor.run {
-                    let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "chart", componentId: componentIdArg, myAppId: myAppId) {
-                    case .failure(let msg):
-                        return .object(["ok": .bool(false), "error": .string(msg)])
-                    case .resolved(let id):
-                        resolvedId = id
-                    }
-                    guard store.patchChart(patch: patch, myAppId: myAppId, componentId: resolvedId) else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": "no chart component in this MyApp — call addComponent(kind:\"chart\", …) or renderChart first",
-                        ])
-                    }
-                    return chartEcho(store: store, myAppId: myAppId, componentId: resolvedId)
-                }
-            }
-        ))
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "addChartSeries",
-                description: """
-                Append one or more series to the chart (each gets its own \
-                colour + legend entry). Pass `series` (array of {name?, \
-                colorHex?, source}; see renderChart). Result echoes {ok, \
-                componentId, title, kind, seriesCount, pointCount}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "series": ["type": "array", "items": chartSeriesSchema()],
-                        "componentId": componentIdSchema(kind: "chart"),
-                    ],
-                    "required": ["series"],
-                ]
-            ),
-            handler: { args in
-                let componentIdArg = args["componentId"]?.stringValue
-                let specs = parseChartSeries(from: args["series"])
-                return await MainActor.run {
-                    let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "chart", componentId: componentIdArg, myAppId: myAppId) {
-                    case .failure(let msg):
-                        return .object(["ok": .bool(false), "error": .string(msg)])
-                    case .resolved(let id):
-                        resolvedId = id
-                    }
-                    guard store.addChartSeries(specs, myAppId: myAppId, componentId: resolvedId) != nil else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": "no chart component in this MyApp — call addComponent(kind:\"chart\", …) or renderChart first",
-                        ])
-                    }
-                    return chartEcho(store: store, myAppId: myAppId, componentId: resolvedId)
-                }
-            }
-        ))
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "removeChartSeries",
-                description: """
-                Remove the series at 0-based `index`. Result echoes {ok, \
-                componentId, title, kind, seriesCount, pointCount}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "index": ["type": "integer", "minimum": 0],
-                        "componentId": componentIdSchema(kind: "chart"),
-                    ],
-                    "required": ["index"],
-                ]
-            ),
-            handler: { args in
-                guard let index = args["index"]?.intValue else {
-                    return .object(["ok": .bool(false), "error": "removeChartSeries needs `index`."])
-                }
-                let componentIdArg = args["componentId"]?.stringValue
-                return await MainActor.run {
-                    let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "chart", componentId: componentIdArg, myAppId: myAppId) {
-                    case .failure(let msg):
-                        return .object(["ok": .bool(false), "error": .string(msg)])
-                    case .resolved(let id):
-                        resolvedId = id
-                    }
-                    guard store.removeChartSeries(index: index, myAppId: myAppId, componentId: resolvedId) else {
-                        return .object([
-                            "ok": .bool(false),
-                            "error": "no chart series at that index (or no chart component).",
-                        ])
-                    }
-                    return chartEcho(store: store, myAppId: myAppId, componentId: resolvedId)
-                }
-            }
-        ))
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "setChartKind",
-                description: """
-                Flip the chart's kind (pie | bar | line) without touching its \
-                series. Result echoes {ok, componentId, title, kind, \
-                seriesCount, pointCount}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "kind": ["type": "string", "enum": ["pie", "bar", "line"]],
-                        "componentId": componentIdSchema(kind: "chart"),
-                    ],
-                    "required": ["kind"],
-                ]
-            ),
-            handler: { args in
-                guard let k = args["kind"]?.stringValue, let kind = ChartKind(rawValue: k) else {
-                    return .object(["ok": .bool(false), "error": "setChartKind needs `kind` (pie|bar|line)."])
-                }
-                let componentIdArg = args["componentId"]?.stringValue
-                return await MainActor.run {
-                    let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "chart", componentId: componentIdArg, myAppId: myAppId) {
-                    case .failure(let msg):
-                        return .object(["ok": .bool(false), "error": .string(msg)])
-                    case .resolved(let id):
-                        resolvedId = id
-                    }
-                    store.setChartKind(kind, myAppId: myAppId, componentId: resolvedId)
-                    return chartEcho(store: store, myAppId: myAppId, componentId: resolvedId)
                 }
             }
         ))
@@ -2857,483 +1298,6 @@ public enum AppTools {
                 }
             }
         ))
-    }
-
-    // MARK: - Slack tools
-
-    /// Tools that drive a Slack canvas component. Three flavours:
-    ///
-    /// - **Discovery** (any caller): `slackListAgents`,
-    ///   `slackListChannels`, `slackReadChannelHistory`.
-    /// - **Posting** (sub-agents only): `slackPostMessage`.
-    ///   Authors a message as the current sub-agent and fans out
-    ///   to any `@mentioned` agents through the same
-    ///   `invokeSlackAgent` path the user composer uses — so the
-    ///   `SlackInvoker` reentrancy + max-depth guard applies to
-    ///   agent-triggered chains too. Multiple calls in one turn
-    ///   are allowed; auto-post of the agent's final assistant
-    ///   text is suppressed when this tool has been used.
-    /// - **Admin** (main chat panel only): `slackCreateAgent`,
-    ///   `slackCreateChannels`, `slackAddAgentsToChannel`. Refuse
-    ///   when `context.currentAgentId` is non-nil so sub-agents
-    ///   can't spawn more agents / channels in v1.
-    @MainActor
-    public static func registerSlackTools(
-        on registry: ToolRegistry,
-        store: MyAppStore,
-        myAppId: UUID,
-        memory: MemoryStore? = nil,
-        context: SlackToolContext
-    ) {
-        // --- Discovery -----------------------------------------
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "slackListAgents",
-                description: """
-                List every subagent available in this MyApp (the `pupa/agents/` \
-                roster) — these are the agents a channel can add and users can \
-                @-mention. Result echoes {agents: [{id, name, description}]}, \
-                where `id` is the slug used in channel rosters and @-mentions.
-                """,
-                parameters: ["type": "object", "properties": [:]]
-            ),
-            handler: { _ in
-                return await MainActor.run {
-                    let roster = memory.map { AgentStore(memory: $0).agents } ?? []
-                    let entries: [AnyJSON] = roster.map { a in
-                        .object([
-                            "id": .string(a.name),
-                            "name": .string(a.displayName ?? a.name),
-                            "description": .string(a.description),
-                        ])
-                    }
-                    return .object([
-                        "ok": .bool(true),
-                        "agents": .array(entries),
-                    ])
-                }
-            }
-        ))
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "slackListChannels",
-                description: """
-                List every channel / group-DM / DM in this MyApp's \
-                Slack canvas. Result echoes \
-                {channels: [{id, name, type, memberAgentIds}]}.
-                """,
-                parameters: ["type": "object", "properties": [:]]
-            ),
-            handler: { _ in
-                return await MainActor.run {
-                    guard let s = slackData(store, myAppId: myAppId) else {
-                        return .object(["ok": .bool(false), "error": "no slack component"])
-                    }
-                    let entries: [AnyJSON] = s.channels.map { c in
-                        .object([
-                            "id": .string(c.id),
-                            "name": .string(c.name),
-                            "type": .string(c.type.rawValue),
-                            "memberAgentIds": .array(c.memberAgentIds.map { .string($0) }),
-                        ])
-                    }
-                    return .object([
-                        "ok": .bool(true),
-                        "channels": .array(entries),
-                    ])
-                }
-            }
-        ))
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "slackReadChannelHistory",
-                description: """
-                Read messages from a Slack channel. `channelId` is \
-                required; `limit` (optional, default 50) caps the \
-                number of messages returned. By default returns the \
-                most-recent messages. Pass `before` (a message id) \
-                to fetch the page strictly older than that message — \
-                use the `id` of the oldest message from a previous \
-                call to walk back through history. Invocation prompts \
-                only include the most recent slice of a channel, so \
-                use this tool when older context matters. Result \
-                echoes {messages: [{id, channelId, authorKind, \
-                authorId, text, timestamp}], totalMessages, hasMore}; \
-                `hasMore: true` means older messages exist beyond \
-                the returned page.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "channelId": ["type": "string"],
-                        "limit": ["type": "integer"],
-                        "before": ["type": "string"],
-                    ],
-                    "required": ["channelId"],
-                ]
-            ),
-            handler: { args in
-                let channelId = args["channelId"]?.stringValue ?? ""
-                let limit = args["limit"]?.intValue ?? 50
-                let before = args["before"]?.stringValue
-                return await MainActor.run {
-                    guard let s = slackData(store, myAppId: myAppId) else {
-                        return .object(["ok": .bool(false), "error": "no slack component"])
-                    }
-                    let all = (s.messagesByChannel[channelId] ?? [])
-                        .sorted { $0.timestamp < $1.timestamp }
-                    let pool: [SlackMessage]
-                    if let before, !before.isEmpty,
-                       let cursorIdx = all.firstIndex(where: { $0.id == before }) {
-                        pool = Array(all.prefix(cursorIdx))
-                    } else {
-                        pool = all
-                    }
-                    let cap = max(0, limit)
-                    let trimmed = Array(pool.suffix(cap))
-                    let hasMore = pool.count > trimmed.count
-                    let formatter = ISO8601DateFormatter()
-                    let entries: [AnyJSON] = trimmed.map { m in
-                        .object([
-                            "id": .string(m.id),
-                            "channelId": .string(m.channelId),
-                            "authorKind": .string(m.authorKind.rawValue),
-                            "authorId": .string(m.authorId),
-                            "text": .string(m.text),
-                            "timestamp": .string(formatter.string(from: m.timestamp)),
-                        ])
-                    }
-                    return .object([
-                        "ok": .bool(true),
-                        "messages": .array(entries),
-                        "totalMessages": .int(all.count),
-                        "hasMore": .bool(hasMore),
-                    ])
-                }
-            }
-        ))
-
-        // --- Posting (sub-agents only) -------------------------
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "slackPostMessage",
-                description: """
-                Post a message into a Slack channel as the running \
-                agent. Use this when you want to say more than one \
-                thing in a turn (e.g. "looking…" → run a tool → \
-                "here it is"). If you don't call this and end your \
-                turn with a normal assistant message, your final \
-                reply is auto-posted for you, so simple Q&A \
-                doesn't need this tool. Any `@mentions` in `text` \
-                fan out — each mentioned agent is invoked \
-                synchronously on the same channel, returning their \
-                final reply through this tool result. Reentrancy + \
-                a chain-depth cap prevent infinite call loops. \
-                Result echoes \
-                {messageId, channelId, fanOut: [{agentId, outcome, text?, error?}]}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "channelId": ["type": "string"],
-                        "text": ["type": "string"],
-                    ],
-                    "required": ["channelId", "text"],
-                ]
-            ),
-            handler: { args in
-                let channelId = args["channelId"]?.stringValue ?? ""
-                let text = args["text"]?.stringValue ?? ""
-                guard let currentAgentId = context.currentAgentId else {
-                    return .object([
-                        "ok": .bool(false),
-                        "error": .string("slackPostMessage requires a sub-agent context — only invoked agents can post."),
-                    ])
-                }
-                let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmedText.isEmpty else {
-                    return .object([
-                        "ok": .bool(false),
-                        "error": .string("text must be non-empty"),
-                    ])
-                }
-                // Snapshot @mentions BEFORE posting — we want the
-                // text the agent actually wrote, not whatever the
-                // store coerces. Mentions resolve against the filesystem roster.
-                let rosterSnapshot = await MainActor.run {
-                    memory.map { AgentStore(memory: $0).agents } ?? []
-                }
-                let mentions = SlackView.parseMentions(text: trimmedText, agents: rosterSnapshot)
-                // Resolve componentId for the store mutator.
-                let componentId = await MainActor.run {
-                    store.slackComponentId(myAppId: myAppId)
-                }
-                guard let componentId else {
-                    return .object([
-                        "ok": .bool(false),
-                        "error": .string("no slack component"),
-                    ])
-                }
-                let messageId = await MainActor.run {
-                    store.slackPostMessage(
-                        channelId: channelId,
-                        authorKind: .agent,
-                        authorId: currentAgentId,
-                        text: trimmedText,
-                        mentionedAgentIds: mentions,
-                        myAppId: myAppId,
-                        componentId: componentId
-                    )
-                }
-                guard let messageId else {
-                    return .object([
-                        "ok": .bool(false),
-                        "error": .string("could not post — channel not found"),
-                    ])
-                }
-                await context.markMessagePosted(currentAgentId)
-                // Fan out to each @mention sequentially. Sequential
-                // (not parallel) so the invocation stack grows
-                // predictably and the chain-depth guard sees one
-                // nested level at a time.
-                var fanOut: [AnyJSON] = []
-                for targetId in mentions {
-                    let outcome = await context.invoke(targetId, channelId)
-                    fanOut.append(Self.encodeFanOutOutcome(agentId: targetId, outcome: outcome))
-                }
-                return .object([
-                    "ok": .bool(true),
-                    "messageId": .string(messageId),
-                    "channelId": .string(channelId),
-                    "fanOut": .array(fanOut),
-                ])
-            }
-        ))
-
-        // --- Admin (main chat only) ----------------------------
-        //
-        // Subagents are authored as `pupa/agents/<slug>/AGENTS.md` files (via
-        // the memory tools or the Slack create-agent UI) — there is no
-        // `slackCreateAgent` tool. Channel setup stays here.
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "slackCreateChannels",
-                description: """
-                Create one or more channels / group DMs / 1-on-1 DMs \
-                in this MyApp's Slack canvas. Always pass a `channels` \
-                array — wrap a single channel as `[{ ... }]`. Each entry \
-                is `{name, type, memberAgentIds?}`. `type` is one of \
-                "channel", "groupDM", "dm". Unknown agent ids in \
-                `memberAgentIds` are silently dropped (call \
-                slackListAgents first to resolve names). Refused \
-                if the caller is itself a Slack agent — only the \
-                main chat agent can manage channels in v1. Result \
-                echoes {created: [{channelId, name, type}]}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "channels": [
-                            "type": "array",
-                            "items": [
-                                "type": "object",
-                                "properties": [
-                                    "name": ["type": "string"],
-                                    "type": ["type": "string", "enum": ["channel", "groupDM", "dm"]],
-                                    "memberAgentIds": [
-                                        "type": "array",
-                                        "items": ["type": "string"],
-                                    ],
-                                ],
-                                "required": ["name", "type"],
-                            ],
-                        ],
-                        "componentId": componentIdSchema(kind: "slack"),
-                    ],
-                    "required": ["channels"],
-                ]
-            ),
-            handler: { args in
-                if context.currentAgentId != nil {
-                    return Self.adminForbiddenResult()
-                }
-                let componentIdArg = args["componentId"]?.stringValue
-                let entries = args["channels"]?.arrayValue ?? []
-                return await MainActor.run {
-                    let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "slack", componentId: componentIdArg, myAppId: myAppId) {
-                    case .failure(let msg):
-                        return .object(["ok": .bool(false), "error": .string(msg)])
-                    case .resolved(let id):
-                        resolvedId = id
-                    }
-                    var created: [AnyJSON] = []
-                    for entry in entries {
-                        let obj = entry.objectValue ?? [:]
-                        let name = obj["name"]?.stringValue ?? ""
-                        let typeStr = obj["type"]?.stringValue ?? ""
-                        let memberIds = (obj["memberAgentIds"]?.arrayValue ?? [])
-                            .compactMap { $0.stringValue }
-                        guard let type = SlackChannelType(rawValue: typeStr) else { continue }
-                        if let id = store.slackAddChannel(
-                            name: name,
-                            type: type,
-                            memberAgentIds: memberIds,
-                            myAppId: myAppId,
-                            componentId: resolvedId
-                        ) {
-                            created.append(.object([
-                                "channelId": .string(id),
-                                "name": .string(name),
-                                "type": .string(typeStr),
-                            ]))
-                        }
-                    }
-                    return .object([
-                        "ok": .bool(true),
-                        "componentId": .string(resolvedId),
-                        "created": .array(created),
-                    ])
-                }
-            }
-        ))
-
-        registry.register(ClientTool(
-            descriptor: ToolDescriptor(
-                name: "slackAddAgentsToChannel",
-                description: """
-                Add one or more agents to a channel's member \
-                roster. `channelId` + `agentIds` (array; pass `[id]` \
-                for a single agent). Idempotent — already-present \
-                ids are skipped. Refused for sub-agent callers. \
-                Result echoes {channelId, added}.
-                """,
-                parameters: [
-                    "type": "object",
-                    "properties": [
-                        "channelId": ["type": "string"],
-                        "agentIds": [
-                            "type": "array",
-                            "items": ["type": "string"],
-                        ],
-                        "componentId": componentIdSchema(kind: "slack"),
-                    ],
-                    "required": ["channelId", "agentIds"],
-                ]
-            ),
-            handler: { args in
-                if context.currentAgentId != nil {
-                    return Self.adminForbiddenResult()
-                }
-                let componentIdArg = args["componentId"]?.stringValue
-                let channelId = args["channelId"]?.stringValue ?? ""
-                let agentIds = (args["agentIds"]?.arrayValue ?? [])
-                    .compactMap { $0.stringValue }
-                return await MainActor.run {
-                    let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "slack", componentId: componentIdArg, myAppId: myAppId) {
-                    case .failure(let msg):
-                        return .object(["ok": .bool(false), "error": .string(msg)])
-                    case .resolved(let id):
-                        resolvedId = id
-                    }
-                    let changed = store.slackAddAgentsToChannel(
-                        channelId: channelId,
-                        agentIds: agentIds,
-                        myAppId: myAppId,
-                        componentId: resolvedId
-                    )
-                    return .object([
-                        "ok": .bool(true),
-                        "componentId": .string(resolvedId),
-                        "channelId": .string(channelId),
-                        "added": .bool(changed),
-                    ])
-                }
-            }
-        ))
-    }
-
-    /// Resolve the MyApp's `SlackData` body when it holds exactly one slack
-    /// component — else nil. The active/view component is never consulted.
-    /// Mirrors `tracker(_:myAppId:)` etc.
-    @MainActor
-    private static func slackData(_ store: MyAppStore, myAppId: UUID) -> SlackData? {
-        guard case .resolved(let id) = store.resolveWriteTarget(kind: "slack", componentId: nil, myAppId: myAppId),
-              let myApp = store.myApps.first(where: { $0.id == myAppId }),
-              let comp = myApp.components.first(where: { $0.id == id }),
-              case .slack(let s) = comp.body else { return nil }
-        return s
-    }
-
-    /// JSON-encode one fan-out outcome for inclusion in the
-    /// `slackPostMessage` tool result. Reentrancy / busy /
-    /// max-depth all surface as `{ok: false, error}` rows so the
-    /// invoking agent can react without parsing free-form text.
-    ///
-    /// TODO(#193 follow-up): bring this echo to parity with
-    /// `invokeMyAppAgent`'s `agent_unavailable` payload — surface
-    /// `target` (as `AgentInvocationKey.wireValue`), `callPath`, and
-    /// `treeRootedAt` so a Slack agent can reason about the forest
-    /// programmatically instead of only reading the human-readable
-    /// `error` string. Requires plumbing the rejection's structured
-    /// fields through `SlackInvoker.InvocationOutcome`, which today
-    /// only carries `targetName` + `depth`.
-    private static func encodeFanOutOutcome(
-        agentId: String,
-        outcome: SlackInvoker.InvocationOutcome
-    ) -> AnyJSON {
-        switch outcome {
-        case .completed(let text, let messageId):
-            return .object([
-                "agentId": .string(agentId),
-                "outcome": .string("completed"),
-                "text": .string(text),
-                "messageId": messageId.map { AnyJSON.string($0) } ?? .null,
-            ])
-        case .reentrant(let name):
-            return .object([
-                "agentId": .string(agentId),
-                "outcome": .string("reentrant"),
-                "error": .string("@\(name) invoked you earlier — they're waiting on your reply. Finish your turn before calling them again."),
-            ])
-        case .busy(let name):
-            return .object([
-                "agentId": .string(agentId),
-                "outcome": .string("busy"),
-                "error": .string("@\(name) is already replying in a parallel turn — try again once they finish."),
-            ])
-        case .maxDepthExceeded(let name, let depth):
-            return .object([
-                "agentId": .string(agentId),
-                "outcome": .string("max_depth_exceeded"),
-                "error": .string("Cannot invoke @\(name): agent chain already \(depth) deep. Reply directly instead of asking another agent."),
-            ])
-        case .budgetExhausted(let name, let n):
-            return .object([
-                "agentId": .string(agentId),
-                "outcome": .string("budget_exhausted"),
-                "error": .string("Turn budget with @\(name) exhausted after \(n) turns. Start a new conversation to re-engage."),
-            ])
-        case .failed(let error):
-            return .object([
-                "agentId": .string(agentId),
-                "outcome": .string("failed"),
-                "error": .string(error),
-            ])
-        }
-    }
-
-    private static func adminForbiddenResult() -> AnyJSON {
-        .object([
-            "ok": .bool(false),
-            "error": .string("Only the main chat agent can manage Slack agents and channels. Ask the user to create what you need."),
-        ])
     }
 
     @MainActor
@@ -4085,7 +2049,7 @@ public enum AppTools {
         ]
     }
 
-    private static func calendarEventSchema() -> AnyJSON {
+    static func calendarEventSchema() -> AnyJSON {
         [
             "type": "object",
             "properties": [
@@ -4111,7 +2075,7 @@ public enum AppTools {
         ]
     }
 
-    private static func parseEvents(from json: AnyJSON?) -> [CalendarEvent] {
+    static func parseEvents(from json: AnyJSON?) -> [CalendarEvent] {
         guard let arr = json?.arrayValue else { return [] }
         return arr.compactMap { entry in
             guard let title = entry["title"]?.stringValue,
@@ -4131,7 +2095,7 @@ public enum AppTools {
     /// strongly-typed refs. Entries with a malformed `itemId` (not a
     /// UUID) are silently dropped — better than erroring the whole tool
     /// call over one bad ref.
-    private static func parseLinkedItems(from json: AnyJSON?) -> [ComponentItemRef] {
+    static func parseLinkedItems(from json: AnyJSON?) -> [ComponentItemRef] {
         guard let arr = json?.arrayValue else { return [] }
         return arr.compactMap { entry in
             guard let componentId = entry["componentId"]?.stringValue,
@@ -4141,7 +2105,7 @@ public enum AppTools {
         }
     }
 
-    private static func checklistItemSchema() -> AnyJSON {
+    static func checklistItemSchema() -> AnyJSON {
         [
             "type": "object",
             "properties": [
@@ -4164,7 +2128,7 @@ public enum AppTools {
         ]
     }
 
-    private static func parseChecklistItems(from json: AnyJSON?) -> [ChecklistItem] {
+    static func parseChecklistItems(from json: AnyJSON?) -> [ChecklistItem] {
         guard let arr = json?.arrayValue else { return [] }
         return arr.compactMap { entry in
             guard let text = entry["text"]?.stringValue else { return nil }
@@ -4176,7 +2140,7 @@ public enum AppTools {
         }
     }
 
-    private static func checklistItemAsAnyJSON(_ item: ChecklistItem) -> AnyJSON {
+    static func checklistItemAsAnyJSON(_ item: ChecklistItem) -> AnyJSON {
         var obj: [String: AnyJSON] = [
             "id": .string(item.id.uuidString),
             "text": .string(item.text),
@@ -4193,7 +2157,7 @@ public enum AppTools {
         return .object(obj)
     }
 
-    private static func eventAsAnyJSON(_ event: CalendarEvent) -> AnyJSON {
+    static func eventAsAnyJSON(_ event: CalendarEvent) -> AnyJSON {
         var obj: [String: AnyJSON] = [
             "id": .string(event.id.uuidString),
             "title": .string(event.title),
@@ -4279,7 +2243,7 @@ public enum AppTools {
     }
 
     @MainActor
-    private static func calendar(_ store: MyAppStore, myAppId: UUID) -> CalendarData? {
+    static func calendar(_ store: MyAppStore, myAppId: UUID) -> CalendarData? {
         guard case .resolved(let id) = store.resolveWriteTarget(kind: "calendar", componentId: nil, myAppId: myAppId) else { return nil }
         return calendar(store, myAppId: myAppId, componentId: id)
     }
@@ -4288,7 +2252,7 @@ public enum AppTools {
     /// state after a targeted write). Falls back to the view-independent
     /// lookup when `componentId` is nil.
     @MainActor
-    private static func calendar(_ store: MyAppStore, myAppId: UUID, componentId: String?) -> CalendarData? {
+    static func calendar(_ store: MyAppStore, myAppId: UUID, componentId: String?) -> CalendarData? {
         guard let componentId else { return calendar(store, myAppId: myAppId) }
         guard let myApp = store.myApps.first(where: { $0.id == myAppId }),
               let comp = myApp.components.first(where: { $0.id == componentId }),
@@ -4297,7 +2261,7 @@ public enum AppTools {
     }
 
     @MainActor
-    private static func checklist(_ store: MyAppStore, myAppId: UUID) -> ChecklistData? {
+    static func checklist(_ store: MyAppStore, myAppId: UUID) -> ChecklistData? {
         guard case .resolved(let id) = store.resolveWriteTarget(kind: "checklist", componentId: nil, myAppId: myAppId) else { return nil }
         return checklist(store, myAppId: myAppId, componentId: id)
     }
@@ -4306,7 +2270,7 @@ public enum AppTools {
     /// state after a targeted write). Falls back to the view-independent
     /// lookup when `componentId` is nil.
     @MainActor
-    private static func checklist(_ store: MyAppStore, myAppId: UUID, componentId: String?) -> ChecklistData? {
+    static func checklist(_ store: MyAppStore, myAppId: UUID, componentId: String?) -> ChecklistData? {
         guard let componentId else { return checklist(store, myAppId: myAppId) }
         guard let myApp = store.myApps.first(where: { $0.id == myAppId }),
               let comp = myApp.components.first(where: { $0.id == componentId }),
@@ -4317,7 +2281,7 @@ public enum AppTools {
     // MARK: - Calculator helpers
 
     @MainActor
-    private static func calculator(_ store: MyAppStore, myAppId: UUID) -> CalculatorData? {
+    static func calculator(_ store: MyAppStore, myAppId: UUID) -> CalculatorData? {
         guard case .resolved(let id) = store.resolveWriteTarget(kind: "calculator", componentId: nil, myAppId: myAppId) else { return nil }
         return calculator(store, myAppId: myAppId, componentId: id)
     }
@@ -4326,7 +2290,7 @@ public enum AppTools {
     /// state after a targeted write). Falls back to the view-independent
     /// lookup when `componentId` is nil.
     @MainActor
-    private static func calculator(_ store: MyAppStore, myAppId: UUID, componentId: String?) -> CalculatorData? {
+    static func calculator(_ store: MyAppStore, myAppId: UUID, componentId: String?) -> CalculatorData? {
         guard let componentId else { return calculator(store, myAppId: myAppId) }
         guard let myApp = store.myApps.first(where: { $0.id == myAppId }),
               let comp = myApp.components.first(where: { $0.id == componentId }),
@@ -4335,7 +2299,7 @@ public enum AppTools {
     }
 
     @MainActor
-    private static func resolveCalculator(
+    static func resolveCalculator(
         store: MyAppStore,
         myAppId: UUID,
         componentId: String?
@@ -4350,14 +2314,14 @@ public enum AppTools {
     /// Sibling components of `myAppId` — the pool calculator aggregate rows
     /// resolve their source trackers from.
     @MainActor
-    private static func siblingComponents(store: MyAppStore, myAppId: UUID) -> [Component] {
+    static func siblingComponents(store: MyAppStore, myAppId: UUID) -> [Component] {
         store.myApps.first(where: { $0.id == myAppId })?.components ?? []
     }
 
     /// `[{key, value?, status}]` for every row, resolved live. Echoed by the
     /// mutating calculator tools so the agent sees computed values mid-turn.
     @MainActor
-    private static func calcResults(store: MyAppStore, myAppId: UUID, data: CalculatorData) -> AnyJSON {
+    static func calcResults(store: MyAppStore, myAppId: UUID, data: CalculatorData) -> AnyJSON {
         let resolved = CalculatorResolver.resolve(data, components: siblingComponents(store: store, myAppId: myAppId))
         return .array(data.rows.map { row in
             let r = resolved.result(forKey: row.key)
@@ -4370,7 +2334,7 @@ public enum AppTools {
         })
     }
 
-    private static func calcRowSchema() -> AnyJSON {
+    static func calcRowSchema() -> AnyJSON {
         [
             "type": "object",
             "properties": [
@@ -4432,7 +2396,7 @@ public enum AppTools {
         ]
     }
 
-    private static func calcRowPatchSchema() -> AnyJSON {
+    static func calcRowPatchSchema() -> AnyJSON {
         [
             "type": "object",
             "properties": [
@@ -4500,7 +2464,7 @@ public enum AppTools {
 
     /// Parse a single `{componentId, itemId}` ref. Returns nil when absent or
     /// malformed (so a linkedField can decode as "unlinked").
-    private static func parseRef(from json: AnyJSON?) -> ComponentItemRef? {
+    static func parseRef(from json: AnyJSON?) -> ComponentItemRef? {
         guard let componentId = json?["componentId"]?.stringValue,
               let idString = json?["itemId"]?.stringValue,
               let uuid = UUID(uuidString: idString) else { return nil }
@@ -4549,7 +2513,7 @@ public enum AppTools {
 
     /// Parse the common row parts + kind off a row entry. Returns nil if the
     /// kind can't be parsed.
-    private static func parseCalcRowParts(
+    static func parseCalcRowParts(
         from entry: AnyJSON
     ) -> (key: String?, name: String, unit: String?, format: String?, kind: CalcRowKind)? {
         guard let kind = parseCalcRowKind(from: entry) else { return nil }
@@ -4560,7 +2524,7 @@ public enum AppTools {
 
     /// Parse a full `rows` array for `renderCalculator`, slug-deduping keys
     /// up front so the destructive render lands with unique handles.
-    private static func parseCalcRows(from json: AnyJSON?) -> [CalcRow] {
+    static func parseCalcRows(from json: AnyJSON?) -> [CalcRow] {
         guard let arr = json?.arrayValue else { return [] }
         var rows: [CalcRow] = []
         var keys = Set<String>()
@@ -4580,7 +2544,7 @@ public enum AppTools {
         return rows
     }
 
-    private static func parseCalcRowPatch(from json: AnyJSON?) -> MyAppStore.CalcRowPatch {
+    static func parseCalcRowPatch(from json: AnyJSON?) -> MyAppStore.CalcRowPatch {
         var patch = MyAppStore.CalcRowPatch()
         guard let obj = json?.objectValue, let json else { return patch }
         if let v = obj["name"]?.stringValue { patch.name = v }
@@ -4610,7 +2574,7 @@ public enum AppTools {
     /// Serialise one calc row. `full` adds the complete kind spec (control /
     /// aggregate / expression); the list view omits it. The live-resolved
     /// `{value, status}` is always attached.
-    private static func calcRowAsAnyJSON(
+    static func calcRowAsAnyJSON(
         _ row: CalcRow,
         result: CalculatorResolver.RowResult?,
         full: Bool
@@ -4730,7 +2694,7 @@ public enum AppTools {
     /// `{ok, componentId, title, kind, seriesCount, pointCount}` for the
     /// resolved chart. Shared by every chart mutating tool.
     @MainActor
-    private static func chartEcho(store: MyAppStore, myAppId: UUID, componentId: String? = nil) -> AnyJSON {
+    static func chartEcho(store: MyAppStore, myAppId: UUID, componentId: String? = nil) -> AnyJSON {
         guard let (data, id) = chartData(store, myAppId: myAppId, componentId: componentId) else {
             return .object(["ok": .bool(false), "error": "no chart component"])
         }
@@ -4745,7 +2709,7 @@ public enum AppTools {
         ])
     }
 
-    private static func chartSeriesSchema() -> AnyJSON {
+    static func chartSeriesSchema() -> AnyJSON {
         [
             "type": "object",
             "description": "One overlaid series: presentation + a data source.",
@@ -4811,7 +2775,7 @@ public enum AppTools {
 
     /// Parse a `series` array into `[ChartSeriesSpec]`. Entries without a
     /// parseable source are skipped.
-    private static func parseChartSeries(from json: AnyJSON?) -> [ChartSeriesSpec] {
+    static func parseChartSeries(from json: AnyJSON?) -> [ChartSeriesSpec] {
         guard let arr = json?.arrayValue else { return [] }
         return arr.map { entry in
             ChartSeriesSpec(

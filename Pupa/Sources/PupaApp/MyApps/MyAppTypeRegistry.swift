@@ -41,6 +41,21 @@ public final class MyAppTypeRegistry {
         if !ComponentRegistry.shared.isRegistered(forKind: "tracker") {
             ComponentRegistry.shared.register(TrackerModule())
         }
+        if !ComponentRegistry.shared.isRegistered(forKind: "calendar") {
+            ComponentRegistry.shared.register(CalendarModule())
+        }
+        if !ComponentRegistry.shared.isRegistered(forKind: "checklist") {
+            ComponentRegistry.shared.register(ChecklistModule())
+        }
+        if !ComponentRegistry.shared.isRegistered(forKind: "slack") {
+            ComponentRegistry.shared.register(SlackModule())
+        }
+        if !ComponentRegistry.shared.isRegistered(forKind: "calculator") {
+            ComponentRegistry.shared.register(CalculatorModule())
+        }
+        if !ComponentRegistry.shared.isRegistered(forKind: "chart") {
+            ComponentRegistry.shared.register(ChartModule())
+        }
 
         if !ItemPolicyRegistry.shared.isRegistered(forKind: "tracker") {
             ItemPolicyRegistry.shared.register(TrackerItemPolicy(), forKind: "tracker")
@@ -65,5 +80,10 @@ public final class MyAppTypeRegistry {
         }
         let supportedKinds = allTypes.reduce(into: Set<String>()) { $0.formUnion($1.supportedComponentKinds) }
         ComponentExportRegistry.shared.assertComplete(supportedKinds: supportedKinds)
+        // Every supported kind now ships a ComponentModule — trap at bootstrap if
+        // one is missing (runtime replacement for the enum's compile-time
+        // exhaustiveness on the inverted central sites). New component? Register
+        // its module above.
+        ComponentRegistry.shared.assertComplete(supportedKinds: supportedKinds)
     }
 }
