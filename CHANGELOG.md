@@ -3,6 +3,20 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.93] — 2026-07-11
+
+### Changed
+
+- **Chart migrated to a `ComponentModule` (issue #162) — last built-in shape.**
+  Chart now owns `Canvas/Components/Chart/` (`ChartView` + `ChartContainerView`,
+  `ChartData` model + `ChartKind` / `ChartSeriesSpec` / `ChartSeriesSource`,
+  `ChartModule`, `AppTools+Chart` tools, export policy, tests). The `ChartResolver`
+  engine stays in `Calculator/`; the unified cross-component ref extensions stay
+  on `CanvasApp`. `ChartModule` registered in `registerBuiltins()`;
+  `registerChartTools` relocated from the `AppTools` monolith (3 private helper
+  deps downgraded to `internal`). No behaviour change. App `0.0.193` →
+  `0.0.194`. (#162)
+
 ## [0.0.88] — 2026-07-11
 
 ### Changed
