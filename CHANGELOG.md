@@ -3,6 +3,20 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.92] — 2026-07-11
+
+### Changed
+
+- **Calculator migrated to a `ComponentModule` (issue #162).** Calculator now
+  owns `Canvas/Components/Calculator/` (`CalculatorView`, `CalculatorData` model
+  + all its `CalcRow` / spec types, `CalculatorModule`, `AppTools+Calculator`
+  tools, export policy, tests). The calc row/resolver **engines**
+  (`CalculatorResolver`, `ExpressionEngine`, `TrackerAggregator`) stay in
+  `Calculator/`. `CalculatorModule` registered in `registerBuiltins()`;
+  `registerCalculatorTools` relocated from the `AppTools` monolith (11 private
+  helper deps downgraded to `internal`). No behaviour change. App `0.0.192` →
+  `0.0.193`. (#162)
+
 ## [0.0.88] — 2026-07-11
 
 ### Changed
