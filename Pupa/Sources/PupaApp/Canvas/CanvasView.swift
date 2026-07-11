@@ -44,6 +44,22 @@ public struct CanvasView: View {
 
     @ViewBuilder
     private func componentContent(_ component: Component) -> some View {
+        // Registered kinds render through their `ComponentModule` (issue #162);
+        // unmigrated kinds fall back to the legacy switch below.
+        if let module = ComponentRegistry.shared.module(forKind: component.kindString) {
+            module.makeView(
+                component: component,
+                store: store,
+                myAppId: resolvedMyAppId,
+                coordinator: coordinator
+            )
+        } else {
+            legacyComponentContent(component)
+        }
+    }
+
+    @ViewBuilder
+    private func legacyComponentContent(_ component: Component) -> some View {
         switch component.body {
         case .empty:
             EmptyComponentHint(kind: component.kindString)
@@ -147,6 +163,11 @@ private struct EmptyComponentHint: View {
     }
 
     private var headline: String {
+        // Registered kinds source their empty-state copy from the module
+        // (issue #162); unmigrated kinds use the switch below.
+        if let hint = ComponentRegistry.shared.module(forKind: kind)?.emptyHint() {
+            return hint.headline
+        }
         switch kind {
         case "calendar": return "This calendar is empty"
         case "tracker": return "This tracker is empty"
@@ -158,6 +179,9 @@ private struct EmptyComponentHint: View {
     }
 
     private var subline: String {
+        if let hint = ComponentRegistry.shared.module(forKind: kind)?.emptyHint() {
+            return hint.subline
+        }
         switch kind {
         case "calendar":
             return "Tell the chat what events to add. Try \"Add a dentist appointment Tuesday at 10am\"."

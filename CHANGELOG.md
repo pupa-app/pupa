@@ -3,6 +3,23 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.88] — 2026-07-11
+
+### Changed
+
+- **Component architecture: one self-registering `ComponentModule` per canvas
+  kind (issue #162, Tier 1 — tracker first).** New `ComponentModule` protocol +
+  `ComponentRegistry` (`Canvas/Components/ComponentModule.swift`) unify the
+  per-kind registration that was smeared across `CanvasView`, `CanvasSummary`,
+  `CanvasState`, `AppTools`, and the item/export registries. Tracker is migrated
+  as the reference: it now owns `Canvas/Components/Tracker/` (view files, data
+  model, module, tools extension, item + export policies, tests) and routes
+  through the registry at the inverted central sites — component view,
+  empty-state copy, canvas-summary item count, default icon. Unmigrated kinds
+  fall back to the legacy switches, so there is no behaviour change; the
+  `CanvasApp` enum stays the Codable persistence discriminator. App `0.0.188` →
+  `0.0.189`. (#162)
+
 ## [0.0.87] — 2026-07-11
 
 ### Fixed

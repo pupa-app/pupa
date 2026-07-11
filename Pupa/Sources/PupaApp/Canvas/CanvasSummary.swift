@@ -99,6 +99,7 @@ public struct ComponentSummary: Encodable, Sendable {
         }
     }
 
+    @MainActor
     static func build(component: Component) -> ComponentSummary {
         ComponentSummary(
             id: component.id,
@@ -119,7 +120,13 @@ public struct ComponentSummary: Encodable, Sendable {
         }
     }
 
+    @MainActor
     private static func itemCount(of body: CanvasApp) -> Int {
+        // Registered kinds count via their module (issue #162); unmigrated
+        // kinds use the switch below.
+        if let module = ComponentRegistry.shared.module(forKind: body.kindString) {
+            return module.itemCount(body)
+        }
         switch body {
         case .empty: return 0
         case .tracker(let t): return t.items.count

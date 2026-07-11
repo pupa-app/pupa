@@ -6,6 +6,17 @@ End-to-end recipe for landing a new canvas-component kind on iOS / macOS. Writte
 
 This guide assumes a new shape called `widget` with a body type `WidgetData`. Substitute your kind name everywhere.
 
+> **Migration in flight (issue #162).** The per-kind wiring below is being
+> consolidated into one self-registering `ComponentModule` per kind, each owning
+> a `Canvas/Components/<Kind>/` folder — see the *Component modules* section in
+> [architecture.md](architecture.md) and **[`Canvas/Components/Tracker/`](../Pupa/Sources/PupaApp/Canvas/Components/Tracker/)** as the reference. As kinds migrate, the central switches in steps 2/4/5/… become
+> `ComponentRegistry` lookups (with the legacy switch as fallback until every
+> kind ships a module). New shapes should follow the tracker layout: put the
+> view, data model, `<Kind>Module`, tools extension, and policies in the folder,
+> register the module in `MyAppTypeRegistry.registerBuiltins()`, and still make
+> the ~4 `CanvasApp` enum edits below (the enum stays the persistence
+> discriminator).
+
 ## Worked example
 
 The Slack component is the most recent end-to-end example and the only one whose docs follow the recommended per-shape layout. Open the three files side-by-side while you read this guide:

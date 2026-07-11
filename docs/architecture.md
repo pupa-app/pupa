@@ -437,6 +437,36 @@ blurb); `supportedComponentKinds`, `toolNamesByKind`, and
 `promptFragmentsByKind` all derive from it. Full recipe in
 [docs/adding-a-component.md](adding-a-component.md).
 
+### Component modules — one folder, one self-registering module (#162)
+
+The per-kind wiring for a shape used to be smeared across ~10 shared files
+(`CanvasView`, `CanvasSummary`, `CanvasState`, `AppTools`, `MyAppType`, plus the
+item/export/migration registries). Tier 1 of #162 collapses that into a single
+`ComponentModule` protocol + `ComponentRegistry`
+([`Canvas/Components/ComponentModule.swift`](../Pupa/Sources/PupaApp/Canvas/Components/ComponentModule.swift)),
+mirroring `ItemPolicyRegistry` / `ComponentExportRegistry`: a `@MainActor`
+singleton keyed by the lowercase kind string, populated at bootstrap in
+`MyAppTypeRegistry.registerBuiltins()`. A module vends everything for its kind —
+`kindSpec`, `defaultIcon`, `makeEmptyBody`, `itemCount`, `emptyHint`, `makeView`,
+`itemPolicy`, `exportPolicy`, `registerTools` — each doing its own single-case
+unwrap on `CanvasApp` instead of the central exhaustive switch.
+
+The central sites are **inverted** to a registry lookup with a fallback:
+`ComponentRegistry.shared.module(forKind:)?.…` first, else the legacy switch.
+Migrated so far: `CanvasView.componentContent`, the `EmptyComponentHint` copy,
+`CanvasSummary` item count, and `AppTools` default icon. The `CanvasApp` enum
+stays the **Codable persistence discriminator** (its `case` arms, `Kind`,
+`init(from:)`/`encode(to:)`, `mapLinkedItems`, `componentReferences`) — the one
+boring, safe switch Tier 1 keeps as the safety net.
+
+**Tracker is the reference** ([`Canvas/Components/Tracker/`](../Pupa/Sources/PupaApp/Canvas/Components/Tracker/)):
+its view files, `TrackerData` model, `TrackerModule`, tools (`AppTools+Tracker`),
+and item/export policies all live in one folder, with tests under
+[`Tests/PupaAppTests/Components/Tracker/`](../Pupa/Tests/PupaAppTests/Components/Tracker/).
+The other kinds are unmigrated (registry lookup returns `nil` → legacy switch)
+until they get their own module + folder. `ComponentRegistry.assertComplete` is
+wired once every supported kind ships one.
+
 A `Component`'s `id` is permanent (the key every cross-component ref, active
 selection, and tool dispatch resolves by), but its `name`, `iconSystemName`,
 and LLM-facing `summary` are mutable. `MyAppStore.updateComponentMeta` edits

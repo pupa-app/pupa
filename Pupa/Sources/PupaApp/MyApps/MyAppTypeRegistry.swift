@@ -32,6 +32,16 @@ public final class MyAppTypeRegistry {
         if resolve(id: MyAppType.tracker.id) == nil {
             register(.tracker)
         }
+
+        // Component modules — one self-registering module per kind (issue #162).
+        // Migrated incrementally: registered kinds route through the module at
+        // the inverted central sites; unregistered kinds fall back to the legacy
+        // switches. `ComponentRegistry.assertComplete` is wired once every
+        // supported kind ships a module.
+        if !ComponentRegistry.shared.isRegistered(forKind: "tracker") {
+            ComponentRegistry.shared.register(TrackerModule())
+        }
+
         if !ItemPolicyRegistry.shared.isRegistered(forKind: "tracker") {
             ItemPolicyRegistry.shared.register(TrackerItemPolicy(), forKind: "tracker")
         }
