@@ -15,14 +15,37 @@ public struct TrackerModule: ComponentModule {
     public let kind = "tracker"
     public let defaultIcon = "list.bullet.rectangle"
 
-    /// Sourced from the `MyAppType.tracker.kinds` literal for now — the single
-    /// source of truth stays there until the full #162 pass inverts it
-    /// (`MyAppType` assembling its `kinds` map from each module's `kindSpec`,
-    /// killing the literal). Reading it here keeps zero drift meanwhile.
-    public var kindSpec: ComponentKindSpec {
-        MyAppType.tracker.kinds["tracker"]
-            ?? ComponentKindSpec(tools: [], catalogBlurb: "tracker")
-    }
+    /// The tracker kind's tools + prompt prose + catalog blurb. Owned here;
+    /// `MyAppType.tracker.kinds` assembles from this (and the other modules'
+    /// `kindSpec`) at load — the module is the single source of truth.
+    public nonisolated static let kindSpec = ComponentKindSpec(
+        tools: [
+            "renderTracker",
+            "addTrackerItems",
+            "removeTrackerItems",
+            "patchTrackerItems",
+            "setTrackerFilter",
+            "setTrackerViewMode",
+            "addFieldOption",
+            "removeFieldOption",
+            "addTrackerField",
+            "renameTrackerField",
+            "reorderTrackerFields",
+            "hideTrackerField",
+            "showTrackerField",
+            "listTrackerItems",
+            "searchTrackerItems",
+            "getTrackerItem",
+        ],
+        promptFragment: """
+        TRACKER — multi-field rows (form + filter + card/kanban). Pick \
+        TRACKER when rows carry multiple fields (status, category, image); \
+        CHECKLIST otherwise. Explore via list/search/getTrackerItem; \
+        `summary` slot — set via renderTracker(summary:).
+        """,
+        catalogBlurb: "multi-field records in a table/kanban (fields, filters, cards)"
+    )
+    public var kindSpec: ComponentKindSpec { Self.kindSpec }
 
     public var itemPolicy: (any AnyItemPolicy)? { TrackerItemPolicy() }
     public var exportPolicy: any ComponentExportPolicy { TrackerExportPolicy() }

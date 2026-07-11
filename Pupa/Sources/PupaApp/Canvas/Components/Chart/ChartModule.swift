@@ -11,12 +11,27 @@ public struct ChartModule: ComponentModule {
     public let kind = "chart"
     public let defaultIcon = "chart.pie"
 
-    /// Sourced from the `MyAppType.tracker.kinds` literal until the full #162
-    /// pass inverts it (assembly-from-registry). Zero drift meanwhile.
-    public var kindSpec: ComponentKindSpec {
-        MyAppType.tracker.kinds["chart"]
-            ?? ComponentKindSpec(tools: [], catalogBlurb: "chart")
-    }
+    /// Owned here; `MyAppType.tracker.kinds` assembles from this at load.
+    public nonisolated static let kindSpec = ComponentKindSpec(
+        tools: [
+            "renderChart",
+            "patchChart",
+            "setChartKind",
+            "addChartSeries",
+            "removeChartSeries",
+            "embedComponent",
+        ],
+        promptFragment: """
+        CHART — pie/bar/line with overlaid series. Sources: tracker (group \
+        by field), calculator rows (by key), calculator list row \
+        (sweep/column), or inline points. Multi-series over a shared x \
+        axis = line chart with multiple CALCULATOR_LIST or TRACKER series. \
+        Pairs naturally with a calculator LIST row. To show the user a chart \
+        inline in the conversation, embedComponent(hostKind:"chat").
+        """,
+        catalogBlurb: "pie/bar/line visualisation of tracker or calculator data"
+    )
+    public var kindSpec: ComponentKindSpec { Self.kindSpec }
 
     // itemPolicy defaults to nil (protocol extension).
     public var exportPolicy: any ComponentExportPolicy { ChartExportPolicy() }

@@ -80,5 +80,10 @@ public final class MyAppTypeRegistry {
         }
         let supportedKinds = allTypes.reduce(into: Set<String>()) { $0.formUnion($1.supportedComponentKinds) }
         ComponentExportRegistry.shared.assertComplete(supportedKinds: supportedKinds)
+        // Every supported kind now ships a ComponentModule — trap at bootstrap if
+        // one is missing (runtime replacement for the enum's compile-time
+        // exhaustiveness on the inverted central sites). New component? Register
+        // its module above.
+        ComponentRegistry.shared.assertComplete(supportedKinds: supportedKinds)
     }
 }

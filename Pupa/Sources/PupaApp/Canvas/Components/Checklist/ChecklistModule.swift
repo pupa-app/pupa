@@ -9,12 +9,25 @@ public struct ChecklistModule: ComponentModule {
     public let kind = "checklist"
     public let defaultIcon = "checklist"
 
-    /// Sourced from the `MyAppType.tracker.kinds` literal until the full #162
-    /// pass inverts it (assembly-from-registry). Zero drift meanwhile.
-    public var kindSpec: ComponentKindSpec {
-        MyAppType.tracker.kinds["checklist"]
-            ?? ComponentKindSpec(tools: [], catalogBlurb: "checklist")
-    }
+    /// Owned here; `MyAppType.tracker.kinds` assembles from this at load.
+    public nonisolated static let kindSpec = ComponentKindSpec(
+        tools: [
+            "renderChecklist",
+            "addChecklistItem",
+            "toggleChecklistItem",
+            "patchChecklistItem",
+            "removeChecklistItem",
+            "listChecklistItems",
+            "getChecklistItem",
+        ],
+        promptFragment: """
+        CHECKLIST — done/not-done rows, no per-row metadata. Switch to \
+        TRACKER once rows need multiple fields. Explore via \
+        list/getChecklistItem; `summary` slot — set via renderChecklist(summary:).
+        """,
+        catalogBlurb: "simple done/not-done items, no per-row fields"
+    )
+    public var kindSpec: ComponentKindSpec { Self.kindSpec }
 
     public var itemPolicy: (any AnyItemPolicy)? { ChecklistItemPolicy() }
     public var exportPolicy: any ComponentExportPolicy { ChecklistExportPolicy() }

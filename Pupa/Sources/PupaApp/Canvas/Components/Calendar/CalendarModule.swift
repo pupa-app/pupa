@@ -11,12 +11,25 @@ public struct CalendarModule: ComponentModule {
     public let kind = "calendar"
     public let defaultIcon = "calendar"
 
-    /// Sourced from the `MyAppType.tracker.kinds` literal until the full #162
-    /// pass inverts it (assembly-from-registry). Zero drift meanwhile.
-    public var kindSpec: ComponentKindSpec {
-        MyAppType.tracker.kinds["calendar"]
-            ?? ComponentKindSpec(tools: [], catalogBlurb: "calendar")
-    }
+    /// Owned here; `MyAppType.tracker.kinds` assembles from this at load.
+    public nonisolated static let kindSpec = ComponentKindSpec(
+        tools: [
+            "renderCalendar",
+            "addCalendarEvent",
+            "removeCalendarEvent",
+            "patchCalendarEvent",
+            "setCalendarViewMode",
+            "listCalendarEvents",
+            "getCalendarEvent",
+        ],
+        promptFragment: """
+        CALENDAR — time-indexed events (list or month grid). Pick when \
+        date is the primary axis. Explore via list/getCalendarEvent; \
+        `summary` slot — set via renderCalendar(summary:).
+        """,
+        catalogBlurb: "time-indexed events in a list or month grid"
+    )
+    public var kindSpec: ComponentKindSpec { Self.kindSpec }
 
     public var itemPolicy: (any AnyItemPolicy)? { CalendarEventPolicy() }
     public var exportPolicy: any ComponentExportPolicy { CalendarExportPolicy() }

@@ -3,6 +3,22 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.95] — 2026-07-11
+
+### Changed
+
+- **Component-module Tier-1 finalize (issue #162).** Two invariant-tightening
+  steps now that all six kinds ship a module:
+  - `ComponentRegistry.assertComplete` is wired at bootstrap — traps if a
+    supported kind lacks a module (runtime replacement for the enum's
+    compile-time exhaustiveness on the inverted central sites).
+  - Each kind's `ComponentKindSpec` (tools + prompt + catalog blurb) now lives
+    on its module as `nonisolated static let kindSpec`; `MyAppType.tracker.kinds`
+    is **assembled** from those instead of a hand-maintained literal — the module
+    is the single source of truth, so there's no parallel map to drift.
+
+  No behaviour change. App `0.0.194` → `0.0.195`. (#162)
+
 ## [0.0.94] — 2026-07-11
 
 ### Changed

@@ -12,12 +12,30 @@ public struct SlackModule: ComponentModule {
     public let kind = "slack"
     public let defaultIcon = "bubble.left.and.bubble.right"
 
-    /// Sourced from the `MyAppType.tracker.kinds` literal until the full #162
-    /// pass inverts it (assembly-from-registry). Zero drift meanwhile.
-    public var kindSpec: ComponentKindSpec {
-        MyAppType.tracker.kinds["slack"]
-            ?? ComponentKindSpec(tools: [], catalogBlurb: "slack")
-    }
+    /// Owned here; `MyAppType.tracker.kinds` assembles from this at load.
+    public nonisolated static let kindSpec = ComponentKindSpec(
+        tools: [
+            "slackListAgents",
+            "slackListChannels",
+            "slackReadChannelHistory",
+            "slackPostMessage",
+            "slackCreateChannels",
+            "slackAddAgentsToChannel",
+        ],
+        promptFragment: """
+        SLACK — multi-agent rooms over generic subagents. Agents ARE \
+        `pupa/agents/<slug>/AGENTS.md` subagents (create one by writing \
+        that file with editMemoryFile; frontmatter `name`/`description`/\
+        `tools`/`model`). Setup: author the personas, then \
+        slackCreateChannels (seed + member slugs) — resolve slugs via \
+        slackListAgents. Users @-mention to invoke; sub-agent: \
+        slackPostMessage to speak, @-mention another to fan out \
+        (reentrancy + depth caps return `{outcome}` in `fanOut`). Channel \
+        admin tools refuse for sub-agents.
+        """,
+        catalogBlurb: "multi-agent chat rooms (subagent personas, channels, @-mentions)"
+    )
+    public var kindSpec: ComponentKindSpec { Self.kindSpec }
 
     // itemPolicy defaults to nil (protocol extension) — slack messages are not
     // link targets.
