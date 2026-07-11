@@ -153,15 +153,19 @@ public final class ChatSessionCoordinator {
     public func ensureMyAppMemory(_ myApp: MyApp) {
         let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: myApp.name))
         if !appMemory.fileExists(at: MemoryStore.pupaAgentsPath) {
-            let typeFragment = MyAppTypeRegistry.shared.resolve(id: myApp.typeId)
-                .map { $0.baseSystemPromptFragment } ?? ""
+            // Do NOT bake the type fragment here. It is applied dynamically
+            // (base + catalog + per-kind) and layered under AGENTS.md by
+            // MyAppPolicy.buildSystemPrompt; freezing it would drop per-kind
+            // guidance as the canvas changes (issue #164). AGENTS.md is now
+            // purely the user's customization surface.
             let content = """
                 # \(myApp.name)
 
                 **Type:** \(myApp.typeId)
 
                 ## Instructions
-                \(typeFragment.isEmpty ? "_No instructions set._" : typeFragment)
+                _No custom instructions yet — edit this file to add MyApp-specific \
+                guidance. The type's built-in rules apply automatically._
                 """
             _ = try? appMemory.writeFile(path: MemoryStore.pupaAgentsPath, content: content)
             memory.rescan()

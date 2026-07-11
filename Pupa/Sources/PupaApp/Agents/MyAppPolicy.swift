@@ -52,9 +52,18 @@ public struct MyAppPolicy: AgentPolicy {
         let typeFragment = type.map {
             ChatViewModel.activeSystemPromptFragment(myApp: myApp, type: $0)
         } ?? ""
+        // AGENTS.md layers *over* the type fragment, it no longer replaces it.
+        // The type fragment (base + catalog + per-kind, resolved against the
+        // current canvas) is dynamic, so a seeded AGENTS.md must not freeze it —
+        // otherwise per-kind guidance is lost as components change (issue #164).
         let agentsMd = (try? memory.readFile(path: MemoryStore.pupaAgentsPath))?.content
-        return agentsMd.map {
-            "MyApp instructions (pupa/AGENTS.md):\n\n\($0)"
-        } ?? "MyApp type (typeId, myAppName) + per-type rules:\n\n\(typeFragment)"
+        var parts: [String] = []
+        if !typeFragment.isEmpty {
+            parts.append("MyApp type (typeId, myAppName) + per-type rules:\n\n\(typeFragment)")
+        }
+        if let agentsMd, !agentsMd.isEmpty {
+            parts.append("MyApp instructions (pupa/AGENTS.md):\n\n\(agentsMd)")
+        }
+        return parts.isEmpty ? "MyApp agent." : parts.joined(separator: "\n\n")
     }
 }

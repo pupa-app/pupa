@@ -170,6 +170,25 @@ struct MyAppPolicyTests {
         #expect(desc.contains("pupa/AGENTS.md"))
     }
 
+    @Test("AGENTS.md layers over type fragment, not replaces it (issue #164)")
+    func systemPromptLayersAgentsMdOverTypeFragment() async {
+        MyAppTypeRegistry.shared.registerBuiltins()
+        let app = MyApp(name: "LayerApp", iconSystemName: "star", typeId: "tracker")
+        let store = MyAppStore(initial: ([app], app.id))
+        let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: "LayerApp"))
+        _ = try? memory.writeFile(path: "pupa/AGENTS.md", content: "## Custom\n\nBe terse.")
+        defer { _ = try? memory.delete(path: "pupa/AGENTS.md") }
+        let desc = MyAppPolicy(myAppId: app.id).buildSystemPrompt(myApp: app, memory: memory)
+        // User customization present…
+        #expect(desc.contains("Be terse."))
+        // …and the dynamic type fragment (base + catalog) is still included,
+        // so per-kind guidance is not dropped when AGENTS.md exists.
+        #expect(desc.contains("per-type rules"))
+        let type = MyAppTypeRegistry.shared.resolve(id: "tracker")!
+        let expected = ChatViewModel.activeSystemPromptFragment(myApp: app, type: type)
+        #expect(desc.contains(expected))
+    }
+
     @Test("systemPrompt falls back to type-fragment when no AGENTS.md")
     func systemPromptFallback() async {
         let app = MyApp(name: "FallbackApp", iconSystemName: "star", typeId: "tracker")
