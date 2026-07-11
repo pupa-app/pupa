@@ -1714,9 +1714,9 @@ public final class MyAppStore {
     /// binding so a tap idempotently sets the target state rather than
     /// toggling (avoids races between the binding read and the write).
     @discardableResult
-    public func setChecklistItemDone(id: UUID, done: Bool, myAppId: UUID? = nil) -> Bool {
+    public func setChecklistItemDone(id: UUID, done: Bool, myAppId: UUID? = nil, componentId: String? = nil) -> Bool {
         var ok = false
-        mutate(myAppId, kind: "checklist") { canvas in
+        mutate(myAppId, kind: "checklist", componentId: componentId) { canvas in
             guard case .checklist(var cl) = canvas,
                   let idx = cl.items.firstIndex(where: { $0.id == id }),
                   cl.items[idx].done != done else { return false }

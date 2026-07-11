@@ -14,6 +14,10 @@ import SwiftUI
 struct CanvasTitleBar: View {
     @Bindable var store: MyAppStore
     let data: TrackerData
+    /// Component being rendered. Threaded into the view-mode toggle so the
+    /// mutation lands on THIS tracker, not the first tracker in the myApp
+    /// (the kind-routed fallback ignores which component is on screen).
+    var componentId: String? = nil
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
@@ -54,13 +58,13 @@ struct CanvasTitleBar: View {
 
     private func switchToKanban() {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-            _ = store.setTrackerViewMode(.kanban)
+            _ = store.setTrackerViewMode(.kanban, componentId: componentId)
         }
     }
 
     private func switchToGrid() {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-            _ = store.setTrackerViewMode(.grid)
+            _ = store.setTrackerViewMode(.grid, componentId: componentId)
         }
     }
 }
@@ -290,7 +294,7 @@ struct ItemSheet: View {
         let trimmed = draft.mapValues { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         switch target {
         case .add:
-            _ = store.addItem(trimmed, myAppId: myAppId)
+            _ = store.addItem(trimmed, myAppId: myAppId, componentId: componentId)
         case .edit(let itemId):
             if draft != initialItem {
                 _ = store.patchItem(id: itemId, with: trimmed, myAppId: myAppId, componentId: componentId)

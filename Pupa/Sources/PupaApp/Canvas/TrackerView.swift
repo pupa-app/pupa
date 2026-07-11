@@ -23,10 +23,10 @@ public struct TrackerView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            CanvasTitleBar(store: store, data: data)
+            CanvasTitleBar(store: store, data: data, componentId: componentId)
 
             if hasAnyFilters {
-                FiltersBar(store: store, fields: data.visibleFields, filter: data.filter)
+                FiltersBar(store: store, fields: data.visibleFields, filter: data.filter, componentId: componentId)
             }
 
             CardsSection(
@@ -100,6 +100,7 @@ private struct FiltersBar: View {
     @Bindable var store: MyAppStore
     let fields: [FieldDef]
     let filter: [String: String]
+    var componentId: String? = nil
 
     var body: some View {
         SectionCard {
@@ -113,7 +114,7 @@ private struct FiltersBar: View {
                                 field: field,
                                 value: filter[field.name] ?? "",
                                 onSelect: { value in
-                                    store.setFilter(field: field.name, value: value)
+                                    store.setFilter(field: field.name, value: value, componentId: componentId)
                                 }
                             )
                         }

@@ -55,9 +55,9 @@ public struct CanvasView: View {
                 KanbanView(store: store, data: data, myAppId: resolvedMyAppId, componentId: component.id)
             }
         case .calendar(let data):
-            CalendarView(store: store, data: data, myAppId: resolvedMyAppId)
+            CalendarView(store: store, data: data, myAppId: resolvedMyAppId, componentId: component.id)
         case .checklist(let data):
-            ChecklistView(store: store, data: data, myAppId: resolvedMyAppId)
+            ChecklistView(store: store, data: data, myAppId: resolvedMyAppId, componentId: component.id)
         case .slack(let data):
             SlackView(store: store, data: data, myAppId: resolvedMyAppId,
                       componentId: component.id, coordinator: coordinator)
