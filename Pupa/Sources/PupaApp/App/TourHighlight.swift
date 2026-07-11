@@ -102,8 +102,9 @@ struct TourHighlightOverlay: View {
             .shadow(color: Color.brandColor.opacity(0.6), radius: 8)
             .frame(width: ring.width, height: ring.height)
             .position(x: ring.midX, y: ring.midY)
-            .scaleEffect(reduceMotion ? 1 : (pulse ? 1.06 : 1))
-            .opacity(reduceMotion ? 1 : (pulse ? 1 : 0.7))
+            // Pulse: enlarge then back to base. Floor is 1 (the emphasised
+            // size) — the ring never shrinks below the control it rings.
+            .scaleEffect(reduceMotion ? 1 : (pulse ? 1.08 : 1))
             .animation(
                 reduceMotion
                     ? nil
