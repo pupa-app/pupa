@@ -86,9 +86,13 @@ struct BackendEditSheet: View {
         return settings.backends.contains { $0.id == initialEntry.id }
     }
 
-    private var currentlyPaired: Bool {
+    /// Live paired state from the store. Reading `backends` registers the
+    /// SwiftUI dependency so this flips the moment an in-sheet pair completes;
+    /// `initialEntry` is a `let` snapshot and never reflects it.
+    private var pairedLive: Bool {
         guard let settings else { return false }
-        return settings.isPaired(initialEntry.id) && initialEntry.deviceID != nil
+        let live = settings.backends.first(where: { $0.id == initialEntry.id })
+        return live?.deviceID != nil && settings.isPaired(initialEntry.id)
     }
 
     var body: some View {
@@ -243,6 +247,15 @@ struct BackendEditSheet: View {
     private var harnessSection: some View {
         Section {
             switch harnessLoad {
+            case .idle where !pairedLive:
+                // Fresh/unpaired backend: never auto-probe on open (a "connect"
+                // tap must not surface a connection error before the user has
+                // actually tried). Offer an explicit load instead.
+                Button {
+                    Task { await loadHarnesses() }
+                } label: {
+                    Label("Load harnesses", systemImage: "arrow.clockwise")
+                }
             case .idle, .loading:
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
@@ -271,7 +284,12 @@ struct BackendEditSheet: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        .task(id: parsedURL) { await loadHarnesses() }
+        // Auto-load only for an already-paired backend (reachable + authed —
+        // where a probe is meaningful). The key includes `pairedLive` so the
+        // fetch also fires right after an in-sheet pair completes.
+        .task(id: "\(pairedLive)|\(parsedURL?.absoluteString ?? "")") {
+            if pairedLive { await loadHarnesses() }
+        }
     }
 
     @MainActor
@@ -307,7 +325,7 @@ struct BackendEditSheet: View {
     @ViewBuilder
     private var pairSection: some View {
         Section {
-            if currentlyPaired {
+            if pairedLive {
                 pairedStateRow
             } else {
                 pairForm
@@ -394,7 +412,7 @@ struct BackendEditSheet: View {
 
     @ViewBuilder
     private var pairFooter: some View {
-        if currentlyPaired {
+        if pairedLive {
             Text("This device is paired — requests carry a device-scoped token from the Keychain. Tap Unpair to revoke this device from both the backend and the Keychain.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
