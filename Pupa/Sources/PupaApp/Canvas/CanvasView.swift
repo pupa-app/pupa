@@ -44,8 +44,10 @@ public struct CanvasView: View {
 
     @ViewBuilder
     private func componentContent(_ component: Component) -> some View {
-        // Registered kinds render through their `ComponentModule` (issue #162);
-        // unmigrated kinds fall back to the legacy switch below.
+        // Every canvas kind renders through its `ComponentModule` (issue #162).
+        // Only `.empty` (and any future kind before its module lands —
+        // `ComponentRegistry.assertComplete` traps that at bootstrap) has no
+        // module; it falls through to the empty-state placeholder.
         if let module = ComponentRegistry.shared.module(forKind: component.kindString) {
             module.makeView(
                 component: component,
@@ -54,33 +56,7 @@ public struct CanvasView: View {
                 coordinator: coordinator
             )
         } else {
-            legacyComponentContent(component)
-        }
-    }
-
-    @ViewBuilder
-    private func legacyComponentContent(_ component: Component) -> some View {
-        switch component.body {
-        case .empty:
             EmptyComponentHint(kind: component.kindString)
-        case .tracker(let data):
-            switch data.viewMode {
-            case .grid:
-                TrackerView(store: store, data: data, myAppId: resolvedMyAppId, componentId: component.id)
-            case .kanban:
-                KanbanView(store: store, data: data, myAppId: resolvedMyAppId, componentId: component.id)
-            }
-        case .calendar(let data):
-            CalendarView(store: store, data: data, myAppId: resolvedMyAppId, componentId: component.id)
-        case .checklist(let data):
-            ChecklistView(store: store, data: data, myAppId: resolvedMyAppId, componentId: component.id)
-        case .slack(let data):
-            SlackView(store: store, data: data, myAppId: resolvedMyAppId,
-                      componentId: component.id, coordinator: coordinator)
-        case .calculator(let data):
-            CalculatorView(store: store, data: data, myAppId: resolvedMyAppId, componentId: component.id)
-        case .chart(let data):
-            ChartContainerView(store: store, data: data, myAppId: resolvedMyAppId)
         }
     }
 
@@ -162,39 +138,16 @@ private struct EmptyComponentHint: View {
         )
     }
 
+    // In practice `kind` is always `"empty"` (moduled kinds render their own
+    // view via `ComponentModule.makeView` and never reach here); the module
+    // lookup stays as a defensive path for any future non-module kind.
     private var headline: String {
-        // Registered kinds source their empty-state copy from the module
-        // (issue #162); unmigrated kinds use the switch below.
-        if let hint = ComponentRegistry.shared.module(forKind: kind)?.emptyHint() {
-            return hint.headline
-        }
-        switch kind {
-        case "calendar": return "This calendar is empty"
-        case "tracker": return "This tracker is empty"
-        case "checklist": return "This checklist is empty"
-        case "calculator": return "This calculator is empty"
-        case "chart": return "This chart is empty"
-        default: return "Your canvas is empty"
-        }
+        ComponentRegistry.shared.module(forKind: kind)?.emptyHint().headline
+            ?? "Your canvas is empty"
     }
 
     private var subline: String {
-        if let hint = ComponentRegistry.shared.module(forKind: kind)?.emptyHint() {
-            return hint.subline
-        }
-        switch kind {
-        case "calendar":
-            return "Tell the chat what events to add. Try \"Add a dentist appointment Tuesday at 10am\"."
-        case "tracker":
-            return "Tell the chat what to track. Try \"Build me a wardrobe tracker\" or \"I want to log books I've read\"."
-        case "checklist":
-            return "Tell the chat what to list. Try \"Make a packing list for a weekend trip\" or \"Things to do today\"."
-        case "calculator":
-            return "Tell the chat what to compute. Try \"Estimate my monthly mortgage payment\" or \"Total my expenses by category\"."
-        case "chart":
-            return "Tell the chat what to plot. Try \"Pie chart of spend by cuisine\" or \"Bar chart of monthly totals\"."
-        default:
-            return "Tell the chat what you want to build. Try \"Build me a wardrobe tracker\" or \"Add a calendar of my appointments\"."
-        }
+        ComponentRegistry.shared.module(forKind: kind)?.emptyHint().subline
+            ?? "Tell the chat what you want to build. Try \"Build me a wardrobe tracker\" or \"Add a calendar of my appointments\"."
     }
 }

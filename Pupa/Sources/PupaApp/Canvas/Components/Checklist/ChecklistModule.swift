@@ -32,6 +32,19 @@ public struct ChecklistModule: ComponentModule {
     public var itemPolicy: (any AnyItemPolicy)? { ChecklistItemPolicy() }
     public var exportPolicy: any ComponentExportPolicy { ChecklistExportPolicy() }
 
+    public var isLinkable: Bool { true }
+    public var linkPickerEmptyHint: String { "No rows on this checklist yet" }
+    public func linkableItems(
+        in component: Component,
+        store: MyAppStore,
+        myAppId: UUID
+    ) -> [(id: UUID, displayName: String)] {
+        guard case .checklist(let cl) = component.body else { return [] }
+        return cl.items.map { item in
+            (item.id, item.text.isEmpty ? "(empty item)" : item.text)
+        }
+    }
+
     public func makeEmptyBody() -> CanvasApp {
         .checklist(ChecklistData(title: "", items: []))
     }

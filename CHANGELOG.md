@@ -3,6 +3,29 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.96] — 2026-07-11
+
+### Changed
+
+- **Component-module cleanup (issue #162 follow-up).** Now that every kind has a
+  module, dropped the dead legacy switch fallbacks: `CanvasView` renders every
+  component via `ComponentModule.makeView` (only `.empty` falls through to the
+  placeholder), `EmptyComponentHint` and `CanvasSummary.itemCount` collapse to a
+  module lookup, and `AppTools.defaultIcon(forKind:)` is gone (icons come from
+  the module). `ComponentItemPickerSheet`'s four per-kind switches (linkable
+  filter, section header, empty hint, item enumeration) now route through the
+  module via a new `isLinkable` / `linkableItems` / `linkPickerEmptyHint`
+  protocol surface (tracker / calendar / checklist override; others default to
+  non-linkable). No behaviour change. App `0.0.195` → `0.0.196`. (#162)
+
+  `CanvasApp.emptyBody(forKind:)` deliberately keeps its switch (mirrored by each
+  module's `makeEmptyBody`): it's on the core `addComponent` path and a
+  nonisolated switch stays correct without depending on the `@MainActor` registry
+  being bootstrapped. Extracting `MyAppStore` mutators into per-kind folders is
+  also **not** done here — it would require exposing the store's private
+  `components` / `mutate` / `persist` module-wide, weakening the single-guarded-path
+  invariant for only cosmetic folder-ownership.
+
 ## [0.0.95] — 2026-07-11
 
 ### Changed

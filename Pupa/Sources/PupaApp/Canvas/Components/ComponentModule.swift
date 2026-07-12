@@ -66,6 +66,22 @@ public protocol ComponentModule: Sendable {
         coordinator: ChatSessionCoordinator?
     ) -> AnyView
 
+    /// Whether this kind holds link-bearing items the cross-component link
+    /// picker can target (tracker rows, calendar events, checklist rows).
+    /// `false` for slack / calculator / chart. Defaults to `false`.
+    var isLinkable: Bool { get }
+    /// This component's link-bearing items as `(id, displayName)` pairs for the
+    /// `ComponentItemPickerSheet`. `store` + `myAppId` let tracker resolve a
+    /// row's display name from its field schema. Empty for non-linkable kinds.
+    func linkableItems(
+        in component: Component,
+        store: MyAppStore,
+        myAppId: UUID
+    ) -> [(id: UUID, displayName: String)]
+    /// Empty-state line the link picker shows when a linkable component has no
+    /// items yet (e.g. "No events on this calendar yet").
+    var linkPickerEmptyHint: String { get }
+
     /// Link/removal guardrails, or `nil` for kinds with no link-bearing items
     /// (slack / calculator / chart).
     var itemPolicy: (any AnyItemPolicy)? { get }
@@ -78,6 +94,15 @@ public protocol ComponentModule: Sendable {
 
 public extension ComponentModule {
     var itemPolicy: (any AnyItemPolicy)? { nil }
+
+    // Non-linkable by default — only tracker / calendar / checklist override.
+    var isLinkable: Bool { false }
+    func linkableItems(
+        in component: Component,
+        store: MyAppStore,
+        myAppId: UUID
+    ) -> [(id: UUID, displayName: String)] { [] }
+    var linkPickerEmptyHint: String { "Nothing to link here" }
 }
 
 /// Dispatch table mapping kind strings to their `ComponentModule`. The single
