@@ -3,6 +3,20 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.97] — 2026-07-12
+
+### Fixed
+
+- **Connect-backend sheet no longer errors before you try.** `BackendEditSheet`'s
+  Agent-harness section used to auto-probe the backend (`GET /harnesses`) the instant
+  the sheet opened, so tapping "Connect backend" against an unpaired / not-yet-running
+  backend flashed an orange "Couldn't reach backend" error before any attempt. The probe
+  now runs automatically only for an already-paired backend; a fresh/unpaired backend
+  shows a neutral "Load harnesses" button and connects only on an explicit tap (or right
+  after pairing). Also fixed a latent staleness bug where the pair section kept showing
+  the code form after an in-sheet pair (`currentlyPaired` read the immutable `initialEntry`
+  snapshot; now reads the live store). App `0.0.196` → `0.0.197`.
+
 ## [0.0.96] — 2026-07-11
 
 ### Changed
