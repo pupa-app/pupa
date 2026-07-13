@@ -104,7 +104,11 @@ what it coordinates plus the myapps it can drive, and an empty Components panel
 bespoke page. Both homes leave agents to the **Agents** bottom-bar page; the
 home itself only shows the Outline + Components. The drawer fills most of a compact
 (iPhone-portrait) screen but stays a slim fixed width on a regular width class
-(iPad, large iPhone landscape).
+(iPad, large iPhone landscape). Drawer + scrim are **always mounted** (like the
+keep-alive detail panes): open/close slides by `.offset` under a single scoped
+`.snappy(0.25)` animation — cold-constructing the sidebar `List` inside the tap
+transaction measured ~90–135ms tap→frame warm (and ~1.1s on first open) and made
+the hamburger feel slow next to the animation-free page switches.
 
 The chat lives in a user-resizable `ChatOverlay` card anchored bottom-trailing
 of the detail pane. Its launcher lives in the per-MyApp bottom bar (below); on
@@ -285,8 +289,8 @@ blocks the control it points at. The card is gated on
 `tour.isActive` and rendered above
 the sidebar + chat; because an iOS `.sheet` covers that ZStack, `SettingsSheet`
 re-renders the same card as its own overlay during the Settings steps. (That
-sheet is hosted by the conditionally-mounted sidebar, so `applyTourStep` keeps
-the sidebar mounted whenever a step opens Settings.) Each step starts the card
+sheet is hosted by the sidebar — always mounted, but `applyTourStep` still
+opens the drawer whenever a step opens Settings to keep tour semantics.) Each step starts the card
 at its `placement` anchor, but a grab handle lets the user drag it anywhere; the
 position snaps back to the anchor on the next step. The tour
 auto-starts when `completed && !tourCompleted`, persists `pupa.tour.completed`

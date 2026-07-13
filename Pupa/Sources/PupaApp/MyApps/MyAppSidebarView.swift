@@ -85,9 +85,9 @@ public struct MyAppSidebarView: View {
         .onChange(of: tour.wantSettingsOpen) { _, want in
             settingsSheetPresented = want
         }
-        // On iOS the sidebar is conditionally mounted; a tour step that opens
-        // Settings remounts it with the flag already true, so `onChange` never
-        // fires. Reconcile on appear so the sheet still opens.
+        // Covers launch with the flag already true (the sidebar mounts once,
+        // at app start), where `onChange` never fires. Reconcile on appear so
+        // the sheet still opens.
         .onAppear {
             if tour.wantSettingsOpen { settingsSheetPresented = true }
         }

@@ -3,6 +3,22 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.98] — 2026-07-13
+
+### Fixed
+
+- **iOS hamburger drawer opens instantly.** The slide-in menu was the app's one
+  remaining animated + cold-mounted interaction: each open constructed the
+  sidebar `List` inside the tap transaction (measured ~90–135ms tap→frame warm,
+  ~1.1s on first open, Debug/simulator) under a 300ms spring driven twice (a
+  `withAnimation` at every call site **and** a ZStack-wide `.animation`), with a
+  `.shadow(radius: 10)` rasterizing the full-height drawer every frame. Drawer +
+  scrim are now always mounted (keep-alive, like the detail panes) and slide by
+  `.offset` under a single scoped `.snappy(0.25)` animation; the shadow is a
+  fixed 16pt gradient edge. After: ~95–110ms tap→frame warm, ~123ms cold — and
+  the slide starts immediately. Side effect: drawer scroll position survives
+  close/reopen. App `0.0.197` → `0.0.198`.
+
 ## [0.0.97] — 2026-07-12
 
 ### Fixed
