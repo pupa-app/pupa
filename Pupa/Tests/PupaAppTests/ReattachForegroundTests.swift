@@ -14,7 +14,7 @@ import AGUIKit
 ///     live session, so several backgrounded chats each recover on their own.
 ///
 /// Deterministic without a mock transport: a refused port (`localhost:65535`)
-/// fails the POST fast → the turn surfaces as `lastError`; a blackholed address
+/// fails the POST fast → the turn surfaces a `connectionIssue`; a blackholed address
 /// (`192.0.2.1`, TEST-NET-1) hangs connect → the stream stays live. Recovery
 /// itself makes no network call here — no replay cursor was ever set, so
 /// `reattach()` short-circuits to `.completed`.
@@ -75,13 +75,13 @@ struct ReattachForegroundTests {
         let (store, ids) = makeStore(1)
         let vm = makeVM(store: store, scope: .myApp(ids[0]), backend: refused)
 
-        #expect(vm.lastError == nil)
+        #expect(vm.connectionIssue == nil)
         #expect(vm.isStreaming == false)
 
         vm.reattachIfNeeded()  // both guards fail → nothing happens
 
         #expect(vm.isStreaming == false)
-        #expect(vm.lastError == nil)
+        #expect(vm.connectionIssue == nil)
     }
 
     @Test("reattachIfNeeded on a session whose last turn errored clears the error and drives recovery")
@@ -89,15 +89,37 @@ struct ReattachForegroundTests {
         let (store, ids) = makeStore(1)
         let vm = makeVM(store: store, scope: .myApp(ids[0]), backend: refused)
 
-        vm.send("hi")  // POST to a refused port → turn surfaces as lastError
-        let armed = await awaitUntil { vm.lastError != nil && vm.isStreaming == false }
-        #expect(armed, "a send to an unreachable backend should surface lastError")
+        vm.send("hi")  // POST to a refused port → turn surfaces a connectionIssue
+        let armed = await awaitUntil { vm.connectionIssue != nil && vm.isStreaming == false }
+        #expect(armed, "a send to an unreachable backend should surface a connectionIssue")
+        // A refused socket is a reattachable drop → the calm reconnecting state,
+        // not a red error banner.
+        #expect(vm.connectionIssue == .reconnecting)
+        #expect(vm.activityStatus == .running)
 
         vm.reattachIfNeeded()
-        // Fired: lastError cleared synchronously; recovery finds no replay
+        // Fired: connectionIssue cleared synchronously; recovery finds no replay
         // cursor so it settles straight back to not-streaming.
-        #expect(vm.lastError == nil)
+        #expect(vm.connectionIssue == nil)
         #expect(await awaitUntil { vm.isStreaming == false })
+    }
+
+    @Test("stream errors map to short, user-facing banner states — never a raw dump")
+    func connectionState_mapping() {
+        // Reattachable socket drop → calm reconnecting (the background-resume case).
+        #expect(
+            ChatViewModel.connectionState(for: AgentClientError.requestFailed(URLError(.notConnectedToInternet)))
+                == .reconnecting
+        )
+        // Everything else → a short, fixed, non-technical message (no error dump).
+        #expect(
+            ChatViewModel.connectionState(for: AgentClientError.httpStatus(500, body: "Traceback (most recent call last)…"))
+                == .failed(ChatViewModel.backendErrorMessage)
+        )
+        #expect(
+            ChatViewModel.connectionState(for: AgentClientError.malformedEvent("{bad", underlying: URLError(.cannotParseResponse)))
+                == .failed(ChatViewModel.backendErrorMessage)
+        )
     }
 
     @Test("reattachIfNeeded does not disturb a session whose stream is still live")
@@ -115,11 +137,11 @@ struct ReattachForegroundTests {
 
         vm.send("hi")
         #expect(await awaitUntil(500) { vm.isStreaming }, "send should flip streaming on")
-        #expect(vm.lastError == nil)
+        #expect(vm.connectionIssue == nil)
 
         vm.reattachIfNeeded()  // streamTask != nil → must skip
         #expect(vm.isStreaming, "reattach must not interrupt a live stream")
-        #expect(vm.lastError == nil)
+        #expect(vm.connectionIssue == nil)
 
         vm.cancel()  // tidy the hanging task
     }
@@ -134,14 +156,14 @@ struct ReattachForegroundTests {
         let b = coord.session(for: .myApp(ids[1]))  // fresh — never sent
 
         a.send("hi")
-        #expect(await awaitUntil { a.lastError != nil && a.isStreaming == false })
-        #expect(b.lastError == nil)
+        #expect(await awaitUntil { a.connectionIssue != nil && a.isStreaming == false })
+        #expect(b.connectionIssue == nil)
 
         coord.reattachAllAfterForeground()
 
-        // A errored → recovery fired (error cleared). B was clean → untouched.
-        #expect(a.lastError == nil)
-        #expect(b.lastError == nil)
+        // A dropped → recovery fired (issue cleared). B was clean → untouched.
+        #expect(a.connectionIssue == nil)
+        #expect(b.connectionIssue == nil)
         #expect(b.isStreaming == false)
     }
 
@@ -155,9 +177,9 @@ struct ReattachForegroundTests {
         a.send("one")
         b.send("two")
         let bothArmed = await awaitUntil {
-            a.lastError != nil && b.lastError != nil && !a.isStreaming && !b.isStreaming
+            a.connectionIssue != nil && b.connectionIssue != nil && !a.isStreaming && !b.isStreaming
         }
-        #expect(bothArmed, "both chats' sends should fail and arm lastError")
+        #expect(bothArmed, "both chats' sends should fail and arm a connectionIssue")
         // Distinct threads → distinct per-thread replay logs on the backend.
         #expect(a.threadId != b.threadId)
 
@@ -166,7 +188,7 @@ struct ReattachForegroundTests {
         // Both recovered independently. The per-thread after_seq wire is
         // unit-tested in AGUIKit ReattachTests; here we pin that the
         // coordinator drives recovery across concurrent chats.
-        #expect(a.lastError == nil)
-        #expect(b.lastError == nil)
+        #expect(a.connectionIssue == nil)
+        #expect(b.connectionIssue == nil)
     }
 }

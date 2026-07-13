@@ -219,9 +219,13 @@ lists threads newest-first. When 2+ threads exist each entry is a submenu with
 
 **Status badges.** `ChatActivityStatus` (`Chat/ChatActivityStatus.swift`) is a
 per-thread state derived live from each `ChatViewModel`: `actionRequired`
-(parked on a shell-approval / question interrupt) > `error` (`lastError`) >
-`unviewedAnswer` (a turn settled while the thread was off-screen) > `running` >
-`idle`. The VM tracks `hasUnviewedCompletion` (set when a real turn settles in
+(parked on a shell-approval / question interrupt) > `error` (`connectionIssue ==
+.failed`) > `unviewedAnswer` (a turn settled while the thread was off-screen) >
+`running` (streaming, or `connectionIssue == .reconnecting`) > `idle`. A dropped
+stream sets `connectionIssue`: a reattachable socket drop (the
+backgrounded-then-resumed case) is `.reconnecting` — a calm "Reconnecting…"
+banner that foreground reattach clears — while any other failure is `.failed`
+with a short, non-technical message (the raw error is logged, never shown). The VM tracks `hasUnviewedCompletion` (set when a real turn settles in
 `setStreaming`, cleared by `markViewed()` whenever a `ChatPanel` for that thread
 is on screen). `ChatSessionCoordinator.status(for:threadId:)` exposes one
 thread's status and `aggregateStatus(for:)` folds a scope's threads to the
