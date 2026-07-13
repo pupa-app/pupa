@@ -298,12 +298,12 @@ public struct AppView: View {
     private func applyTourStep() {
         guard tour.isActive, let step = tour.currentStep else { return }
         #if os(iOS)
-        // The Settings sheet is hosted by the (conditionally-mounted) sidebar,
-        // so keep the sidebar mounted whenever a step opens Settings — even
-        // though the sheet then covers it — otherwise the sheet can't present.
-        withAnimation(.spring(duration: 0.3)) {
-            showSidebar = step.opensSidebar || step.settingsPage != nil
-        }
+        // The Settings sheet is hosted by the sidebar, so open the drawer
+        // whenever a step opens Settings — even though the sheet then covers
+        // it. (The drawer is always mounted now, so the sheet could present
+        // from a closed drawer; keeping it open preserves tour semantics.)
+        // Animated by the scoped `.animation(value: showSidebar)` drivers.
+        showSidebar = step.opensSidebar || step.settingsPage != nil
         #endif
         tour.wantSettingsPage = step.settingsPage
         tour.wantSettingsOpen = step.settingsPage != nil
@@ -438,7 +438,7 @@ public struct AppView: View {
                         .toolbar {
                             ToolbarItem(placement: .topBarLeading) {
                                 Button {
-                                    withAnimation(.spring(duration: 0.3)) { showSidebar.toggle() }
+                                    showSidebar.toggle()
                                 } label: {
                                     Image(systemName: "line.3.horizontal")
                                 }
@@ -450,7 +450,7 @@ public struct AppView: View {
                                 .toolbar {
                                     ToolbarItem(placement: .topBarLeading) {
                                         Button {
-                                            withAnimation(.spring(duration: 0.3)) { showSidebar.toggle() }
+                                            showSidebar.toggle()
                                         } label: {
                                             Image(systemName: "line.3.horizontal")
                                         }
@@ -477,14 +477,21 @@ public struct AppView: View {
                 myAppBottomBar
             }
 
-            if showSidebar {
-                Color.black.opacity(0.4)
-                    .ignoresSafeArea()
-                    .onTapGesture {
-                        withAnimation(.spring(duration: 0.3)) { showSidebar = false }
-                    }
-                    .transition(.opacity)
+            // Drawer + scrim are ALWAYS mounted (keep-alive, like `DetailPane`):
+            // opening slides by offset instead of cold-constructing the sidebar
+            // List inside the tap transaction — the conditional mount measured
+            // ~90-135ms tap→frame warm and ~1.1s on first open (Debug, sim).
+            // Scrim: opacity-driven, never hit-testable while closed.
+            Color.black.opacity(showSidebar ? 0.4 : 0)
+                .ignoresSafeArea()
+                .onTapGesture { showSidebar = false }
+                .allowsHitTesting(showSidebar)
+                .animation(.snappy(duration: 0.25), value: showSidebar)
 
+            // Drawer: slides by offset. Gradient trailing edge replaces
+            // `.shadow(radius: 10)` — a per-frame shadow on a huge moving
+            // layer forced offscreen rasterization during the slide.
+            HStack(spacing: 0) {
                 MyAppSidebarView(
                     store: store,
                     memory: memory,
@@ -503,9 +510,19 @@ public struct AppView: View {
                 // indicator; the content keeps its safe-area insets so the
                 // brand header sits below the clock instead of under it.
                 .background(Color(uiColor: .systemBackground).ignoresSafeArea())
-                .shadow(radius: 10)
-                .transition(.move(edge: .leading))
+
+                LinearGradient(
+                    colors: [.black.opacity(0.25), .clear],
+                    startPoint: .leading, endPoint: .trailing
+                )
+                .frame(width: 16)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
             }
+            .offset(x: showSidebar ? 0 : -(sidebarWidth + 16))
+            .allowsHitTesting(showSidebar)
+            .accessibilityHidden(!showSidebar)
+            .animation(.snappy(duration: 0.25), value: showSidebar)
         }
         // Ring the control the active step describes (sidebar footer, bottom-bar
         // tab, or chat header) — over the drawer + canvas, under the coach card,
@@ -518,13 +535,12 @@ public struct AppView: View {
                 GuidedTourView(tour: tour)
             }
         }
-        .animation(.spring(duration: 0.3), value: showSidebar)
         .onChange(of: selection) { _, new in
             // Ignore our own clear-to-nil (below). Navigation itself happens in
             // `setRoot`, invoked by the sidebar's `onSelectionChange` — this
             // handler only closes the drawer and re-arms the row highlight.
             guard new != nil else { return }
-            withAnimation(.spring(duration: 0.3)) { showSidebar = false }
+            showSidebar = false
             // List(selection:) won't re-fire onChange for an identical value, so a
             // re-tap of the same row is dropped. Reset the highlight after the tap
             // is dispatched; `rootPage` keeps the detail pane in place while nil.
