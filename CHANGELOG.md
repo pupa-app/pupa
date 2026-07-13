@@ -3,6 +3,20 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.100] — 2026-07-13
+
+### Changed
+
+- **Chat connection errors read like a product, not a stack trace.** A dropped
+  SSE stream used to render the raw `String(describing: error)` (or a verbatim
+  backend message) untruncated in red — a developer-facing wall of text that also
+  flashed for ~100ms on resume-from-background before reattach cleared it. Now a
+  reattachable socket drop (the background-then-resume case) shows a calm
+  "Reconnecting…" that foreground reattach clears; any other failure shows a
+  short, fixed message ("The assistant ran into a problem. Please try again.").
+  The raw error is logged, never shown. `ChatViewModel.lastError: String?` →
+  `connectionIssue: ChatConnectionState?`. App `0.0.199` → `0.0.200`.
+
 ## [0.0.99] — 2026-07-13
 
 ### Added

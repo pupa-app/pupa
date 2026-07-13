@@ -47,7 +47,7 @@ struct ChatViewModelLifecycleTests {
 
         #expect(vm.bubbles.isEmpty)
         #expect(vm.isStreaming == false)
-        #expect(vm.lastError == nil)
+        #expect(vm.connectionIssue == nil)
         #expect(vm.pinnedScope == .myApp(myApp.id))
         #expect(vm.threadId == store.currentThreadId(for: .myApp(myApp.id)))
         // A fresh VM is idle with nothing unviewed.

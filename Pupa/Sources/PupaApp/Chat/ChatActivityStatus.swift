@@ -10,7 +10,7 @@ public enum ChatActivityStatus: Equatable {
     case running
     /// A turn finished but the user hasn't looked at this thread since.
     case unviewedAnswer
-    /// The last turn ended in an error (`lastError != nil`).
+    /// The last turn ended in an error (`connectionIssue == .failed`).
     case error
     /// Parked on a human-in-the-loop interrupt (shell approval / question).
     case actionRequired

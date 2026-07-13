@@ -168,11 +168,24 @@ public struct ChatPanel: View {
                             .id("modelWorkingSpinner")
                             .transition(.opacity)
                         }
-                        if let error = viewModel.lastError {
-                            Text(error)
+                        switch viewModel.connectionIssue {
+                        case .reconnecting:
+                            HStack(spacing: 6) {
+                                ProgressView().controlSize(.small)
+                                Text("Reconnecting…")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal, 12)
+                            .transition(.opacity)
+                        case .failed(let message):
+                            Text(message)
                                 .font(.caption)
                                 .foregroundStyle(.red)
+                                .lineLimit(3)
                                 .padding(.horizontal, 12)
+                        case nil:
+                            EmptyView()
                         }
                     }
                     .padding(12)
@@ -246,7 +259,7 @@ public struct ChatPanel: View {
         // the badge only ever shows for threads the user isn't reading.
         .onAppear { viewModel.markViewed() }
         .onChange(of: viewModel.isStreaming) { viewModel.markViewed() }
-        .onChange(of: viewModel.lastError) { viewModel.markViewed() }
+        .onChange(of: viewModel.connectionIssue) { viewModel.markViewed() }
         .onAppear {
             // First chat opened after onboarding: pre-fill the composer with a
             // suggested message so the user's first action is a single tap.

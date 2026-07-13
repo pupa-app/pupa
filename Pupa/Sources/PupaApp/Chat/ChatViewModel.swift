@@ -173,6 +173,18 @@ public enum ChatScope: Equatable, Hashable, Sendable {
     case memory
 }
 
+/// Health of a thread's SSE stream, surfaced as the inline banner under the
+/// transcript. `nil` = healthy. Both non-nil cases arm foreground reattach
+/// (see `reattachIfNeeded`); they differ only in how they read to the user.
+public enum ChatConnectionState: Equatable {
+    /// Recoverable drop — the socket died (typically while backgrounded) and
+    /// we expect to reattach. Shown as a calm "Reconnecting…", not an error.
+    case reconnecting
+    /// Genuine failure. `message` is short and user-facing (never a raw error
+    /// dump); the raw error is logged, not shown.
+    case failed(String)
+}
+
 @MainActor
 @Observable
 public final class ChatViewModel {
@@ -195,7 +207,8 @@ public final class ChatViewModel {
     /// whenever the session is idle with nothing waiting.
     public private(set) var queuedMessages: [QueuedMessage] = []
     public private(set) var isStreaming = false
-    public private(set) var lastError: String?
+    /// Inline connection banner state; `nil` when the stream is healthy.
+    public private(set) var connectionIssue: ChatConnectionState?
     /// True when a turn finished while this thread was not on screen — drives
     /// the "unviewed answer" badge on the pupa circle / thread lists. Set when
     /// a real turn settles (see `setStreaming`); cleared by `markViewed()` when
@@ -257,7 +270,11 @@ public final class ChatViewModel {
     /// stream.
     public var activityStatus: ChatActivityStatus {
         if isAwaitingHumanInput { return .actionRequired }
-        if lastError != nil { return .error }
+        switch connectionIssue {
+        case .failed: return .error
+        case .reconnecting: return .running  // transient, recovering — busy, not broken
+        case nil: break
+        }
         if hasUnviewedCompletion { return .unviewedAnswer }
         if isStreaming { return .running }
         return .idle
@@ -914,7 +931,7 @@ public final class ChatViewModel {
         }
 
         setStreaming(true)
-        lastError = nil
+        connectionIssue = nil
         didUserStop = false
 
         rebuildSessionIfSettingsChanged()
@@ -995,7 +1012,7 @@ public final class ChatViewModel {
     /// decides whether to retry — auto-firing the queue could cascade
     /// failures).
     private func drainQueue() {
-        guard !isStreaming, !isAwaitingHumanInput, lastError == nil else { return }
+        guard !isStreaming, !isAwaitingHumanInput, connectionIssue == nil else { return }
         guard let merged = Self.coalesceQueue(queuedMessages) else { return }
         queuedMessages.removeAll()
         send(merged.text, images: merged.images)
@@ -1063,7 +1080,7 @@ public final class ChatViewModel {
     /// `AgentSession` already retries transport drops in-flight (re-attach
     /// with backoff against the backend's replay log); this covers the case
     /// where those retries were exhausted — or the process was suspended
-    /// before they could run — and the turn surfaced as `lastError`. On
+    /// before they could run — and the turn surfaced a `connectionIssue`. On
     /// return to the foreground we re-attach once more: the backend replays
     /// every missed event (and, if the run parked on a frontend-tool
     /// interrupt while we were away, the session dispatches it and resumes).
@@ -1073,10 +1090,10 @@ public final class ChatViewModel {
     /// additionally needs the replay cursor persisted per thread — tracked as
     /// follow-up on pupa#103.
     public func reattachIfNeeded() {
-        guard streamTask == nil else { return }  // stream survived the background
-        guard lastError != nil else { return }   // nothing was interrupted
+        guard streamTask == nil else { return }       // stream survived the background
+        guard connectionIssue != nil else { return }   // nothing was interrupted
         AGUIKitLog.session("foreground reattach: thread=\(threadId)")
-        lastError = nil
+        connectionIssue = nil
         setStreaming(true)
         consume(stream: session.reattach())
     }
@@ -1093,7 +1110,8 @@ public final class ChatViewModel {
                 }
             } catch {
                 if case AgentClientError.cancelled = error { cancelled = true } else {
-                    self?.lastError = String(describing: error)
+                    AGUIKitLog.session("stream error: \(String(describing: error))")
+                    self?.connectionIssue = Self.connectionState(for: error)
                 }
             }
             self?.setStreaming(false)
@@ -1244,10 +1262,24 @@ public final class ChatViewModel {
             if case .silent(let reason) = outcome, !didUserStop {
                 appendBubble(ChatBubble(role: .system, text: Self.silentStopMessage(reason)))
             }
-        case .error(let message, _):
+        case .error(let message, let code):
             openToolRoundId = nil
-            lastError = message
+            AGUIKitLog.session("backend run error [\(code ?? "-")]: \(message)")
+            connectionIssue = .failed(Self.backendErrorMessage)
         }
+    }
+
+    /// Short, user-facing message for a turn the backend reported as failed.
+    static let backendErrorMessage = "The assistant ran into a problem. Please try again."
+
+    /// Map a thrown stream error to the inline banner state. A reattachable
+    /// socket drop — the backgrounded-then-resumed case — surfaces as a calm
+    /// `.reconnecting` (foreground reattach clears it); every other failure is a
+    /// short, non-technical `.failed`. The raw error is logged at the call site,
+    /// never shown, so no developer-facing dump can reach the UI.
+    static func connectionState(for error: Error) -> ChatConnectionState {
+        if case AgentClientError.requestFailed = error { return .reconnecting }
+        return .failed(backendErrorMessage)
     }
 
     /// User-facing note for a turn that ended with no assistant reply.
