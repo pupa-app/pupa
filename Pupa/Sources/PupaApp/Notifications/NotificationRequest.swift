@@ -13,6 +13,33 @@ public struct NotificationRequest: Sendable, Hashable {
         case after(seconds: Int)
         /// Fire at the given absolute wall-clock instant.
         case atDate(Date)
+        /// Repeat every day at `hour`:`minute` (local time).
+        case daily(hour: Int, minute: Int)
+        /// Repeat weekly on `weekday` at `hour`:`minute`. `weekday` is
+        /// `Calendar`-indexed: 1=Sunday … 7=Saturday.
+        case weekly(weekday: Int, hour: Int, minute: Int)
+        /// Repeat every N hours (1..24).
+        case everyNHours(Int)
+
+        /// Whether the OS trigger repeats. The three recurring presets do; the
+        /// one-shot triggers (`now`/`after`/`atDate`) do not.
+        public var repeats: Bool {
+            switch self {
+            case .now, .after, .atDate: return false
+            case .daily, .weekly, .everyNHours: return true
+            }
+        }
+    }
+
+    /// What tapping the delivered banner does, beyond the OS bringing the app
+    /// forward. `.foreground` is the historical default (no extra routing).
+    public enum TapAction: Sendable, Hashable {
+        /// Just foreground the app (plus any `target` deep-link navigation).
+        case foreground
+        /// Pre-fill the chat composer with `prompt` so the user can continue.
+        case populateChat(prompt: String)
+        /// Send `prompt` as an agent turn on the active chat scope on tap.
+        case runAgent(prompt: String)
     }
 
     public enum ParseError: Error, CustomStringConvertible {
@@ -23,6 +50,12 @@ public struct NotificationRequest: Sendable, Hashable {
         case secondsOutOfRange(Int)
         case unparseableDate(String)
         case pastDate(String)
+        case hourOutOfRange(Int)
+        case minuteOutOfRange(Int)
+        case weekdayOutOfRange(Int)
+        case hoursOutOfRange(Int)
+        case tapPromptTooLong(Int)
+        case invalidTapAction(String)
 
         public var description: String {
             switch self {
@@ -33,6 +66,12 @@ public struct NotificationRequest: Sendable, Hashable {
             case .secondsOutOfRange(let s): return "seconds=\(s) out of range (1..31536000)"
             case .unparseableDate(let s): return "could not parse '\(s)' as ISO-8601"
             case .pastDate(let s): return "atDate '\(s)' is in the past"
+            case .hourOutOfRange(let h): return "hour=\(h) out of range (0..23)"
+            case .minuteOutOfRange(let m): return "minute=\(m) out of range (0..59)"
+            case .weekdayOutOfRange(let w): return "weekday=\(w) out of range (1..7, Sun=1)"
+            case .hoursOutOfRange(let h): return "hours=\(h) out of range (1..24)"
+            case .tapPromptTooLong(let n): return "tapAction.prompt too long (\(n) > 256 chars)"
+            case .invalidTapAction(let m): return "invalid tapAction: \(m)"
             }
         }
     }
@@ -52,7 +91,12 @@ public struct NotificationRequest: Sendable, Hashable {
 
     public static let titleMaxLength = 64
     public static let bodyMaxLength = 256
+    public static let tapPromptMaxLength = 256
     public static let secondsRange = 1...31_536_000
+    public static let hourRange = 0...23
+    public static let minuteRange = 0...59
+    public static let weekdayRange = 1...7
+    public static let everyNHoursRange = 1...24
 
     public let title: String
     public let body: String
@@ -60,12 +104,22 @@ public struct NotificationRequest: Sendable, Hashable {
     /// Where to navigate when the user taps the notification banner.
     /// Nil means tapping just foregrounds the app with no extra routing.
     public let target: Target?
+    /// What tapping the banner does beyond foregrounding. `.foreground` by
+    /// default (historical behaviour).
+    public let tapAction: TapAction
 
-    public init(title: String, body: String, trigger: Trigger, target: Target? = nil) {
+    public init(
+        title: String,
+        body: String,
+        trigger: Trigger,
+        target: Target? = nil,
+        tapAction: TapAction = .foreground
+    ) {
         self.title = title
         self.body = body
         self.trigger = trigger
         self.target = target
+        self.tapAction = tapAction
     }
 
     /// Build from the raw `AnyJSON` the tool registry hands us, or throw a
@@ -112,8 +166,28 @@ public struct NotificationRequest: Sendable, Hashable {
                 throw ParseError.pastDate(iso)
             }
             parsedTrigger = .atDate(date)
+        case "daily":
+            let hour = try Self.requiredInt(trigger, "hour", kind: "daily")
+            let minute = try Self.requiredInt(trigger, "minute", kind: "daily")
+            guard Self.hourRange.contains(hour) else { throw ParseError.hourOutOfRange(hour) }
+            guard Self.minuteRange.contains(minute) else { throw ParseError.minuteOutOfRange(minute) }
+            parsedTrigger = .daily(hour: hour, minute: minute)
+        case "weekly":
+            let weekday = try Self.requiredInt(trigger, "weekday", kind: "weekly")
+            let hour = try Self.requiredInt(trigger, "hour", kind: "weekly")
+            let minute = try Self.requiredInt(trigger, "minute", kind: "weekly")
+            guard Self.weekdayRange.contains(weekday) else { throw ParseError.weekdayOutOfRange(weekday) }
+            guard Self.hourRange.contains(hour) else { throw ParseError.hourOutOfRange(hour) }
+            guard Self.minuteRange.contains(minute) else { throw ParseError.minuteOutOfRange(minute) }
+            parsedTrigger = .weekly(weekday: weekday, hour: hour, minute: minute)
+        case "everyNHours":
+            let hours = try Self.requiredInt(trigger, "hours", kind: "everyNHours")
+            guard Self.everyNHoursRange.contains(hours) else { throw ParseError.hoursOutOfRange(hours) }
+            parsedTrigger = .everyNHours(hours)
         default:
-            throw ParseError.invalidTrigger("unknown kind '\(kind)' (expected now / after / atDate)")
+            throw ParseError.invalidTrigger(
+                "unknown kind '\(kind)' (expected now / after / atDate / daily / weekly / everyNHours)"
+            )
         }
 
         var target: Target? = nil
@@ -124,7 +198,50 @@ public struct NotificationRequest: Sendable, Hashable {
             target = Target(myAppId: uuid, componentId: componentId)
         }
 
-        self.init(title: title, body: body, trigger: parsedTrigger, target: target)
+        let tapAction = try Self.parseTapAction(args["tapAction"])
+
+        self.init(
+            title: title,
+            body: body,
+            trigger: parsedTrigger,
+            target: target,
+            tapAction: tapAction
+        )
+    }
+
+    /// Read a required integer field off a trigger object, or throw an
+    /// `invalidTrigger` naming the offending `kind`/`key`.
+    private static func requiredInt(_ obj: AnyJSON, _ key: String, kind: String) throws -> Int {
+        guard let value = obj[key]?.intValue else {
+            throw ParseError.invalidTrigger("'\(kind)' requires integer '\(key)'")
+        }
+        return value
+    }
+
+    /// Parse the optional `tapAction:{kind, prompt}` object. Absent ⇒
+    /// `.foreground`. `populateChat`/`runAgent` require a non-empty,
+    /// length-capped `prompt`.
+    private static func parseTapAction(_ arg: AnyJSON?) throws -> TapAction {
+        guard let arg, case .object = arg else { return .foreground }
+        guard let kind = arg["kind"]?.stringValue else {
+            throw ParseError.invalidTapAction("missing 'kind'")
+        }
+        switch kind {
+        case "foreground":
+            return .foreground
+        case "populateChat", "runAgent":
+            guard let prompt = arg["prompt"]?.stringValue, !prompt.isEmpty else {
+                throw ParseError.invalidTapAction("'\(kind)' requires non-empty 'prompt'")
+            }
+            if prompt.count > Self.tapPromptMaxLength {
+                throw ParseError.tapPromptTooLong(prompt.count)
+            }
+            return kind == "populateChat" ? .populateChat(prompt: prompt) : .runAgent(prompt: prompt)
+        default:
+            throw ParseError.invalidTapAction(
+                "unknown kind '\(kind)' (expected foreground / populateChat / runAgent)"
+            )
+        }
     }
 
     /// Compute the delivery instant the user will see in the echo payload.
@@ -135,6 +252,18 @@ public struct NotificationRequest: Sendable, Hashable {
         case .now: return referenceDate.addingTimeInterval(0.1)
         case .after(let seconds): return referenceDate.addingTimeInterval(TimeInterval(seconds))
         case .atDate(let date): return date
+        case .daily(let hour, let minute):
+            let comps = DateComponents(hour: hour, minute: minute)
+            return Calendar.current.nextDate(
+                after: referenceDate, matching: comps, matchingPolicy: .nextTime
+            ) ?? referenceDate
+        case .weekly(let weekday, let hour, let minute):
+            let comps = DateComponents(hour: hour, minute: minute, weekday: weekday)
+            return Calendar.current.nextDate(
+                after: referenceDate, matching: comps, matchingPolicy: .nextTime
+            ) ?? referenceDate
+        case .everyNHours(let hours):
+            return referenceDate.addingTimeInterval(TimeInterval(hours * 3600))
         }
     }
 
@@ -150,6 +279,36 @@ public struct NotificationRequest: Sendable, Hashable {
                 "kind": .string("atDate"),
                 "iso8601": .string(Self.formatISO8601(date)),
             ])
+        case .daily(let hour, let minute):
+            return .object([
+                "kind": .string("daily"),
+                "hour": .int(hour),
+                "minute": .int(minute),
+            ])
+        case .weekly(let weekday, let hour, let minute):
+            return .object([
+                "kind": .string("weekly"),
+                "weekday": .int(weekday),
+                "hour": .int(hour),
+                "minute": .int(minute),
+            ])
+        case .everyNHours(let hours):
+            return .object([
+                "kind": .string("everyNHours"),
+                "hours": .int(hours),
+            ])
+        }
+    }
+
+    /// Mirror of the parsed tap action as a JSON object for the tool echo.
+    public func tapActionEcho() -> AnyJSON {
+        switch tapAction {
+        case .foreground:
+            return .object(["kind": .string("foreground")])
+        case .populateChat(let prompt):
+            return .object(["kind": .string("populateChat"), "prompt": .string(prompt)])
+        case .runAgent(let prompt):
+            return .object(["kind": .string("runAgent"), "prompt": .string(prompt)])
         }
     }
 

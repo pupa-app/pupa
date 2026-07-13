@@ -260,6 +260,7 @@ public struct ChatPanel: View {
             if let prefill = tour.chatPrefill, !prefill.isEmpty {
                 streamPrefill(prefill)
             }
+            consumeChatAutoSend()
         }
         // Guided tour with the overlay already open (the slash-commands step
         // toggling "/" while chat is up): adopt the prefill reactively so the
@@ -269,7 +270,20 @@ public struct ChatPanel: View {
                 streamPrefill(prefill)
             }
         }
+        // Notification `runAgent` tap: AppView parks the prompt here, we fire it
+        // as a turn on this scope's viewModel. Reactive (overlay already open)
+        // + the onAppear above (overlay just opened by the tap).
+        .onChange(of: tour.chatAutoSend) { _, _ in consumeChatAutoSend() }
         .onDisappear { prefillTask?.cancel() }
+    }
+
+    /// Fire a parked `runAgent` prompt exactly once. Consume-BEFORE-send:
+    /// `ChatPanel` remounts per chat scope, so a value surviving the send would
+    /// re-fire against the next scope's viewModel.
+    private func consumeChatAutoSend() {
+        guard let prompt = tour.chatAutoSend, !prompt.isEmpty else { return }
+        tour.chatAutoSend = nil
+        viewModel.send(prompt)
     }
 
     /// Type a tour prefill into the composer with a brief lead-in then a

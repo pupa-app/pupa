@@ -955,9 +955,14 @@ private struct PendingNotificationsList: View {
                     .lineLimit(2)
             }
             if let date = item.deliveryAt {
-                Text(date, format: .dateTime.weekday().month().day().hour().minute())
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                HStack(spacing: 4) {
+                    if item.repeats {
+                        Image(systemName: "repeat")
+                    }
+                    Text(date, format: .dateTime.weekday().month().day().hour().minute())
+                }
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
             }
             if item.myAppId != nil {
                 let label = item.componentId.map { "→ \($0)" } ?? "→ app"

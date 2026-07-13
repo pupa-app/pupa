@@ -1848,20 +1848,26 @@ public enum AppTools {
                 description: """
                 Schedule a local notification banner on the user's device. Use \
                 when the user asks to be reminded after a delay, at a specific \
-                wall-clock time, or wants to be pinged when a long task you're \
-                running completes (call with `trigger.kind=now` at the moment \
-                the work finishes — the OS will surface the banner even if the \
-                user has backgrounded the app). `trigger` is a discriminated \
-                union: {kind:"now"} | {kind:"after", seconds:N} | \
-                {kind:"atDate", iso8601:"<ISO-8601>"}. `seconds` ranges 1..\
-                31536000. `atDate` must be in the future. Supply `target` to \
-                deep-link the tap: `{myAppId:"<UUID>"}` opens that myApp, \
-                add `componentId:"tracker-1"` to jump straight to a component. \
-                Without a target, tapping just foregrounds the app. Permission \
-                is requested lazily on first call; if denied the tool returns \
-                {ok:false, error:"notifications-not-authorized"} so you can \
-                tell the user. Result echoes {id, deliveryAt, trigger} — save \
-                the `id` if you might want to cancel it.
+                wall-clock time, on a recurring schedule, or wants to be pinged \
+                when a long task you're running completes (call with \
+                `trigger.kind=now` at the moment the work finishes — the OS will \
+                surface the banner even if the user has backgrounded the app). \
+                `trigger` is a discriminated union: {kind:"now"} | \
+                {kind:"after", seconds:N} | {kind:"atDate", iso8601:"<ISO-8601>"} \
+                | {kind:"daily", hour, minute} | {kind:"weekly", weekday, hour, \
+                minute} | {kind:"everyNHours", hours}. `seconds` ranges \
+                1..31536000. `atDate` must be in the future. The daily/weekly/\
+                everyNHours presets repeat until cancelled and fire at the OS \
+                level (no live session needed); `weekday` is 1=Sunday..7=Saturday. \
+                Supply `target` to deep-link the tap: `{myAppId:"<UUID>"}` opens \
+                that myApp, add `componentId:"tracker-1"` to jump to a component. \
+                Supply `tapAction` to make the tap do more than foreground: \
+                `populateChat` pre-fills the chat composer with `prompt`; \
+                `runAgent` sends `prompt` as a turn to the active agent. \
+                Permission is requested lazily on first call; if denied the tool \
+                returns {ok:false, error:"notifications-not-authorized"} so you \
+                can tell the user. Result echoes {id, deliveryAt, trigger, \
+                tapAction} — save the `id` if you might want to cancel it.
                 """,
                 parameters: [
                     "type": "object",
@@ -1876,11 +1882,11 @@ public enum AppTools {
                         ],
                         "trigger": [
                             "type": "object",
-                            "description": "When to fire. Discriminated by `kind`.",
+                            "description": "When to fire. Discriminated by `kind`. daily/weekly/everyNHours repeat until cancelled.",
                             "properties": [
                                 "kind": [
                                     "type": "string",
-                                    "enum": ["now", "after", "atDate"],
+                                    "enum": ["now", "after", "atDate", "daily", "weekly", "everyNHours"],
                                 ],
                                 "seconds": [
                                     "type": "integer",
@@ -1891,6 +1897,30 @@ public enum AppTools {
                                 "iso8601": [
                                     "type": "string",
                                     "description": "Required when kind=atDate. ISO-8601, e.g. 2026-05-14T15:00:00Z.",
+                                ],
+                                "hour": [
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 23,
+                                    "description": "Local hour (0-23). Required when kind=daily or weekly.",
+                                ],
+                                "minute": [
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 59,
+                                    "description": "Minute (0-59). Required when kind=daily or weekly.",
+                                ],
+                                "weekday": [
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 7,
+                                    "description": "Day of week, 1=Sunday .. 7=Saturday. Required when kind=weekly.",
+                                ],
+                                "hours": [
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 24,
+                                    "description": "Interval in hours (1-24). Required when kind=everyNHours.",
                                 ],
                             ],
                             "required": ["kind"],
@@ -1909,6 +1939,21 @@ public enum AppTools {
                                 ],
                             ],
                             "required": ["myAppId"],
+                        ],
+                        "tapAction": [
+                            "type": "object",
+                            "description": "Optional. What tapping the banner does beyond foregrounding. Default foreground.",
+                            "properties": [
+                                "kind": [
+                                    "type": "string",
+                                    "enum": ["foreground", "populateChat", "runAgent"],
+                                ],
+                                "prompt": [
+                                    "type": "string",
+                                    "description": "Required for populateChat/runAgent (≤256). populateChat drops it in the composer; runAgent sends it as an agent turn.",
+                                ],
+                            ],
+                            "required": ["kind"],
                         ],
                     ],
                     "required": ["title", "body", "trigger"],
@@ -1931,6 +1976,7 @@ public enum AppTools {
                         "id": .string(scheduled.id),
                         "deliveryAt": .string(NotificationRequest.formatISO8601(scheduled.deliveryAt)),
                         "trigger": request.triggerEcho(),
+                        "tapAction": request.tapActionEcho(),
                     ])
                 } catch NotificationCenterCoordinator.ScheduleError.notAuthorised {
                     return .object([

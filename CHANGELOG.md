@@ -3,6 +3,22 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.99] — 2026-07-13
+
+### Added
+
+- **Recurring reminders + notification tap actions.** `sendNotification` now
+  takes recurring `trigger` presets — `{kind:"daily", hour, minute}`,
+  `{kind:"weekly", weekday, hour, minute}` (weekday 1=Sunday..7=Saturday), and
+  `{kind:"everyNHours", hours}` — each one OS-scheduled with `repeats:true`, so
+  a daily reminder survives restarts and needs no live session. A new optional
+  `tapAction` makes tapping the banner do more than foreground the app:
+  `populateChat` pre-fills the chat composer with a prompt, `runAgent` sends the
+  prompt as an agent turn on the active scope. Settings → Notifications marks
+  repeating rows with a `repeat` badge. Known limit: iOS keeps only the 64
+  soonest pending notifications (a repeating trigger counts as one). App
+  `0.0.198` → `0.0.199`.
+
 ## [0.0.98] — 2026-07-13
 
 ### Fixed

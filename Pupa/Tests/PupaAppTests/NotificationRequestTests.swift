@@ -198,4 +198,196 @@ struct NotificationRequestTests {
         ]))
         #expect(req.target == nil)
     }
+
+    // MARK: - Recurring presets
+
+    private func recurring(_ trigger: [String: AnyJSON]) throws -> NotificationRequest {
+        try NotificationRequest(fromToolArgs: args([
+            "title": .string("Remind"),
+            "body": .string("Ping"),
+            "trigger": .object(trigger),
+        ]))
+    }
+
+    @Test("kind=daily parses hour + minute and echoes")
+    func parsesDaily() throws {
+        let req = try recurring(["kind": .string("daily"), "hour": .int(22), "minute": .int(0)])
+        guard case .daily(let h, let m) = req.trigger else { Issue.record("expected .daily"); return }
+        #expect(h == 22)
+        #expect(m == 0)
+        #expect(req.trigger.repeats)
+        guard case .object(let obj) = req.triggerEcho() else { Issue.record("expected object"); return }
+        #expect(obj["kind"] == .string("daily"))
+        #expect(obj["hour"] == .int(22))
+        #expect(obj["minute"] == .int(0))
+    }
+
+    @Test("kind=daily rejects out-of-range hour / minute")
+    func rejectsDailyOutOfRange() {
+        for bad in [["hour": AnyJSON.int(24), "minute": .int(0)],
+                    ["hour": .int(-1), "minute": .int(0)],
+                    ["hour": .int(9), "minute": .int(60)]] {
+            #expect(throws: NotificationRequest.ParseError.self) {
+                _ = try self.recurring(bad.merging(["kind": .string("daily")]) { a, _ in a })
+            }
+        }
+    }
+
+    @Test("kind=daily missing minute throws")
+    func rejectsDailyMissingField() {
+        #expect(throws: NotificationRequest.ParseError.self) {
+            _ = try self.recurring(["kind": .string("daily"), "hour": .int(9)])
+        }
+    }
+
+    @Test("kind=weekly uses Calendar weekday indexing (Sunday=1)")
+    func parsesWeeklySundayIndexed() throws {
+        let req = try recurring([
+            "kind": .string("weekly"), "weekday": .int(1), "hour": .int(9), "minute": .int(30),
+        ])
+        guard case .weekly(let wd, let h, let m) = req.trigger else { Issue.record("expected .weekly"); return }
+        #expect(wd == 1)  // Sunday, not offset
+        #expect(h == 9)
+        #expect(m == 30)
+        #expect(req.trigger.repeats)
+        // weekday 0 and 8 are out of the 1...7 range.
+        for badWeekday in [0, 8] {
+            #expect(throws: NotificationRequest.ParseError.self) {
+                _ = try self.recurring([
+                    "kind": .string("weekly"), "weekday": .int(badWeekday),
+                    "hour": .int(9), "minute": .int(0),
+                ])
+            }
+        }
+    }
+
+    @Test("kind=everyNHours parses hours and rejects out-of-range")
+    func parsesEveryNHours() throws {
+        let req = try recurring(["kind": .string("everyNHours"), "hours": .int(6)])
+        guard case .everyNHours(let hours) = req.trigger else { Issue.record("expected .everyNHours"); return }
+        #expect(hours == 6)
+        #expect(req.trigger.repeats)
+        guard case .object(let obj) = req.triggerEcho() else { Issue.record("expected object"); return }
+        #expect(obj["kind"] == .string("everyNHours"))
+        #expect(obj["hours"] == .int(6))
+        for bad in [0, 25] {
+            #expect(throws: NotificationRequest.ParseError.self) {
+                _ = try self.recurring(["kind": .string("everyNHours"), "hours": .int(bad)])
+            }
+        }
+    }
+
+    @Test("Trigger.repeats is false for one-shot triggers")
+    func oneShotDoesNotRepeat() throws {
+        let now = try recurring(["kind": .string("now")])
+        #expect(!now.trigger.repeats)
+        let after = try recurring(["kind": .string("after"), "seconds": .int(60)])
+        #expect(!after.trigger.repeats)
+    }
+
+    @Test("deliveryAt: everyNHours advances by hours*3600 from the reference")
+    func deliveryAtEveryNHours() throws {
+        let ref = Date(timeIntervalSince1970: 1_700_000_000)
+        let req = try NotificationRequest(fromToolArgs: args([
+            "title": .string("x"), "body": .string("y"),
+            "trigger": .object(["kind": .string("everyNHours"), "hours": .int(2)]),
+        ]), now: ref)
+        #expect(req.deliveryAt(referenceDate: ref) == ref.addingTimeInterval(7200))
+    }
+
+    @Test("deliveryAt: daily lands on the requested hour/minute in the future")
+    func deliveryAtDaily() throws {
+        let ref = Date(timeIntervalSince1970: 1_700_000_000)
+        let req = try recurring(["kind": .string("daily"), "hour": .int(22), "minute": .int(0)])
+        let next = req.deliveryAt(referenceDate: ref)
+        #expect(next > ref)
+        let comps = Calendar.current.dateComponents([.hour, .minute], from: next)
+        #expect(comps.hour == 22)
+        #expect(comps.minute == 0)
+    }
+
+    // MARK: - Tap actions
+
+    private func withTap(_ tap: [String: AnyJSON]?) throws -> NotificationRequest {
+        var obj: [String: AnyJSON] = [
+            "title": .string("Hi"),
+            "body": .string("There"),
+            "trigger": .object(["kind": .string("now")]),
+        ]
+        if let tap { obj["tapAction"] = .object(tap) }
+        return try NotificationRequest(fromToolArgs: args(obj))
+    }
+
+    @Test("tapAction absent defaults to foreground")
+    func tapActionDefaultsForeground() throws {
+        let req = try withTap(nil)
+        #expect(req.tapAction == .foreground)
+    }
+
+    @Test("tapAction=foreground ignores any prompt")
+    func tapActionForegroundIgnoresPrompt() throws {
+        let req = try withTap(["kind": .string("foreground"), "prompt": .string("ignored")])
+        #expect(req.tapAction == .foreground)
+    }
+
+    @Test("tapAction=populateChat carries prompt and echoes")
+    func tapActionPopulateChat() throws {
+        let req = try withTap(["kind": .string("populateChat"), "prompt": .string("Log my mood")])
+        #expect(req.tapAction == .populateChat(prompt: "Log my mood"))
+        guard case .object(let obj) = req.tapActionEcho() else { Issue.record("expected object"); return }
+        #expect(obj["kind"] == .string("populateChat"))
+        #expect(obj["prompt"] == .string("Log my mood"))
+    }
+
+    @Test("tapAction=runAgent carries prompt")
+    func tapActionRunAgent() throws {
+        let req = try withTap(["kind": .string("runAgent"), "prompt": .string("Summarize trackers")])
+        #expect(req.tapAction == .runAgent(prompt: "Summarize trackers"))
+    }
+
+    @Test("tapAction populateChat/runAgent require a non-empty prompt")
+    func tapActionRequiresPrompt() {
+        for kind in ["populateChat", "runAgent"] {
+            #expect(throws: NotificationRequest.ParseError.self) {
+                _ = try self.withTap(["kind": .string(kind)])
+            }
+            #expect(throws: NotificationRequest.ParseError.self) {
+                _ = try self.withTap(["kind": .string(kind), "prompt": .string("")])
+            }
+        }
+    }
+
+    @Test("tapAction rejects over-length prompt")
+    func tapActionRejectsOverlongPrompt() {
+        let long = String(repeating: "z", count: NotificationRequest.tapPromptMaxLength + 1)
+        #expect(throws: NotificationRequest.ParseError.self) {
+            _ = try self.withTap(["kind": .string("runAgent"), "prompt": .string(long)])
+        }
+    }
+
+    @Test("unknown tapAction kind throws")
+    func tapActionUnknownKind() {
+        #expect(throws: NotificationRequest.ParseError.self) {
+            _ = try self.withTap(["kind": .string("openBrowser"), "prompt": .string("x")])
+        }
+    }
+
+    @Test("weekly + runAgent + target round-trip together")
+    func combinedRecurringTapTarget() throws {
+        let id = UUID()
+        let req = try NotificationRequest(fromToolArgs: args([
+            "title": .string("Morning brief"),
+            "body": .string("Ready"),
+            "trigger": .object([
+                "kind": .string("weekly"), "weekday": .int(2), "hour": .int(8), "minute": .int(0),
+            ]),
+            "target": .object(["myAppId": .string(id.uuidString), "componentId": .string("tracker-1")]),
+            "tapAction": .object(["kind": .string("runAgent"), "prompt": .string("Summarize")]),
+        ]))
+        guard case .weekly(let wd, _, _) = req.trigger else { Issue.record("expected .weekly"); return }
+        #expect(wd == 2)
+        #expect(req.target?.myAppId == id)
+        #expect(req.target?.componentId == "tracker-1")
+        #expect(req.tapAction == .runAgent(prompt: "Summarize"))
+    }
 }

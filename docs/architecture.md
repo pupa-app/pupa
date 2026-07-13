@@ -739,7 +739,21 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
   approval + backend tool toggles), Agent-to-agent (the `AgentInvocationGate`
   conversation-rounds + chain-depth limits), **Agents** (the
   `AgentsOverviewView` — see below), Notifications (lists/cancels
-  pending scheduled notifications), and Examples.
+  pending scheduled notifications — one-shot or recurring presets
+  daily / weekly / everyNHours, repeating rows badged), and Examples.
+- **Notifications** → `NotificationCenterCoordinator` (singleton wrapper
+  over `UNUserNotificationCenter`). `sendNotification` builds a
+  `NotificationRequest` whose `trigger` is one-shot (`now` / `after` /
+  `atDate`, `repeats:false`) or a recurring preset (`daily` / `weekly` /
+  `everyNHours`, `repeats:true` — OS-scheduled, survives restarts, no live
+  session). An optional `tapAction` (`foreground` / `populateChat` /
+  `runAgent`) plus any deep-link `target` ride in the notification's
+  `userInfo`. On tap the delegate buffers a payload in `pendingTap` and
+  posts `.pupaNotificationTap`; `AppView` drains it (on receipt + on
+  appear, consume-once) → `setRoot` navigates the `target`, then
+  `populateChat` writes `GuidedTourStore.chatPrefill` / `runAgent` writes
+  `chatAutoSend`, which `ChatPanel` mirrors into the composer / sends as a
+  turn on the active scope.
 - **Agent activity stats** → `UserDefaults` blob `pupa.agentstats.v1`,
   owned by `AgentStatsStore`. Device-local, **not** iCloud-synced (advisory
   counters only). Deliberately schema-free: a flat
