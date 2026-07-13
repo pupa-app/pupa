@@ -18,9 +18,10 @@ extension Notification.Name {
 ///   resolved delivery instant.
 /// - `cancel(id:)` — idempotent; reports whether the id was actually pending.
 /// - `UNUserNotificationCenterDelegate` — presents banners while the app is
-///   foregrounded (otherwise the OS swallows them silently). Tap behaviour is
-///   intentionally minimal: the OS already brings the app forward; we do not
-///   dispatch any agent prompt or sidebar switch here (that's #33 territory).
+///   foregrounded (otherwise the OS swallows them silently). On tap it routes
+///   the notification's deep-link target and/or `tapAction` (populate the
+///   chat composer / run an agent turn) by buffering into `pendingTap` and
+///   posting `.pupaNotificationTap` for `AppView` to consume.
 ///
 /// Bootstrapped once at app startup via `bootstrap()`. After that, all
 /// callers go through `shared`.
@@ -49,6 +50,8 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
         public let title: String
         public let body: String
         public let deliveryAt: Date?
+        /// Whether the underlying OS trigger repeats (recurring preset).
+        public let repeats: Bool
         /// Deep-link target stored in the notification's userInfo. Nil when
         /// the notification was scheduled without a target (opens app only).
         public let myAppId: UUID?
@@ -83,6 +86,13 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
     /// Resolved lazily AND only when `isHostSupported` — otherwise touching
     /// this lazy var crashes the process.
     private lazy var center: UNUserNotificationCenter = .current()
+
+    /// One-slot buffer for a tap that arrives before `AppView` subscribes to
+    /// `.pupaNotificationTap` (cold launch: `didReceive` can fire before
+    /// `body`'s `.onReceive` is installed, and Foundation's `NotificationCenter`
+    /// does not buffer). `AppView` drains this on appear. Keys match the posted
+    /// userInfo (`selection` / `tapAction` / `tapPrompt`).
+    public var pendingTap: [String: Any]?
 
     private override init() {
         super.init()
@@ -136,11 +146,23 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
         content.title = request.title
         content.body = request.body
         content.sound = .default
+        // Stash the deep-link target and/or tap action in userInfo so the
+        // delegate can route the tap (and the Settings list can label it).
+        var info: [String: String] = [:]
         if let target = request.target {
-            var info: [String: String] = ["pupa.myAppId": target.myAppId.uuidString]
+            info["pupa.myAppId"] = target.myAppId.uuidString
             if let cid = target.componentId { info["pupa.componentId"] = cid }
-            content.userInfo = info
         }
+        switch request.tapAction {
+        case .foreground: break
+        case .populateChat(let prompt):
+            info["pupa.tapAction"] = "populateChat"
+            info["pupa.tapPrompt"] = prompt
+        case .runAgent(let prompt):
+            info["pupa.tapAction"] = "runAgent"
+            info["pupa.tapPrompt"] = prompt
+        }
+        if !info.isEmpty { content.userInfo = info }
 
         let trigger: UNNotificationTrigger
         let referenceDate = Date()
@@ -158,6 +180,17 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
                 from: date
             )
             trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
+        case .daily(let hour, let minute):
+            let comps = DateComponents(hour: hour, minute: minute)
+            trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: true)
+        case .weekly(let weekday, let hour, let minute):
+            let comps = DateComponents(hour: hour, minute: minute, weekday: weekday)
+            trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: true)
+        case .everyNHours(let hours):
+            trigger = UNTimeIntervalNotificationTrigger(
+                timeInterval: TimeInterval(hours * 3600),
+                repeats: true
+            )
         }
 
         let id = UUID().uuidString
@@ -167,10 +200,13 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
         } catch {
             throw ScheduleError.underlying(error.localizedDescription)
         }
-        return ScheduledNotification(
-            id: id,
-            deliveryAt: request.deliveryAt(referenceDate: referenceDate)
-        )
+        // Resolve the delivery instant from the built trigger's next fire date
+        // so recurring presets report their *next* occurrence; fall back to the
+        // request's own computation defensively.
+        let resolved = (trigger as? UNCalendarNotificationTrigger)?.nextTriggerDate()
+            ?? (trigger as? UNTimeIntervalNotificationTrigger)?.nextTriggerDate()
+            ?? request.deliveryAt(referenceDate: referenceDate)
+        return ScheduledNotification(id: id, deliveryAt: resolved)
     }
 
     /// Cancel a pending notification by identifier. Returns `true` if the id
@@ -196,13 +232,17 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
         return requests
             .map { req in
                 let deliveryAt: Date?
+                let repeats: Bool
                 switch req.trigger {
                 case let trigger as UNCalendarNotificationTrigger:
                     deliveryAt = trigger.nextTriggerDate()
+                    repeats = trigger.repeats
                 case let trigger as UNTimeIntervalNotificationTrigger:
                     deliveryAt = trigger.nextTriggerDate()
+                    repeats = trigger.repeats
                 default:
                     deliveryAt = nil
+                    repeats = false
                 }
                 let userInfo = req.content.userInfo
                 let myAppId = (userInfo["pupa.myAppId"] as? String).flatMap(UUID.init(uuidString:))
@@ -212,6 +252,7 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
                     title: req.content.title,
                     body: req.content.body,
                     deliveryAt: deliveryAt,
+                    repeats: repeats,
                     myAppId: myAppId,
                     componentId: componentId
                 )
@@ -237,18 +278,48 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
+        // Read the Sendable primitives here (nonisolated), then hop to the main
+        // actor once to build + buffer + broadcast the tap. Capturing only
+        // strings keeps the hop Sendable-clean.
         let userInfo = response.notification.request.content.userInfo
-        if let idStr = userInfo["pupa.myAppId"] as? String,
-           let myAppId = UUID(uuidString: idStr) {
-            let componentId = userInfo["pupa.componentId"] as? String
-            let selection: SidebarSelection = componentId.map { .myAppComponent(myAppId, $0) }
-                ?? .myApp(myAppId)
-            NotificationCenter.default.post(
-                name: .pupaNotificationTap,
-                object: nil,
-                userInfo: ["selection": selection]
+        let myAppIdString = userInfo["pupa.myAppId"] as? String
+        let componentId = userInfo["pupa.componentId"] as? String
+        let tapAction = userInfo["pupa.tapAction"] as? String
+        let tapPrompt = userInfo["pupa.tapPrompt"] as? String
+        completionHandler()
+        Task { @MainActor in
+            self.deliverTap(
+                myAppIdString: myAppIdString,
+                componentId: componentId,
+                tapAction: tapAction,
+                tapPrompt: tapPrompt
             )
         }
-        completionHandler()
+    }
+
+    /// Build the tap payload, park it in `pendingTap` (cold-launch drain), then
+    /// post `.pupaNotificationTap` so a live `AppView` routes it immediately.
+    /// Set-then-post ordering means the `.onReceive` handler always sees a
+    /// non-nil buffer; whichever of `.onReceive` / `.onAppear` drains first
+    /// clears it, so the action fires exactly once.
+    @MainActor
+    private func deliverTap(
+        myAppIdString: String?,
+        componentId: String?,
+        tapAction: String?,
+        tapPrompt: String?
+    ) {
+        var payload: [String: Any] = [:]
+        if let s = myAppIdString, let id = UUID(uuidString: s) {
+            payload["selection"] = componentId.map { SidebarSelection.myAppComponent(id, $0) }
+                ?? .myApp(id)
+        }
+        if let tapAction {
+            payload["tapAction"] = tapAction
+            payload["tapPrompt"] = tapPrompt ?? ""
+        }
+        guard !payload.isEmpty else { return }
+        pendingTap = payload
+        NotificationCenter.default.post(name: .pupaNotificationTap, object: nil)
     }
 }

@@ -156,16 +156,44 @@ public struct AppView: View {
         dispatchSelection(sel)
     }
 
+    /// Drain a pending notification tap: navigate to its deep-link target
+    /// first, then perform its tap action. `populateChat` reuses the tour's
+    /// prefill bridge; `runAgent` parks the prompt for `ChatPanel` to send on
+    /// the now-active scope. Consume-once — clears the buffer so a live tap
+    /// (`.onReceive`) and the cold-launch drain (`.task`) never double-fire.
+    private func handleNotificationTap() {
+        guard let tap = NotificationCenterCoordinator.shared.pendingTap else { return }
+        NotificationCenterCoordinator.shared.pendingTap = nil
+        if let sel = tap["selection"] as? SidebarSelection { setRoot(sel) }
+        guard let action = tap["tapAction"] as? String else { return }
+        let prompt = tap["tapPrompt"] as? String ?? ""
+        guard !prompt.isEmpty else { return }
+        switch action {
+        case "populateChat":
+            tour.chatPrefill = prompt
+            tour.wantChatOpen = true
+        case "runAgent":
+            tour.chatAutoSend = prompt
+            tour.wantChatOpen = true
+        default:
+            break
+        }
+    }
+
     public var body: some View {
         platformBody
             .safeAreaInset(edge: .top) {
                 if showBackendReminder { backendReminderBanner }
             }
             .sheet(isPresented: $showBackendSheet) { backendPairingSheet }
-            .onReceive(NotificationCenter.default.publisher(for: .pupaNotificationTap)) { note in
-                guard let sel = note.userInfo?["selection"] as? SidebarSelection else { return }
-                setRoot(sel)
+            .onReceive(NotificationCenter.default.publisher(for: .pupaNotificationTap)) { _ in
+                handleNotificationTap()
             }
+            // Cold launch: a tap that launches the app can fire `didReceive`
+            // before the `.onReceive` above subscribes, so also drain the
+            // coordinator's one-slot buffer here. Consume-once (the drain clears
+            // it) so a live tap isn't also replayed.
+            .task { handleNotificationTap() }
             // Tap-to-import: a `.pupa` opened from Files / Mail / a chat app
             // arrives here. Stage it for a confirm step rather than importing
             // straight into the store (untrusted source).

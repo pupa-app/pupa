@@ -275,6 +275,10 @@ final class GuidedTourStore {
     var wantSettingsPage: TourSettingsPage?
     var wantChatOpen: Bool = false
     var chatPrefill: String?
+    /// Prompt to send as an agent turn on the active chat scope. Not a tour
+    /// flag — the bridge for a notification's `runAgent` tap action (set by
+    /// `AppView`, consumed once by `ChatPanel`). Mirrors `chatPrefill`.
+    var chatAutoSend: String?
     /// The control the active step rings, or `nil`. Read by `TourHighlightOverlay`.
     var wantHighlight: TourHighlight?
 
@@ -353,6 +357,7 @@ final class GuidedTourStore {
         wantSettingsPage = nil
         wantChatOpen = false
         chatPrefill = nil
+        chatAutoSend = nil
         wantHighlight = nil
     }
 }
