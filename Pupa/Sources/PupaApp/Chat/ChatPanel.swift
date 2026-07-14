@@ -1447,6 +1447,10 @@ private struct SlashCommandPalette: View {
     let commands: [SlashCommand]
     let onPick: (String) -> Void
 
+    /// Cap the list at ~7 rows; longer lists scroll instead of overflowing off
+    /// the top of the chat area (the palette grows upward from the composer).
+    private let maxHeight: CGFloat = 260
+
     var body: some View {
         if commands.isEmpty {
             HStack {
@@ -1463,37 +1467,48 @@ private struct SlashCommandPalette: View {
             .background(Color.secondary.opacity(0.08))
             .clipShape(RoundedRectangle(cornerRadius: 8))
         } else {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(commands, id: \.name) { cmd in
-                    Button {
-                        onPick(cmd.name)
-                    } label: {
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text("/\(cmd.name)")
-                                .font(.callout.monospaced())
-                                .foregroundStyle(.primary)
-                            Text(cmd.summary)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    if cmd.name != commands.last?.name {
-                        Divider().padding(.leading, 10)
-                    }
-                }
+            // `ViewThatFits` hugs the content when it's short and only falls
+            // back to the scrollable copy when the list is taller than `maxHeight`
+            // (a bare `ScrollView` is greedy and would leave empty space).
+            ViewThatFits(in: .vertical) {
+                rows
+                ScrollView { rows }
             }
+            .frame(maxHeight: maxHeight)
             .background(.regularMaterial)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(Color.secondary.opacity(0.2), lineWidth: 0.5)
             )
+        }
+    }
+
+    private var rows: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(commands, id: \.name) { cmd in
+                Button {
+                    onPick(cmd.name)
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("/\(cmd.name)")
+                            .font(.callout.monospaced())
+                            .foregroundStyle(.primary)
+                        Text(cmd.summary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if cmd.name != commands.last?.name {
+                    Divider().padding(.leading, 10)
+                }
+            }
         }
     }
 }
