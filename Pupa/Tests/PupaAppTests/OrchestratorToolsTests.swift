@@ -263,4 +263,102 @@ struct OrchestratorToolsTests {
         #expect(registered == MyAppType.orchestratorToolNames,
                 "Registered tools \(registered) drift from MyAppType.orchestratorToolNames \(MyAppType.orchestratorToolNames)")
     }
+
+    // MARK: - setMyAppIcon
+
+    @Test("setMyAppIcon updates the store icon and echoes previousIconSystemName")
+    func setMyAppIcon_appliesToStore() async throws {
+        let (store, idA, _) = makeStore()
+        let registry = ToolRegistry()
+        AppTools.registerOrchestratorTools(on: registry, store: store, runOneShot: { _, _ in "" })
+
+        let tool = try #require(registry.resolve("setMyAppIcon"))
+        let result = try await tool.handler(.object([
+            "myAppId": .string(idA.uuidString),
+            "iconSystemName": .string("carrot"),
+        ]))
+        #expect(result["ok"]?.boolValue == true)
+        #expect(result["iconSystemName"]?.stringValue == "carrot")
+        #expect(result["previousIconSystemName"]?.stringValue == "leaf")
+        #expect(store.myApps.first(where: { $0.id == idA })?.iconSystemName == "carrot")
+    }
+
+    @Test("setMyAppIcon rejects an empty icon and does NOT mutate the store")
+    func setMyAppIcon_rejectsEmpty() async throws {
+        let (store, idA, _) = makeStore()
+        let registry = ToolRegistry()
+        AppTools.registerOrchestratorTools(on: registry, store: store, runOneShot: { _, _ in "" })
+
+        let tool = try #require(registry.resolve("setMyAppIcon"))
+        let result = try await tool.handler(.object([
+            "myAppId": .string(idA.uuidString),
+            "iconSystemName": .string("   "),
+        ]))
+        #expect(result["ok"]?.boolValue == false)
+        #expect(store.myApps.first(where: { $0.id == idA })?.iconSystemName == "leaf")
+    }
+
+    @Test("setMyAppIcon rejects an unknown myAppId")
+    func setMyAppIcon_rejectsUnknownId() async throws {
+        let (store, _, _) = makeStore()
+        let registry = ToolRegistry()
+        AppTools.registerOrchestratorTools(on: registry, store: store, runOneShot: { _, _ in "" })
+
+        let tool = try #require(registry.resolve("setMyAppIcon"))
+        let result = try await tool.handler(.object([
+            "myAppId": .string(UUID().uuidString),
+            "iconSystemName": .string("star"),
+        ]))
+        #expect(result["ok"]?.boolValue == false)
+    }
+
+    // MARK: - setMyAppColor
+
+    @Test("setMyAppColor updates the store colorIndex and echoes previousColorIndex")
+    func setMyAppColor_appliesToStore() async throws {
+        let (store, idA, _) = makeStore()
+        let registry = ToolRegistry()
+        AppTools.registerOrchestratorTools(on: registry, store: store, runOneShot: { _, _ in "" })
+
+        let previous = store.colorIndex(for: idA)
+        let tool = try #require(registry.resolve("setMyAppColor"))
+        let result = try await tool.handler(.object([
+            "myAppId": .string(idA.uuidString),
+            "colorIndex": .int(5),
+        ]))
+        #expect(result["ok"]?.boolValue == true)
+        #expect(result["colorIndex"]?.intValue == 5)
+        #expect(result["previousColorIndex"]?.intValue == previous)
+        #expect(store.colorIndex(for: idA) == 5)
+    }
+
+    @Test("setMyAppColor rejects a negative colorIndex and does NOT mutate the store")
+    func setMyAppColor_rejectsNegative() async throws {
+        let (store, idA, _) = makeStore()
+        let registry = ToolRegistry()
+        AppTools.registerOrchestratorTools(on: registry, store: store, runOneShot: { _, _ in "" })
+
+        let before = store.colorIndex(for: idA)
+        let tool = try #require(registry.resolve("setMyAppColor"))
+        let result = try await tool.handler(.object([
+            "myAppId": .string(idA.uuidString),
+            "colorIndex": .int(-1),
+        ]))
+        #expect(result["ok"]?.boolValue == false)
+        #expect(store.colorIndex(for: idA) == before)
+    }
+
+    @Test("setMyAppColor rejects an unknown myAppId")
+    func setMyAppColor_rejectsUnknownId() async throws {
+        let (store, _, _) = makeStore()
+        let registry = ToolRegistry()
+        AppTools.registerOrchestratorTools(on: registry, store: store, runOneShot: { _, _ in "" })
+
+        let tool = try #require(registry.resolve("setMyAppColor"))
+        let result = try await tool.handler(.object([
+            "myAppId": .string(UUID().uuidString),
+            "colorIndex": .int(2),
+        ]))
+        #expect(result["ok"]?.boolValue == false)
+    }
 }

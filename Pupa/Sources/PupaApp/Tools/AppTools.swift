@@ -1148,6 +1148,122 @@ public enum AppTools {
 
         registry.register(ClientTool(
             descriptor: ToolDescriptor(
+                name: "setMyAppIcon",
+                description: """
+                Change an existing myApp's sidebar icon. Resolve `myAppId` via \
+                listMyApps first. `iconSystemName` is any SF Symbol name (e.g. \
+                "book", "chart.pie", "leaf"); it is trimmed and must be \
+                non-empty. Calls the same mutator as the user-facing Edit \
+                sheet. Returns {ok, id, iconSystemName, previousIconSystemName} \
+                on success, or {ok:false, error} if `myAppId` is \
+                malformed/unknown, the trimmed icon is empty, or it equals the \
+                current icon.
+                """,
+                parameters: [
+                    "type": "object",
+                    "properties": [
+                        "myAppId": ["type": "string"],
+                        "iconSystemName": ["type": "string"],
+                    ],
+                    "required": ["myAppId", "iconSystemName"],
+                ]
+            ),
+            handler: { args in
+                let myAppIdString = args["myAppId"]?.stringValue ?? ""
+                let rawIcon = args["iconSystemName"]?.stringValue ?? ""
+                guard let myAppId = UUID(uuidString: myAppIdString) else {
+                    return .object([
+                        "ok": .bool(false),
+                        "error": .string("invalid myAppId '\(myAppIdString)' (expected a UUID)"),
+                    ])
+                }
+                let trimmed = rawIcon.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else {
+                    return .object([
+                        "ok": .bool(false),
+                        "error": .string("iconSystemName must be non-empty after trimming whitespace"),
+                    ])
+                }
+                return await MainActor.run {
+                    guard let oldIcon = store.myApps.first(where: { $0.id == myAppId })?.iconSystemName else {
+                        return .object([
+                            "ok": .bool(false),
+                            "error": .string("no myApp with id \(myAppIdString)"),
+                        ])
+                    }
+                    guard oldIcon != trimmed else {
+                        return .object([
+                            "ok": .bool(false),
+                            "error": .string("icon unchanged ('\(trimmed)')"),
+                        ])
+                    }
+                    store.setIconSystemName(trimmed, for: myAppId)
+                    return .object([
+                        "ok": .bool(true),
+                        "id": .string(myAppIdString),
+                        "iconSystemName": .string(trimmed),
+                        "previousIconSystemName": .string(oldIcon),
+                    ])
+                }
+            }
+        ))
+
+        registry.register(ClientTool(
+            descriptor: ToolDescriptor(
+                name: "setMyAppColor",
+                description: """
+                Change an existing myApp's accent color. Resolve `myAppId` via \
+                listMyApps first. `colorIndex` is a slot into the fixed accent \
+                palette (0-based; it wraps, so 7 == 0). Calls the same mutator \
+                as the user-facing Edit sheet. Returns \
+                {ok, id, colorIndex, previousColorIndex} on success, or \
+                {ok:false, error} if `myAppId` is malformed/unknown or \
+                `colorIndex` is missing/negative.
+                """,
+                parameters: [
+                    "type": "object",
+                    "properties": [
+                        "myAppId": ["type": "string"],
+                        "colorIndex": ["type": "integer"],
+                    ],
+                    "required": ["myAppId", "colorIndex"],
+                ]
+            ),
+            handler: { args in
+                let myAppIdString = args["myAppId"]?.stringValue ?? ""
+                guard let myAppId = UUID(uuidString: myAppIdString) else {
+                    return .object([
+                        "ok": .bool(false),
+                        "error": .string("invalid myAppId '\(myAppIdString)' (expected a UUID)"),
+                    ])
+                }
+                guard let colorIndex = args["colorIndex"]?.intValue, colorIndex >= 0 else {
+                    return .object([
+                        "ok": .bool(false),
+                        "error": .string("colorIndex must be a non-negative integer"),
+                    ])
+                }
+                return await MainActor.run {
+                    guard store.myApps.contains(where: { $0.id == myAppId }) else {
+                        return .object([
+                            "ok": .bool(false),
+                            "error": .string("no myApp with id \(myAppIdString)"),
+                        ])
+                    }
+                    let previous = store.colorIndex(for: myAppId)
+                    store.setColorIndex(colorIndex, for: myAppId)
+                    return .object([
+                        "ok": .bool(true),
+                        "id": .string(myAppIdString),
+                        "colorIndex": .int(colorIndex),
+                        "previousColorIndex": .int(previous),
+                    ])
+                }
+            }
+        ))
+
+        registry.register(ClientTool(
+            descriptor: ToolDescriptor(
                 name: "invokeMyAppAgent",
                 description: """
                 Delegate a single-round prompt to an existing myApp's agent. \
