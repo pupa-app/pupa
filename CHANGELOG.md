@@ -3,6 +3,17 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.101] — 2026-07-14
+
+### Changed
+
+- **Slash-command list scrolls instead of overflowing.** Typing `/` in the chat
+  composer opens a list of matching commands + skills that grows upward from the
+  composer. On a long list (a bare `/` shows every builtin + skill) it used to run
+  off the top of the chat area and get clipped. It's now capped at ~7 rows and
+  scrolls past that, while still hugging content for short lists. App `0.0.200` →
+  `0.0.201`.
+
 ## [0.0.100] — 2026-07-13
 
 ### Changed
