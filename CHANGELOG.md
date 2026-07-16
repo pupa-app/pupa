@@ -11,7 +11,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   icon and color could only be set at birth (by the orchestrator), with no way
   to change them afterwards — the sidebar context menu offered "Rename" (name
   only). Holding down a myApp now opens a single **Edit** sheet covering
-  **name + icon + color** together (SF Symbol picker with a suggestion grid, and
+  **name + icon + color** together (SF Symbol picker with a themed ~60-icon
+  suggestion grid plus a free-text field for any symbol, and
   a swatch grid over the accent palette). The orchestrator gains two matching
   tools, `setMyAppIcon` and `setMyAppColor`, alongside the existing
   `renameMyApp`, all backed by the same store mutators

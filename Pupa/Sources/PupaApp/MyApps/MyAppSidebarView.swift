@@ -418,13 +418,31 @@ private struct EditMyAppSheet: View {
     @State private var colorIndex: Int = 0
     @FocusState private var nameFocused: Bool
 
-    /// A small palette so the common case needs no typing. Any valid SF
-    /// Symbol name still works via the text field.
+    /// Themed quick-pick palette so the common case needs no typing. Any
+    /// valid SF Symbol name still works via the text field. All symbols
+    /// here predate the app's min OS, so they render on every device that
+    /// can run Pupa — including a phone importing a shared myApp.
     private let suggestions = [
-        "list.bullet.rectangle", "calendar", "checklist", "bubble.left.and.bubble.right",
-        "function", "chart.pie", "book", "star", "flag", "tag",
-        "folder", "tray", "cart", "dumbbell", "fork.knife", "heart",
-        "dollarsign.circle", "briefcase", "house", "person.2",
+        // Productivity
+        "list.bullet.rectangle", "checklist", "calendar", "clock", "note.text",
+        "folder", "tray", "doc.text", "paperclip", "pencil",
+        // Work & money
+        "briefcase", "chart.pie", "chart.bar", "chart.line.uptrend.xyaxis",
+        "dollarsign.circle", "creditcard", "cart", "bag",
+        // Health & fitness
+        "heart", "dumbbell", "figure.walk", "cross.case", "bed.double", "flame", "drop",
+        // Home & food
+        "house", "fork.knife", "cup.and.saucer", "leaf", "pawprint", "gift",
+        // Communication
+        "bubble.left.and.bubble.right", "envelope", "phone", "bell", "person.2", "person.crop.circle",
+        // Travel & places
+        "airplane", "car", "map", "location", "globe", "bicycle",
+        // Learning & media
+        "book", "graduationcap", "music.note", "camera", "photo", "film",
+        // Markers
+        "star", "flag", "tag", "bookmark", "pin", "bolt", "sparkles", "target",
+        // Tools
+        "function", "hammer", "wrench.and.screwdriver", "gearshape",
     ]
 
     private let iconColumns = [GridItem(.adaptive(minimum: 44), spacing: 8)]
