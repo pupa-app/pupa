@@ -25,7 +25,8 @@ public struct MyAppSidebarView: View {
     /// `wantSettingsOpen`; we mirror it onto `settingsSheetPresented` so the
     /// sheet opens (and closes) in lock-step with the tour.
     @State private var tour = GuidedTourStore.shared
-    @State private var renamingMyAppId: UUID?
+    /// The myApp whose combined edit sheet (name + icon + color) is open.
+    @State private var editingMyAppId: UUID?
 
     public init(
         store: MyAppStore,
@@ -98,14 +99,20 @@ public struct MyAppSidebarView: View {
             settingsSheet
         }
         .sheet(item: Binding(
-            get: { renamingMyAppId.flatMap { id in store.myApps.first(where: { $0.id == id }) } },
-            set: { if $0 == nil { renamingMyAppId = nil } }
+            get: { editingMyAppId.flatMap { id in store.myApps.first(where: { $0.id == id }) } },
+            set: { if $0 == nil { editingMyAppId = nil } }
         )) { myApp in
-            RenameMyAppSheet(initial: myApp.name) { newName in
+            EditMyAppSheet(
+                initialName: myApp.name,
+                initialIcon: myApp.iconSystemName,
+                initialColorIndex: store.colorIndex(for: myApp.id)
+            ) { newName, newIcon, newColorIndex in
                 store.renameMyApp(myApp.id, to: newName)
-                renamingMyAppId = nil
+                store.setIconSystemName(newIcon, for: myApp.id)
+                store.setColorIndex(newColorIndex, for: myApp.id)
+                editingMyAppId = nil
             } onCancel: {
-                renamingMyAppId = nil
+                editingMyAppId = nil
             }
         }
         // Base app chrome reads neutral grey, not system blue. MyApp rows keep
@@ -266,9 +273,9 @@ public struct MyAppSidebarView: View {
         #endif
         .contextMenu {
             Button {
-                renamingMyAppId = myApp.id
+                editingMyAppId = myApp.id
             } label: {
-                Label("Rename", systemImage: "pencil")
+                Label("Edit", systemImage: "pencil")
             }
             Button {
                 onArchiveMyApp(myApp.id)
@@ -394,23 +401,121 @@ private struct NewMyAppSheet: View {
     }
 }
 
-private struct RenameMyAppSheet: View {
-    let initial: String
-    var onCommit: (String) -> Void
+/// Combined edit sheet for a myApp's identity: name, icon, and accent color,
+/// all in one place. Opened from the sidebar row context menu ("Edit"). The
+/// orchestrator can drive the same three mutators via tools, but this is the
+/// user's direct, hold-down-and-edit path.
+private struct EditMyAppSheet: View {
+    let initialName: String
+    let initialIcon: String
+    let initialColorIndex: Int
+    /// (name, iconSystemName, colorIndex)
+    var onCommit: (String, String, Int) -> Void
     var onCancel: () -> Void
-    @State private var draft: String = ""
-    @FocusState private var focused: Bool
+
+    @State private var name: String = ""
+    @State private var icon: String = ""
+    @State private var colorIndex: Int = 0
+    @FocusState private var nameFocused: Bool
+
+    /// Themed quick-pick palette so the common case needs no typing. Any
+    /// valid SF Symbol name still works via the text field. All symbols
+    /// here predate the app's min OS, so they render on every device that
+    /// can run Pupa — including a phone importing a shared myApp.
+    private let suggestions = [
+        // Productivity
+        "list.bullet.rectangle", "checklist", "calendar", "clock", "note.text",
+        "folder", "tray", "doc.text", "paperclip", "pencil",
+        // Work & money
+        "briefcase", "chart.pie", "chart.bar", "chart.line.uptrend.xyaxis",
+        "dollarsign.circle", "creditcard", "cart", "bag",
+        // Health & fitness
+        "heart", "dumbbell", "figure.walk", "cross.case", "bed.double", "flame", "drop",
+        // Home & food
+        "house", "fork.knife", "cup.and.saucer", "leaf", "pawprint", "gift",
+        // Communication
+        "bubble.left.and.bubble.right", "envelope", "phone", "bell", "person.2", "person.crop.circle",
+        // Travel & places
+        "airplane", "car", "map", "location", "globe", "bicycle",
+        // Learning & media
+        "book", "graduationcap", "music.note", "camera", "photo", "film",
+        // Markers
+        "star", "flag", "tag", "bookmark", "pin", "bolt", "sparkles", "target",
+        // Tools
+        "function", "hammer", "wrench.and.screwdriver", "gearshape",
+    ]
+
+    private let iconColumns = [GridItem(.adaptive(minimum: 44), spacing: 8)]
+    private let colorColumns = [GridItem(.adaptive(minimum: 40), spacing: 10)]
+
+    private var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isDirty: Bool {
+        trimmedName != initialName
+            || icon.trimmingCharacters(in: .whitespacesAndNewlines) != initialIcon
+            || colorIndex != initialColorIndex
+    }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("Name") {
-                    TextField("Myapp name", text: $draft)
-                        .focused($focused)
-                        .onSubmit { onCommit(draft) }
+                    TextField("Myapp name", text: $name)
+                        .focused($nameFocused)
+                        .onSubmit(commit)
+                }
+                Section("Icon") {
+                    HStack(spacing: 10) {
+                        Image(systemName: icon.isEmpty ? "square.dashed" : icon)
+                            .font(.system(size: 22))
+                            .foregroundStyle(Color.color(atIndex: colorIndex))
+                            .frame(width: 32, height: 32)
+                        TextField("SF Symbol name", text: $icon)
+                            #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            #endif
+                    }
+                    LazyVGrid(columns: iconColumns, spacing: 8) {
+                        ForEach(suggestions, id: \.self) { symbol in
+                            Button { icon = symbol } label: {
+                                Image(systemName: symbol)
+                                    .font(.system(size: 18))
+                                    .frame(width: 40, height: 40)
+                                    .background {
+                                        if icon == symbol {
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .fill(Color.accentColor.opacity(0.2))
+                                        }
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+                Section("Color") {
+                    LazyVGrid(columns: colorColumns, spacing: 10) {
+                        ForEach(Array(Color.myAppColorPalette.enumerated()), id: \.offset) { index, swatch in
+                            Button { colorIndex = index } label: {
+                                Circle()
+                                    .fill(swatch)
+                                    .frame(width: 30, height: 30)
+                                    .overlay {
+                                        Circle()
+                                            .strokeBorder(Color.primary, lineWidth: colorIndex == index ? 2 : 0)
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Color \(index + 1)")
+                        }
+                    }
+                    .padding(.vertical, 2)
                 }
             }
-            .navigationTitle("Rename myapp")
+            .navigationTitle("Edit myapp")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -419,17 +524,24 @@ private struct RenameMyAppSheet: View {
                     Button("Cancel", action: onCancel)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { onCommit(draft) }
-                        .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty || draft == initial)
+                    Button("Save", action: commit)
+                        .disabled(!isDirty || trimmedName.isEmpty)
                 }
             }
             #if os(macOS)
-            .frame(minWidth: 320, idealWidth: 380, minHeight: 160, idealHeight: 200)
+            .frame(minWidth: 340, idealWidth: 400, minHeight: 360, idealHeight: 440)
             #endif
         }
         .onAppear {
-            draft = initial
-            focused = true
+            name = initialName
+            icon = initialIcon
+            colorIndex = initialColorIndex
+            nameFocused = true
         }
+    }
+
+    private func commit() {
+        guard !trimmedName.isEmpty else { return }
+        onCommit(trimmedName, icon.trimmingCharacters(in: .whitespacesAndNewlines), colorIndex)
     }
 }

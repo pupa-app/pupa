@@ -223,6 +223,8 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
         "listMyApps",
         "createMyApp",
         "renameMyApp",
+        "setMyAppIcon",
+        "setMyAppColor",
         "invokeMyAppAgent",
     ]
 

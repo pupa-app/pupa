@@ -5,6 +5,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
 
 ## [0.0.101] — 2026-07-14
 
+### Added
+
+- **Edit a myApp's icon, name, and color after creation.** Previously a myApp's
+  icon and color could only be set at birth (by the orchestrator), with no way
+  to change them afterwards — the sidebar context menu offered "Rename" (name
+  only). Holding down a myApp now opens a single **Edit** sheet covering
+  **name + icon + color** together (SF Symbol picker with a themed ~60-icon
+  suggestion grid plus a free-text field for any symbol, and
+  a swatch grid over the accent palette). The orchestrator gains two matching
+  tools, `setMyAppIcon` and `setMyAppColor`, alongside the existing
+  `renameMyApp`, all backed by the same store mutators
+  (`MyAppStore.setIconSystemName` / `setColorIndex`). Closes #187.
+
 ### Changed
 
 - **Slash-command list scrolls instead of overflowing.** Typing `/` in the chat

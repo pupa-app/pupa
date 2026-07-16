@@ -251,6 +251,19 @@ public final class MyAppStore {
         persist()
     }
 
+    /// Change a myApp's sidebar icon to any SF Symbol name. Trimmed; an empty
+    /// value is ignored so the app keeps its current icon rather than rendering
+    /// a blank slot. The icon, unlike the name, has no memory-folder coupling,
+    /// so this is a plain in-place mutation.
+    public func setIconSystemName(_ iconSystemName: String, for myAppId: UUID) {
+        let trimmed = iconSystemName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let idx = myApps.firstIndex(where: { $0.id == myAppId }),
+              myApps[idx].iconSystemName != trimmed else { return }
+        myApps[idx].iconSystemName = trimmed
+        persist()
+    }
+
     // MARK: - Lifecycle
 
     /// One-time, at-birth seeding for a freshly created/restored app: the
