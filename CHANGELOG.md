@@ -3,6 +3,23 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.235] — 2026-08-10
+
+### Fixed
+
+- **`patchCalcRows` payload docs no longer mislead on variable/kind edits.** The
+  tool advertised `value`, `control`, `expression`, etc. in its patch schema, but
+  those fields are parsed *only* as part of the `kind` block (via
+  `parseCalcRowKind`) — so a natural-looking `patch:{value: 7}` on a slider
+  variable was silently ignored while still reporting `ok:true, patched:[key]`,
+  leaving the row unchanged. Callers burned several round-trips before
+  discovering the whole kind block must be resent. No behaviour change — this
+  clarifies the contract: the `patchCalcRows` description now spells out that any
+  kind-specific field requires `kind` + the full sibling block (and that omitted
+  siblings reset to defaults), each patch-schema field is annotated with when it
+  applies, and a maintainer note documents the parse-site intent.
+  (`PupaApp` `0.0.234` → `0.0.235`)
+
 ## [0.0.234] — 2026-08-10
 
 ### Fixed
