@@ -1932,11 +1932,20 @@ public enum AppTools {
     /// names live in `MyAppType.notificationToolNames`. The tool gate
     /// keeps the (heavy) descriptions out of the per-turn payload until the
     /// agent first opts in via `get_tools_notifications` (issue #220).
+    ///
+    /// **Cross-myApp isolation.** When registered inside a MyApp (or a
+    /// sub-run acting on behalf of one), `ownerMyAppId` is that MyApp's id.
+    /// A `sendNotification` call whose `target.myAppId` points at a *different*
+    /// MyApp is rejected — otherwise MyApp-A could schedule a banner that, on
+    /// tap, opens MyApp-B and injects a `runAgent`/`populateChat` prompt into
+    /// it, breaking app isolation. `nil` (the orchestrator / memory scope) is
+    /// unrestricted: that surface legitimately opens any myApp it manages.
     @MainActor
     public static func registerNotificationTools(
         on registry: ToolRegistry,
         coordinator: NotificationCenterCoordinator,
-        toolGateState: ToolGateState
+        toolGateState: ToolGateState,
+        ownerMyAppId: UUID? = nil
     ) {
         registry.register(ClientTool(
             descriptor: ToolDescriptor(
@@ -2083,6 +2092,20 @@ public enum AppTools {
                     return .object([
                         "ok": .bool(false),
                         "error": .string(String(describing: error)),
+                    ])
+                }
+                // Cross-myApp isolation: a MyApp may only deep-link a
+                // notification back into ITSELF. Reject a `target.myAppId`
+                // that points at a different MyApp so one app can't schedule a
+                // banner that opens another and injects a prompt into it.
+                // `ownerMyAppId == nil` (orchestrator scope) is unrestricted.
+                if let owner = ownerMyAppId,
+                   let target = request.target,
+                   target.myAppId != owner {
+                    return .object([
+                        "ok": .bool(false),
+                        "error": .string("notification-target-not-permitted"),
+                        "detail": .string("A myApp can only target itself; requested target.myAppId belongs to a different myApp."),
                     ])
                 }
                 do {
