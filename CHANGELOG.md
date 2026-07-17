@@ -29,6 +29,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
 - Added `os_log` sync diagnostics (subsystem `com.pupa-app.client`, category
   `sync`) so sync behaviour is inspectable in Console.app.
 
+### Performance
+
+- Each reconcile now walks every cloud subtree **once**, not twice. The
+  placeholder/download-status scan and the content-hash tree snapshot were two
+  separate full enumerations of the same directory per pass; they are merged
+  into a single `scanCloud` walk that returns both. No behaviour change.
+
 ## [0.0.101] — 2026-07-14
 
 ### Added

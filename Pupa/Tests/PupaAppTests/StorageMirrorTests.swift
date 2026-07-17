@@ -330,29 +330,33 @@ struct StorageMirrorTests {
         #expect(StorageMirror.materializedName(forPlaceholder: ".icloud") == nil)
     }
 
-    @Test("notDownloadedItems: a .icloud stub maps to its real sibling URL")
-    func notDownloadedItemsStub() {
+    @Test("scanCloud: a .icloud stub maps to its real sibling URL and stays out of the tree")
+    func scanCloudStub() {
         let cloud = tmp()
         put(cloud, "memories/.Note.md.icloud", "stub")
-        let items = StorageMirror.notDownloadedItems(under: cloud.appendingPathComponent("memories"))
-        #expect(items.count == 1)
-        #expect(items.first?.real.lastPathComponent == "Note.md")
+        let scan = StorageMirror.scanCloud(cloud.appendingPathComponent("memories"))
+        #expect(scan.notDownloaded.count == 1)
+        #expect(scan.notDownloaded.first?.real.lastPathComponent == "Note.md")
+        #expect(scan.tree.isEmpty)                          // stub never enters the tree map
     }
 
-    @Test("materializeCloud: a dir of only real files returns nothing to resolve")
-    func materializeFastPath() {
+    @Test("scanCloud: a dir of only real files has nothing to resolve and lands in the tree")
+    func scanCloudFastPath() {
         let cloud = tmp()
         put(cloud, "memories/note.md", "real")
-        let unresolved = StorageMirror.materializeCloud(cloud.appendingPathComponent("memories"))
-        #expect(unresolved.isEmpty)
+        let scan = StorageMirror.scanCloud(cloud.appendingPathComponent("memories"))
+        #expect(scan.notDownloaded.isEmpty)
+        #expect(scan.tree["note.md"] != nil)               // one walk yields the tree too
     }
 
-    @Test("materializeCloud: kicks a stub's download and returns it unresolved WITHOUT blocking")
-    func materializeKicksAndReturnsImmediately() {
+    @Test("kickDownloads: kicks a stub's download and returns it unresolved WITHOUT blocking")
+    func kickDownloadsReturnsImmediately() {
         let cloud = tmp()
+        let root = cloud.appendingPathComponent("memories")
         put(cloud, "memories/.Ghost.md.icloud", "stub")   // no real bytes will ever land
+        let pending = StorageMirror.scanCloud(root).notDownloaded
         let start = Date()
-        let unresolved = StorageMirror.materializeCloud(cloud.appendingPathComponent("memories"))
+        let unresolved = StorageMirror.kickDownloads(pending, cloudRoot: root)
         let elapsed = Date().timeIntervalSince(start)
         #expect(elapsed < 1.0)                             // no bounded Thread.sleep wait
         #expect(unresolved == ["Ghost.md"])               // real name, subtree-relative

@@ -97,15 +97,18 @@ public actor StorageMirror {
             let cRoot = cloud.appendingPathComponent(sub, isDirectory: true)
             let scoped = slice(baseline, prefix: sub)
 
-            // Kick a background download of any not-yet-materialized remote
-            // file — non-blocking. This pass can't see bytes that haven't landed
-            // yet; they arrive under their stub as `unresolved`, and iCloud's
-            // NSMetadataQuery update re-triggers converge once they're `.current`.
-            let unresolved = materializeCloud(cRoot)
+            // One walk of the cloud subtree yields both its tree snapshot and
+            // any not-yet-materialized files. Kick their download in the
+            // background (non-blocking) — this pass can't see bytes that haven't
+            // landed yet; they arrive under their stub as `unresolved`, and
+            // iCloud's NSMetadataQuery update re-triggers converge once they're
+            // `.current`.
+            let (cloudTree, pending) = scanCloud(cRoot)
+            let unresolved = kickDownloads(pending, cloudRoot: cRoot)
             pendingDownloads += unresolved.count
 
             var counts = (push: 0, pull: 0, delLocal: 0, delCloud: 0, conflict: 0)
-            for action in plan(local: tree(lRoot), cloud: tree(cRoot), baseline: scoped) {
+            for action in plan(local: tree(lRoot), cloud: cloudTree, baseline: scoped) {
                 // Eviction guard: a file iCloud evicted back to a placeholder
                 // reads as "cloud absent". Never let that masquerade as a remote
                 // delete of a still-present cloud file.
@@ -357,58 +360,72 @@ public actor StorageMirror {
         return String(name.dropFirst().dropLast(suffix.count))
     }
 
-    /// Every not-yet-materialized file under `root`, paired with the real
-    /// (non-placeholder) URL that `startDownloadingUbiquitousItem` expects.
-    /// Detected two ways: the iOS dot-`.icloud` stub name, or (macOS-style,
-    /// present under its real name) `ubiquitousItemDownloadingStatus != .current`.
-    /// Empty on a plain non-ubiquitous dir → the fake-container tests no-op.
-    static func notDownloadedItems(under root: URL) -> [(placeholder: URL, real: URL)] {
+    /// Single-pass scan of a **cloud** subtree: the `rel → Meta` map (as `tree`)
+    /// *and* every not-yet-materialized item, from one enumeration. Collapses
+    /// what used to be two full walks (a placeholder scan + `tree`) so the cloud
+    /// subtree is traversed once per converge. Local subtrees never hold
+    /// placeholders, so they keep using `tree()`.
+    ///
+    /// Not-downloaded is detected two ways: the iOS dot-`.icloud` stub name, or
+    /// (macOS-style, present under its real name) `downloadingStatus != .current`.
+    /// Empty `notDownloaded` on a plain non-ubiquitous dir → the fake-container
+    /// tests no-op.
+    static func scanCloud(_ root: URL) -> (tree: [String: Meta], notDownloaded: [(placeholder: URL, real: URL)]) {
         let fm = FileManager.default
+        var tree: [String: Meta] = [:]
+        var notDownloaded: [(placeholder: URL, real: URL)] = []
+        // Resolve symlinks on the base so the `/var`→`/private/var` alias can't
+        // corrupt the relative path we key on.
+        let base = root.resolvingSymlinksInPath().path
         guard let en = fm.enumerator(
             at: root,
-            includingPropertiesForKeys: [.isRegularFileKey, .ubiquitousItemDownloadingStatusKey])
-        else { return [] }
-        var out: [(placeholder: URL, real: URL)] = []
+            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey, .ubiquitousItemDownloadingStatusKey])
+        else { return (tree, notDownloaded) }
         for case let url as URL in en {
             let name = url.lastPathComponent
+            // iOS placeholder stub: not materialized, and dot-prefixed so it
+            // never enters the tree map.
             if let realName = materializedName(forPlaceholder: name) {
-                out.append((url, url.deletingLastPathComponent().appendingPathComponent(realName)))
+                notDownloaded.append((url, url.deletingLastPathComponent().appendingPathComponent(realName)))
                 continue
             }
             if name.hasPrefix(".") { continue }   // other hidden (baseline, .DS_Store)
             let vals = try? url.resourceValues(
-                forKeys: [.isRegularFileKey, .ubiquitousItemDownloadingStatusKey])
+                forKeys: [.isRegularFileKey, .contentModificationDateKey, .ubiquitousItemDownloadingStatusKey])
             guard vals?.isRegularFile == true else { continue }
-            // `!= .current` also re-fetches an item with a newer cloud version —
-            // desirable for convergence. Narrow to `== .notDownloaded` if this
-            // causes churn on device.
+            // macOS-style not-downloaded (present under its real name). `!= .current`
+            // also re-fetches an item with a newer cloud version — desirable for
+            // convergence. Narrow to `== .notDownloaded` if this churns on device.
             if let status = vals?.ubiquitousItemDownloadingStatus, status != .current {
-                out.append((url, url))
+                notDownloaded.append((url, url))
             }
+            // Tree entry (skip unreadable — e.g. a dataless evicted file).
+            guard let data = read(url, coordinate: false) else { continue }
+            let path = url.resolvingSymlinksInPath().path
+            guard path.hasPrefix(base + "/") else { continue }
+            let rel = String(path.dropFirst(base.count + 1))
+            tree[rel] = Meta(hash: Self.hash(data), modified: vals?.contentModificationDate ?? .distantPast)
         }
-        return out
+        return (tree, notDownloaded)
     }
 
-    /// Kick a background download of every not-yet-materialized file under
-    /// `cloudRoot` and return their rels (relative to `cloudRoot`) as
-    /// *unresolved* — none are `.current` yet, so the caller treats each as
-    /// "cloud copy not present here": skip `deleteLocal`, don't count as pulled.
-    /// **Non-blocking** — no wait on the actor's cooperative thread. Downloads
-    /// land asynchronously; iCloud's `NSMetadataQuery` update re-triggers
-    /// `converge` once they're `.current`, which is when they actually pull.
-    /// `[]` fast path when nothing is pending — the common case and the test path.
+    /// Kick a background download of every not-yet-materialized item and return
+    /// their rels (relative to `cloudRoot`) as *unresolved* — none are `.current`
+    /// yet, so the caller treats each as "cloud copy not present here": skip
+    /// `deleteLocal`, don't count as pulled. **Non-blocking** — no wait on the
+    /// actor's cooperative thread; downloads land asynchronously and iCloud's
+    /// `NSMetadataQuery` update re-triggers `converge` once they're `.current`,
+    /// which is when they actually pull. `[]` fast path when nothing is pending.
     @discardableResult
-    static func materializeCloud(_ cloudRoot: URL) -> Set<String> {
-        let pending = notDownloadedItems(under: cloudRoot)
-        guard !pending.isEmpty else { return [] }
-
-        let reals = pending.map(\.real)
+    static func kickDownloads(_ notDownloaded: [(placeholder: URL, real: URL)], cloudRoot: URL) -> Set<String> {
+        guard !notDownloaded.isEmpty else { return [] }
+        let reals = notDownloaded.map(\.real)
         DispatchQueue.global(qos: .utility).async {
             for u in reals { try? FileManager.default.startDownloadingUbiquitousItem(at: u) }
         }
         let base = cloudRoot.resolvingSymlinksInPath().path
-        let unresolved = Set(pending.compactMap { rel(forPlaceholder: $0.placeholder, base: base) })
-        log.notice("materialize kick root=\(cloudRoot.lastPathComponent, privacy: .public) pending=\(pending.count) unresolved=\(unresolved.count)")
+        let unresolved = Set(notDownloaded.compactMap { rel(forPlaceholder: $0.placeholder, base: base) })
+        log.notice("materialize kick root=\(cloudRoot.lastPathComponent, privacy: .public) pending=\(notDownloaded.count) unresolved=\(unresolved.count)")
         return unresolved
     }
 
