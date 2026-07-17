@@ -771,10 +771,25 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
   `runAgent`) plus any deep-link `target` ride in the notification's
   `userInfo`. On tap the delegate buffers a payload in `pendingTap` and
   posts `.pupaNotificationTap`; `AppView` drains it (on receipt + on
-  appear, consume-once) → `setRoot` navigates the `target`, then
-  `populateChat` writes `GuidedTourStore.chatPrefill` / `runAgent` writes
-  `chatAutoSend`, which `ChatPanel` mirrors into the composer / sends as a
-  turn on the active scope.
+  appear, consume-once) → `setRoot` navigates to the owning scope, opens a
+  **fresh chat thread** there (`store.addThread`), then `populateChat` writes
+  `GuidedTourStore.chatPrefill` / `runAgent` writes `chatAutoSend`, which
+  `ChatPanel` mirrors into the composer / sends as a turn. A scheduled prompt
+  always starts a new conversation — it never appends to an existing thread.
+  - **Cross-myApp isolation** (`AppTools.scopeNotificationRequest`, pure /
+    unit-tested): a notification's target is **bound to the scope of the agent
+    that scheduled it, never taken from the model** — the `sendNotification`
+    schema has no `myAppId` field, and any id in the args is dropped at parse
+    (`NotificationRequest.init`). A MyApp-scoped call (or a sub-run/slack
+    subagent acting for one) always has the owning `myAppId` injected, so every
+    banner routes back into *that* myApp and nowhere else — foreground taps open
+    it, `populateChat`/`runAgent` taps run in *its* new chat. The orchestrator /
+    `.memory` scope (`ownerMyAppId == nil`) carries no id; its injecting taps are
+    routed to the orchestrator's own new chat at delivery time
+    (`handleNotificationTap`). One myApp therefore cannot open or message
+    another. Delivery-side, `handleNotificationTap` re-checks the target still
+    exists (`store.myApp(withId:)`) and drops the tap with a "Reminder
+    unavailable" popup if the myApp was deleted after scheduling.
 - **Agent activity stats** → `UserDefaults` blob `pupa.agentstats.v1`,
   owned by `AgentStatsStore`. Device-local, **not** iCloud-synced (advisory
   counters only). Deliberately schema-free: a flat

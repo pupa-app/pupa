@@ -150,7 +150,7 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
         // delegate can route the tap (and the Settings list can label it).
         var info: [String: String] = [:]
         if let target = request.target {
-            info["pupa.myAppId"] = target.myAppId.uuidString
+            if let mid = target.myAppId { info["pupa.myAppId"] = mid.uuidString }
             if let cid = target.componentId { info["pupa.componentId"] = cid }
         }
         switch request.tapAction {

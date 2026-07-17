@@ -3,6 +3,30 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.103] — 2026-07-18
+
+### Fixed
+
+- **Notifications can no longer influence a different MyApp (isolation).** A
+  MyApp-scoped `sendNotification` could target a *sibling* MyApp, or schedule a
+  targetless `runAgent`/`populateChat` tap whose prompt then ran on whatever
+  chat scope happened to be active when the banner was tapped — a path for one
+  MyApp to drive or message another (pupa-backend#72). The tap target is now
+  **bound to the scope of the agent that scheduled it, never taken from the
+  model**: `sendNotification` no longer exposes a `myAppId` (any id in the args
+  is dropped at parse), and `AppTools.scopeNotificationRequest` injects the
+  calling myApp — so every banner routes back into its own app and nowhere else.
+  Orchestrator notifications route to the orchestrator's own chat, symmetrically.
+  Defense-in-depth on delivery: a tapped notification whose target MyApp was
+  deleted now shows a "Reminder unavailable" popup instead of navigating into a
+  ghost.
+
+### Changed
+
+- **Tapping a notification always opens a fresh chat.** A `populateChat` /
+  `runAgent` notification tap now starts a new conversation thread in the target
+  scope instead of appending its prompt to whatever thread was current there.
+
 ## [0.0.102] — 2026-07-17
 
 ### Fixed

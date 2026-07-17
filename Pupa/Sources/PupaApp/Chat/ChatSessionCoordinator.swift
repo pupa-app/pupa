@@ -271,7 +271,9 @@ public final class ChatSessionCoordinator {
             })
             let toolGateState = ToolGateState()
             sessionToolGateState = toolGateState
-            AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: toolGateState)
+            // Scope notifications to THIS myApp: it may only deep-link a
+            // banner back into itself, never into a sibling myApp.
+            AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: toolGateState, ownerMyAppId: id)
             if let myApp,
                let type = MyAppTypeRegistry.shared.resolve(id: myApp.typeId) {
                 AppTools.registerToolGates(on: registry, myAppType: type, toolGateState: toolGateState)
@@ -379,7 +381,9 @@ public final class ChatSessionCoordinator {
         AppTools.registerMemoryTools(on: registry, memory: appMemory)
         AppTools.registerSkillTools(on: registry, memory: appMemory)
         let subRunToolGateState = ToolGateState()
-        AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: subRunToolGateState)
+        // Sub-run acts on behalf of `myAppId`; keep its notifications scoped
+        // to that myApp so a delegated agent can't target a sibling either.
+        AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: subRunToolGateState, ownerMyAppId: myAppId)
         if let myApp = store.myApps.first(where: { $0.id == myAppId }),
            let type = MyAppTypeRegistry.shared.resolve(id: myApp.typeId) {
             AppTools.registerToolGates(on: registry, myAppType: type, toolGateState: subRunToolGateState)
@@ -528,7 +532,9 @@ public final class ChatSessionCoordinator {
             )
         })
         let subRunToolGateState = ToolGateState()
-        AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: subRunToolGateState)
+        // Sub-run acts on behalf of `myAppId`; keep its notifications scoped
+        // to that myApp so a delegated agent can't target a sibling either.
+        AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: subRunToolGateState, ownerMyAppId: myAppId)
         if let myApp = store.myApps.first(where: { $0.id == myAppId }),
            let type = MyAppTypeRegistry.shared.resolve(id: myApp.typeId) {
             AppTools.registerToolGates(on: registry, myAppType: type, toolGateState: subRunToolGateState)
@@ -803,7 +809,8 @@ public final class ChatSessionCoordinator {
             )
         })
         let slackToolGateState = ToolGateState()
-        AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: slackToolGateState)
+        // Slack subagent runs on behalf of `myAppId`; scope notifications to it.
+        AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: slackToolGateState, ownerMyAppId: myAppId)
         if let myApp = store.myApps.first(where: { $0.id == myAppId }),
            let type = MyAppTypeRegistry.shared.resolve(id: myApp.typeId) {
             AppTools.registerToolGates(on: registry, myAppType: type, toolGateState: slackToolGateState)

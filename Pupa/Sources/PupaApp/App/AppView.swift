@@ -85,6 +85,10 @@ public struct AppView: View {
     @State private var pendingImport: PendingImport?
     /// Result/error surfaced after an external import attempt.
     @State private var importNotice: ImportNotice?
+    /// Set when a tapped notification deep-links into a myApp that no longer
+    /// exists (deleted after the notification was scheduled). Drives an error
+    /// popup instead of navigating into a ghost target.
+    @State private var notificationNotice: NotificationNotice?
 
     /// `settings` is optional so `RootView` can hand in the shared
     /// `SettingsStore` it also gives to onboarding — pairing done during
@@ -156,18 +160,45 @@ public struct AppView: View {
         dispatchSelection(sel)
     }
 
-    /// Drain a pending notification tap: navigate to its deep-link target
-    /// first, then perform its tap action. `populateChat` reuses the tour's
-    /// prefill bridge; `runAgent` parks the prompt for `ChatPanel` to send on
-    /// the now-active scope. Consume-once — clears the buffer so a live tap
+    /// Drain a pending notification tap: navigate to the scope that scheduled it
+    /// (the owning myApp, or the orchestrator when the notification carried no
+    /// myApp), then perform its tap action in a **fresh chat**. `populateChat`
+    /// reuses the tour's prefill bridge; `runAgent` parks the prompt for
+    /// `ChatPanel` to send. Consume-once — clears the buffer so a live tap
     /// (`.onReceive`) and the cold-launch drain (`.task`) never double-fire.
     private func handleNotificationTap() {
         guard let tap = NotificationCenterCoordinator.shared.pendingTap else { return }
         NotificationCenterCoordinator.shared.pendingTap = nil
-        if let sel = tap["selection"] as? SidebarSelection { setRoot(sel) }
+        let sel = tap["selection"] as? SidebarSelection
+        if let sel {
+            // Defense-in-depth: the target myApp may have been deleted between
+            // the notification being scheduled and this tap. Don't navigate
+            // into a ghost (or silently no-op) — surface an error popup and
+            // drop the tap action so no prompt is injected into nothing.
+            if let id = sel.myAppId, store.myApp(withId: id) == nil {
+                notificationNotice = NotificationNotice(
+                    message: "This reminder points to a myApp that no longer exists — it may have been deleted."
+                )
+                return
+            }
+            setRoot(sel)
+        }
         guard let action = tap["tapAction"] as? String else { return }
         let prompt = tap["tapPrompt"] as? String ?? ""
         guard !prompt.isEmpty else { return }
+        // Route the prompt to the scope that scheduled the notification: a
+        // myApp's own chat (from the deep-link `sel`), or the orchestrator when
+        // no myApp rode along (orchestrator-scoped). Then ALWAYS start a fresh
+        // thread — a scheduled prompt opens a new conversation, never appends to
+        // whatever thread happened to be current in that scope.
+        let scope: ChatScope
+        if let id = sel?.myAppId {
+            scope = .myApp(id)
+        } else {
+            setRoot(.orchestrator)
+            scope = .memory
+        }
+        _ = store.addThread(for: scope)
         switch action {
         case "populateChat":
             tour.chatPrefill = prompt
@@ -207,6 +238,10 @@ public struct AppView: View {
             }
             .alert(item: $importNotice) { note in
                 Alert(title: Text("Import"), message: Text(note.message),
+                      dismissButton: .default(Text("OK")))
+            }
+            .alert(item: $notificationNotice) { note in
+                Alert(title: Text("Reminder unavailable"), message: Text(note.message),
                       dismissButton: .default(Text("OK")))
             }
             // Fetch the model catalog from the active backend on launch and on
@@ -1123,6 +1158,13 @@ private struct PendingImport: Identifiable {
 }
 
 private struct ImportNotice: Identifiable {
+    let id = UUID()
+    let message: String
+}
+
+/// Drives the "reminder unavailable" popup shown when a tapped notification
+/// targets a myApp that has since been deleted.
+private struct NotificationNotice: Identifiable {
     let id = UUID()
     let message: String
 }

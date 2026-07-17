@@ -149,8 +149,11 @@ struct NotificationRequestTests {
         #expect(obj["seconds"] == .int(42))
     }
 
-    @Test("target with myAppId only is parsed")
+    @Test("target with only a model-supplied myAppId parses to nil (id is ignored)")
     func parsesTargetAppOnly() throws {
+        // A model can't name a target myApp — the owning scope is injected by
+        // `AppTools.scopeNotificationRequest`. With no `componentId` to focus,
+        // there is nothing left to parse.
         let id = UUID()
         let req = try NotificationRequest(fromToolArgs: args([
             "title": .string("Done"),
@@ -158,11 +161,10 @@ struct NotificationRequestTests {
             "trigger": .object(["kind": .string("now")]),
             "target": .object(["myAppId": .string(id.uuidString)]),
         ]))
-        #expect(req.target?.myAppId == id)
-        #expect(req.target?.componentId == nil)
+        #expect(req.target == nil)
     }
 
-    @Test("target with myAppId + componentId is parsed")
+    @Test("target keeps componentId but drops any model-supplied myAppId")
     func parsesTargetWithComponent() throws {
         let id = UUID()
         let req = try NotificationRequest(fromToolArgs: args([
@@ -174,7 +176,7 @@ struct NotificationRequestTests {
                 "componentId": .string("tracker-1"),
             ]),
         ]))
-        #expect(req.target?.myAppId == id)
+        #expect(req.target?.myAppId == nil)
         #expect(req.target?.componentId == "tracker-1")
     }
 
@@ -386,7 +388,7 @@ struct NotificationRequestTests {
         ]))
         guard case .weekly(let wd, _, _) = req.trigger else { Issue.record("expected .weekly"); return }
         #expect(wd == 2)
-        #expect(req.target?.myAppId == id)
+        #expect(req.target?.myAppId == nil)   // model-supplied id ignored; injected downstream
         #expect(req.target?.componentId == "tracker-1")
         #expect(req.tapAction == .runAgent(prompt: "Summarize"))
     }

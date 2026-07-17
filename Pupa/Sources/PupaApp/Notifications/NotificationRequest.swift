@@ -79,11 +79,15 @@ public struct NotificationRequest: Sendable, Hashable {
     /// Optional deep-link target. When present, tapping the notification banner
     /// navigates the app to the specified myApp (and optionally component).
     public struct Target: Sendable, Hashable {
-        public let myAppId: UUID
+        /// The myApp to open on tap. Injected from the caller's scope by
+        /// `AppTools.scopeNotificationRequest` (never taken from the model): the
+        /// owning myApp for a MyApp scope, `nil` for the orchestrator (which is
+        /// routed to its own chat at delivery time).
+        public let myAppId: UUID?
         /// Component to focus, e.g. `"tracker-1"`. Nil opens the myApp home.
         public let componentId: String?
 
-        public init(myAppId: UUID, componentId: String? = nil) {
+        public init(myAppId: UUID?, componentId: String? = nil) {
             self.myAppId = myAppId
             self.componentId = componentId
         }
@@ -190,12 +194,15 @@ public struct NotificationRequest: Sendable, Hashable {
             )
         }
 
+        // A model may only choose which *component* of its own scope to focus on
+        // tap — never which myApp. The owning myApp is injected downstream by
+        // `AppTools.scopeNotificationRequest` from the calling agent's scope, so
+        // any `myAppId` in the args is deliberately ignored here: a notification
+        // can't be pointed at a different myApp.
         var target: Target? = nil
         if let targetArg = args["target"], case .object = targetArg,
-           let idStr = targetArg["myAppId"]?.stringValue,
-           let uuid = UUID(uuidString: idStr) {
-            let componentId = targetArg["componentId"]?.stringValue
-            target = Target(myAppId: uuid, componentId: componentId)
+           let componentId = targetArg["componentId"]?.stringValue, !componentId.isEmpty {
+            target = Target(myAppId: nil, componentId: componentId)
         }
 
         let tapAction = try Self.parseTapAction(args["tapAction"])
