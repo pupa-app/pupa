@@ -29,6 +29,10 @@ public actor StorageMirror {
     public static let shared = StorageMirror()
     private init() {}
 
+    /// Sync diagnostics — filter Console.app by subsystem `com.pupa-app.client`,
+    /// category `sync`. One line per subtree, never per file (avoids spam).
+    static let log = Logger(subsystem: "com.pupa-app.client", category: "sync")
+
     /// Pending debounced reconcile. Lock-protected rather than actor state so
     /// `scheduleReconcile()` registers it *synchronously* — a `drain()` ordered
     /// after a write in program order is guaranteed to observe it.
@@ -81,27 +85,57 @@ public actor StorageMirror {
     @discardableResult
     static func converge(localRoot local: URL, cloudRoot: URL?) -> Bool {
         guard let cloud = cloudRoot else { return false }
+        log.debug("converge start subtrees=\(PupaStorage.mirroredSubtrees, privacy: .public)")
         let conflictsRoot = local.appendingPathComponent("conflicts", isDirectory: true)
 
         var baseline = loadBaseline(local)
         var localChanged = false
+        var pendingDownloads = 0
 
         for sub in PupaStorage.mirroredSubtrees {
             let lRoot = local.appendingPathComponent(sub, isDirectory: true)
             let cRoot = cloud.appendingPathComponent(sub, isDirectory: true)
             let scoped = slice(baseline, prefix: sub)
 
-            for action in plan(local: tree(lRoot), cloud: tree(cRoot), baseline: scoped) {
+            // One walk of the cloud subtree yields both its tree snapshot and
+            // any not-yet-materialized files. Kick their download in the
+            // background (non-blocking) — this pass can't see bytes that haven't
+            // landed yet; they arrive under their stub as `unresolved`, and
+            // iCloud's NSMetadataQuery update re-triggers converge once they're
+            // `.current`.
+            let (cloudTree, pending) = scanCloud(cRoot)
+            let unresolved = kickDownloads(pending, cloudRoot: cRoot)
+            pendingDownloads += unresolved.count
+
+            var counts = (push: 0, pull: 0, delLocal: 0, delCloud: 0, conflict: 0)
+            for action in plan(local: tree(lRoot), cloud: cloudTree, baseline: scoped) {
+                // Eviction guard: a file iCloud evicted back to a placeholder
+                // reads as "cloud absent". Never let that masquerade as a remote
+                // delete of a still-present cloud file.
+                if case let .deleteLocal(r) = action, unresolved.contains(r) {
+                    log.error("skip deleteLocal \(sub, privacy: .public)/\(r, privacy: .public): cloud copy not downloaded")
+                    continue
+                }
+                switch action {
+                case .pushUp: counts.push += 1
+                case .pullDown: counts.pull += 1
+                case .deleteLocal: counts.delLocal += 1
+                case .deleteCloud: counts.delCloud += 1
+                case .conflict: counts.conflict += 1
+                }
                 let (rel, newHash, touchedLocal) = apply(
                     action, subtree: sub, localRoot: lRoot, cloudRoot: cRoot,
                     conflictsRoot: conflictsRoot.appendingPathComponent(sub, isDirectory: true))
                 baseline["\(sub)/\(rel)"] = newHash
                 localChanged = localChanged || touchedLocal
             }
+            log.notice("plan \(sub, privacy: .public) push=\(counts.push) pull=\(counts.pull) delLocal=\(counts.delLocal) delCloud=\(counts.delCloud) conflict=\(counts.conflict)")
         }
 
         pruneConflictsByAge(conflictsRoot)
         saveBaseline(baseline, local)
+        log.debug("converge done localChanged=\(localChanged) pendingDownloads=\(pendingDownloads)")
+        SyncStatus.record(localChanged: localChanged, pendingDownloads: pendingDownloads)
         return localChanged
     }
 
@@ -312,6 +346,102 @@ public actor StorageMirror {
             out[rel] = Meta(hash: Self.hash(data), modified: vals?.contentModificationDate ?? .distantPast)
         }
         return out
+    }
+
+    // MARK: - iCloud materialization
+
+    /// `.Foo.json.icloud` → `Foo.json`. Nil when `name` isn't an iCloud
+    /// not-downloaded placeholder stub (a real name, `.DS_Store`,
+    /// `.mirror-baseline.json`, …). Pure — no filesystem/container needed.
+    static func materializedName(forPlaceholder name: String) -> String? {
+        let suffix = ".icloud"
+        guard name.hasPrefix("."), name.hasSuffix(suffix), name.count > 1 + suffix.count
+        else { return nil }
+        return String(name.dropFirst().dropLast(suffix.count))
+    }
+
+    /// Single-pass scan of a **cloud** subtree: the `rel → Meta` map (as `tree`)
+    /// *and* every not-yet-materialized item, from one enumeration. Collapses
+    /// what used to be two full walks (a placeholder scan + `tree`) so the cloud
+    /// subtree is traversed once per converge. Local subtrees never hold
+    /// placeholders, so they keep using `tree()`.
+    ///
+    /// Not-downloaded is detected two ways: the iOS dot-`.icloud` stub name, or
+    /// (macOS-style, present under its real name) `downloadingStatus != .current`.
+    /// Empty `notDownloaded` on a plain non-ubiquitous dir → the fake-container
+    /// tests no-op.
+    static func scanCloud(_ root: URL) -> (tree: [String: Meta], notDownloaded: [(placeholder: URL, real: URL)]) {
+        let fm = FileManager.default
+        var tree: [String: Meta] = [:]
+        var notDownloaded: [(placeholder: URL, real: URL)] = []
+        // Resolve symlinks on the base so the `/var`→`/private/var` alias can't
+        // corrupt the relative path we key on.
+        let base = root.resolvingSymlinksInPath().path
+        guard let en = fm.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey, .ubiquitousItemDownloadingStatusKey])
+        else { return (tree, notDownloaded) }
+        for case let url as URL in en {
+            let name = url.lastPathComponent
+            // iOS placeholder stub: not materialized, and dot-prefixed so it
+            // never enters the tree map.
+            if let realName = materializedName(forPlaceholder: name) {
+                notDownloaded.append((url, url.deletingLastPathComponent().appendingPathComponent(realName)))
+                continue
+            }
+            if name.hasPrefix(".") { continue }   // other hidden (baseline, .DS_Store)
+            let vals = try? url.resourceValues(
+                forKeys: [.isRegularFileKey, .contentModificationDateKey, .ubiquitousItemDownloadingStatusKey])
+            guard vals?.isRegularFile == true else { continue }
+            // macOS-style not-downloaded (present under its real name). `!= .current`
+            // also re-fetches an item with a newer cloud version — desirable for
+            // convergence. Narrow to `== .notDownloaded` if this churns on device.
+            if let status = vals?.ubiquitousItemDownloadingStatus, status != .current {
+                notDownloaded.append((url, url))
+            }
+            // Tree entry (skip unreadable — e.g. a dataless evicted file).
+            guard let data = read(url, coordinate: false) else { continue }
+            let path = url.resolvingSymlinksInPath().path
+            guard path.hasPrefix(base + "/") else { continue }
+            let rel = String(path.dropFirst(base.count + 1))
+            tree[rel] = Meta(hash: Self.hash(data), modified: vals?.contentModificationDate ?? .distantPast)
+        }
+        return (tree, notDownloaded)
+    }
+
+    /// Kick a background download of every not-yet-materialized item and return
+    /// their rels (relative to `cloudRoot`) as *unresolved* — none are `.current`
+    /// yet, so the caller treats each as "cloud copy not present here": skip
+    /// `deleteLocal`, don't count as pulled. **Non-blocking** — no wait on the
+    /// actor's cooperative thread; downloads land asynchronously and iCloud's
+    /// `NSMetadataQuery` update re-triggers `converge` once they're `.current`,
+    /// which is when they actually pull. `[]` fast path when nothing is pending.
+    @discardableResult
+    static func kickDownloads(_ notDownloaded: [(placeholder: URL, real: URL)], cloudRoot: URL) -> Set<String> {
+        guard !notDownloaded.isEmpty else { return [] }
+        let reals = notDownloaded.map(\.real)
+        DispatchQueue.global(qos: .utility).async {
+            for u in reals { try? FileManager.default.startDownloadingUbiquitousItem(at: u) }
+        }
+        let base = cloudRoot.resolvingSymlinksInPath().path
+        let unresolved = Set(notDownloaded.compactMap { rel(forPlaceholder: $0.placeholder, base: base) })
+        log.notice("materialize kick root=\(cloudRoot.lastPathComponent, privacy: .public) pending=\(notDownloaded.count) unresolved=\(unresolved.count)")
+        return unresolved
+    }
+
+    /// Subtree-relative materialized rel for a not-downloaded item, keyed off
+    /// the on-disk *placeholder* URL. Its real sibling may not exist yet, and
+    /// resolving a missing path leaves `/var` vs `/private/var` mismatched —
+    /// which would silently drop the rel and defeat the eviction guard. Nil only
+    /// if the placeholder isn't under `base` (defensive; shouldn't happen).
+    private static func rel(forPlaceholder placeholder: URL, base: String) -> String? {
+        let p = placeholder.resolvingSymlinksInPath().path
+        guard p.hasPrefix(base + "/") else { return nil }
+        let rel = String(p.dropFirst(base.count + 1))
+        guard let realName = materializedName(forPlaceholder: placeholder.lastPathComponent)
+        else { return rel }                                  // macOS-style: already the real name
+        let dir = (rel as NSString).deletingLastPathComponent
+        return dir.isEmpty ? realName : "\(dir)/\(realName)"
     }
 
     // MARK: - Baseline persistence (local, hidden, never mirrored)

@@ -3,6 +3,39 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.102] — 2026-07-17
+
+### Fixed
+
+- **iCloud sync now converges across devices.** Since the local-canonical store
+  refactor, the mirror pushed each device's MyApps, memories and settings up to
+  iCloud but never *pulled* other devices' down: files arriving as
+  non-materialized iCloud placeholders (`.name.icloud` stubs) were skipped by the
+  mirror's file walker, and nothing ever requested their download. Devices stayed
+  divergent while all reporting "sync active". The mirror now kicks a download of
+  each remote placeholder (`startDownloadingUbiquitousItem`) before each reconcile
+  and the `CloudWatcher` does the same the moment remote changes are seen. The
+  kick is **non-blocking** — the background mirror never waits on its actor for
+  downloads to land; files arrive asynchronously and a later reconcile,
+  re-triggered by iCloud's change notification, pulls them. Also fixes a latent
+  data-loss case: an evicted (placeholder-only) cloud file is no longer mistaken
+  for a remote delete of the local copy.
+
+### Changed
+
+- **Account screen "Status" reflects real convergence**, not just whether the
+  iCloud container resolved — shows "Up to date · <time>", "Syncing N…", or
+  "Waiting for iCloud".
+- Added `os_log` sync diagnostics (subsystem `com.pupa-app.client`, category
+  `sync`) so sync behaviour is inspectable in Console.app.
+
+### Performance
+
+- Each reconcile now walks every cloud subtree **once**, not twice. The
+  placeholder/download-status scan and the content-hash tree snapshot were two
+  separate full enumerations of the same directory per pass; they are merged
+  into a single `scanCloud` walk that returns both. No behaviour change.
+
 ## [0.0.101] — 2026-07-14
 
 ### Added
