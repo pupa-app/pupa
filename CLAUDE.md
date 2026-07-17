@@ -88,6 +88,9 @@ to `dev`, fast-forward `main` from `dev` for releases.
   must track the backend's `MODEL_REGISTRY`.
 - **Write a test early when helpful.** For bugs / features, prefer a
   failing test up front; skip only for pure UI tweaks and docs.
+- **Run the suite with `make test`** — not raw `swift test`. It covers
+  both packages (AGUIKit + Pupa) and pins Pupa's `--no-parallel`. Narrow
+  with `make test FILTER=SomeTests`.
 
 ## Run
 
