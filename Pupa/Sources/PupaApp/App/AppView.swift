@@ -160,15 +160,17 @@ public struct AppView: View {
         dispatchSelection(sel)
     }
 
-    /// Drain a pending notification tap: navigate to its deep-link target
-    /// first, then perform its tap action. `populateChat` reuses the tour's
-    /// prefill bridge; `runAgent` parks the prompt for `ChatPanel` to send on
-    /// the now-active scope. Consume-once — clears the buffer so a live tap
+    /// Drain a pending notification tap: navigate to the scope that scheduled it
+    /// (the owning myApp, or the orchestrator when the notification carried no
+    /// myApp), then perform its tap action in a **fresh chat**. `populateChat`
+    /// reuses the tour's prefill bridge; `runAgent` parks the prompt for
+    /// `ChatPanel` to send. Consume-once — clears the buffer so a live tap
     /// (`.onReceive`) and the cold-launch drain (`.task`) never double-fire.
     private func handleNotificationTap() {
         guard let tap = NotificationCenterCoordinator.shared.pendingTap else { return }
         NotificationCenterCoordinator.shared.pendingTap = nil
-        if let sel = tap["selection"] as? SidebarSelection {
+        let sel = tap["selection"] as? SidebarSelection
+        if let sel {
             // Defense-in-depth: the target myApp may have been deleted between
             // the notification being scheduled and this tap. Don't navigate
             // into a ghost (or silently no-op) — surface an error popup and
@@ -184,6 +186,19 @@ public struct AppView: View {
         guard let action = tap["tapAction"] as? String else { return }
         let prompt = tap["tapPrompt"] as? String ?? ""
         guard !prompt.isEmpty else { return }
+        // Route the prompt to the scope that scheduled the notification: a
+        // myApp's own chat (from the deep-link `sel`), or the orchestrator when
+        // no myApp rode along (orchestrator-scoped). Then ALWAYS start a fresh
+        // thread — a scheduled prompt opens a new conversation, never appends to
+        // whatever thread happened to be current in that scope.
+        let scope: ChatScope
+        if let id = sel?.myAppId {
+            scope = .myApp(id)
+        } else {
+            setRoot(.orchestrator)
+            scope = .memory
+        }
+        _ = store.addThread(for: scope)
         switch action {
         case "populateChat":
             tour.chatPrefill = prompt

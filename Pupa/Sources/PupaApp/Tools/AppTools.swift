@@ -1984,11 +1984,12 @@ public enum AppTools {
                 1..31536000. `atDate` must be in the future. The daily/weekly/\
                 everyNHours presets repeat until cancelled and fire at the OS \
                 level (no live session needed); `weekday` is 1=Sunday..7=Saturday. \
-                Supply `target` to deep-link the tap: `{myAppId:"<UUID>"}` opens \
-                that myApp, add `componentId:"tracker-1"` to jump to a component. \
-                Supply `tapAction` to make the tap do more than foreground: \
-                `populateChat` pre-fills the chat composer with `prompt`; \
-                `runAgent` sends `prompt` as a turn to the active agent. \
+                Tapping the banner always routes back into THIS scope — you do \
+                not (and cannot) point it at another app; add \
+                `target:{componentId:"tracker-1"}` only to focus a component on \
+                tap. Supply `tapAction` to make the tap do more than foreground: \
+                `populateChat` pre-fills the composer, `runAgent` sends `prompt` \
+                as a turn — both open a fresh chat in this scope. \
                 Permission is requested lazily on first call; if denied the tool \
                 returns {ok:false, error:"notifications-not-authorized"} so you \
                 can tell the user. Result echoes {id, deliveryAt, trigger, \
@@ -2052,18 +2053,13 @@ public enum AppTools {
                         ],
                         "target": [
                             "type": "object",
-                            "description": "Optional deep-link: where to navigate when the user taps the banner.",
+                            "description": "Optional. Focus a component of THIS scope when the banner is tapped. The app itself is always the tap target — you can't open another app.",
                             "properties": [
-                                "myAppId": [
-                                    "type": "string",
-                                    "description": "UUID of the myApp to open.",
-                                ],
                                 "componentId": [
                                     "type": "string",
-                                    "description": "Component to focus, e.g. \"tracker-1\". Omit to open the myApp home.",
+                                    "description": "Component to focus, e.g. \"tracker-1\". Omit to open the app home.",
                                 ],
                             ],
-                            "required": ["myAppId"],
                         ],
                         "tapAction": [
                             "type": "object",
@@ -2094,21 +2090,11 @@ public enum AppTools {
                         "error": .string(String(describing: error)),
                     ])
                 }
-                // Cross-myApp isolation (see `scopeNotificationRequest`): for an
-                // owner-scoped registration, reject a foreign `target` AND pin a
-                // targetless injecting tap to the owner so it can't fire on a
-                // sibling / orchestrator scope. `nil` owner is unrestricted.
-                let request: NotificationRequest
-                switch AppTools.scopeNotificationRequest(parsed, ownerMyAppId: ownerMyAppId) {
-                case .rejectForeignTarget:
-                    return .object([
-                        "ok": .bool(false),
-                        "error": .string("notification-target-not-permitted"),
-                        "detail": .string("A myApp can only target itself; requested target.myAppId belongs to a different myApp."),
-                    ])
-                case .allow(let scoped):
-                    request = scoped
-                }
+                // Bind the notification to the calling agent's scope: the target
+                // myApp is injected here, never taken from the model, so one
+                // myApp can't route a banner into another (see
+                // `scopeNotificationRequest`).
+                let request = AppTools.scopeNotificationRequest(parsed, ownerMyAppId: ownerMyAppId)
                 do {
                     let scheduled = try await coordinator.schedule(request)
                     return .object([
@@ -2180,54 +2166,33 @@ public enum AppTools {
         ))
     }
 
-    /// Result of the cross-myApp isolation check on a `sendNotification`
-    /// request. `.allow` carries the request to actually schedule, which may be
-    /// target-coerced (see `scopeNotificationRequest`).
-    enum NotificationScopeDecision: Equatable {
-        case allow(NotificationRequest)
-        case rejectForeignTarget
-    }
-
-    /// Enforce cross-myApp isolation on a scheduling request.
+    /// Bind a `sendNotification` request to the scope of the agent that called
+    /// the tool — the caller never names a target myApp, so one myApp can't open
+    /// or message another (pupa-backend#72). The deep-link target is *injected*
+    /// here, not taken from the model:
     ///
-    /// A MyApp (or a sub-run acting for one) is `ownerMyAppId`-scoped and must
-    /// not be able to influence a *different* scope via a notification. Two
-    /// escape paths, both closed here:
-    ///
-    /// 1. **Foreign `target`** — a banner that, on tap, opens another MyApp and
-    ///    (with an injecting tap) runs a prompt in it. Rejected outright.
-    /// 2. **Targetless injecting tap** — a `populateChat`/`runAgent` tap with no
-    ///    `target` runs its prompt on whatever chat scope is *active* at tap
-    ///    time (a sibling MyApp, or the high-privilege orchestrator). The tap
-    ///    action is delivered independently of navigation, so a missing target
-    ///    doesn't make it a no-op. Pin the target to the owner so the tap
-    ///    navigates into the owner first and the prompt runs in the owner's own
-    ///    scope. A `.foreground` tap injects nothing, so a bare "open the app"
-    ///    notification is left targetless.
-    ///
-    /// `ownerMyAppId == nil` (orchestrator / memory scope) is unrestricted — it
-    /// legitimately manages any myApp — and always `.allow`s the request as-is.
+    /// - **MyApp scope** (`ownerMyAppId != nil`): force the target to the owning
+    ///   myApp, preserving any `componentId` the agent chose to focus. Every one
+    ///   of that myApp's notifications routes back into itself and nowhere else —
+    ///   foreground taps open the myApp, injecting taps (`populateChat` /
+    ///   `runAgent`) run their prompt in *its* chat. There is nothing to reject:
+    ///   a target can only ever be the owner.
+    /// - **Orchestrator scope** (`ownerMyAppId == nil`): the orchestrator has no
+    ///   myApp id; return the request unchanged. Its injecting taps are routed to
+    ///   the orchestrator's own chat at delivery time
+    ///   (`AppView.handleNotificationTap`), symmetric with the myApp case.
     static func scopeNotificationRequest(
         _ request: NotificationRequest,
         ownerMyAppId: UUID?
-    ) -> NotificationScopeDecision {
-        guard let owner = ownerMyAppId else { return .allow(request) }
-        if let target = request.target, target.myAppId != owner {
-            return .rejectForeignTarget
-        }
-        let injects: Bool
-        switch request.tapAction {
-        case .foreground: injects = false
-        case .populateChat, .runAgent: injects = true
-        }
-        guard injects, request.target == nil else { return .allow(request) }
-        return .allow(NotificationRequest(
+    ) -> NotificationRequest {
+        guard let owner = ownerMyAppId else { return request }
+        return NotificationRequest(
             title: request.title,
             body: request.body,
             trigger: request.trigger,
-            target: NotificationRequest.Target(myAppId: owner),
+            target: NotificationRequest.Target(myAppId: owner, componentId: request.target?.componentId),
             tapAction: request.tapAction
-        ))
+        )
     }
 
     private static func entryAsAnyJSON(_ entry: Entry) -> AnyJSON {
