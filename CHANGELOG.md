@@ -12,11 +12,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   iCloud but never *pulled* other devices' down: files arriving as
   non-materialized iCloud placeholders (`.name.icloud` stubs) were skipped by the
   mirror's file walker, and nothing ever requested their download. Devices stayed
-  divergent while all reporting "sync active". The mirror now materializes remote
-  files (`startDownloadingUbiquitousItem`, bounded wait) before each reconcile,
-  and the `CloudWatcher` kicks downloads the moment remote changes are seen. Also
-  fixes a latent data-loss case: an evicted (placeholder-only) cloud file is no
-  longer mistaken for a remote delete of the local copy.
+  divergent while all reporting "sync active". The mirror now kicks a download of
+  each remote placeholder (`startDownloadingUbiquitousItem`) before each reconcile
+  and the `CloudWatcher` does the same the moment remote changes are seen. The
+  kick is **non-blocking** — the background mirror never waits on its actor for
+  downloads to land; files arrive asynchronously and a later reconcile,
+  re-triggered by iCloud's change notification, pulls them. Also fixes a latent
+  data-loss case: an evicted (placeholder-only) cloud file is no longer mistaken
+  for a remote delete of the local copy.
 
 ### Changed
 

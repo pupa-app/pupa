@@ -83,7 +83,7 @@ public actor StorageMirror {
     /// storage overrides (which would clobber sibling suites). `cloudRoot == nil`
     /// models "iCloud off": a no-op that leaves the local tree untouched.
     @discardableResult
-    static func converge(localRoot local: URL, cloudRoot: URL?, downloadTimeout: TimeInterval = 20) -> Bool {
+    static func converge(localRoot local: URL, cloudRoot: URL?) -> Bool {
         guard let cloud = cloudRoot else { return false }
         log.debug("converge start subtrees=\(PupaStorage.mirroredSubtrees, privacy: .public)")
         let conflictsRoot = local.appendingPathComponent("conflicts", isDirectory: true)
@@ -97,18 +97,19 @@ public actor StorageMirror {
             let cRoot = cloud.appendingPathComponent(sub, isDirectory: true)
             let scoped = slice(baseline, prefix: sub)
 
-            // Fetch not-yet-materialized remote files FIRST, so the cloud tree
-            // walk below sees their real bytes instead of skipping their
-            // `.icloud` placeholder stubs — the "sync never pulls" bug.
-            let mat = materializeCloud(cRoot, timeout: downloadTimeout)
-            pendingDownloads += mat.unresolved.count
+            // Kick a background download of any not-yet-materialized remote
+            // file — non-blocking. This pass can't see bytes that haven't landed
+            // yet; they arrive under their stub as `unresolved`, and iCloud's
+            // NSMetadataQuery update re-triggers converge once they're `.current`.
+            let unresolved = materializeCloud(cRoot)
+            pendingDownloads += unresolved.count
 
             var counts = (push: 0, pull: 0, delLocal: 0, delCloud: 0, conflict: 0)
             for action in plan(local: tree(lRoot), cloud: tree(cRoot), baseline: scoped) {
                 // Eviction guard: a file iCloud evicted back to a placeholder
                 // reads as "cloud absent". Never let that masquerade as a remote
                 // delete of a still-present cloud file.
-                if case let .deleteLocal(r) = action, mat.unresolved.contains(r) {
+                if case let .deleteLocal(r) = action, unresolved.contains(r) {
                     log.error("skip deleteLocal \(sub, privacy: .public)/\(r, privacy: .public): cloud copy not downloaded")
                     continue
                 }
@@ -346,16 +347,6 @@ public actor StorageMirror {
 
     // MARK: - iCloud materialization
 
-    /// Outcome of a `materializeCloud` pass: how many placeholders finished
-    /// downloading, and the rels (relative to the passed root) still not
-    /// `.current` at the deadline. `converge` uses `unresolved` to avoid
-    /// mistaking an un-fetched file for a remote delete.
-    struct MaterializeResult: Equatable, Sendable {
-        let materialized: Int
-        let unresolved: Set<String>
-        static let none = MaterializeResult(materialized: 0, unresolved: [])
-    }
-
     /// `.Foo.json.icloud` → `Foo.json`. Nil when `name` isn't an iCloud
     /// not-downloaded placeholder stub (a real name, `.DS_Store`,
     /// `.mirror-baseline.json`, …). Pure — no filesystem/container needed.
@@ -398,58 +389,42 @@ public actor StorageMirror {
         return out
     }
 
-    /// True once `real` has fully downloaded. A non-ubiquitous file (tests, a
-    /// plain dir) has no download status → treat existence as materialized.
-    static func isMaterialized(_ real: URL) -> Bool {
-        if let status = try? real.resourceValues(
-            forKeys: [.ubiquitousItemDownloadingStatusKey]).ubiquitousItemDownloadingStatus {
-            return status == .current
+    /// Kick a background download of every not-yet-materialized file under
+    /// `cloudRoot` and return their rels (relative to `cloudRoot`) as
+    /// *unresolved* — none are `.current` yet, so the caller treats each as
+    /// "cloud copy not present here": skip `deleteLocal`, don't count as pulled.
+    /// **Non-blocking** — no wait on the actor's cooperative thread. Downloads
+    /// land asynchronously; iCloud's `NSMetadataQuery` update re-triggers
+    /// `converge` once they're `.current`, which is when they actually pull.
+    /// `[]` fast path when nothing is pending — the common case and the test path.
+    @discardableResult
+    static func materializeCloud(_ cloudRoot: URL) -> Set<String> {
+        let pending = notDownloadedItems(under: cloudRoot)
+        guard !pending.isEmpty else { return [] }
+
+        let reals = pending.map(\.real)
+        DispatchQueue.global(qos: .utility).async {
+            for u in reals { try? FileManager.default.startDownloadingUbiquitousItem(at: u) }
         }
-        return FileManager.default.fileExists(atPath: real.path)
+        let base = cloudRoot.resolvingSymlinksInPath().path
+        let unresolved = Set(pending.compactMap { rel(forPlaceholder: $0.placeholder, base: base) })
+        log.notice("materialize kick root=\(cloudRoot.lastPathComponent, privacy: .public) pending=\(pending.count) unresolved=\(unresolved.count)")
+        return unresolved
     }
 
-    /// Request download of every not-materialized file under `cloudRoot` and
-    /// wait (bounded, off-main) until each is `.current`. Returns the count that
-    /// landed plus the rels still not downloaded at the deadline. `.none` fast
-    /// path when nothing is pending — the common case and the test path.
-    @discardableResult
-    static func materializeCloud(_ cloudRoot: URL, timeout: TimeInterval) -> MaterializeResult {
-        let pending = notDownloadedItems(under: cloudRoot)
-        guard !pending.isEmpty else { return .none }
-
-        let fm = FileManager.default
-        for item in pending { try? fm.startDownloadingUbiquitousItem(at: item.real) }
-        log.notice("materialize root=\(cloudRoot.lastPathComponent, privacy: .public) pending=\(pending.count)")
-
-        let base = cloudRoot.resolvingSymlinksInPath().path
-        let deadline = Date().addingTimeInterval(timeout)
-        var remaining = pending
-        while !remaining.isEmpty, Date() < deadline {
-            remaining = remaining.filter { !isMaterialized($0.real) }
-            if remaining.isEmpty { break }
-            Thread.sleep(forTimeInterval: 0.25)
-        }
-
-        // Key off the *placeholder* URL — it exists on disk, so symlink
-        // resolution matches `base`. (`item.real` may not exist yet, and
-        // resolving a missing path leaves `/var` vs `/private/var` mismatched,
-        // silently dropping the rel and defeating the eviction guard.)
-        let unresolved = Set(remaining.compactMap { item -> String? in
-            let p = item.placeholder.resolvingSymlinksInPath().path
-            guard p.hasPrefix(base + "/") else { return nil }
-            let rel = String(p.dropFirst(base.count + 1))
-            guard let realName = materializedName(forPlaceholder: item.placeholder.lastPathComponent)
-            else { return rel }                                  // macOS-style: already the real name
-            let dir = (rel as NSString).deletingLastPathComponent
-            return dir.isEmpty ? realName : "\(dir)/\(realName)"
-        })
-        let landed = pending.count - remaining.count
-        if unresolved.isEmpty {
-            log.notice("materialize done root=\(cloudRoot.lastPathComponent, privacy: .public) landed=\(landed)")
-        } else {
-            log.error("materialize timeout root=\(cloudRoot.lastPathComponent, privacy: .public) landed=\(landed) unresolved=\(unresolved.count)")
-        }
-        return MaterializeResult(materialized: landed, unresolved: unresolved)
+    /// Subtree-relative materialized rel for a not-downloaded item, keyed off
+    /// the on-disk *placeholder* URL. Its real sibling may not exist yet, and
+    /// resolving a missing path leaves `/var` vs `/private/var` mismatched —
+    /// which would silently drop the rel and defeat the eviction guard. Nil only
+    /// if the placeholder isn't under `base` (defensive; shouldn't happen).
+    private static func rel(forPlaceholder placeholder: URL, base: String) -> String? {
+        let p = placeholder.resolvingSymlinksInPath().path
+        guard p.hasPrefix(base + "/") else { return nil }
+        let rel = String(p.dropFirst(base.count + 1))
+        guard let realName = materializedName(forPlaceholder: placeholder.lastPathComponent)
+        else { return rel }                                  // macOS-style: already the real name
+        let dir = (rel as NSString).deletingLastPathComponent
+        return dir.isEmpty ? realName : "\(dir)/\(realName)"
     }
 
     // MARK: - Baseline persistence (local, hidden, never mirrored)

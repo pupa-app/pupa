@@ -339,12 +339,23 @@ struct StorageMirrorTests {
         #expect(items.first?.real.lastPathComponent == "Note.md")
     }
 
-    @Test("materializeCloud: a dir of only real files is a no-op fast path")
+    @Test("materializeCloud: a dir of only real files returns nothing to resolve")
     func materializeFastPath() {
         let cloud = tmp()
         put(cloud, "memories/note.md", "real")
-        let r = StorageMirror.materializeCloud(cloud.appendingPathComponent("memories"), timeout: 5)
-        #expect(r == .none)
+        let unresolved = StorageMirror.materializeCloud(cloud.appendingPathComponent("memories"))
+        #expect(unresolved.isEmpty)
+    }
+
+    @Test("materializeCloud: kicks a stub's download and returns it unresolved WITHOUT blocking")
+    func materializeKicksAndReturnsImmediately() {
+        let cloud = tmp()
+        put(cloud, "memories/.Ghost.md.icloud", "stub")   // no real bytes will ever land
+        let start = Date()
+        let unresolved = StorageMirror.materializeCloud(cloud.appendingPathComponent("memories"))
+        let elapsed = Date().timeIntervalSince(start)
+        #expect(elapsed < 1.0)                             // no bounded Thread.sleep wait
+        #expect(unresolved == ["Ghost.md"])               // real name, subtree-relative
     }
 
     @Test("converge: an already-downloaded file next to its stale stub still pulls down")
@@ -352,16 +363,16 @@ struct StorageMirrorTests {
         let (local, cloud) = (tmp(), tmp())
         put(cloud, "memories/note.md", "kale")            // real, materialized
         put(cloud, "memories/.note.md.icloud", "stub")    // stale placeholder alongside
-        let changed = StorageMirror.converge(localRoot: local, cloudRoot: cloud, downloadTimeout: 0.4)
+        let changed = StorageMirror.converge(localRoot: local, cloudRoot: cloud)
         #expect(get(local, "memories/note.md") == "kale")
         #expect(changed == true)
     }
 
-    @Test("materializeCloud: an un-fetchable stub is reported unresolved within the timeout")
-    func materializeTimeoutUnresolved() {
+    @Test("converge: an un-fetched stub is never fabricated locally and is not a change")
+    func convergeUnfetchedStubIsNoop() {
         let (local, cloud) = (tmp(), tmp())
         put(cloud, "memories/.Ghost.md.icloud", "stub")   // no real bytes will ever land
-        let changed = StorageMirror.converge(localRoot: local, cloudRoot: cloud, downloadTimeout: 0.4)
+        let changed = StorageMirror.converge(localRoot: local, cloudRoot: cloud)
         #expect(!exists(local, "memories/Ghost.md"))       // never fabricated locally
         #expect(changed == false)
     }
@@ -374,7 +385,7 @@ struct StorageMirrorTests {
         // iOS evicts the cloud copy back to a placeholder stub.
         try? FileManager.default.removeItem(at: cloud.appendingPathComponent("state/apps/x.json"))
         put(cloud, "state/apps/.x.json.icloud", "stub")
-        StorageMirror.converge(localRoot: local, cloudRoot: cloud, downloadTimeout: 0.4)
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)
         #expect(get(local, "state/apps/x.json") == "keep")           // survived — deleteLocal suppressed
     }
 }
