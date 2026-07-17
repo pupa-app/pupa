@@ -775,6 +775,19 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
   `populateChat` writes `GuidedTourStore.chatPrefill` / `runAgent` writes
   `chatAutoSend`, which `ChatPanel` mirrors into the composer / sends as a
   turn on the active scope.
+  - **Cross-myApp isolation** (`AppTools.scopeNotificationRequest`, pure /
+    unit-tested): a MyApp-scoped `sendNotification` (or a sub-run/slack
+    subagent acting for one) may only route back into *its own* scope. A
+    `target` naming a different MyApp is **rejected**
+    (`notification-target-not-permitted`) before scheduling; and a targetless
+    `populateChat`/`runAgent` tap — which would otherwise fire its prompt on
+    whatever scope is *active* at tap time — is **pinned to the owner** so the
+    tap navigates into the owner first. A bare `foreground` tap injects
+    nothing, so it stays targetless. The orchestrator / `.memory` scope
+    (`ownerMyAppId == nil`) is unrestricted — it legitimately manages any
+    myApp. Delivery-side, `AppView.handleNotificationTap` re-checks the
+    target still exists (`store.myApp(withId:)`) and drops the tap with a
+    "Reminder unavailable" popup if the myApp was deleted after scheduling.
 - **Agent activity stats** → `UserDefaults` blob `pupa.agentstats.v1`,
   owned by `AgentStatsStore`. Device-local, **not** iCloud-synced (advisory
   counters only). Deliberately schema-free: a flat

@@ -2085,28 +2085,29 @@ public enum AppTools {
                 ]
             ),
             handler: { args in
-                let request: NotificationRequest
+                let parsed: NotificationRequest
                 do {
-                    request = try NotificationRequest(fromToolArgs: args)
+                    parsed = try NotificationRequest(fromToolArgs: args)
                 } catch {
                     return .object([
                         "ok": .bool(false),
                         "error": .string(String(describing: error)),
                     ])
                 }
-                // Cross-myApp isolation: a MyApp may only deep-link a
-                // notification back into ITSELF. Reject a `target.myAppId`
-                // that points at a different MyApp so one app can't schedule a
-                // banner that opens another and injects a prompt into it.
-                // `ownerMyAppId == nil` (orchestrator scope) is unrestricted.
-                if let owner = ownerMyAppId,
-                   let target = request.target,
-                   target.myAppId != owner {
+                // Cross-myApp isolation (see `scopeNotificationRequest`): for an
+                // owner-scoped registration, reject a foreign `target` AND pin a
+                // targetless injecting tap to the owner so it can't fire on a
+                // sibling / orchestrator scope. `nil` owner is unrestricted.
+                let request: NotificationRequest
+                switch AppTools.scopeNotificationRequest(parsed, ownerMyAppId: ownerMyAppId) {
+                case .rejectForeignTarget:
                     return .object([
                         "ok": .bool(false),
                         "error": .string("notification-target-not-permitted"),
                         "detail": .string("A myApp can only target itself; requested target.myAppId belongs to a different myApp."),
                     ])
+                case .allow(let scoped):
+                    request = scoped
                 }
                 do {
                     let scheduled = try await coordinator.schedule(request)
@@ -2176,6 +2177,56 @@ public enum AppTools {
                     "wasPending": .bool(wasPending),
                 ])
             }
+        ))
+    }
+
+    /// Result of the cross-myApp isolation check on a `sendNotification`
+    /// request. `.allow` carries the request to actually schedule, which may be
+    /// target-coerced (see `scopeNotificationRequest`).
+    enum NotificationScopeDecision: Equatable {
+        case allow(NotificationRequest)
+        case rejectForeignTarget
+    }
+
+    /// Enforce cross-myApp isolation on a scheduling request.
+    ///
+    /// A MyApp (or a sub-run acting for one) is `ownerMyAppId`-scoped and must
+    /// not be able to influence a *different* scope via a notification. Two
+    /// escape paths, both closed here:
+    ///
+    /// 1. **Foreign `target`** — a banner that, on tap, opens another MyApp and
+    ///    (with an injecting tap) runs a prompt in it. Rejected outright.
+    /// 2. **Targetless injecting tap** — a `populateChat`/`runAgent` tap with no
+    ///    `target` runs its prompt on whatever chat scope is *active* at tap
+    ///    time (a sibling MyApp, or the high-privilege orchestrator). The tap
+    ///    action is delivered independently of navigation, so a missing target
+    ///    doesn't make it a no-op. Pin the target to the owner so the tap
+    ///    navigates into the owner first and the prompt runs in the owner's own
+    ///    scope. A `.foreground` tap injects nothing, so a bare "open the app"
+    ///    notification is left targetless.
+    ///
+    /// `ownerMyAppId == nil` (orchestrator / memory scope) is unrestricted — it
+    /// legitimately manages any myApp — and always `.allow`s the request as-is.
+    static func scopeNotificationRequest(
+        _ request: NotificationRequest,
+        ownerMyAppId: UUID?
+    ) -> NotificationScopeDecision {
+        guard let owner = ownerMyAppId else { return .allow(request) }
+        if let target = request.target, target.myAppId != owner {
+            return .rejectForeignTarget
+        }
+        let injects: Bool
+        switch request.tapAction {
+        case .foreground: injects = false
+        case .populateChat, .runAgent: injects = true
+        }
+        guard injects, request.target == nil else { return .allow(request) }
+        return .allow(NotificationRequest(
+            title: request.title,
+            body: request.body,
+            trigger: request.trigger,
+            target: NotificationRequest.Target(myAppId: owner),
+            tapAction: request.tapAction
         ))
     }
 
