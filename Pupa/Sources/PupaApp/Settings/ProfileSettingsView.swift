@@ -15,6 +15,22 @@ struct ProfileSettingsView: View {
 
     private var iCloudActive: Bool { PupaStorage.iCloudActive }
 
+    /// Real convergence state, not just "container resolved". Reads
+    /// `SyncStatus.shared` during body eval so `@Observable` tracks updates.
+    private var statusText: String {
+        guard iCloudActive else { return "Inactive" }
+        let s = SyncStatus.shared
+        if s.pendingDownloads > 0 { return "Syncing \(s.pendingDownloads)…" }
+        guard let at = s.lastConvergedAt else { return "Waiting for iCloud" }
+        return "Up to date · \(Self.relativeFmt.localizedString(for: at, relativeTo: Date()))"
+    }
+
+    private static let relativeFmt: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .abbreviated
+        return f
+    }()
+
     var body: some View {
         Form {
             header
@@ -54,7 +70,7 @@ struct ProfileSettingsView: View {
 
     private var iCloudSection: some View {
         Section {
-            LabeledContent("Status", value: iCloudActive ? "Active" : "Inactive")
+            LabeledContent("Status", value: statusText)
             LabeledContent("This device", value: DeviceInfo.localName)
             LabeledContent("Data location", value: iCloudActive ? "iCloud" : "On this device")
         } header: {

@@ -317,4 +317,64 @@ struct StorageMirrorTests {
         StorageMirror.converge(localRoot: local, cloudRoot: cloud)
         #expect(!exists(local, "conflicts/state/index.json"))   // pruned + empty dir removed
     }
+
+    // MARK: - iCloud materialization (placeholder → download → pull)
+
+    @Test("materializedName: strips the .icloud placeholder wrapper, nil for real/hidden names")
+    func materializedName() {
+        #expect(StorageMirror.materializedName(forPlaceholder: ".Foo.json.icloud") == "Foo.json")
+        #expect(StorageMirror.materializedName(forPlaceholder: ".notes.2024.md.icloud") == "notes.2024.md")
+        #expect(StorageMirror.materializedName(forPlaceholder: "Foo.json") == nil)
+        #expect(StorageMirror.materializedName(forPlaceholder: ".DS_Store") == nil)
+        #expect(StorageMirror.materializedName(forPlaceholder: ".mirror-baseline.json") == nil)
+        #expect(StorageMirror.materializedName(forPlaceholder: ".icloud") == nil)
+    }
+
+    @Test("notDownloadedItems: a .icloud stub maps to its real sibling URL")
+    func notDownloadedItemsStub() {
+        let cloud = tmp()
+        put(cloud, "memories/.Note.md.icloud", "stub")
+        let items = StorageMirror.notDownloadedItems(under: cloud.appendingPathComponent("memories"))
+        #expect(items.count == 1)
+        #expect(items.first?.real.lastPathComponent == "Note.md")
+    }
+
+    @Test("materializeCloud: a dir of only real files is a no-op fast path")
+    func materializeFastPath() {
+        let cloud = tmp()
+        put(cloud, "memories/note.md", "real")
+        let r = StorageMirror.materializeCloud(cloud.appendingPathComponent("memories"), timeout: 5)
+        #expect(r == .none)
+    }
+
+    @Test("converge: an already-downloaded file next to its stale stub still pulls down")
+    func convergePullsMaterializedBesideStub() {
+        let (local, cloud) = (tmp(), tmp())
+        put(cloud, "memories/note.md", "kale")            // real, materialized
+        put(cloud, "memories/.note.md.icloud", "stub")    // stale placeholder alongside
+        let changed = StorageMirror.converge(localRoot: local, cloudRoot: cloud, downloadTimeout: 0.4)
+        #expect(get(local, "memories/note.md") == "kale")
+        #expect(changed == true)
+    }
+
+    @Test("materializeCloud: an un-fetchable stub is reported unresolved within the timeout")
+    func materializeTimeoutUnresolved() {
+        let (local, cloud) = (tmp(), tmp())
+        put(cloud, "memories/.Ghost.md.icloud", "stub")   // no real bytes will ever land
+        let changed = StorageMirror.converge(localRoot: local, cloudRoot: cloud, downloadTimeout: 0.4)
+        #expect(!exists(local, "memories/Ghost.md"))       // never fabricated locally
+        #expect(changed == false)
+    }
+
+    @Test("converge: an evicted (placeholder-only) cloud file is NOT mistaken for a remote delete")
+    func convergeEvictionDoesNotDeleteLocal() {
+        let (local, cloud) = (tmp(), tmp())
+        put(local, "state/apps/x.json", "keep")
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)   // pushUp → baseline + real cloud copy
+        // iOS evicts the cloud copy back to a placeholder stub.
+        try? FileManager.default.removeItem(at: cloud.appendingPathComponent("state/apps/x.json"))
+        put(cloud, "state/apps/.x.json.icloud", "stub")
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud, downloadTimeout: 0.4)
+        #expect(get(local, "state/apps/x.json") == "keep")           // survived — deleteLocal suppressed
+    }
 }

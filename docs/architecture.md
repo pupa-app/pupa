@@ -704,6 +704,18 @@ into one pass. The watcher's reload runs each store's `reloadFromDisk` off the
 main actor, republishing only the result on main, so a burst of remote writes
 can't stampede the UI thread.
 
+**Remote files are materialized before every pass.** iCloud delivers another
+device's file as a non-materialized placeholder (`.name.icloud` stub) that the
+tree walker would otherwise skip, so `converge` first calls `materializeCloud`
+— `startDownloadingUbiquitousItem` on each pending item, then a bounded off-main
+wait until it's `.current` — and the `CloudWatcher` kicks the same downloads the
+moment a change is seen. Without this the mirror only ever pushed and devices
+never converged. An un-fetched placeholder is reported `unresolved` so a still-
+present-but-evicted cloud file is **not** mistaken for a remote delete of the
+local copy. Convergence is observable: `os_log` under subsystem
+`com.pupa-app.client` / category `sync`, and `SyncStatus` drives the Account
+screen's real "Status" ("Up to date", "Syncing N…", "Waiting for iCloud").
+
 Debounced background writers are **quiescable**: `StorageMirror.drain()`
 cancels the armed debounce and awaits an in-flight pass, and
 `MyAppStore.clearStorage()` (async) bumps a storage epoch that expires armed

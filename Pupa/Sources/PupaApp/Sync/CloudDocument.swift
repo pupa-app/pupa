@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// File IO for the local canonical store. Every synced read/write routes
 /// through here; each mutation schedules a debounced `StorageMirror` pass so
@@ -93,6 +94,7 @@ public enum CloudDocument {
 /// reload.
 @MainActor
 public final class CloudWatcher {
+    static let log = Logger(subsystem: "com.pupa-app.client", category: "sync")
     private let query = NSMetadataQuery()
     private let onChange: @MainActor () async -> Void
     private var observers: [NSObjectProtocol] = []
@@ -124,6 +126,7 @@ public final class CloudWatcher {
     /// reload. Balanced by `enableUpdates()` when the reload finally runs.
     private func scheduleCoalescedReload() {
         query.disableUpdates()
+        kickPendingDownloads()
         pendingReload?.cancel()
         pendingReload = Task { [weak self] in
             try? await Task.sleep(nanoseconds: CloudWatcher.debounceNanos)
@@ -132,6 +135,28 @@ public final class CloudWatcher {
             // Flush whatever accumulated while disabled; if anything did, this
             // posts a fresh DidUpdate and the cycle coalesces again.
             self.query.enableUpdates()
+        }
+    }
+
+    /// Ask iCloud to download any mirrored file that isn't materialized yet, so
+    /// the subsequent `StorageMirror` reconcile can actually pull it. Only
+    /// enqueues fetches — no coordinated IO, so no pupa#120 main-thread stall;
+    /// idempotent for in-flight/`.current` items. Called with updates disabled,
+    /// so `query.results` is a stable snapshot.
+    private func kickPendingDownloads() {
+        var urls: [URL] = []
+        for item in query.results.compactMap({ $0 as? NSMetadataItem }) {
+            let status = item.value(forAttribute: NSMetadataUbiquitousItemDownloadingStatusKey) as? String
+            guard status != NSMetadataUbiquitousItemDownloadingStatusCurrent,
+                  let url = item.value(forAttribute: NSMetadataItemURLKey) as? URL,
+                  url.path.contains("/state/") || url.path.contains("/memories/")
+            else { continue }
+            urls.append(url)
+        }
+        guard !urls.isEmpty else { return }
+        CloudWatcher.log.debug("kick downloads count=\(urls.count)")
+        DispatchQueue.global(qos: .utility).async {
+            for u in urls { try? FileManager.default.startDownloadingUbiquitousItem(at: u) }
         }
     }
 
