@@ -31,6 +31,12 @@ public struct AppView: View {
     /// Watches the iCloud container for remote edits; reloads the synced
     /// stores so changes from another device appear live. Nil until started.
     @State private var cloudWatcher: CloudWatcher?
+    /// Reentrancy guard for `convergeAndReloadStores` — bursts of triggers
+    /// (watcher + scene-phase + poll) coalesce instead of piling up reloads.
+    @State private var isReloadingStores = false
+    /// Foreground iCloud poll — `NSMetadataQuery` is unreliable on macOS, so
+    /// while active we reconcile every ~45s. Cancelled on background.
+    @State private var syncPoll: Task<Void, Never>?
     /// The sidebar list's row highlight + tap signal. Navigation itself lives
     /// in `rootPage`; the sidebar's `onChange` routes taps through `setRoot`.
     /// iOS clears this back to nil after each tap so re-taps re-fire.
@@ -219,7 +225,10 @@ public struct AppView: View {
     public var body: some View {
         platformBody
             .safeAreaInset(edge: .top) {
-                if showBackendReminder { backendReminderBanner }
+                VStack(spacing: 0) {
+                    if store.pendingSyncRemoval != nil { syncRemovalBanner }
+                    if showBackendReminder { backendReminderBanner }
+                }
             }
             .sheet(isPresented: $showBackendSheet) { backendPairingSheet }
             .onReceive(NotificationCenter.default.publisher(for: .pupaNotificationTap)) { _ in
@@ -277,11 +286,17 @@ public struct AppView: View {
             // (empty) memory tree until the next mutation. Await one reconcile
             // and republish from local if it wrote anything. No-op iCloud off.
             .task {
-                let changed = await StorageMirror.shared.reconcile()
-                guard changed else { return }
-                await store.reloadFromDisk()
-                await memory.reloadFromDisk()
-                await settings.reloadFromDisk()
+                if store.isProvisioning {
+                    // Empty local store + active iCloud: adopt the real roster
+                    // (or seed only if the cloud is genuinely empty) before we
+                    // ever push. Prevents the seed-race roster wipe.
+                    await store.finishProvisioning()
+                    for app in store.myApps { GuideSkills.seed(appName: app.name) }
+                    await memory.reloadFromDisk()
+                    await settings.reloadFromDisk()
+                } else {
+                    await convergeAndReloadStores()
+                }
             }
             // Resumable SSE lifecycle (pupa#103): ride out short backgrounds
             // with a UIKit background task so in-flight streams survive, and
@@ -300,6 +315,20 @@ public struct AppView: View {
     #endif
 
     private func handleScenePhase(_ phase: ScenePhase) {
+        // iCloud self-heal: `NSMetadataQuery` is unreliable/coalesced (especially
+        // on macOS), so an idle device's sync goes stale until it "changes
+        // itself". Pull on every foreground and poll while active; stop on
+        // background. No-op reconcile when iCloud is off.
+        switch phase {
+        case .active:
+            Task { await convergeAndReloadStores() }
+            startSyncPoll()
+        case .background:
+            stopSyncPoll()
+        default:
+            break
+        }
+
         #if os(iOS)
         switch phase {
         case .background:
@@ -320,6 +349,25 @@ public struct AppView: View {
         #endif
     }
 
+    /// Start the ~45s foreground iCloud poll. Singleton + restart-safe: cancels
+    /// any prior task first, so multi-window macOS scene-phase churn can't spawn
+    /// duplicates.
+    private func startSyncPoll() {
+        syncPoll?.cancel()
+        syncPoll = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(45))
+                if Task.isCancelled { break }
+                await convergeAndReloadStores()
+            }
+        }
+    }
+
+    private func stopSyncPoll() {
+        syncPoll?.cancel()
+        syncPoll = nil
+    }
+
     #if os(iOS)
     private func endStreamKeepAlive() {
         guard streamKeepAlive != .invalid else { return }
@@ -335,14 +383,27 @@ public struct AppView: View {
         let watcher = CloudWatcher {
             // Pull the remote change into the local canonical tree first, then
             // republish the stores from local. No-op reconcile when iCloud off.
-            let changed = await StorageMirror.shared.reconcile()
-            guard changed else { return }
-            await store.reloadFromDisk()
-            await memory.reloadFromDisk()
-            await settings.reloadFromDisk()
+            await convergeAndReloadStores()
         }
         watcher.start()
         cloudWatcher = watcher
+    }
+
+    /// Converge the local tree with iCloud and, if that changed local files,
+    /// republish every synced store. The single reload path shared by the
+    /// CloudWatcher, the first-launch task, scene-phase foregrounding, and the
+    /// foreground poll. `reconcile()` is actor-serialized so overlapping callers
+    /// queue safely; the `isReloadingStores` guard avoids piling up redundant
+    /// reloads. No-op reconcile (returns false) when iCloud is off.
+    @MainActor private func convergeAndReloadStores() async {
+        guard !isReloadingStores else { return }
+        isReloadingStores = true
+        defer { isReloadingStores = false }
+        let changed = await StorageMirror.shared.reconcile()
+        guard changed else { return }
+        await store.reloadFromDisk()
+        await memory.reloadFromDisk()
+        await settings.reloadFromDisk()
     }
 
     /// Auto-start the interactive tour exactly once: after onboarding finishes
@@ -464,6 +525,48 @@ public struct AppView: View {
         .padding(.vertical, 10)
         .background(.regularMaterial)
         .overlay(alignment: .bottom) { Divider() }
+    }
+
+    /// Non-blocking advisement: an incoming sync removed MyApps this user didn't
+    /// delete. The removal is already applied (losers preserved in History), so
+    /// this offers a one-tap restore rather than blocking the merge.
+    private var syncRemovalBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.arrow.triangle.2.circlepath")
+                .foregroundStyle(.orange)
+            Text(syncRemovalMessage)
+                .font(.subheadline)
+                .lineLimit(2)
+                .minimumScaleFactor(0.85)
+            Spacer(minLength: 8)
+            Button("Restore") { store.restoreSyncRemovedApps() }
+                .font(.subheadline.weight(.semibold))
+                .buttonStyle(.plain)
+                .foregroundStyle(.tint)
+            Button {
+                store.dismissSyncRemoval()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.regularMaterial)
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    /// "Sync removed N app(s) — restore them?" naming the first one or two.
+    private var syncRemovalMessage: String {
+        let names = store.pendingSyncRemoval?.names ?? []
+        let n = names.count
+        guard n > 0 else { return "Sync removed some apps" }
+        if n == 1 { return "Sync removed “\(names[0])”" }
+        if n == 2 { return "Sync removed “\(names[0])” and “\(names[1])”" }
+        return "Sync removed \(n) apps including “\(names[0])”"
     }
 
     /// Reuses the production pairing UI, operating on the active backend in the

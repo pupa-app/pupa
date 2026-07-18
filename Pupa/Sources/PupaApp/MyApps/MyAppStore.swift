@@ -62,6 +62,31 @@ public final class MyAppStore {
     /// Snapshot debounce window. Test hook: shrink so regression tests
     /// don't sleep 2.5s.
     static var snapshotDebounceNanos: UInt64 = 2_500_000_000
+    /// How long `finishProvisioning()` waits for the first iCloud pull before
+    /// deciding the cloud is empty. Test hook: shrink so the empty-cloud case
+    /// doesn't burn the full wait.
+    static var provisioningTimeout: Duration = .seconds(7)
+
+    /// True while this install is provisioning: the local store was empty at
+    /// launch but iCloud is active, so we await the first pull instead of
+    /// seeding-and-pushing a default roster (which would clobber real apps on
+    /// other devices — the reported data-loss bug). Gates `persist()`; drives a
+    /// "Restoring from iCloud…" affordance. Cleared by `finishProvisioning()`.
+    public private(set) var isProvisioning = false
+    /// App ids this user deleted on THIS device. Lets `reloadFromDisk` tell an
+    /// intentional local delete from an app that vanished via a bad sync merge
+    /// (the latter raises the restore banner). Consumed as removals are handled.
+    private var userInitiatedRemovals: Set<UUID> = []
+    /// Set when an incoming sync removed MyApps this user did NOT delete. Drives
+    /// a dismissible restore banner; nil when there's nothing to advise about.
+    public private(set) var pendingSyncRemoval: SyncRemovalNotice?
+
+    /// MyApps an incoming sync removed without this user's action, surfaced by
+    /// the restore banner. `names` parallels `ids` for display.
+    public struct SyncRemovalNotice: Equatable, Sendable {
+        public let ids: [UUID]
+        public let names: [String]
+    }
 
     public init(initial: ([MyApp], UUID)? = nil) {
         if let initial {
@@ -97,10 +122,22 @@ public final class MyAppStore {
                 // corrupt index) existing app files are potential recovery
                 // material, not orphans.
                 Self.sweepOrphanAppFiles(keeping: Set(myApps.map(\.id)))
+            } else if PupaStorage.iCloudActive {
+                // Local store is empty but iCloud is active — it may just be
+                // awaiting the first sync. Do NOT seed-and-push a default (that
+                // clobbers real apps on every device — the reported wipe). Hold
+                // the in-memory placeholder; `AppView` drives
+                // `finishProvisioning()` to adopt the real roster, or seed once
+                // only if the cloud is genuinely empty.
+                isProvisioning = true
+                StorageMirror.provisioning = true
             } else {
+                // Genuinely fresh: iCloud off, or already established with no
+                // cloud data. Seed the default roster now and mark this install.
                 backfillColorIndices()
                 for app in myApps { seedBirthFiles(forAppNamed: app.name) }
                 persist()
+                PupaStorage.markRosterEstablished()
             }
         }
     }
@@ -312,6 +349,9 @@ public final class MyAppStore {
     public func removeMyApp(_ id: UUID) {
         guard myApps.count > 1, let idx = myApps.firstIndex(where: { $0.id == id }) else { return }
         myApps.remove(at: idx)
+        // Remember this was a deliberate local delete so a later `reloadFromDisk`
+        // doesn't mistake the resulting roster shrink for a bad sync merge.
+        userInitiatedRemovals.insert(id)
         if activeMyAppId == id {
             activeMyAppId = myApps[0].id
         }
@@ -3108,6 +3148,11 @@ public final class MyAppStore {
     /// removed apps. Writes are plain atomic via `CloudDocument` (no main-thread
     /// file coordination); each schedules a background `StorageMirror` pass.
     private func persist() {
+        // While provisioning we hold an in-memory placeholder roster that must
+        // never reach disk or the mirror — otherwise it races the first iCloud
+        // pull and can clobber the real apps. `finishProvisioning()` clears the
+        // flag before its own definitive write.
+        guard !isProvisioning else { return }
         let enc = Self.stateEncoder()
         var live = Set<UUID>()
         for app in myApps {
@@ -3269,6 +3314,13 @@ public final class MyAppStore {
             return Self.load()
         }.value
         guard loaded.fromDisk else { return }
+        noteSurpriseRemovals(incoming: loaded.myApps)
+        adopt(loaded)
+    }
+
+    /// Republish loaded state onto the main-actor store and re-prime the
+    /// dirty-hash caches. Shared by `reloadFromDisk` and `finishProvisioning`.
+    private func adopt(_ loaded: Loaded) {
         myApps = loaded.myApps
         activeMyAppId = loaded.activeId
         memoryThreads = loaded.memoryThreads
@@ -3278,6 +3330,93 @@ public final class MyAppStore {
         lastAppHash.removeAll()
         primeHashes()
     }
+
+    // MARK: - Provisional restore (seed-race fix)
+
+    /// Complete the provisional restore begun in `init` (see `isProvisioning`).
+    /// Forces the iCloud `state/` subtree to download and converges until the
+    /// real roster lands or a timeout elapses, then either ADOPTS the pulled
+    /// roster or — only if the cloud genuinely holds no roster — seeds the
+    /// default. Never pushes the in-memory placeholder up. Idempotent no-op
+    /// when not provisioning.
+    public func finishProvisioning() async {
+        guard isProvisioning else { return }
+        let deadline = ContinuousClock.now.advanced(by: Self.provisioningTimeout)
+        var loaded = Self.load()
+        while !loaded.fromDisk && ContinuousClock.now < deadline {
+            PupaStorage.startDownloadingState()
+            _ = await StorageMirror.shared.reconcile()
+            loaded = Self.load()
+            if loaded.fromDisk { break }
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        // Leave provisioning BEFORE any write so `persist()` is allowed again.
+        isProvisioning = false
+        StorageMirror.provisioning = false
+        if loaded.fromDisk {
+            adopt(loaded)                        // real roster pulled from iCloud
+            PupaStorage.markRosterEstablished()
+        } else if !Self.cloudHasRosterIndex() && !PupaStorage.rosterEstablished {
+            // Cloud holds no roster AND this install has never committed one → a
+            // genuine fresh start. Seed the default and mark it.
+            backfillColorIndices()
+            for app in myApps { seedBirthFiles(forAppNamed: app.name) }
+            persist()
+            PupaStorage.markRosterEstablished()
+        }
+        // else: the cloud has (or had) a roster we couldn't pull in the window —
+        // keep the in-memory placeholder unpersisted rather than seed-and-push a
+        // default that might clobber it; a later CloudWatcher pass adopts it.
+    }
+
+    /// Whether the iCloud mirror holds a `state/index.json` in any form
+    /// (materialized or a not-yet-downloaded iOS `.icloud` placeholder). Used to
+    /// tell "genuinely empty cloud → seed" from "roster present but not pulled".
+    private nonisolated static func cloudHasRosterIndex() -> Bool {
+        guard let cloud = PupaStorage.cloudMirrorRoot else { return false }
+        let stateDir = cloud.appendingPathComponent("state", isDirectory: true)
+        let fm = FileManager.default
+        return fm.fileExists(atPath: stateDir.appendingPathComponent("index.json").path)
+            || fm.fileExists(atPath: stateDir.appendingPathComponent(".index.json.icloud").path)
+    }
+
+    // MARK: - Sync-removal advisement
+
+    /// Compare the incoming roster against the live one; if a sync removed apps
+    /// this user did NOT delete, snapshot each (so it's restorable even if it
+    /// was clean) and raise `pendingSyncRemoval`. Suppressed while provisioning
+    /// (the roster is still settling). Consumes matched `userInitiatedRemovals`.
+    private func noteSurpriseRemovals(incoming: [MyApp]) {
+        guard !isProvisioning else { return }
+        let incomingIds = Set(incoming.map(\.id))
+        let vanished = myApps.filter { !incomingIds.contains($0.id) }
+        // Surprise = vanished this user did NOT delete (computed before we
+        // consume the deliberate ones from the set below).
+        let surprise = vanished.filter { !userInitiatedRemovals.contains($0.id) }
+        userInitiatedRemovals.subtract(vanished.map(\.id))
+        guard !surprise.isEmpty else { return }
+        // Guarantee a restore point even for an app that was byte-clean (the
+        // dirty-only `.preReload` loop above would have skipped it).
+        for app in surprise { SnapshotStore.record(app, reason: .preReload) }
+        pendingSyncRemoval = SyncRemovalNotice(ids: surprise.map(\.id), names: surprise.map(\.name))
+    }
+
+    /// Restore MyApps flagged by `pendingSyncRemoval` from their snapshots and
+    /// clear the notice. Re-inserts each (idempotent by id) and persists.
+    public func restoreSyncRemovedApps() {
+        guard let notice = pendingSyncRemoval else { return }
+        for id in notice.ids where !myApps.contains(where: { $0.id == id }) {
+            if let head = SnapshotStore.head(id),
+               let app = SnapshotStore.restoredApp(id, id: head.id) {
+                myApps.append(app)
+            }
+        }
+        pendingSyncRemoval = nil
+        persist()
+    }
+
+    /// Dismiss the restore banner without restoring (losers remain in History).
+    public func dismissSyncRemoval() { pendingSyncRemoval = nil }
 
     // MARK: - Snapshot history
 
@@ -3500,6 +3639,10 @@ public final class MyAppStore {
         await StorageMirror.shared.drain()
         try? FileManager.default.removeItem(at: stateRoot)
         StorageMirror.removeBaseline(localRoot: PupaStorage.activeRoot)
+        // Reset the provisioning fixtures so a "fresh device" test starts truly
+        // fresh and the process-wide guard flag can't leak into a sibling suite.
+        PupaStorage.clearRosterEstablished()
+        StorageMirror.provisioning = false
     }
 }
 

@@ -63,6 +63,47 @@ public enum PupaStorage {
     /// Whether an iCloud mirror is available to sync with this launch.
     public static var iCloudActive: Bool { cloudMirrorRoot != nil }
 
+    /// Durable "this install has committed a definitive MyApp roster" marker.
+    /// Local-only (lives at `activeRoot`, outside the mirrored `state/`), so it
+    /// never syncs. Its purpose: tell "genuinely fresh install" apart from
+    /// "local store is momentarily empty while awaiting the first iCloud pull".
+    /// While absent + iCloud active, an empty local store must NOT seed-and-push
+    /// a default roster — that clobbers the real apps on every device.
+    public static var rosterEstablishedURL: URL {
+        activeRoot.appendingPathComponent(".roster-established")
+    }
+
+    /// True once this install has adopted a real roster (from iCloud) or seeded
+    /// one against a genuinely empty cloud.
+    public static var rosterEstablished: Bool {
+        FileManager.default.fileExists(atPath: rosterEstablishedURL.path)
+    }
+
+    /// Stamp the roster-established marker. Idempotent.
+    public static func markRosterEstablished() {
+        try? FileManager.default.createDirectory(at: activeRoot, withIntermediateDirectories: true)
+        try? Data().write(to: rosterEstablishedURL, options: .atomic)
+    }
+
+    /// Clear the marker (test isolation — `MyAppStore.clearStorage`).
+    public static func clearRosterEstablished() {
+        try? FileManager.default.removeItem(at: rosterEstablishedURL)
+    }
+
+    /// Force-download every item under the iCloud mirror's `state/` subtree so
+    /// a device awaiting its first sync materializes the real `index.json` +
+    /// app files instead of racing ahead on placeholders. No-op when iCloud is
+    /// off or the items aren't ubiquitous (tests use a plain mirror dir).
+    public static func startDownloadingState() {
+        guard let cloud = cloudMirrorRoot else { return }
+        let stateDir = cloud.appendingPathComponent("state", isDirectory: true)
+        guard let en = FileManager.default.enumerator(at: stateDir, includingPropertiesForKeys: nil)
+        else { return }
+        for case let url as URL in en {
+            try? FileManager.default.startDownloadingUbiquitousItem(at: url)
+        }
+    }
+
     /// Markdown memories tree root: `<active>/memories`.
     public static var memoriesRoot: URL {
         activeRoot.appendingPathComponent("memories", isDirectory: true)

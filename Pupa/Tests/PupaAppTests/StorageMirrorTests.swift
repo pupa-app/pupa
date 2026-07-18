@@ -130,6 +130,31 @@ struct StorageMirrorTests {
             == [.pushUp("x")])
     }
 
+    @Test("plan: the provisioning guard never pushes or wins the roster index")
+    func planProvisioningIndexGuard() {
+        // Brand-new local index, cloud absent → normally pushUp; guarded → no-op
+        // (never clobber a cloud roster that just hasn't downloaded yet).
+        #expect(StorageMirror.plan(
+            local: ["index.json": meta("SEED")], cloud: [:], baseline: [:],
+            protectIndexPush: true).isEmpty)
+        // A genuine conflict on the index → normally newest-wins; guarded → the
+        // cloud roster wins (pullDown), even though local is newer.
+        let base = StorageMirror.hash(Data("v0".utf8))
+        #expect(StorageMirror.plan(
+            local: ["index.json": meta("LOCAL", Date(timeIntervalSince1970: 9999))],
+            cloud: ["index.json": meta("CLOUD", Date(timeIntervalSince1970: 1))],
+            baseline: ["index.json": base],
+            protectIndexPush: true) == [.pullDown("index.json")])
+        // A non-index file is unaffected by the guard.
+        #expect(StorageMirror.plan(
+            local: ["apps/x.json": meta("A")], cloud: [:], baseline: [:],
+            protectIndexPush: true) == [.pushUp("apps/x.json")])
+        // Guard off (default) → the index behaves like any other file.
+        #expect(StorageMirror.plan(
+            local: ["index.json": meta("SEED")], cloud: [:], baseline: [:])
+            == [.pushUp("index.json")])
+    }
+
     // MARK: - hash determinism
 
     @Test("hash is content-stable and distinguishes different bytes")

@@ -39,6 +39,18 @@ public actor StorageMirror {
     private nonisolated let pending = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
     private static let debounceNanos: UInt64 = 500_000_000  // 0.5s
 
+    /// Seed-race guard. Set true while a device is provisioning (empty local
+    /// store, awaiting its first iCloud pull). While set, `converge` refuses to
+    /// push the local `state/index.json` up or let it win a conflict — a
+    /// not-yet-adopted device must never overwrite the real roster in iCloud.
+    /// Static + lock-protected because `converge` is `static` (also driven
+    /// directly by tests). Reset by `MyAppStore.clearStorage` for test isolation.
+    private static let provisioningLock = OSAllocatedUnfairLock<Bool>(initialState: false)
+    public static var provisioning: Bool {
+        get { provisioningLock.withLock { $0 } }
+        set { provisioningLock.withLock { $0 = newValue } }
+    }
+
     // MARK: - Trigger
 
     /// Debounced converge — coalesces a burst of writes into one pass. Cheap
@@ -108,7 +120,11 @@ public actor StorageMirror {
             pendingDownloads += unresolved.count
 
             var counts = (push: 0, pull: 0, delLocal: 0, delCloud: 0, conflict: 0)
-            for action in plan(local: tree(lRoot), cloud: cloudTree, baseline: scoped) {
+            // While provisioning, protect the `state` roster index: never let an
+            // un-adopted device's local `index.json` overwrite the real one.
+            let protectIndex = (sub == "state") && Self.provisioning
+            for action in plan(local: tree(lRoot), cloud: cloudTree, baseline: scoped,
+                               protectIndexPush: protectIndex) {
                 // Eviction guard: a file iCloud evicted back to a placeholder
                 // reads as "cloud absent". Never let that masquerade as a remote
                 // delete of a still-present cloud file.
@@ -165,19 +181,26 @@ public actor StorageMirror {
     /// the last-synced `baseline`. Deterministic and total — this is the
     /// safety-critical core and is exercised directly by the tests.
     public static func plan(
-        local: [String: Meta], cloud: [String: Meta], baseline: [String: UInt64]
+        local: [String: Meta], cloud: [String: Meta], baseline: [String: UInt64],
+        protectIndexPush: Bool = false
     ) -> [Action] {
         var out: [Action] = []
         for rel in Set(local.keys).union(cloud.keys).sorted() {
             let l = local[rel]
             let c = cloud[rel]
             let b = baseline[rel]
+            // Seed-race guard (provisioning only): the roster index must never be
+            // pushed up or win a conflict from an un-adopted device — the cloud
+            // side is authoritative until we've pulled it.
+            let guardedIndex = protectIndexPush && rel == "index.json"
             switch (l, c) {
             case let (l?, c?):
                 if l.hash == c.hash { break }                // already identical
                 let lChanged = (b == nil) || (l.hash != b)
                 let cChanged = (b == nil) || (c.hash != b)
-                if lChanged && !cChanged {
+                if guardedIndex {
+                    out.append(.pullDown(rel))               // provisioning: cloud roster wins
+                } else if lChanged && !cChanged {
                     out.append(.pushUp(rel))                 // only local moved
                 } else if cChanged && !lChanged {
                     out.append(.pullDown(rel))               // only cloud moved
@@ -185,7 +208,9 @@ public actor StorageMirror {
                     out.append(.conflict(rel: rel, localNewer: l.modified >= c.modified))
                 }
             case let (l?, nil):
-                if b == nil {
+                if guardedIndex {
+                    break                                    // provisioning: never clobber a not-yet-pulled cloud roster
+                } else if b == nil {
                     out.append(.pushUp(rel))                 // brand-new local file
                 } else if l.hash == b {
                     out.append(.deleteLocal(rel))            // cloud deleted an unchanged file
