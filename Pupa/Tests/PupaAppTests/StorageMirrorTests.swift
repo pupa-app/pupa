@@ -392,4 +392,16 @@ struct StorageMirrorTests {
         StorageMirror.converge(localRoot: local, cloudRoot: cloud)
         #expect(get(local, "state/apps/x.json") == "keep")           // survived — deleteLocal suppressed
     }
+
+    @Test("converge: a seeded local file never clobbers a not-yet-downloaded cloud placeholder")
+    func convergePushUpSuppressedForPlaceholder() {
+        let (local, cloud) = (tmp(), tmp())
+        // Fresh device: local holds only a just-seeded index, no baseline.
+        put(local, "state/index.json", "SEEDED-DEFAULT")
+        // The real cloud index exists but hasn't downloaded — an .icloud stub.
+        put(cloud, "state/.index.json.icloud", "stub")
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)
+        #expect(!exists(cloud, "state/index.json"))          // pushUp skipped — placeholder untouched
+        #expect(exists(cloud, "state/.index.json.icloud"))   // stub intact for its download to land
+    }
 }

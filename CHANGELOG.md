@@ -3,6 +3,26 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.105] — 2026-07-18
+
+### Fixed
+
+- **iCloud sync no longer wipes your apps.** A reinstalled or freshly-launched
+  device could seed its one default app before iCloud finished downloading the
+  real set, then push that default over everyone's data — erasing all MyApps on
+  every device. The fresh-install default is now *provisional*: it's shown but
+  never saved or pushed until sync confirms iCloud is genuinely empty, and the
+  mirror never overwrites a cloud file that hasn't downloaded yet.
+
+### Added
+
+- **Faster cross-device sync.** Devices now pull remote changes on returning to
+  the foreground and on a periodic heartbeat, not only when iCloud's own
+  notification happens to fire — so an idle device no longer sits minutes behind.
+- **"Sync removed N apps — Undo".** When a sync removes apps this device was
+  showing (another device deleted them, or a bad merge), a non-blocking banner
+  offers one-tap Undo instead of the apps silently vanishing.
+
 ## [0.0.104] — 2026-07-18
 
 ### Added

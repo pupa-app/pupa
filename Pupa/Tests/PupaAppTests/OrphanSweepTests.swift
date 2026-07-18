@@ -31,7 +31,8 @@ struct OrphanSweepTests {
     @Test("deletes stale orphans; keeps live, fresh, and non-app files")
     func sweepDeletesOnlyStaleOrphans() async throws {
         await MyAppStore.clearStorage()
-        let store = MyAppStore()  // fresh install → seeds one app + index
+        let store = MyAppStore()  // fresh install → seeds one app (provisional)
+        await store.commitProvisionalSeedIfNeeded()  // no mirror → commits + writes the seed to disk
         let live = Set(store.myApps.map(\.id))
         let fm = FileManager.default
 
@@ -57,12 +58,13 @@ struct OrphanSweepTests {
     @Test("store init runs the sweep")
     func initSweeps() async throws {
         await MyAppStore.clearStorage()
-        _ = MyAppStore()  // seed state + index
+        let store = MyAppStore()  // seed (provisional)
+        await store.commitProvisionalSeedIfNeeded()  // persist state + index so a relaunch loads fromDisk
 
         let week: TimeInterval = 7 * 24 * 3600
         let stale = try writeOrphan("\(UUID().uuidString).json", age: week + 3600)
 
-        _ = MyAppStore()  // relaunch → sweep
+        _ = MyAppStore()  // relaunch → loads fromDisk → sweep
         #expect(!FileManager.default.fileExists(atPath: stale.path))
     }
 

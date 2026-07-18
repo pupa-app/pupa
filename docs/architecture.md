@@ -711,11 +711,17 @@ is never dropped. Deletes propagate; a delete racing an edit keeps the edit.
 The `conflicts/` tree is **local-only (never mirrored)** and **bounded**:
 losing sides are deduped by content, capped to the newest few per path, and
 aged out, so a repeatedly-conflicting file can't balloon storage.
-It's triggered at launch (`warm()`), after any local write, and by the
-`CloudWatcher` (`NSMetadataQuery`) when a remote change lands — all debounced
-into one pass. The watcher's reload runs each store's `reloadFromDisk` off the
-main actor, republishing only the result on main, so a burst of remote writes
-can't stampede the UI thread.
+It's triggered at launch (`warm()`), after any local write, on return to
+foreground, by a **~60s foreground heartbeat** (`NSMetadataQuery` can stay quiet
+for minutes, so an idle device still catches up without a local edit), and by the
+`CloudWatcher` (`NSMetadataQuery`) when a remote change lands — all debounced into
+one pass, all through the single `AppView.syncNow()` entry point. The reload runs
+each store's `reloadFromDisk` off the main actor, republishing only the result on
+main, so a burst of remote writes can't stampede the UI thread. A reload that
+drops MyApps this device was showing (a remote delete or bad merge) surfaces them
+in a non-blocking **"Sync removed N app(s) — Undo"** banner
+(`MyAppStore.pendingSyncRemovals`); Undo restores them from the snapshot captured
+before removal and re-mirrors them, Dismiss accepts the removal.
 
 **Remote files are materialized before every pass — without blocking.** iCloud
 delivers another device's file as a non-materialized placeholder (`.name.icloud`
@@ -742,9 +748,19 @@ run serially (`--no-parallel`, see Makefile) and rely on these so no
 background disk task crosses a suite boundary.
 
 There is no migration from the pre-iCloud single-blob storage — a new build
-seeds fresh. iCloud needs the CloudDocuments entitlement
-(`PupaHost.entitlements`, container `iCloud.com.pupa-app.client` =
-`PupaStorage.containerID`).
+seeds fresh. **The fresh-install default is provisional.** A device whose local
+store is momentarily empty — brand-new, *or* synced data that hasn't downloaded
+yet — looks identical at load time, so `MyAppStore` holds the seeded Daily
+Briefing in memory **without persisting it** and defers the decision to
+`commitProvisionalSeedIfNeeded` (launch task, after the first reconcile): it
+writes the seed only once `StorageMirror.cloudHasState()` confirms iCloud has no
+`state/index.json` in any form (materialized *or* an un-downloaded placeholder).
+Otherwise the seed would persist, push up, and clobber the real roster on every
+device — the reinstall-wipe bug. `converge` backstops this: it never `pushUp`s a
+local file whose cloud copy is an un-downloaded placeholder (symmetric to the
+eviction guard that stops such a placeholder reading as a `deleteLocal`). iCloud
+needs the CloudDocuments entitlement (`PupaHost.entitlements`, container
+`iCloud.com.pupa-app.client` = `PupaStorage.containerID`).
 
 - **Canvas + MyApps state** → **per-file** under `state/`: one
   `apps/<uuid>.json` per MyApp plus `index.json` (active id, order,

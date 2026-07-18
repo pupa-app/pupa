@@ -77,6 +77,21 @@ public actor StorageMirror {
         Self.converge(localRoot: PupaStorage.activeRoot, cloudRoot: PupaStorage.cloudMirrorRoot)
     }
 
+    /// True if the iCloud mirror already holds `state/index.json` in **any**
+    /// form — materialized or a not-yet-downloaded `.icloud` placeholder. Lets a
+    /// fresh-install seed distinguish "genuinely new device" (commit the default)
+    /// from "synced device whose data hasn't pulled yet" (keep waiting, don't
+    /// clobber). Does blocking file IO and resolves the ubiquity container, so
+    /// call it **off the main actor** — never on the launch/store-load path.
+    /// `false` when iCloud is unavailable.
+    public static func cloudHasState() -> Bool {
+        guard let cloud = PupaStorage.cloudMirrorRoot else { return false }
+        let stateRoot = cloud.appendingPathComponent("state", isDirectory: true)
+        let (tree, notDownloaded) = scanCloud(stateRoot)
+        if tree["index.json"] != nil { return true }
+        return notDownloaded.contains { $0.real.lastPathComponent == "index.json" }
+    }
+
     /// The convergence pass over explicit roots — the actor's `reconcile()` is
     /// a thin wrapper that supplies the live `PupaStorage` roots. Split out so
     /// tests drive it against isolated temp dirs without mutating process-wide
@@ -114,6 +129,15 @@ public actor StorageMirror {
                 // delete of a still-present cloud file.
                 if case let .deleteLocal(r) = action, unresolved.contains(r) {
                     log.error("skip deleteLocal \(sub, privacy: .public)/\(r, privacy: .public): cloud copy not downloaded")
+                    continue
+                }
+                // Same guard for the write direction: a cloud file that hasn't
+                // downloaded also reads as "cloud absent", so a brand-new
+                // (no-baseline) local file — e.g. a fresh-install seed — plans as
+                // `.pushUp` and would clobber the real cloud copy before it lands.
+                // Skip it; once the download completes a later pass converges them.
+                if case let .pushUp(r) = action, unresolved.contains(r) {
+                    log.error("skip pushUp \(sub, privacy: .public)/\(r, privacy: .public): cloud copy not downloaded — would clobber")
                     continue
                 }
                 switch action {

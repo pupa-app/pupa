@@ -66,6 +66,108 @@ struct ICloudSyncPersistenceTests {
         #expect(a.myApps.count == initialCount + 1)
     }
 
+    // MARK: - Provisional fresh-install seed (data-loss guard)
+
+    /// The reported catastrophe: a fresh-install seed must NOT be persisted while
+    /// the iCloud mirror still holds real data that hasn't downloaded yet —
+    /// persisting it lets the mirror push a one-app default over the real cloud
+    /// index and wipe every device. The seed stays in memory until
+    /// `commitProvisionalSeedIfNeeded()` confirms the cloud is genuinely empty.
+    @Test("fresh seed is not persisted while the cloud already holds an index")
+    func seedStaysProvisionalWhenCloudHasState() async throws {
+        await MyAppStore.clearStorage()
+        let cloud = TestStorage.root.appendingPathComponent("cloud-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: cloud.appendingPathComponent("state"), withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: cloud.appendingPathComponent("state/index.json"))
+
+        try await TestStorage.withCloudMirror(cloud) {
+            let store = MyAppStore()                                          // fresh-install branch
+            let localIndex = PupaStorage.stateRoot.appendingPathComponent("index.json")
+            #expect(store.myApps.count == 1)                                 // shows the provisional default
+            #expect(!FileManager.default.fileExists(atPath: localIndex.path))  // but never wrote it
+
+            await store.commitProvisionalSeedIfNeeded()
+            #expect(!FileManager.default.fileExists(atPath: localIndex.path))  // still waiting — cloud has data
+        }
+    }
+
+    /// The same guard must hold when the cloud index is present only as a
+    /// not-yet-downloaded `.icloud` placeholder — the exact fresh-reinstall race.
+    @Test("fresh seed is not persisted when the cloud index is an undownloaded placeholder")
+    func seedStaysProvisionalWhenCloudIndexIsPlaceholder() async throws {
+        await MyAppStore.clearStorage()
+        let cloud = TestStorage.root.appendingPathComponent("cloud-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: cloud.appendingPathComponent("state"), withIntermediateDirectories: true)
+        try Data("stub".utf8).write(to: cloud.appendingPathComponent("state/.index.json.icloud"))
+
+        try await TestStorage.withCloudMirror(cloud) {
+            let store = MyAppStore()
+            await store.commitProvisionalSeedIfNeeded()
+            let localIndex = PupaStorage.stateRoot.appendingPathComponent("index.json")
+            #expect(!FileManager.default.fileExists(atPath: localIndex.path))  // placeholder counts as "cloud has data"
+        }
+    }
+
+    /// A genuine fresh install (cloud truly empty) must commit the default so it
+    /// persists locally and mirrors out — otherwise a brand-new user gets nothing.
+    @Test("genuine fresh install commits the seed once the cloud is confirmed empty")
+    func seedCommitsWhenCloudEmpty() async throws {
+        await MyAppStore.clearStorage()
+        let cloud = TestStorage.root.appendingPathComponent("cloud-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: cloud, withIntermediateDirectories: true)
+
+        try await TestStorage.withCloudMirror(cloud) {
+            let store = MyAppStore()
+            let localIndex = PupaStorage.stateRoot.appendingPathComponent("index.json")
+            #expect(!FileManager.default.fileExists(atPath: localIndex.path))  // provisional, not yet written
+
+            await store.commitProvisionalSeedIfNeeded()
+            #expect(FileManager.default.fileExists(atPath: localIndex.path))   // committed
+            #expect(store.myApps.count == 1)
+        }
+    }
+
+    // MARK: - Sync-removal warning + undo
+
+    /// A reload that drops an app another device deleted must surface it for undo
+    /// (not silently vanish), and undo must bring it back.
+    @Test("a sync reload that drops an app surfaces it for undo, and undo restores it")
+    func syncRemovalDetectedAndUndoable() async throws {
+        await MyAppStore.clearStorage()
+        let a = MyAppStore()
+        await a.commitProvisionalSeedIfNeeded()
+        let keptId = a.addMyApp(typeId: "tracker", name: "Kept", iconSystemName: "star")
+        let doomedId = a.addMyApp(typeId: "tracker", name: "Doomed", iconSystemName: "trash")
+
+        // Another device (a second store on the same disk) deletes "Doomed".
+        let b = MyAppStore()
+        b.removeMyApp(doomedId)
+
+        await a.reloadFromDisk()                                        // pulls the removal in
+        #expect(!a.myApps.contains { $0.id == doomedId })              // dropped from the list
+        #expect(a.pendingSyncRemovals.contains { $0.id == doomedId })  // but surfaced for undo
+        #expect(a.myApps.contains { $0.id == keptId })                 // unrelated app untouched
+
+        a.undoSyncRemovals()
+        #expect(a.myApps.contains { $0.id == doomedId && $0.name == "Doomed" })  // restored
+        #expect(a.pendingSyncRemovals.isEmpty)                         // banner cleared
+    }
+
+    /// Deleting an app on THIS device must never trigger the removal banner —
+    /// `removeMyApp` already dropped it, so a subsequent reload sees no change.
+    @Test("a local delete does not surface as a sync removal")
+    func localDeleteNotFlaggedAsSyncRemoval() async throws {
+        await MyAppStore.clearStorage()
+        let store = MyAppStore()
+        await store.commitProvisionalSeedIfNeeded()
+        let id = store.addMyApp(typeId: "tracker", name: "Mine", iconSystemName: "star")
+        store.removeMyApp(id)               // local delete
+        await store.reloadFromDisk()
+        #expect(store.pendingSyncRemovals.isEmpty)   // not flagged — the user did it here
+    }
+
     @Test("MyApps survive an iCloud toggle and mirror up when iCloud is on")
     func toggleOffKeepsAppsAndMirrorsUp() async throws {
         await MyAppStore.clearStorage()

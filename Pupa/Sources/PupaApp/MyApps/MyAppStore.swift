@@ -27,6 +27,16 @@ public final class MyAppStore {
     private var lastAppHash: [UUID: Int] = [:]
     private var lastIndexHash: Int?
 
+    /// True while `myApps` holds only the fresh-install default seed that has
+    /// **not** been written to disk. A synced device whose data hasn't
+    /// downloaded yet is indistinguishable from a fresh install at load time;
+    /// persisting the seed then would let the mirror push a one-app default over
+    /// the real (not-yet-pulled) cloud data and wipe every device. So the seed
+    /// stays in memory until `commitProvisionalSeedIfNeeded()` confirms the
+    /// cloud is genuinely empty. Any real write (`persist()`) or an adopted
+    /// disk reload clears it.
+    private var provisionalSeed = false
+
     public private(set) var myApps: [MyApp]
     public private(set) var activeMyAppId: UUID
     /// The global memory store, wired by `AppView` at startup. Memories are
@@ -51,6 +61,12 @@ public final class MyAppStore {
     /// `MyApp`/`Component` body, so the agent (`getCanvasState`) and marketplace
     /// exports never see it. See `ComponentFolderLayout`.
     public private(set) var componentFolders: [String: ComponentFolderLayout] = [:]
+    /// MyApps a sync reload just dropped from this device — another device
+    /// deleted them, or a merge removed them. Surfaced as a non-blocking undo
+    /// banner; each is snapshotted before removal so `undoSyncRemovals()` can
+    /// restore it. Empty except between a destructive reload and the user acting
+    /// on the banner. Drives the "N apps removed — Undo" surface in `AppView`.
+    public private(set) var pendingSyncRemovals: [MyApp] = []
     /// Coalesces bursts of edits into one debounced `SnapshotStore` capture
     /// per MyApp, keyed by app id.
     private var pendingSnapshotTasks: [UUID: Task<Void, Never>] = [:]
@@ -99,10 +115,41 @@ public final class MyAppStore {
                 Self.sweepOrphanAppFiles(keeping: Set(myApps.map(\.id)))
             } else {
                 backfillColorIndices()
-                for app in myApps { seedBirthFiles(forAppNamed: app.name) }
-                persist()
+                // Do NOT persist the seed yet: a not-yet-synced device looks
+                // identical to a fresh install here, and writing the default now
+                // would let the mirror push it over real cloud data and wipe it
+                // (the reported catastrophe). Hold it in memory;
+                // `commitProvisionalSeedIfNeeded()` — run by the launch task
+                // after the first reconcile — commits only once the cloud is
+                // confirmed empty. `seedBirthFiles`/`persist` are deferred there
+                // too, so a discarded seed leaves no stray files behind.
+                provisionalSeed = true
             }
         }
+    }
+
+    /// Finalize a provisional fresh-install seed, or keep waiting if the cloud
+    /// actually holds data we haven't pulled yet.
+    ///
+    /// Called once from the launch task after the first reconcile. If the seed is
+    /// still provisional (the reconcile/watcher hasn't replaced it with real
+    /// synced apps), we ask the mirror whether iCloud already has
+    /// `state/index.json` in **any** form — materialized or a not-yet-downloaded
+    /// placeholder. If it does, this is a synced device mid-pull: do nothing and
+    /// let the watcher adopt the real apps. Only when the cloud is genuinely
+    /// empty (or iCloud is off) do we seed birth files, persist, and let the
+    /// default mirror out — so a brand-new user still gets a starting app.
+    public func commitProvisionalSeedIfNeeded() async {
+        guard provisionalSeed else { return }
+        // Resolving the ubiquity container blocks, so do the cloud probe off the
+        // main actor (never on the launch/store-load path).
+        let cloudHasState = await Task.detached(priority: .utility) {
+            StorageMirror.cloudHasState()
+        }.value
+        guard !cloudHasState else { return }   // synced device — wait for the pull
+        provisionalSeed = false
+        for app in myApps { seedBirthFiles(forAppNamed: app.name) }
+        persist()
     }
 
     // MARK: - Active myApp
@@ -3108,6 +3155,9 @@ public final class MyAppStore {
     /// removed apps. Writes are plain atomic via `CloudDocument` (no main-thread
     /// file coordination); each schedules a background `StorageMirror` pass.
     private func persist() {
+        // Any real write commits the current state — it is no longer a
+        // provisional, discardable fresh-install seed.
+        provisionalSeed = false
         let enc = Self.stateEncoder()
         var live = Set<UUID>()
         for app in myApps {
@@ -3269,6 +3319,19 @@ public final class MyAppStore {
             return Self.load()
         }.value
         guard loaded.fromDisk else { return }
+        provisionalSeed = false   // real synced apps replaced the provisional seed
+        // Warn + offer undo when the incoming synced state drops MyApps we
+        // currently show (a remote delete, or a bad merge). Snapshot each first
+        // so `undoSyncRemovals()` can restore it, and skip a local delete the
+        // user just made — `removeMyApp` already dropped it from `myApps`, so it
+        // won't appear here.
+        let incomingIds = Set(loaded.myApps.map(\.id))
+        let removed = myApps.filter { !incomingIds.contains($0.id) }
+        for app in removed { SnapshotStore.record(app, reason: .preReload) }
+        if !removed.isEmpty {
+            let known = Set(pendingSyncRemovals.map(\.id))
+            pendingSyncRemovals.append(contentsOf: removed.filter { !known.contains($0.id) })
+        }
         myApps = loaded.myApps
         activeMyAppId = loaded.activeId
         memoryThreads = loaded.memoryThreads
@@ -3278,6 +3341,21 @@ public final class MyAppStore {
         lastAppHash.removeAll()
         primeHashes()
     }
+
+    /// Restore MyApps a sync removed (undo-banner action). Re-adds any not
+    /// already back and persists — re-mirroring them to iCloud, which reverses
+    /// the remote delete on every device. Clears the pending set.
+    public func undoSyncRemovals() {
+        guard !pendingSyncRemovals.isEmpty else { return }
+        let present = Set(myApps.map(\.id))
+        myApps.append(contentsOf: pendingSyncRemovals.filter { !present.contains($0.id) })
+        pendingSyncRemovals.removeAll()
+        persist()
+    }
+
+    /// Dismiss the sync-removal banner without restoring — the removal was
+    /// intended (the user deleted the app on another device).
+    public func clearSyncRemovals() { pendingSyncRemovals.removeAll() }
 
     // MARK: - Snapshot history
 

@@ -1,5 +1,6 @@
 import SwiftUI
 import AGUIKit
+import Combine
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -89,6 +90,13 @@ public struct AppView: View {
     /// exists (deleted after the notification was scheduled). Drives an error
     /// popup instead of navigating into a ghost target.
     @State private var notificationNotice: NotificationNotice?
+
+    /// Foreground sync heartbeat. iCloud's `NSMetadataQuery` is the only signal
+    /// that pulls a remote change without a local edit, and it can stay quiet for
+    /// many minutes — so an idle device would show stale data (the "13 min ago"
+    /// report). This fires a cheap converge on a fixed cadence; the handler gates
+    /// it to `.active` so it never runs while backgrounded.
+    private let syncHeartbeat = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
     /// `settings` is optional so `RootView` can hand in the shared
     /// `SettingsStore` it also gives to onboarding — pairing done during
@@ -219,7 +227,10 @@ public struct AppView: View {
     public var body: some View {
         platformBody
             .safeAreaInset(edge: .top) {
-                if showBackendReminder { backendReminderBanner }
+                VStack(spacing: 0) {
+                    if showBackendReminder { backendReminderBanner }
+                    if !store.pendingSyncRemovals.isEmpty { syncRemovalBanner }
+                }
             }
             .sheet(isPresented: $showBackendSheet) { backendPairingSheet }
             .onReceive(NotificationCenter.default.publisher(for: .pupaNotificationTap)) { _ in
@@ -277,11 +288,21 @@ public struct AppView: View {
             // (empty) memory tree until the next mutation. Await one reconcile
             // and republish from local if it wrote anything. No-op iCloud off.
             .task {
-                let changed = await StorageMirror.shared.reconcile()
-                guard changed else { return }
-                await store.reloadFromDisk()
-                await memory.reloadFromDisk()
-                await settings.reloadFromDisk()
+                await syncNow()
+                // Whether or not the pull changed anything, sync has now had its
+                // say. If we're still showing the provisional fresh-install seed,
+                // the cloud was genuinely empty → commit it so it persists and
+                // mirrors out. No-op once real synced apps have been adopted.
+                await store.commitProvisionalSeedIfNeeded()
+            }
+            // Foreground heartbeat: iCloud's `NSMetadataQuery` can go quiet for
+            // many minutes, so nothing would pull a remote change until this
+            // device makes a local edit. A cheap periodic converge (hash-diff,
+            // no-op when nothing moved) guarantees an idle foregrounded device
+            // still catches up. Gated to `.active` so it never runs backgrounded.
+            .onReceive(syncHeartbeat) { _ in
+                guard scenePhase == .active else { return }
+                Task { await syncNow() }
             }
             // Resumable SSE lifecycle (pupa#103): ride out short backgrounds
             // with a UIKit background task so in-flight streams survive, and
@@ -312,11 +333,17 @@ public struct AppView: View {
         case .active:
             endStreamKeepAlive()
             coordinator.reattachAllAfterForeground()
+            // Pull anything that landed in iCloud while we were away — the
+            // metadata watcher alone can miss/lag remote changes.
+            Task { await syncNow() }
         default:
             break
         }
         #else
-        if phase == .active { coordinator.reattachAllAfterForeground() }
+        if phase == .active {
+            coordinator.reattachAllAfterForeground()
+            Task { await syncNow() }
+        }
         #endif
     }
 
@@ -328,18 +355,27 @@ public struct AppView: View {
     }
     #endif
 
+    /// One iCloud convergence pass, republishing every synced store when the
+    /// local tree changed. The single sync entry point — shared by the launch
+    /// task, the remote-change watcher, the foreground transition, and the
+    /// periodic heartbeat. `reconcile()` is serialized on the mirror actor, so
+    /// overlapping callers queue rather than race; no-op when iCloud is off.
+    private func syncNow() async {
+        let changed = await StorageMirror.shared.reconcile()
+        guard changed else { return }
+        await store.reloadFromDisk()
+        await memory.reloadFromDisk()
+        await settings.reloadFromDisk()
+    }
+
     /// Start watching the iCloud container for remote changes, reloading each
     /// synced store so the UI reflects edits made on another device. Idempotent.
     private func startCloudWatcher() {
         guard cloudWatcher == nil else { return }
         let watcher = CloudWatcher {
-            // Pull the remote change into the local canonical tree first, then
-            // republish the stores from local. No-op reconcile when iCloud off.
-            let changed = await StorageMirror.shared.reconcile()
-            guard changed else { return }
-            await store.reloadFromDisk()
-            await memory.reloadFromDisk()
-            await settings.reloadFromDisk()
+            // Pull the remote change into the local canonical tree, then
+            // republish the stores from local.
+            await syncNow()
         }
         watcher.start()
         cloudWatcher = watcher
@@ -452,6 +488,41 @@ public struct AppView: View {
             Button {
                 // Acknowledge — stop nagging for this install.
                 backendSkipped = false
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.regularMaterial)
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    /// Non-blocking warning shown when a sync reload removed MyApps this device
+    /// was showing (a remote delete, or a bad merge). Undo restores them from
+    /// the snapshots captured before removal and re-mirrors them to iCloud;
+    /// Dismiss accepts the removal.
+    private var syncRemovalBanner: some View {
+        let n = store.pendingSyncRemovals.count
+        return HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle")
+                .foregroundStyle(.orange)
+            Text("Sync removed \(n) app\(n == 1 ? "" : "s") from another device")
+                .font(.subheadline)
+                .lineLimit(2)
+                .minimumScaleFactor(0.85)
+            Spacer(minLength: 8)
+            Button("Undo") { store.undoSyncRemovals() }
+                .font(.subheadline.weight(.semibold))
+                .buttonStyle(.plain)
+                .foregroundStyle(.tint)
+            Button {
+                // Accept the removal — the user deleted it elsewhere on purpose.
+                store.clearSyncRemovals()
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 11, weight: .bold))
