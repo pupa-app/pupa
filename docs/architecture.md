@@ -735,7 +735,11 @@ downloads, stalling `drain()` and first-launch store reload; the kick-and-retrig
 loop replaces that.) Without materialization at all the mirror only ever pushed
 and devices never converged. An un-fetched placeholder is reported `unresolved`
 so a still-present-but-evicted cloud file is **not** mistaken for a remote delete
-of the local copy. Convergence is observable: `os_log` under subsystem
+of the local copy — and, symmetrically, a brand-new (no-baseline) local file whose
+cloud copy is still an un-downloaded placeholder is **never** pushed up over it
+(that write would clobber the real bytes before they land; a later pass converges
+them once the download completes). This guard is path-agnostic, so it protects app
+bodies and memories, not just `state/index.json`. Convergence is observable: `os_log` under subsystem
 `com.pupa-app.client` / category `sync`, and `SyncStatus` drives the Account
 screen's real "Status" ("Up to date", "Syncing N…", "Waiting for iCloud").
 

@@ -132,6 +132,15 @@ public actor StorageMirror {
                     log.error("skip deleteLocal \(sub, privacy: .public)/\(r, privacy: .public): cloud copy not downloaded")
                     continue
                 }
+                // Same guard for the write direction: a cloud file that hasn't
+                // downloaded also reads as "cloud absent", so a brand-new
+                // (no-baseline) local file — e.g. a fresh-install seed — plans as
+                // `.pushUp` and would clobber the real cloud copy before it lands.
+                // Skip it; once the download completes a later pass converges them.
+                if case let .pushUp(r) = action, unresolved.contains(r) {
+                    log.error("skip pushUp \(sub, privacy: .public)/\(r, privacy: .public): cloud copy not downloaded — would clobber")
+                    continue
+                }
                 switch action {
                 case .pushUp: counts.push += 1
                 case .pullDown: counts.pull += 1

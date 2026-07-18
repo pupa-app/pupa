@@ -14,7 +14,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   and, a week later, deleted). Such a device now **waits for iCloud** before it
   ever writes: it restores the real roster if the cloud has one, and only seeds
   the default when the cloud is genuinely empty. A seeded default can no longer
-  win over or overwrite real synced apps.
+  win over or overwrite real synced apps. As an extra safeguard, the sync mirror
+  now never overwrites *any* cloud file that hasn't finished downloading yet — so
+  data still in transit can't be clobbered by a local copy.
 
 ### Added
 
