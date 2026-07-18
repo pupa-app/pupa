@@ -123,6 +123,11 @@ public struct AppView: View {
         // — never on launch — so user edits *and deletions* aren't
         // resurrected. Guide skills (above) are the deliberate exception.
         let settings = injectedSettings ?? SettingsStore()
+        // Wire the chat-storage cap: the store reads the live cap from settings
+        // (a closure, so `MyAppStore` stays decoupled from `SettingsStore`) and
+        // honors a cap lowered on another device by pruning once at launch.
+        store.threadCapBytes = { [weak settings] in settings?.effectiveThreadCapBytes }
+        if settings.threadCapEnabled { store.pruneAllThreads() }
         self._store = State(initialValue: store)
         self._memory = State(initialValue: memory)
         self._settings = State(initialValue: settings)

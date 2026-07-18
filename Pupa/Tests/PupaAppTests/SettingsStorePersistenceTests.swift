@@ -308,4 +308,75 @@ struct SettingsStorePersistenceTests {
         // is *not* automatically migrated.
         #expect(store.authHeaders.isEmpty)
     }
+
+    // MARK: - Thread storage cap (auto-delete old chats)
+
+    @Test("threadCap defaults: disabled, default MB, no effective cap")
+    func threadCap_defaults() {
+        let store = freshStore()
+        #expect(store.threadCapEnabled == false)
+        #expect(abs(store.threadCapMB - SettingsStore.defaultThreadCapMB) < 1e-9)
+        // Disabled → no cap applied regardless of the stored MB value.
+        #expect(store.effectiveThreadCapBytes == nil)
+    }
+
+    @Test("threadCap enabled + MB round-trip across instances; drives effective bytes")
+    func threadCap_roundtrip() {
+        SettingsStore.clearStorage()
+        let writer = SettingsStore(credentials: InMemoryCredentialStore())
+        writer.setThreadCapEnabled(true)
+        writer.setThreadCapMB(2.5)
+        #expect(writer.effectiveThreadCapBytes == 2_500_000)
+
+        let reader = SettingsStore(credentials: InMemoryCredentialStore())
+        #expect(reader.threadCapEnabled == true)
+        #expect(abs(reader.threadCapMB - 2.5) < 1e-9)
+        #expect(reader.effectiveThreadCapBytes == 2_500_000)
+    }
+
+    @Test("effectiveThreadCapBytes is nil while disabled even with an MB set")
+    func threadCap_disabledYieldsNilBytes() {
+        let store = freshStore()
+        store.setThreadCapMB(1.0)
+        #expect(store.effectiveThreadCapBytes == nil)
+        store.setThreadCapEnabled(true)
+        #expect(store.effectiveThreadCapBytes == 1_000_000)
+    }
+
+    @Test("setThreadCapMB clamps to the supported range")
+    func threadCap_clamps() {
+        let store = freshStore()
+        store.setThreadCapMB(9_999)
+        #expect(abs(store.threadCapMB - SettingsStore.threadCapMBRange.upperBound) < 1e-9)
+        store.setThreadCapMB(-5)
+        #expect(abs(store.threadCapMB - SettingsStore.threadCapMBRange.lowerBound) < 1e-9)
+    }
+
+    @Test("setThreadCapMB rounds to one decimal to avoid float-step drift")
+    func threadCap_roundsToOneDecimal() {
+        let store = freshStore()
+        store.setThreadCapEnabled(true)
+        store.setThreadCapMB(0.44)   // → 0.4
+        #expect(store.effectiveThreadCapBytes == 400_000)
+        store.setThreadCapMB(0.47)   // → 0.5
+        #expect(store.effectiveThreadCapBytes == 500_000)
+    }
+
+    @Test("Pre-existing settings blob without threadCap fields decodes to defaults")
+    func threadCap_absentDecodesToDefault() throws {
+        SettingsStore.clearStorage()
+        let id = UUID()
+        let legacy: [String: Any] = [
+            "disabledBackendTools": [],
+            "backends": [["id": id.uuidString, "label": "L", "url": "https://x.example.com/"]],
+            "activeBackendID": id.uuidString,
+        ]
+        let data = try JSONSerialization.data(withJSONObject: legacy)
+        try CloudDocument.write(data, to: SettingsStore.settingsURL)
+
+        let store = SettingsStore(credentials: InMemoryCredentialStore())
+        #expect(store.threadCapEnabled == false)
+        #expect(abs(store.threadCapMB - SettingsStore.defaultThreadCapMB) < 1e-9)
+        #expect(store.effectiveThreadCapBytes == nil)
+    }
 }

@@ -3,6 +3,23 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.104] — 2026-07-18
+
+### Added
+
+- **Cap chat storage per MyApp (Settings ▸ Account ▸ Chat storage).** A new
+  opt-in control auto-deletes the oldest chats in a MyApp once its stored chats
+  exceed a size limit (fractional MB — a stored chat is only local metadata, so
+  the limit is small on purpose). The newest and the currently-open chat are
+  always kept, and the backend's own history is untouched. Off by default; a new
+  **Chats** row in the same screen shows the current count.
+
+### Fixed
+
+- **The in-chat conversation list now scrolls.** With many chats the thread
+  dropdown grew past the screen and the oldest chats became unreachable; the
+  list now scrolls within a capped height.
+
 ## [0.0.103] — 2026-07-18
 
 ### Fixed

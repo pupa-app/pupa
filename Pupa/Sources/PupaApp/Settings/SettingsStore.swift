@@ -91,6 +91,14 @@ public final class SettingsStore {
     public nonisolated static let defaultMaxToolRounds = 24
     public static let maxToolRoundsRange = 4...64
 
+    /// Per-MyApp cap on the bytes used by stored chat threads. When enabled,
+    /// the oldest chats in a scope are auto-deleted once it exceeds this size.
+    /// A stored thread is only metadata (its transcript lives on the backend),
+    /// so the cap is fractional-MB and small on purpose. Decimal MB (× 1_000_000)
+    /// to match the app's `ByteCountFormatter(.file)`.
+    public nonisolated static let defaultThreadCapMB: Double = 5.0
+    public static let threadCapMBRange: ClosedRange<Double> = 0.1...20
+
     public private(set) var disabledBackendTools: Set<String>
     /// Harness-specific permission-control values, keyed by harness id, then by
     /// the control `key` the backend advertised (e.g. `claude_loop_native`).
@@ -132,11 +140,26 @@ public final class SettingsStore {
     /// When true, turns run with NO tool-round cap (`AgentSession(maxRounds:
     /// nil)`) — the breaker is off. Use for very long agentic turns.
     public private(set) var toolRoundsUnlimited: Bool
+    /// When true, each scope keeps only its most recent chats within
+    /// `threadCapMB`; older chats are auto-deleted on new-chat and on settings
+    /// change. Default off — opt-in, so an app update never silently deletes
+    /// existing history.
+    public private(set) var threadCapEnabled: Bool
+    /// Per-scope chat-storage cap in MB (fractional). Applies only when
+    /// `threadCapEnabled`. Clamped to `threadCapMBRange` and rounded to one
+    /// decimal on write.
+    public private(set) var threadCapMB: Double
 
     /// The cap actually handed to `AgentSession`: `nil` (no limit) when the
     /// breaker is off, else `maxToolRounds`.
     public var effectiveMaxToolRounds: Int? {
         toolRoundsUnlimited ? nil : maxToolRounds
+    }
+
+    /// The cap handed to `MyAppStore` for chat eviction: `nil` (no cap) when
+    /// disabled, else `threadCapMB` converted to bytes.
+    public var effectiveThreadCapBytes: Int? {
+        threadCapEnabled ? Int((threadCapMB * 1_000_000).rounded()) : nil
     }
 
     /// Where paired-device tokens live. Keychain in production, swapped to
@@ -205,6 +228,8 @@ public final class SettingsStore {
         self.a2aMaxTurnsPerPair = snapshot.a2aMaxTurnsPerPair
         self.maxToolRounds = snapshot.maxToolRounds
         self.toolRoundsUnlimited = snapshot.toolRoundsUnlimited
+        self.threadCapEnabled = snapshot.threadCapEnabled
+        self.threadCapMB = snapshot.threadCapMB
         self.credentials = credentials ?? KeychainCredentialStore()
 
         // Init override (tests + previews) edits the *active* backend's URL.
@@ -372,6 +397,24 @@ public final class SettingsStore {
         persist()
     }
 
+    // MARK: - Thread storage cap
+
+    public func setThreadCapEnabled(_ value: Bool) {
+        guard value != threadCapEnabled else { return }
+        threadCapEnabled = value
+        persist()
+    }
+
+    /// Clamp to `threadCapMBRange` and round to one decimal so the `Stepper`'s
+    /// 0.1 accumulation can't drift (…4.9999999) or escape the bounds.
+    public func setThreadCapMB(_ value: Double) {
+        let clamped = min(max(value, Self.threadCapMBRange.lowerBound), Self.threadCapMBRange.upperBound)
+        let rounded = (clamped * 10).rounded() / 10
+        guard rounded != threadCapMB else { return }
+        threadCapMB = rounded
+        persist()
+    }
+
     // MARK: - Orchestrator LLM
 
     /// Write (or clear) the orchestrator's LLM selection. Pass `nil` for
@@ -465,7 +508,9 @@ public final class SettingsStore {
             a2aMaxChainDepth: a2aMaxChainDepth,
             a2aMaxTurnsPerPair: a2aMaxTurnsPerPair,
             maxToolRounds: maxToolRounds,
-            toolRoundsUnlimited: toolRoundsUnlimited
+            toolRoundsUnlimited: toolRoundsUnlimited,
+            threadCapEnabled: threadCapEnabled,
+            threadCapMB: threadCapMB
         )
         guard let data = try? JSONEncoder().encode(snap) else { return }
         try? CloudDocument.write(data, to: Self.settingsURL)
@@ -503,6 +548,9 @@ public final class SettingsStore {
         // Optional so pre-existing blobs decode; `load()` substitutes the default.
         var maxToolRounds: Int?
         var toolRoundsUnlimited: Bool?
+        // Optional so pre-thread-cap blobs decode; `load()` substitutes defaults.
+        var threadCapEnabled: Bool?
+        var threadCapMB: Double?
         // Legacy single-backend field. Decoded for migration; never re-encoded.
         var backendURL: String?
     }
@@ -520,6 +568,8 @@ public final class SettingsStore {
         let a2aMaxTurnsPerPair: Int
         let maxToolRounds: Int
         let toolRoundsUnlimited: Bool
+        let threadCapEnabled: Bool
+        let threadCapMB: Double
     }
 
     private nonisolated static func load() -> Loaded {
@@ -539,7 +589,9 @@ public final class SettingsStore {
                 a2aMaxChainDepth: defaultA2AMaxChainDepth,
                 a2aMaxTurnsPerPair: defaultA2AMaxTurnsPerPair,
                 maxToolRounds: defaultMaxToolRounds,
-                toolRoundsUnlimited: false
+                toolRoundsUnlimited: false,
+                threadCapEnabled: false,
+                threadCapMB: defaultThreadCapMB
             )
         }
         let (backends, activeID) = resolveBackends(snap)
@@ -555,7 +607,9 @@ public final class SettingsStore {
             a2aMaxChainDepth: snap.a2aMaxChainDepth ?? defaultA2AMaxChainDepth,
             a2aMaxTurnsPerPair: snap.a2aMaxTurnsPerPair ?? defaultA2AMaxTurnsPerPair,
             maxToolRounds: snap.maxToolRounds ?? defaultMaxToolRounds,
-            toolRoundsUnlimited: snap.toolRoundsUnlimited ?? false
+            toolRoundsUnlimited: snap.toolRoundsUnlimited ?? false,
+            threadCapEnabled: snap.threadCapEnabled ?? false,
+            threadCapMB: snap.threadCapMB ?? defaultThreadCapMB
         )
     }
 
@@ -594,6 +648,8 @@ public final class SettingsStore {
         a2aMaxTurnsPerPair = loaded.a2aMaxTurnsPerPair
         maxToolRounds = loaded.maxToolRounds
         toolRoundsUnlimited = loaded.toolRoundsUnlimited
+        threadCapEnabled = loaded.threadCapEnabled
+        threadCapMB = loaded.threadCapMB
     }
 }
 

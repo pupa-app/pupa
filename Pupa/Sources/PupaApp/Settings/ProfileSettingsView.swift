@@ -37,6 +37,7 @@ struct ProfileSettingsView: View {
             iCloudSection
             if let store, let memory {
                 dataSection(store: store, memory: memory)
+                chatStorageSection(store: store)
             }
             supportSection
         }
@@ -87,13 +88,51 @@ struct ProfileSettingsView: View {
     private func dataSection(store: MyAppStore, memory: MemoryStore) -> some View {
         let fileCount = memory.snapshotPaths().count
         let totalBytes = Self.totalBytes(memory.tree)
+        let chatCount = store.myApps.reduce(0) { $0 + $1.threads.count } + store.memoryThreads.count
         return Section("Data") {
             LabeledContent("MyApps", value: "\(store.myApps.count)")
+            LabeledContent("Chats", value: "\(chatCount)")
             LabeledContent("Memories") {
                 Text(fileCount == 1 ? "1 file" : "\(fileCount) files")
                     + Text(totalBytes > 0 ? " · \(Self.byteString(totalBytes))" : "")
             }
             LabeledContent("Backends", value: "\(settings.backends.count)")
+        }
+    }
+
+    // MARK: Chat storage cap
+
+    /// Opt-in per-MyApp chat-storage cap. A stored chat is only local metadata
+    /// (its transcript lives on the backend), so the limit is fractional-MB and
+    /// deletes the oldest chats once a MyApp exceeds it. Changing either control
+    /// prunes immediately.
+    private func chatStorageSection(store: MyAppStore) -> some View {
+        Section {
+            Toggle(isOn: Binding(
+                get: { settings.threadCapEnabled },
+                set: { settings.setThreadCapEnabled($0); store.pruneAllThreads() }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Auto-delete old chats")
+                    Text("Keep only recent chats per MyApp within a size limit.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Stepper(value: Binding(
+                get: { settings.threadCapMB },
+                set: { settings.setThreadCapMB($0); store.pruneAllThreads() }
+            ), in: SettingsStore.threadCapMBRange, step: 0.1) {
+                LabeledContent(
+                    "Limit per MyApp",
+                    value: settings.threadCapMB.formatted(.number.precision(.fractionLength(1))) + " MB"
+                )
+            }
+            .disabled(!settings.threadCapEnabled)
+        } header: {
+            Text("Chat storage")
+        } footer: {
+            Text("Keeps only the most recent chats per MyApp within this size. Older chats are removed here and on synced devices; backend history is unaffected.")
         }
     }
 

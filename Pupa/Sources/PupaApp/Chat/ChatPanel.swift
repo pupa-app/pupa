@@ -446,48 +446,55 @@ public struct ChatPanel: View {
     @ViewBuilder
     private var threadListPopover: some View {
         let reversed = threads.reversed() as [ChatThread]
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(reversed.enumerated()), id: \.element.id) { idx, thread in
-                if idx > 0 { Divider() }
-                HStack(spacing: 0) {
-                    Image(systemName: "checkmark")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .opacity(thread.id == currentThreadId ? 1 : 0)
-                        .frame(width: 28)
-                    Button {
-                        onSelectThread(thread.id)
-                        showThreadList = false
-                    } label: {
-                        HStack(spacing: 6) {
-                            Text(thread.title.isEmpty ? "New chat" : thread.title)
-                                .lineLimit(1)
-                            let s = status(thread.id)
-                            if s != .idle {
-                                StatusBadge(status: s, size: 12)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .buttonStyle(.plain)
-                    if let onDeleteThread {
-                        Button(role: .destructive) {
-                            onDeleteThread(thread.id)
+        // Long chat lists must scroll — the popover otherwise grows unbounded
+        // and the oldest chats become unreachable. Cap the height and scroll
+        // only when the content actually overflows.
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(reversed.enumerated()), id: \.element.id) { idx, thread in
+                    if idx > 0 { Divider() }
+                    HStack(spacing: 0) {
+                        Image(systemName: "checkmark")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .opacity(thread.id == currentThreadId ? 1 : 0)
+                            .frame(width: 28)
+                        Button {
+                            onSelectThread(thread.id)
+                            showThreadList = false
                         } label: {
-                            Image(systemName: "trash")
-                                .font(.caption)
-                                .foregroundStyle(.red.opacity(0.75))
-                                .padding(.leading, 12)
+                            HStack(spacing: 6) {
+                                Text(thread.title.isEmpty ? "New chat" : thread.title)
+                                    .lineLimit(1)
+                                let s = status(thread.id)
+                                if s != .idle {
+                                    StatusBadge(status: s, size: 12)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .buttonStyle(.plain)
+                        if let onDeleteThread {
+                            Button(role: .destructive) {
+                                onDeleteThread(thread.id)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .font(.caption)
+                                    .foregroundStyle(.red.opacity(0.75))
+                                    .padding(.leading, 12)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
             }
+            .frame(minWidth: 210, maxWidth: 300)
+            .padding(.vertical, 4)
         }
-        .frame(minWidth: 210, maxWidth: 300)
-        .padding(.vertical, 4)
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(maxHeight: 400)
     }
 
     /// Floating, translucent composer pill. Anchored to the bottom of the
