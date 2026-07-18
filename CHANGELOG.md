@@ -3,6 +3,29 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.105] — 2026-07-18
+
+### Fixed
+
+- **iCloud sync no longer wipes your MyApps.** A device whose local store was
+  momentarily empty — a fresh install, or iCloud not yet finished delivering
+  your data — used to seed a default "Daily Briefing" and immediately push it,
+  overwriting the real multi-app roster on every device (which was then hidden
+  and, a week later, deleted). Such a device now **waits for iCloud** before it
+  ever writes: it restores the real roster if the cloud has one, and only seeds
+  the default when the cloud is genuinely empty. A seeded default can no longer
+  win over or overwrite real synced apps.
+
+### Added
+
+- **You're now told when a sync removes apps you didn't delete.** If an incoming
+  sync drops MyApps this device didn't delete, a dismissible **“Sync removed …”**
+  banner offers to restore them in one tap (they're also kept in History).
+- **Sync now + last-synced time (Settings ▸ Account).** iCloud change
+  notifications can lag (especially on Mac), so the app now also syncs when you
+  bring it to the foreground, on a light background timer, and on demand via a
+  **Sync now** button — no more editing something just to make sync catch up.
+
 ## [0.0.104] — 2026-07-18
 
 ### Added
