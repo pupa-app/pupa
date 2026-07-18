@@ -19,6 +19,8 @@ struct ProfileSettingsView: View {
     /// Debounces the prune while the MB `Stepper` is being scrubbed so a
     /// press-and-hold doesn't run a full prune + persist on every 0.1 tick.
     @State private var capPruneTask: Task<Void, Never>?
+    /// Drives the "Sync now" spinner while a manual reconcile runs.
+    @State private var isSyncing = false
 
     private var iCloudActive: Bool { PupaStorage.iCloudActive }
 
@@ -37,6 +39,20 @@ struct ProfileSettingsView: View {
         f.unitsStyle = .abbreviated
         return f
     }()
+
+    /// Force an iCloud reconcile on demand and republish the stores if it pulled
+    /// anything. Gives the user a way to unstick a laggy sync without editing
+    /// something to "change the device itself". Updates `lastConvergedAt`.
+    @MainActor private func syncNow() async {
+        guard !isSyncing else { return }
+        isSyncing = true
+        defer { isSyncing = false }
+        let changed = await StorageMirror.shared.reconcile()
+        guard changed else { return }
+        await store?.reloadFromDisk()
+        await memory?.reloadFromDisk()
+        await settings.reloadFromDisk()
+    }
 
     var body: some View {
         Form {
@@ -81,6 +97,20 @@ struct ProfileSettingsView: View {
             LabeledContent("Status", value: statusText)
             LabeledContent("This device", value: DeviceInfo.localName)
             LabeledContent("Data location", value: iCloudActive ? "iCloud" : "On this device")
+            if iCloudActive {
+                Button {
+                    Task { await syncNow() }
+                } label: {
+                    HStack {
+                        Text("Sync now")
+                        if isSyncing {
+                            Spacer()
+                            ProgressView().controlSize(.small)
+                        }
+                    }
+                }
+                .disabled(isSyncing)
+            }
         } header: {
             Text("iCloud Sync")
         } footer: {

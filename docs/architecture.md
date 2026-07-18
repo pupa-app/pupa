@@ -711,11 +711,16 @@ is never dropped. Deletes propagate; a delete racing an edit keeps the edit.
 The `conflicts/` tree is **local-only (never mirrored)** and **bounded**:
 losing sides are deduped by content, capped to the newest few per path, and
 aged out, so a repeatedly-conflicting file can't balloon storage.
-It's triggered at launch (`warm()`), after any local write, and by the
-`CloudWatcher` (`NSMetadataQuery`) when a remote change lands — all debounced
-into one pass. The watcher's reload runs each store's `reloadFromDisk` off the
-main actor, republishing only the result on main, so a burst of remote writes
-can't stampede the UI thread.
+It's triggered at launch (`warm()`), after any local write, by the
+`CloudWatcher` (`NSMetadataQuery`) when a remote change lands, on app foreground
+(scene-phase `.active`), by a ~45s foreground poll, and by the Account screen's
+**Sync now** button — all debounced into one pass. The foreground / poll /
+manual triggers exist because `NSMetadataQuery` is unreliable and heavily
+coalesced (especially on macOS), so an idle device's sync would otherwise stay
+stale until it "changed itself". The watcher's reload runs each store's
+`reloadFromDisk` off the main actor, republishing only the result on main, so a
+burst of remote writes can't stampede the UI thread; a reentrancy guard
+(`convergeAndReloadStores`) coalesces overlapping triggers.
 
 **Remote files are materialized before every pass — without blocking.** iCloud
 delivers another device's file as a non-materialized placeholder (`.name.icloud`
@@ -730,9 +735,29 @@ downloads, stalling `drain()` and first-launch store reload; the kick-and-retrig
 loop replaces that.) Without materialization at all the mirror only ever pushed
 and devices never converged. An un-fetched placeholder is reported `unresolved`
 so a still-present-but-evicted cloud file is **not** mistaken for a remote delete
-of the local copy. Convergence is observable: `os_log` under subsystem
+of the local copy — and, symmetrically, a brand-new (no-baseline) local file whose
+cloud copy is still an un-downloaded placeholder is **never** pushed up over it
+(that write would clobber the real bytes before they land; a later pass converges
+them once the download completes). This guard is path-agnostic, so it protects app
+bodies and memories, not just `state/index.json`. Convergence is observable: `os_log` under subsystem
 `com.pupa-app.client` / category `sync`, and `SyncStatus` drives the Account
 screen's real "Status" ("Up to date", "Syncing N…", "Waiting for iCloud").
+
+**Seed-race guard (a fresh device must not clobber the cloud roster).** On
+launch a device whose local `state/` is empty but iCloud is active does **not**
+seed-and-push a default roster — that would race the first pull and overwrite
+the real apps on every device (the reported "everything replaced by Daily
+Briefing" wipe). Instead `MyAppStore` enters `isProvisioning` (holds an
+in-memory placeholder, persists nothing) and `finishProvisioning()` forces the
+`state/` subtree to download, converges, and either **adopts** the pulled roster
+or seeds the default only if the cloud is genuinely empty. A durable local
+`.roster-established` marker plus a `StorageMirror.provisioning` flag — which
+makes `plan()` refuse to push or win a conflict on `state/index.json` — ensure a
+placeholder can never overwrite a populated cloud index. Separately, when a
+remote reload removes MyApps this user did **not** delete, `reloadFromDisk`
+snapshots them and raises a dismissible **restore banner**: the merge still
+applies (losers are in History), but the user is advised and can restore in one
+tap rather than silently losing apps.
 
 Debounced background writers are **quiescable**: `StorageMirror.drain()`
 cancels the armed debounce and awaits an in-flight pass, and
