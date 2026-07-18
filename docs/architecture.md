@@ -216,6 +216,19 @@ the active agent's name and colour read as the card title; switching agents call
 its `+` (new thread) stay one row below, inside `ChatPanel`. The thread dropdown
 lists threads newest-first. When 2+ threads exist each entry is a submenu with
 "Open" and "Delete" so any thread can be deleted without switching to it first.
+The list scrolls (`ChatPanel.threadListPopover` caps its height) so a long chat
+history stays reachable.
+
+**Chat-storage cap.** Threads are lightweight local metadata (`ChatThread` — id,
+title, `createdAt`, per-thread LLM override); the message transcript lives on the
+backend, never on local disk. An opt-in **Settings ▸ Account ▸ Chat storage** cap
+(`SettingsStore.threadCapEnabled` / `threadCapMB` — off by default, fractional MB)
+bounds the bytes a scope's chats occupy: `MyAppStore.enforceThreadCap` — run on
+new-chat, on settings change (`pruneAllThreads`), and once at launch via
+`AppView` — drops the OLDEST threads (front of the array, robust to `createdAt`
+ties / merge skew) until the scope fits, always keeping the newest and the
+currently-open thread, never emptying a scope. `MyAppStore.load` re-points a
+dangling `currentThreadId` when another device pruned the open thread first.
 
 **Status badges.** `ChatActivityStatus` (`Chat/ChatActivityStatus.swift`) is a
 per-thread state derived live from each `ChatViewModel`: `actionRequired`

@@ -33,6 +33,11 @@ public final class MyAppStore {
     /// keyed on the app-name slug, so `renameMyApp` must move the folder
     /// through this store. Unset in previews/tests that never touch memories.
     @ObservationIgnored public var globalMemory: MemoryStore?
+    /// Provider of the per-scope chat-storage cap in bytes (from
+    /// `SettingsStore.effectiveThreadCapBytes`), wired by `AppView`. `nil` — or a
+    /// `nil` return — means no cap, so no chats are ever auto-deleted. A closure
+    /// so this store stays decoupled from `SettingsStore`.
+    @ObservationIgnored public var threadCapBytes: (() -> Int?)? = nil
     /// Thread list for the Orchestrator (memory-scope) chat. Always non-empty.
     public private(set) var memoryThreads: [ChatThread]
     /// The threadId of the currently-selected Orchestrator conversation.
@@ -425,6 +430,8 @@ public final class MyAppStore {
             myApps[idx].threads.append(thread)
             myApps[idx].currentThreadId = thread.id
         }
+        // A new chat may push the scope over the storage cap — evict oldest.
+        enforceThreadCap(for: scope)
         persist()
         return thread.id
     }
@@ -504,6 +511,76 @@ public final class MyAppStore {
             }
         }
         persist()
+    }
+
+    // MARK: - Chat storage cap
+
+    /// Encoded byte size of one thread's persisted metadata — the unit the
+    /// per-MyApp chat-storage cap measures. Same deterministic encoder as
+    /// `persist()`. Internal for tests.
+    static func threadEncodedSize(_ thread: ChatThread) -> Int {
+        (try? stateEncoder().encode(thread))?.count ?? 0
+    }
+
+    /// Keep only the newest chats in `threads` that fit `capBytes`, dropping the
+    /// OLDEST (front of the array — array order is the app's notion of age, and
+    /// unlike `createdAt` it's robust to ties and cross-device merge skew). The
+    /// newest thread and the `current` thread are always kept, so a scope is
+    /// never emptied and the visible chat is never deleted. Survivors keep their
+    /// original order. Internal for tests.
+    ///
+    /// The cap is a best-effort proxy, not an exact byte budget: the two
+    /// force-kept threads can push the result past `capBytes`, the per-thread
+    /// running sum omits the JSON array separators the whole-list fast path
+    /// counts, and the real on-disk footprint is the shared `index.json` (all
+    /// scopes in one blob), not any single scope's `threads` array.
+    static func threadsWithinCap(_ threads: [ChatThread], current: String, capBytes: Int) -> [ChatThread] {
+        guard threads.count > 1 else { return threads }
+        // Fast path: the whole list already fits.
+        if let whole = try? stateEncoder().encode(threads), whole.count <= capBytes { return threads }
+        var keep = Set<Int>()
+        var running = 0
+        for i in threads.indices.reversed() {
+            let mustKeep = i == threads.count - 1 || threads[i].id == current
+            let size = threadEncodedSize(threads[i])
+            if mustKeep || running + size <= capBytes {
+                keep.insert(i)
+                running += size
+            }
+        }
+        return threads.enumerated().filter { keep.contains($0.offset) }.map(\.element)
+    }
+
+    /// Evict the oldest chats in `scope` until it fits `threadCapBytes()`.
+    /// No-op when no cap is set. Does NOT persist — callers do. Returns whether
+    /// it actually dropped any thread, so callers can skip a no-op persist.
+    @discardableResult
+    private func enforceThreadCap(for scope: ChatScope) -> Bool {
+        guard let capBytes = threadCapBytes?(), capBytes > 0 else { return false }
+        switch scope {
+        case .memory:
+            let kept = Self.threadsWithinCap(memoryThreads, current: memoryCurrentThreadId, capBytes: capBytes)
+            guard kept.count != memoryThreads.count else { return false }
+            memoryThreads = kept
+            return true
+        case .myApp(let id):
+            guard let idx = myApps.firstIndex(where: { $0.id == id }) else { return false }
+            let kept = Self.threadsWithinCap(myApps[idx].threads, current: myApps[idx].currentThreadId, capBytes: capBytes)
+            guard kept.count != myApps[idx].threads.count else { return false }
+            myApps[idx].threads = kept
+            return true
+        }
+    }
+
+    /// Apply the chat-storage cap to every scope. Persists only if a scope
+    /// actually shrank, so an at-launch prune that evicts nothing writes no file
+    /// (and doesn't churn iCloud). Called when the cap setting changes and at
+    /// launch.
+    public func pruneAllThreads() {
+        var changed = enforceThreadCap(for: .memory)
+        // Not `||` — that would short-circuit and skip later apps once `changed`.
+        for app in myApps where enforceThreadCap(for: .myApp(app.id)) { changed = true }
+        if changed { persist() }
     }
 
     // MARK: - Component lifecycle
@@ -3117,6 +3194,17 @@ public final class MyAppStore {
         var fromDisk: Bool
     }
 
+    /// If a MyApp's `currentThreadId` no longer names an existing thread (e.g.
+    /// the storage cap pruned it on another device), re-point it to the newest
+    /// surviving thread. Mirrors `removeThread`'s guard.
+    private nonisolated static func repointingCurrent(_ app: MyApp) -> MyApp {
+        guard !app.threads.isEmpty,
+              !app.threads.contains(where: { $0.id == app.currentThreadId }) else { return app }
+        var copy = app
+        copy.currentThreadId = app.threads.last!.id
+        return copy
+    }
+
     private nonisolated static func load() -> Loaded {
         let dec = JSONDecoder()
         if let data = CloudDocument.read(indexURL),
@@ -3129,8 +3217,16 @@ public final class MyAppStore {
                 let active = apps.contains(where: { $0.id == index.activeId }) ? index.activeId : apps[0].id
                 var log = index.itemEventLog ?? ItemEventLog()
                 log.prune()
-                return Loaded(myApps: apps, activeId: active, memoryThreads: index.memoryThreads,
-                              memoryCurrentThreadId: index.memoryCurrentThreadId,
+                // A thread that is current on this device may have been pruned
+                // by the storage cap on another device before syncing here.
+                // Re-point any dangling current to the newest surviving thread
+                // so the UI never opens a dead/empty conversation.
+                let repointed = apps.map(repointingCurrent)
+                let memCurrent = index.memoryThreads.contains(where: { $0.id == index.memoryCurrentThreadId })
+                    ? index.memoryCurrentThreadId
+                    : (index.memoryThreads.last?.id ?? index.memoryCurrentThreadId)
+                return Loaded(myApps: repointed, activeId: active, memoryThreads: index.memoryThreads,
+                              memoryCurrentThreadId: memCurrent,
                               itemEventLog: log,
                               componentFolders: index.componentFolders ?? [:],
                               fromDisk: true)

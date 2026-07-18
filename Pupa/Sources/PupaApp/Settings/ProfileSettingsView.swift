@@ -13,6 +13,13 @@ struct ProfileSettingsView: View {
     var store: MyAppStore?
     var memory: MemoryStore?
 
+    /// Gate the destructive first prune behind a confirmation (enabling the cap
+    /// deletes old chats here and on synced devices).
+    @State private var confirmEnableCap = false
+    /// Debounces the prune while the MB `Stepper` is being scrubbed so a
+    /// press-and-hold doesn't run a full prune + persist on every 0.1 tick.
+    @State private var capPruneTask: Task<Void, Never>?
+
     private var iCloudActive: Bool { PupaStorage.iCloudActive }
 
     /// Real convergence state, not just "container resolved". Reads
@@ -37,6 +44,7 @@ struct ProfileSettingsView: View {
             iCloudSection
             if let store, let memory {
                 dataSection(store: store, memory: memory)
+                chatStorageSection(store: store)
             }
             supportSection
         }
@@ -87,13 +95,79 @@ struct ProfileSettingsView: View {
     private func dataSection(store: MyAppStore, memory: MemoryStore) -> some View {
         let fileCount = memory.snapshotPaths().count
         let totalBytes = Self.totalBytes(memory.tree)
+        let chatCount = store.myApps.reduce(0) { $0 + $1.threads.count } + store.memoryThreads.count
         return Section("Data") {
             LabeledContent("MyApps", value: "\(store.myApps.count)")
+            LabeledContent("Chats", value: "\(chatCount)")
             LabeledContent("Memories") {
                 Text(fileCount == 1 ? "1 file" : "\(fileCount) files")
                     + Text(totalBytes > 0 ? " · \(Self.byteString(totalBytes))" : "")
             }
             LabeledContent("Backends", value: "\(settings.backends.count)")
+        }
+    }
+
+    // MARK: Chat storage cap
+
+    /// Opt-in per-MyApp chat-storage cap. A stored chat is only local metadata
+    /// (its transcript lives on the backend), so the limit is fractional-MB and
+    /// deletes the oldest chats once a MyApp exceeds it. Enabling is confirmed
+    /// (it's destructive and syncs); lowering the limit prunes on a debounce so
+    /// scrubbing the `Stepper` doesn't fire a full prune per 0.1 tick.
+    private func chatStorageSection(store: MyAppStore) -> some View {
+        Section {
+            Toggle(isOn: Binding(
+                get: { settings.threadCapEnabled },
+                // Enabling deletes old chats (here + synced devices) — confirm
+                // first. Disabling only stops future pruning, so it's immediate.
+                set: { on in
+                    if on { confirmEnableCap = true }
+                    else { settings.setThreadCapEnabled(false) }
+                }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Auto-delete old chats")
+                    Text("Keep only recent chats per MyApp within a size limit.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .confirmationDialog("Auto-delete old chats?", isPresented: $confirmEnableCap, titleVisibility: .visible) {
+                Button("Enable & delete old chats", role: .destructive) {
+                    settings.setThreadCapEnabled(true)
+                    store.pruneAllThreads()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Chats beyond the size limit are removed on this device and any synced devices. This can't be undone. Backend history is unaffected.")
+            }
+            Stepper(value: Binding(
+                get: { settings.threadCapMB },
+                // Update the limit live (label tracks the scrub); defer the
+                // actual prune until the value settles.
+                set: { settings.setThreadCapMB($0); scheduleCapPrune(store) }
+            ), in: SettingsStore.threadCapMBRange, step: 0.1) {
+                LabeledContent(
+                    "Limit per MyApp",
+                    value: settings.threadCapMB.formatted(.number.precision(.fractionLength(1))) + " MB"
+                )
+            }
+            .disabled(!settings.threadCapEnabled)
+        } header: {
+            Text("Chat storage")
+        } footer: {
+            Text("Keeps only the most recent chats per MyApp within this size. Older chats are removed here and on synced devices; backend history is unaffected.")
+        }
+    }
+
+    /// Coalesce rapid `Stepper` changes into one prune ~400ms after the last
+    /// edit, so a press-and-hold doesn't run a full prune + persist per tick.
+    private func scheduleCapPrune(_ store: MyAppStore) {
+        capPruneTask?.cancel()
+        capPruneTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            store.pruneAllThreads()
         }
     }
 
