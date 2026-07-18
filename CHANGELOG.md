@@ -3,6 +3,17 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.106] — 2026-07-18
+
+### Fixed
+
+- **A stale sync can no longer hide your apps.** The app roster is now rebuilt
+  from the union of the saved order *and* the actual app files on disk — so if a
+  bad sync or a reinstall wrote an index that dropped some apps (without deleting
+  their data), those apps are recovered on the next launch instead of going
+  invisible and being cleaned up a week later. Apps you actually delete stay
+  deleted (their file is removed), so nothing unwanted comes back.
+
 ## [0.0.105] — 2026-07-18
 
 ### Fixed
