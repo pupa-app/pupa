@@ -11,7 +11,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   opt-in control auto-deletes the oldest chats in a MyApp once its stored chats
   exceed a size limit (fractional MB — a stored chat is only local metadata, so
   the limit is small on purpose). The newest and the currently-open chat are
-  always kept, and the backend's own history is untouched. Off by default; a new
+  always kept, and the backend's own history is untouched. Off by default;
+  enabling it (a destructive, synced deletion) asks for confirmation first, and
+  changing the limit prunes on a short debounce rather than on every step. A new
   **Chats** row in the same screen shows the current count.
 
 ### Fixed

@@ -2,6 +2,17 @@ import Foundation
 import Testing
 @testable import PupaApp
 
+/// On-disk `index.json` shape, mirroring the private `MyAppStore.IndexFile`
+/// (only the fields `load()` re-points). Encoded with a plain `JSONEncoder` —
+/// the exact inverse of `load()`'s plain `JSONDecoder` — so a fresh
+/// `MyAppStore()` decodes it as a real index. Optional index fields are omitted.
+private struct IndexBlob: Encodable {
+    var order: [UUID]
+    var activeId: UUID
+    var memoryThreads: [ChatThread]
+    var memoryCurrentThreadId: String
+}
+
 /// Tests for the per-MyApp chat-storage cap: `MyAppStore.enforceThreadCap` /
 /// `pruneAllThreads`, driven by the `threadCapBytes` closure. Eviction drops
 /// the OLDEST threads (front of the array) when a scope exceeds the byte cap,
@@ -139,6 +150,68 @@ struct ThreadCapTests {
 
         #expect(s.memoryThreads.count == 1)
         #expect(s.memoryThreads.contains { $0.id == s.memoryCurrentThreadId })
+    }
+
+    // MARK: - Cross-device repoint at load
+    //
+    // When the cap prunes a scope's *current* thread on one device and that
+    // edit syncs here, this device's stored `currentThreadId` dangles (names a
+    // thread that no longer exists). `load()` must re-point it to the newest
+    // survivor so the UI never opens a dead conversation. These drive the real
+    // on-disk `load()` path — the seed writes raw `index.json` + app files, then
+    // a fresh `MyAppStore()` decodes and re-points them.
+
+    /// Write one app file + `index.json` straight to the on-disk state root,
+    /// bypassing the store, so the next `MyAppStore()` runs its `load()` on them.
+    private func seedDisk(app: MyApp, memoryThreads: [ChatThread], memoryCurrent: String) throws {
+        let enc = JSONEncoder() // plain — inverse of load()'s JSONDecoder()
+        let stateRoot = PupaStorage.stateRoot
+        try CloudDocument.write(
+            enc.encode(app),
+            to: stateRoot.appendingPathComponent("apps").appendingPathComponent("\(app.id.uuidString).json"))
+        let index = IndexBlob(order: [app.id], activeId: app.id,
+                              memoryThreads: memoryThreads, memoryCurrentThreadId: memoryCurrent)
+        try CloudDocument.write(enc.encode(index), to: stateRoot.appendingPathComponent("index.json"))
+    }
+
+    @Test("load() re-points a dangling myApp currentThreadId to the newest thread")
+    func load_repointsDanglingMyAppCurrent() async throws {
+        await MyAppStore.clearStorage()
+        var app = appWithThreads(4, currentIndex: 3) // threads t0…t3
+        app.currentThreadId = "ghost-pruned-by-peer" // names no surviving thread
+        try seedDisk(app: app, memoryThreads: [ChatThread(id: "m0")], memoryCurrent: "m0")
+
+        let store = MyAppStore() // default init → load() → repoint
+
+        #expect(store.currentThreadId(for: .myApp(app.id)) == "t3", "re-points to the newest surviving thread")
+        #expect(store.threads(for: .myApp(app.id)).count == 4, "only current is re-pointed — no thread is dropped")
+    }
+
+    @Test("load() re-points a dangling memoryCurrentThreadId to the newest memory thread")
+    func load_repointsDanglingMemoryCurrent() async throws {
+        await MyAppStore.clearStorage()
+        let app = appWithThreads(1, currentIndex: 0)
+        let base = Date(timeIntervalSince1970: 3_000_000)
+        let mem = (0..<3).map { ChatThread(id: "m\($0)", title: "m\($0)",
+                                           createdAt: base.addingTimeInterval(Double($0))) }
+        try seedDisk(app: app, memoryThreads: mem, memoryCurrent: "ghost")
+
+        let store = MyAppStore()
+
+        #expect(store.memoryCurrentThreadId == "m2", "re-points memory current to the newest survivor")
+        #expect(store.memoryThreads.count == 3)
+    }
+
+    @Test("load() leaves a still-valid current untouched")
+    func load_keepsValidCurrent() async throws {
+        await MyAppStore.clearStorage()
+        let app = appWithThreads(3, currentIndex: 1) // current = t1, a real thread
+        try seedDisk(app: app, memoryThreads: [ChatThread(id: "m0")], memoryCurrent: "m0")
+
+        let store = MyAppStore()
+
+        #expect(store.currentThreadId(for: .myApp(app.id)) == "t1", "a valid current is not moved")
+        #expect(store.memoryCurrentThreadId == "m0")
     }
 
     // MARK: - Per-app independence

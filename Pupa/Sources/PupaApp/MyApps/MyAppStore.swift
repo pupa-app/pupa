@@ -528,6 +528,12 @@ public final class MyAppStore {
     /// newest thread and the `current` thread are always kept, so a scope is
     /// never emptied and the visible chat is never deleted. Survivors keep their
     /// original order. Internal for tests.
+    ///
+    /// The cap is a best-effort proxy, not an exact byte budget: the two
+    /// force-kept threads can push the result past `capBytes`, the per-thread
+    /// running sum omits the JSON array separators the whole-list fast path
+    /// counts, and the real on-disk footprint is the shared `index.json` (all
+    /// scopes in one blob), not any single scope's `threads` array.
     static func threadsWithinCap(_ threads: [ChatThread], current: String, capBytes: Int) -> [ChatThread] {
         guard threads.count > 1 else { return threads }
         // Fast path: the whole list already fits.
@@ -546,26 +552,35 @@ public final class MyAppStore {
     }
 
     /// Evict the oldest chats in `scope` until it fits `threadCapBytes()`.
-    /// No-op when no cap is set. Does NOT persist — callers do.
-    private func enforceThreadCap(for scope: ChatScope) {
-        guard let capBytes = threadCapBytes?(), capBytes > 0 else { return }
+    /// No-op when no cap is set. Does NOT persist — callers do. Returns whether
+    /// it actually dropped any thread, so callers can skip a no-op persist.
+    @discardableResult
+    private func enforceThreadCap(for scope: ChatScope) -> Bool {
+        guard let capBytes = threadCapBytes?(), capBytes > 0 else { return false }
         switch scope {
         case .memory:
             let kept = Self.threadsWithinCap(memoryThreads, current: memoryCurrentThreadId, capBytes: capBytes)
-            if kept.count != memoryThreads.count { memoryThreads = kept }
+            guard kept.count != memoryThreads.count else { return false }
+            memoryThreads = kept
+            return true
         case .myApp(let id):
-            guard let idx = myApps.firstIndex(where: { $0.id == id }) else { return }
+            guard let idx = myApps.firstIndex(where: { $0.id == id }) else { return false }
             let kept = Self.threadsWithinCap(myApps[idx].threads, current: myApps[idx].currentThreadId, capBytes: capBytes)
-            if kept.count != myApps[idx].threads.count { myApps[idx].threads = kept }
+            guard kept.count != myApps[idx].threads.count else { return false }
+            myApps[idx].threads = kept
+            return true
         }
     }
 
-    /// Apply the chat-storage cap to every scope and persist once. Called when
-    /// the cap setting changes and at launch.
+    /// Apply the chat-storage cap to every scope. Persists only if a scope
+    /// actually shrank, so an at-launch prune that evicts nothing writes no file
+    /// (and doesn't churn iCloud). Called when the cap setting changes and at
+    /// launch.
     public func pruneAllThreads() {
-        enforceThreadCap(for: .memory)
-        for app in myApps { enforceThreadCap(for: .myApp(app.id)) }
-        persist()
+        var changed = enforceThreadCap(for: .memory)
+        // Not `||` — that would short-circuit and skip later apps once `changed`.
+        for app in myApps where enforceThreadCap(for: .myApp(app.id)) { changed = true }
+        if changed { persist() }
     }
 
     // MARK: - Component lifecycle
