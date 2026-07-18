@@ -78,4 +78,24 @@ struct OrphanSweepTests {
         _ = MyAppStore()  // seeds fresh — index was unreadable
         #expect(FileManager.default.fileExists(atPath: unreferenced.path))
     }
+
+    /// Defense-in-depth for A2 (issue #200): a file that still decodes as a real
+    /// MyApp body is recovery material (union-load restores it), never an orphan
+    /// — so the sweep must keep it even when it's aged and absent from `live`.
+    /// Only genuine junk ages out.
+    @Test("a decodable MyApp body is never swept, even when aged and not in the live set")
+    func keepsDecodableAppBodyNotLive() async throws {
+        await MyAppStore.clearStorage()
+        let ghost = DailyBriefingExample.make()
+        try FileManager.default.createDirectory(at: appsDir, withIntermediateDirectories: true)
+        let url = appsDir.appendingPathComponent("\(ghost.id.uuidString).json")
+        try JSONEncoder().encode(ghost).write(to: url)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: -(8 * 24 * 3600))],
+            ofItemAtPath: url.path)
+
+        let deleted = MyAppStore.sweepOrphanAppFiles(keeping: [])  // ghost aged + not live
+        #expect(deleted == 0)                                      // real app body preserved
+        #expect(FileManager.default.fileExists(atPath: url.path))
+    }
 }

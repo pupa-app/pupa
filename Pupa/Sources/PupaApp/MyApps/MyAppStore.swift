@@ -3122,6 +3122,15 @@ public final class MyAppStore {
         appsDir.appendingPathComponent("\(id.uuidString).json")
     }
 
+    /// UUIDs of every `apps/<uuid>.json` body currently on disk, regardless of
+    /// whether the index lists it. Backs union-load's disk-existence recovery.
+    private nonisolated static func diskAppIds() -> Set<UUID> {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: appsDir.path) else { return [] }
+        return Set(names.compactMap { name in
+            name.hasSuffix(".json") ? UUID(uuidString: String(name.dropLast(".json".count))) : nil
+        })
+    }
+
     /// `index.json` — everything that isn't a single MyApp body.
     private struct IndexFile: Codable {
         var order: [UUID]
@@ -3207,6 +3216,12 @@ public final class MyAppStore {
                   let id = UUID(uuidString: String(name.dropLast(".json".count))),
                   !live.contains(id) else { continue }
             let url = appsDir.appendingPathComponent(name)
+            // Never delete a file that still decodes as a real MyApp body: a
+            // stale/lost index can de-list an app without deleting it, and that
+            // body is recovery material (union-load restores it), not an orphan.
+            // Only genuine junk (undecodable / partial) ages out.
+            if let data = CloudDocument.read(url),
+               (try? JSONDecoder().decode(MyApp.self, from: data)) != nil { continue }
             guard let mtime = (try? fm.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date,
                   now.timeIntervalSince(mtime) > minAge else { continue }
             CloudDocument.delete(url)
@@ -3254,9 +3269,27 @@ public final class MyAppStore {
         let dec = JSONDecoder()
         if let data = CloudDocument.read(indexURL),
            let index = try? dec.decode(IndexFile.self, from: data) {
-            // Read app files in index order; tolerate missing/corrupt ones.
-            let apps: [MyApp] = index.order.compactMap { id in
-                CloudDocument.read(appURL(id)).flatMap { try? dec.decode(MyApp.self, from: $0) }
+            // Roster membership = the UNION of the index's `order` and every
+            // decodable app body on disk. The index gives ORDER; the disk gives
+            // EXISTENCE. A stale/shrunk index (a bad merge, a seed pushed over
+            // real data) can de-list an app but can no longer HIDE it — which
+            // then let the 7-day orphan sweep delete it (the reinstall wipe).
+            // A genuine delete removes the body file too, so a deleted app is
+            // absent from disk here and never resurrects.
+            var seen = Set<UUID>()
+            var apps: [MyApp] = []
+            for id in index.order {                       // index order first; tolerate missing/corrupt
+                guard seen.insert(id).inserted else { continue }
+                if let d = CloudDocument.read(appURL(id)), let app = try? dec.decode(MyApp.self, from: d) {
+                    apps.append(app)
+                }
+            }
+            // Recover any on-disk body the index omitted, appended in a stable
+            // (id-sorted) order so the roster is deterministic across launches.
+            for id in diskAppIds().subtracting(seen).sorted(by: { $0.uuidString < $1.uuidString }) {
+                if let d = CloudDocument.read(appURL(id)), let app = try? dec.decode(MyApp.self, from: d) {
+                    apps.append(app)
+                }
             }
             if !apps.isEmpty {
                 let active = apps.contains(where: { $0.id == index.activeId }) ? index.activeId : apps[0].id
