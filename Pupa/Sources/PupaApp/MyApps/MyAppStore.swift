@@ -3131,6 +3131,39 @@ public final class MyAppStore {
         })
     }
 
+    // MARK: - Deletion tombstones
+
+    /// A durable, mirrored "this app id is deleted" marker. Lives under
+    /// `state/tombstones/<uuid>.json` so it syncs like an app body. Union-load
+    /// subtracts tombstoned ids; the orphan sweep reaps their bodies.
+    private struct Tombstone: Codable {
+        var id: UUID
+        var deletedAt: Date
+    }
+
+    private nonisolated static var tombstonesDir: URL {
+        stateRoot.appendingPathComponent("tombstones", isDirectory: true)
+    }
+    private nonisolated static func tombstoneURL(_ id: UUID) -> URL {
+        tombstonesDir.appendingPathComponent("\(id.uuidString).json")
+    }
+
+    /// Record `id` as deleted. Durable + mirrored, so the delete survives a
+    /// relaunch and reaches every device. Re-deleting just refreshes `deletedAt`.
+    nonisolated static func writeTombstone(_ id: UUID, at now: Date = Date()) {
+        guard let data = try? stateEncoder().encode(Tombstone(id: id, deletedAt: now)) else { return }
+        try? CloudDocument.write(data, to: tombstoneURL(id))
+    }
+
+    /// UUIDs of every `tombstones/<uuid>.json` on disk. Ids come from filenames
+    /// (no decode) so even a half-written tombstone still suppresses its app.
+    private nonisolated static func diskTombstoneIds() -> Set<UUID> {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: tombstonesDir.path) else { return [] }
+        return Set(names.compactMap { name in
+            name.hasSuffix(".json") ? UUID(uuidString: String(name.dropLast(".json".count))) : nil
+        })
+    }
+
     /// `index.json` — everything that isn't a single MyApp body.
     private struct IndexFile: Codable {
         var order: [UUID]
@@ -3147,7 +3180,7 @@ public final class MyAppStore {
     /// deterministic — Foundation's default key order can differ between
     /// encodes of the same value, which would fail the dirty-hash skip and
     /// rewrite (re-upload) every unchanged app file.
-    private static func stateEncoder() -> JSONEncoder {
+    private nonisolated static func stateEncoder() -> JSONEncoder {
         let enc = JSONEncoder()
         enc.outputFormatting = [.sortedKeys]
         return enc
