@@ -25,4 +25,19 @@ struct TombstoneTests {
         MyAppStore.writeTombstone(id)
         #expect(FileManager.default.fileExists(atPath: tombstoneURL(id).path))
     }
+
+    @Test("a tombstoned id is absent from the roster even with its body on disk")
+    func tombstoneSuppressesBodyInLoad() async throws {
+        await MyAppStore.clearStorage()
+        let a = MyAppStore()
+        let kept = a.addMyApp(typeId: "tracker", name: "Kept", iconSystemName: "star")
+        let doomed = a.addMyApp(typeId: "tracker", name: "Doomed", iconSystemName: "trophy")
+        #expect(FileManager.default.fileExists(atPath: bodyURL(doomed).path))
+
+        MyAppStore.writeTombstone(doomed)          // mark deleted; body deliberately left on disk
+
+        let b = MyAppStore()                        // reload via union-load
+        #expect(!b.myApps.contains { $0.id == doomed })   // suppressed
+        #expect(b.myApps.contains { $0.id == kept })      // untouched
+    }
 }

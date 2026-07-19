@@ -3309,17 +3309,19 @@ public final class MyAppStore {
             // then let the 7-day orphan sweep delete it (the reinstall wipe).
             // A genuine delete removes the body file too, so a deleted app is
             // absent from disk here and never resurrects.
+            let tombstoned = diskTombstoneIds()
             var seen = Set<UUID>()
             var apps: [MyApp] = []
             for id in index.order {                       // index order first; tolerate missing/corrupt
+                guard !tombstoned.contains(id) else { continue }   // deleted → never load
                 guard seen.insert(id).inserted else { continue }
                 if let d = CloudDocument.read(appURL(id)), let app = try? dec.decode(MyApp.self, from: d) {
                     apps.append(app)
                 }
             }
-            // Recover any on-disk body the index omitted, appended in a stable
-            // (id-sorted) order so the roster is deterministic across launches.
-            for id in diskAppIds().subtracting(seen).sorted(by: { $0.uuidString < $1.uuidString }) {
+            // Recover any on-disk body the index omitted (minus tombstoned),
+            // appended id-sorted so the roster is deterministic across launches.
+            for id in diskAppIds().subtracting(seen).subtracting(tombstoned).sorted(by: { $0.uuidString < $1.uuidString }) {
                 if let d = CloudDocument.read(appURL(id)), let app = try? dec.decode(MyApp.self, from: d) {
                     apps.append(app)
                 }
