@@ -87,4 +87,45 @@ struct TombstoneTests {
         #expect(!FileManager.default.fileExists(atPath: tombstoneURL(old).path))     // expired → gone
         #expect(FileManager.default.fileExists(atPath: tombstoneURL(recent).path))   // fresh → kept
     }
+
+    @Test("re-importing a deleted id clears its tombstone and survives relaunch")
+    func reimportUndeletesAcrossRelaunch() async throws {
+        await MyAppStore.clearStorage()
+        let a = MyAppStore()
+        _ = a.addMyApp(typeId: "tracker", name: "Kept", iconSystemName: "star")
+        let doomed = a.addMyApp(typeId: "tracker", name: "Doomed", iconSystemName: "trophy")
+        let snapshot = try #require(a.myApps.first { $0.id == doomed })  // capture the body value
+
+        a.removeMyApp(doomed)
+        #expect(FileManager.default.fileExists(atPath: tombstoneURL(doomed).path))
+
+        _ = a.importMyApp(snapshot)                 // user re-imports the same bundle (same id)
+        #expect(!FileManager.default.fileExists(atPath: tombstoneURL(doomed).path))  // tombstone cleared
+
+        let b = MyAppStore()                        // reload — must NOT re-suppress
+        #expect(b.myApps.contains { $0.id == doomed })
+        #expect(FileManager.default.fileExists(atPath: bodyURL(doomed).path))        // body not reaped
+    }
+
+    @Test("clearTombstone removes the marker")
+    func clearTombstoneRemovesMarker() async throws {
+        await MyAppStore.clearStorage()
+        let id = UUID()
+        MyAppStore.writeTombstone(id)
+        #expect(FileManager.default.fileExists(atPath: tombstoneURL(id).path))
+        MyAppStore.clearTombstone(id)
+        #expect(!FileManager.default.fileExists(atPath: tombstoneURL(id).path))
+    }
+
+    @Test("GC ages out a corrupt tombstone via mtime fallback (no permanent suppression)")
+    func gcReapsCorruptTombstone() async throws {
+        await MyAppStore.clearStorage()
+        let id = UUID()
+        MyAppStore.writeTombstone(id)
+        try Data("not-json".utf8).write(to: tombstoneURL(id))   // corrupt: won't decode
+
+        let dropped = MyAppStore.gcTombstones(ttl: -1)          // any age exceeds -1
+        #expect(dropped == 1)
+        #expect(!FileManager.default.fileExists(atPath: tombstoneURL(id).path))  // mtime fallback → GC'd
+    }
 }

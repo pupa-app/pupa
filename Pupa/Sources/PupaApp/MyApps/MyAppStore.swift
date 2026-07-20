@@ -426,6 +426,9 @@ public final class MyAppStore {
     public func importMyApp(_ myApp: MyApp) -> UUID {
         var myApp = myApp
         if myApp.colorIndex == nil { myApp.colorIndex = nextColorIndex() }
+        // Re-importing a previously-deleted id is a deliberate un-delete — clear
+        // any tombstone or union-load would suppress it again on relaunch.
+        Self.clearTombstone(myApp.id)
         myApps.append(myApp)
         activeMyAppId = myApp.id
         persist()
@@ -3159,6 +3162,14 @@ public final class MyAppStore {
         try? CloudDocument.write(data, to: tombstoneURL(id))
     }
 
+    /// Drop `id`'s tombstone. Call whenever an app with that id legitimately
+    /// comes back (restore a pinned snapshot, re-import a bundle) — an un-delete
+    /// must clear the marker, else union-load re-suppresses it and the sweep
+    /// reaps its body on the next relaunch.
+    nonisolated static func clearTombstone(_ id: UUID) {
+        CloudDocument.delete(tombstoneURL(id))
+    }
+
     /// UUIDs of every `tombstones/<uuid>.json` on disk. Ids come from filenames
     /// (no decode) so even a half-written tombstone still suppresses its app.
     private nonisolated static func diskTombstoneIds() -> Set<UUID> {
@@ -3279,19 +3290,25 @@ public final class MyAppStore {
     /// Drop tombstones older than `ttl`. Tiny files, but unbounded otherwise.
     /// The TTL is generous so a tombstone always outlives an un-synced stale
     /// body (bodies sweep at 7 days). Returns the number GC'd.
+    ///
+    /// Age comes from the decoded `deletedAt`; a tombstone that won't decode
+    /// (corrupt / half-written) falls back to the file's mtime, so it can't
+    /// suppress its app forever — it still ages out and GC's.
     @discardableResult
     nonisolated static func gcTombstones(
         ttl: TimeInterval = 180 * 24 * 3600,
         now: Date = Date()
     ) -> Int {
+        let fm = FileManager.default
         let dec = JSONDecoder()
-        guard let names = try? FileManager.default.contentsOfDirectory(atPath: tombstonesDir.path) else { return 0 }
+        guard let names = try? fm.contentsOfDirectory(atPath: tombstonesDir.path) else { return 0 }
         var gcd = 0
         for name in names where name.hasSuffix(".json") {
             let url = tombstonesDir.appendingPathComponent(name)
-            guard let data = CloudDocument.read(url),
-                  let t = try? dec.decode(Tombstone.self, from: data),
-                  now.timeIntervalSince(t.deletedAt) > ttl else { continue }
+            let deletedAt: Date? = CloudDocument.read(url)
+                .flatMap { try? dec.decode(Tombstone.self, from: $0) }?.deletedAt
+                ?? (try? fm.attributesOfItem(atPath: url.path)[.modificationDate]) as? Date
+            guard let deletedAt, now.timeIntervalSince(deletedAt) > ttl else { continue }
             CloudDocument.delete(url)
             gcd += 1
         }
@@ -3511,6 +3528,9 @@ public final class MyAppStore {
         for id in notice.ids where !myApps.contains(where: { $0.id == id }) {
             if let head = SnapshotStore.head(id),
                let app = SnapshotStore.restoredApp(id, id: head.id) {
+                // User explicitly restored — clear any tombstone (e.g. a remote
+                // delete) so it isn't re-suppressed on relaunch.
+                Self.clearTombstone(id)
                 myApps.append(app)
             }
         }
@@ -3648,6 +3668,10 @@ public final class MyAppStore {
             return restore(myAppId: appId, snapshotId: snapshotId) ? appId : nil
         }
         guard let revived = SnapshotStore.restoredApp(appId, id: snapshotId) else { return nil }
+        // Restoring a pinned snapshot of a deleted app is an un-delete — clear
+        // its tombstone or union-load re-suppresses it and the sweep reaps the
+        // restored body on the next relaunch.
+        Self.clearTombstone(revived.id)
         myApps.append(revived)
         activeMyAppId = revived.id
         historyRevision += 1

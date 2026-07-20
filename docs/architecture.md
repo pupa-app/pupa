@@ -794,8 +794,12 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
   it's still on disk), and the orphan sweep reaps a tombstoned body regardless of
   decodability or age — that's how an arriving tombstone reaps the second device's
   copy. A tombstone beats a concurrent body edit (a delete is sticky, and lets the
-  user prune duplicate apps for good). Tombstones GC after 180 days — generous so
-  one always outlives an un-synced stale body (which sweeps at 7 days).
+  user prune duplicate apps for good). An explicit un-delete — restoring a pinned
+  snapshot, re-importing a bundle, or restoring a sync-removed app — clears the
+  tombstone (`clearTombstone`), or union-load would re-suppress the revived app and
+  the sweep reap its body on the next relaunch. Tombstones GC after 180 days —
+  generous so one always outlives an un-synced stale body (which sweeps at 7 days);
+  a corrupt tombstone ages out via file mtime so it can't suppress forever.
 - **Component folders (UI-only)** → the home-page grid
   (`MyAppHomeView.componentsPanel`) lets you drag component tiles into folders,
   iOS-home-screen style. The layout (`ComponentFolderLayout`: folders +
