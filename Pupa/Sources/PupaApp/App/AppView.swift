@@ -27,6 +27,9 @@ public struct AppView: View {
     @State private var settings: SettingsStore
     @State private var modelCatalog = ModelCatalogStore()
     @State private var coordinator: ChatSessionCoordinator
+    /// Bundle-automation reactor (issue #209). Fed the canvas-event stream from
+    /// `store.onCanvasEvent`; publishes confirm-bubble / auto-fire proposals.
+    @State private var engine = RuleEngine()
     @State private var screenShare: ScreenShareViewModel
     /// Watches the iCloud container for remote edits; reloads the synced
     /// stores so changes from another device appear live. Nil until started.
@@ -222,6 +225,29 @@ public struct AppView: View {
         }
     }
 
+    /// Wire the canvas-event stream to the rule engine (once). Rules are loaded
+    /// fresh from the moved item's MyApp bundle (`pupa/automations.json`) on
+    /// each event, so the engine never caches stale per-app config and unrelated
+    /// apps' rules never leak in.
+    private func wireAutomations() {
+        store.onCanvasEvent = { [weak store] event in
+            guard let store, let name = store.myApp(withId: event.myAppId)?.name else { return }
+            let mem = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: name))
+            engine.ingest(event, rules: AutomationStore(memory: mem).rules)
+        }
+    }
+
+    /// Run an automation reaction: navigate to its MyApp, open a fresh thread,
+    /// and auto-send the rendered prompt — the same fresh-thread + prefill
+    /// bridge a `runAgent` notification tap uses (`handleNotificationTap`).
+    private func startAutomationThread(_ proposal: RuleEngine.Proposal) {
+        let id = proposal.event.myAppId
+        setRoot(.myAppHome(id))
+        _ = store.addThread(for: .myApp(id))
+        tour.chatAutoSend = proposal.prompt
+        tour.wantChatOpen = true
+    }
+
     public var body: some View {
         platformBody
             .safeAreaInset(edge: .top) {
@@ -257,6 +283,28 @@ public struct AppView: View {
             .alert(item: $notificationNotice) { note in
                 Alert(title: Text("Reminder unavailable"), message: Text(note.message),
                       dismissButton: .default(Text("OK")))
+            }
+            // Bundle automations (issue #209): wire the canvas-event stream to
+            // the rule engine, surface the confirm bubble for matched rules,
+            // and auto-fire `confirm: false` rules.
+            .task { wireAutomations() }
+            .alert(
+                "Automation",
+                isPresented: Binding(
+                    get: { engine.pendingProposal != nil },
+                    set: { if !$0, let p = engine.pendingProposal { engine.dismiss(p) } }
+                ),
+                presenting: engine.pendingProposal
+            ) { proposal in
+                Button("Start") { startAutomationThread(proposal); engine.accept(proposal) }
+                Button("Dismiss", role: .cancel) { engine.dismiss(proposal) }
+            } message: { proposal in
+                Text(proposal.summary)
+            }
+            .onChange(of: engine.pendingAutoFire) { _, proposal in
+                guard let proposal else { return }
+                startAutomationThread(proposal)
+                engine.consumeAutoFire(proposal)
             }
             // Fetch the model catalog from the active backend on launch and on
             // every change to the active backend. Keying on `activeBackend`

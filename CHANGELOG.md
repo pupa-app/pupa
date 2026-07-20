@@ -3,6 +3,20 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.109] — 2026-07-20
+
+### Added
+
+- **Canvas-triggered automations (v1).** A `.pupa` bundle can now carry
+  declarative rules at `pupa/automations.json` that react to canvas changes.
+  v1 reacts to one event — an item dragged into a kanban column
+  (`item.moved`) — and can start a chat with a templated prompt
+  (`{{item.title}}`). Reactions are proposed via a **confirm bubble that is on
+  by default**; a rule can opt into silent auto-fire with `confirm: false`. An
+  in-flight lock stops a rule re-firing while its own reaction is still running,
+  duplicate emits of one move are de-duplicated, and agent-driven moves never
+  trigger rules (so a reaction can't re-trigger itself).
+
 ## [0.0.108] — 2026-07-20
 
 ### Fixed

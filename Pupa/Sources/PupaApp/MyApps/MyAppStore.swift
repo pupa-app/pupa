@@ -38,6 +38,12 @@ public final class MyAppStore {
     /// `nil` return — means no cap, so no chats are ever auto-deleted. A closure
     /// so this store stays decoupled from `SettingsStore`.
     @ObservationIgnored public var threadCapBytes: (() -> Int?)? = nil
+    /// Typed canvas-domain event stream — the trigger side of bundle
+    /// automations (issue #209). Fed from the single mutation choke-point;
+    /// wired to `RuleEngine` by `AppView`. A closure so the store stays
+    /// decoupled from the automation layer. Only user-actor moves emit (the
+    /// self-mutation guard: agent/reaction moves never re-trigger a rule).
+    @ObservationIgnored public var onCanvasEvent: (@MainActor (CanvasEvent) -> Void)? = nil
     /// Thread list for the Orchestrator (memory-scope) chat. Always non-empty.
     public private(set) var memoryThreads: [ChatThread]
     /// The threadId of the currently-selected Orchestrator conversation.
@@ -1063,10 +1069,22 @@ public final class MyAppStore {
     ) -> Bool {
         let resolvedCompId = componentId ?? trackerComponentId(myAppId: myAppId)
         var ok = false
+        // Captured inside the choke-point for the canvas-event stream: the
+        // kanban column field and its value before/after this patch.
+        var columnField: String?
+        var priorColumn: String?
+        var newColumn: String?
+        var itemTitle = ""
+        var itemValues: [String: String] = [:]
         let body: (inout CanvasApp) -> Bool = { canvas in
             guard case .tracker(var t) = canvas,
                   let idx = t.items.firstIndex(where: { $0.id == id }) else { return false }
+            columnField = t.columnField
+            if let cf = t.columnField { priorColumn = t.items[idx].values[cf] }
             for (k, v) in patch { t.items[idx].values[k] = v }
+            if let cf = t.columnField { newColumn = t.items[idx].values[cf] }
+            itemTitle = t.items[idx].displayName
+            itemValues = t.items[idx].values
             canvas = .tracker(t)
             ok = true
             return true
@@ -1079,8 +1097,41 @@ public final class MyAppStore {
         if ok, let compId = resolvedCompId {
             emitItemEvent(myAppId: myAppId, componentId: compId, kind: .patched, actor: actor,
                           itemId: id)
+            emitCanvasMove(actor: actor, myAppId: myAppId, componentId: compId, itemId: id,
+                           itemTitle: itemTitle, values: itemValues, columnField: columnField,
+                           patchKeys: Set(patch.keys), from: priorColumn, to: newColumn)
         }
         return ok
+    }
+
+    /// Emit an `item.moved` canvas event when a *user* drag actually changes
+    /// the kanban column field. Self-mutation guard: agent/reaction moves
+    /// (`actor == .agent`) never emit, so a reaction can't re-trigger its rule.
+    private func emitCanvasMove(
+        actor: ItemEventActor,
+        myAppId: UUID?,
+        componentId: String,
+        itemId: UUID,
+        itemTitle: String,
+        values: [String: String],
+        columnField: String?,
+        patchKeys: Set<String>,
+        from: String?,
+        to: String?
+    ) {
+        guard case .user = actor,
+              let cf = columnField, patchKeys.contains(cf),
+              (from ?? "") != (to ?? "") else { return }
+        onCanvasEvent?(CanvasEvent(
+            type: .itemMoved,
+            myAppId: myAppId ?? activeMyAppId,
+            componentId: componentId,
+            itemId: itemId,
+            itemTitle: itemTitle,
+            values: values,
+            fromColumn: from,
+            toColumn: to
+        ))
     }
 
     public func patchItem(at index: Int, with patch: [String: String], myAppId: UUID? = nil, actor: ItemEventActor = .user) {
