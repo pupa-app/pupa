@@ -20,10 +20,16 @@ header   (read & validated first)   app (Codable MyApp tree)   memories[]
   here, so renaming or re-iconing a component (via `setComponentMeta`) needs
   **no format change** — `formatVersion` stays put and old bundles load as-is.
 - `memories`: `{path, content}`, paths relative to the app's memory root. The
-  `pupa/` config subtree (agent + subagent prompts, skills) is app
-  capability, not user data: it rides the bundle and **survives a memories-off
-  export**. On import, `MemoryStore.writeFile` accepts only `.md` / `.json`, so
-  a hostile bundle can't drop an executable into the sandbox.
+  `pupa/` config subtree (agent + subagent prompts, skills, and
+  `automations.json` — the bundle's canvas reactors) is app capability, not
+  user data: it rides the bundle and **survives a memories-off export**. On
+  import, `MemoryStore.writeFile` accepts only `.md` / `.json`, so a hostile
+  bundle can't drop an executable into the sandbox. `pupa/automations.json` is
+  a memories-subtree file like a skill, so it needs **no `formatVersion`
+  bump**; it carries prompt text (the `startThread` template), the same
+  prompt-injection surface as `AGENTS.md`, and rides the same defense (export
+  review pane + imported-provenance flag + `.json`-only guard). See the threat
+  model below and [architecture.md](architecture.md#canvas-automations-bundle-scoped-reactors).
 
 The bundle carries **no executable content**. All rebuild logic lives in the
 app and is dispatched by component `kind`.

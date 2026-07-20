@@ -95,6 +95,9 @@ public struct AppView: View {
     /// exists (deleted after the notification was scheduled). Drives an error
     /// popup instead of navigating into a ghost target.
     @State private var notificationNotice: NotificationNotice?
+    /// Bundle-scoped automation reactor. Lazily wired to `store.onCanvasEvent`
+    /// on first appear (needs instance methods for navigation + dispatch).
+    @State private var automationCoordinator: AutomationCoordinator?
 
     /// `settings` is optional so `RootView` can hand in the shared
     /// `SettingsStore` it also gives to onboarding — pairing done during
@@ -222,6 +225,41 @@ public struct AppView: View {
         }
     }
 
+    /// Wire the automation reactor to the canvas-event stream once. Rules are
+    /// read fresh per event from the target MyApp's `pupa/automations.json`;
+    /// proposals dispatch through the same "propose a chat" bridge as a
+    /// tapped notification.
+    private func ensureAutomationWiring() {
+        guard automationCoordinator == nil else { return }
+        let coord = AutomationCoordinator(
+            rulesProvider: { myAppId in
+                guard let name = store.myApp(withId: myAppId)?.name else { return [] }
+                let mem = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: name))
+                return AutomationStore(memory: mem).rules
+            },
+            dispatch: { proposal in dispatchAutomation(proposal) }
+        )
+        automationCoordinator = coord
+        store.onCanvasEvent = { event in coord.handle(event) }
+    }
+
+    /// Surface one matched rule: navigate to its MyApp, open a fresh thread,
+    /// and either prefill the composer (confirm) or auto-send (opt-out).
+    /// Returns the spawned threadId for the in-flight-lock lifecycle, or nil
+    /// if the target MyApp is gone.
+    private func dispatchAutomation(_ proposal: AutomationProposal) -> String? {
+        guard store.myApp(withId: proposal.myAppId) != nil else { return nil }
+        setRoot(.myAppHome(proposal.myAppId))
+        let threadId = store.addThread(for: .myApp(proposal.myAppId))
+        if proposal.autoSend {
+            tour.chatAutoSend = proposal.prompt
+        } else {
+            tour.chatPrefill = proposal.prompt
+        }
+        tour.wantChatOpen = true
+        return threadId
+    }
+
     public var body: some View {
         platformBody
             .safeAreaInset(edge: .top) {
@@ -239,6 +277,7 @@ public struct AppView: View {
             // coordinator's one-slot buffer here. Consume-once (the drain clears
             // it) so a live tap isn't also replayed.
             .task { handleNotificationTap() }
+            .task { ensureAutomationWiring() }
             // Tap-to-import: a `.pupa` opened from Files / Mail / a chat app
             // arrives here. Stage it for a confirm step rather than importing
             // straight into the store (untrusted source).

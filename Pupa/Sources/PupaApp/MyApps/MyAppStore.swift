@@ -38,6 +38,12 @@ public final class MyAppStore {
     /// `nil` return — means no cap, so no chats are ever auto-deleted. A closure
     /// so this store stays decoupled from `SettingsStore`.
     @ObservationIgnored public var threadCapBytes: (() -> Int?)? = nil
+    /// Transient `CanvasEvent` sink, wired by `AppView` to the automation
+    /// coordinator. Fired from the same mutation choke-point as the persisted
+    /// `ItemEvent` feed, but never stored. A closure so this store stays
+    /// decoupled from the automation layer. Unset in previews/tests that
+    /// don't exercise automations.
+    @ObservationIgnored public var onCanvasEvent: ((CanvasEvent) -> Void)? = nil
     /// Thread list for the Orchestrator (memory-scope) chat. Always non-empty.
     public private(set) var memoryThreads: [ChatThread]
     /// The threadId of the currently-selected Orchestrator conversation.
@@ -1063,10 +1069,21 @@ public final class MyAppStore {
     ) -> Bool {
         let resolvedCompId = componentId ?? trackerComponentId(myAppId: myAppId)
         var ok = false
+        // Detect a kanban column crossing (the `columnField` value changed)
+        // for the transient `CanvasEvent` stream, captured inside the choke
+        // point so it can't drift from the persisted `ItemEvent` feed.
+        var columnMove: (field: String, from: String?, to: String?, title: String?)?
         let body: (inout CanvasApp) -> Bool = { canvas in
             guard case .tracker(var t) = canvas,
                   let idx = t.items.firstIndex(where: { $0.id == id }) else { return false }
+            let priorColumn = t.columnField.flatMap { t.items[idx].values[$0] }
             for (k, v) in patch { t.items[idx].values[k] = v }
+            if let field = t.columnField, patch.keys.contains(field) {
+                let newColumn = t.items[idx].values[field]
+                if newColumn != priorColumn {
+                    columnMove = (field, priorColumn, newColumn, t.items[idx].displayName)
+                }
+            }
             canvas = .tracker(t)
             ok = true
             return true
@@ -1079,6 +1096,10 @@ public final class MyAppStore {
         if ok, let compId = resolvedCompId {
             emitItemEvent(myAppId: myAppId, componentId: compId, kind: .patched, actor: actor,
                           itemId: id)
+            if let move = columnMove {
+                emitCanvasEvent(itemMovedIn: myAppId, componentId: compId, itemId: id,
+                                field: move.field, from: move.from, to: move.to, title: move.title)
+            }
         }
         return ok
     }
@@ -2937,6 +2958,36 @@ public final class MyAppStore {
             actor: actor,
             itemId: itemId,
             threadId: threadId
+        ))
+    }
+
+    /// Publish a transient `item.moved` `CanvasEvent` for the automation
+    /// reactor. No-op when no sink is wired. Emitted from the same choke
+    /// point as `emitItemEvent` so the reactive stream and the History feed
+    /// can never diverge.
+    private func emitCanvasEvent(
+        itemMovedIn myAppId: UUID?,
+        componentId: String,
+        itemId: UUID,
+        field: String,
+        from: String?,
+        to: String?,
+        title: String?
+    ) {
+        guard let sink = onCanvasEvent else { return }
+        let target = myAppId ?? activeMyAppId
+        let threadId = myApps.first(where: { $0.id == target })?.currentThreadId
+        sink(CanvasEvent(
+            type: .itemMoved,
+            myAppId: target,
+            componentId: componentId,
+            itemId: itemId,
+            kind: "tracker",
+            fromColumn: from,
+            toColumn: to,
+            itemTitle: title,
+            transitionId: CanvasEvent.transitionId(itemId: itemId, field: field, from: from, to: to),
+            originThreadId: threadId
         ))
     }
 

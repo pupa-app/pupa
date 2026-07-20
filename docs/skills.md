@@ -13,7 +13,16 @@ memories/<myapp-slug>/pupa/
   agents/<sub>/AGENTS.md          # subagent prompt (overrides inline persona)
   skills/<name>/SKILL.md          # a user skill — directory name is the /command
   plugins/<id>/skills/<name>/SKILL.md  # plugin-bundled skill (managed, e.g. the guide)
+  automations.json                # canvas reactors (see architecture.md)
 ```
+
+**Two layers of "config that reacts" ship in one `.pupa` bundle.** *App
+layer* — `automations.json` reacts *inside* Pupa to canvas events (a card
+moved to "Review" proposes a review chat; see
+[architecture.md](architecture.md#canvas-automations-bundle-scoped-reactors)).
+*Host layer* — a `/setup`-style skill (like Content Studio's) prepares the
+host/CLI *outside* Pupa. Open an app and it knows both how to set up its host
+and how to react to its own canvas.
 
 Skill names share one flat namespace across both roots; on a collision the
 `pupa/skills/` skill wins over the plugin one.

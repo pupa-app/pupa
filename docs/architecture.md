@@ -617,6 +617,67 @@ picking a model pins the thread, and picking the backend-default sentinel
 clears the pin (re-inherits). No backend change — the resolved `{provider,
 model}` still rides `forwardedProps["llm"]`.
 
+## Canvas automations (bundle-scoped reactors)
+
+Pupa observes **domain events on the canvas** — things the headless model
+cannot see — and reacts by proposing a chat. This is deliberately *not* a
+re-implementation of Claude Code harness hooks (which fire on tool-call /
+session-start); Pupa automations fire on *canvas* events. Complementary.
+
+The seam is the existing mutation choke-point. Every canvas mutation already
+funnels through `MyAppStore`; the same site that appends the persisted
+`ItemEvent` History feed now also publishes a **transient `CanvasEvent`**
+([Automations/CanvasEvent.swift](../Pupa/Sources/PupaApp/Automations/CanvasEvent.swift))
+through the `onCanvasEvent` sink. Two event types, one funnel, so they can't
+drift: `ItemEvent` is stored (capped/TTL'd History); `CanvasEvent` is a
+throwaway reactive signal. v1 emits one type, `item.moved`, from `patchItem`
+when a tracker card crosses its kanban `columnField`.
+
+```
+patchItem() ──emitItemEvent──▶ ItemEventLog        (persisted History)
+            └─emitCanvasEvent─▶ onCanvasEvent ──▶ AutomationCoordinator
+                                                     │  RuleEngine (match + guards)
+                                                     ▼  AutomationProposal
+                                            dispatch via the tour "propose a chat"
+                                            bridge (chatPrefill / chatAutoSend)
+```
+
+**Rules** live in the `.pupa` bundle at `pupa/automations.json`, discovered
+per scope by `AutomationStore` (mirrors `SkillStore`). The config shape
+adopts Claude-Code hook *ergonomics* but keeps Pupa domain semantics — an
+`automations` map keyed by the event name, each a list of rules:
+
+```json
+{"automations":{"item.moved":[
+  {"id":"review-on-move","matcher":{"toColumn":"Review"},
+   "action":{"startThread":{"prompt":"Review {{item.title}}."}},"confirm":true}
+]}}
+```
+
+`matcher` is field-equality predicates on the event (all AND); `action` a
+typed verb (v1: `startThread` prompt); `confirm` (default **true**) proposes
+via the bubble, `false` auto-fires. JSON (not the issue's YAML sketch)
+because the `pupa/` folder only accepts `.md`/`.json` and Claude Code puts
+hook config in JSON too. Parsing is malformed-tolerant — imported bundles are
+hostile, so a bad or unknown-verb entry is skipped, never fatal.
+
+`RuleEngine`
+([Automations/RuleEngine.swift](../Pupa/Sources/PupaApp/Automations/RuleEngine.swift))
+is the pure, unit-tested core enforcing three guards:
+
+1. **In-flight lock** `(ruleId, itemId)` — a rule never re-fires while its own
+   reaction is live (prevents fan-out). Cleared on reaction termination; the
+   coordinator adds a timeout fallback so a hung run can't wedge the rule.
+2. **Once-per-transition dedupe** on `transitionId` (stable hash of item,
+   field, from→to) — fire on *entering* a state, re-entry later is fresh.
+3. **Reentrancy** — mutations by a reaction's own thread are tagged
+   `automationOrigin` and never match.
+
+Confirm dispatch reuses the notification-tap bridge (`GuidedTour.chatPrefill`
+/ `chatAutoSend`), so the confirm bubble *is* that primitive, generalized.
+Deferred (see CHANGELOG / the issue): richer in-transcript bubble + storm
+coalescing, more events/actions, compound predicates, paranoid-mode toggle.
+
 ## Skills & the `pupa/` config folder
 
 Each MyApp keeps its driving config in a visible `pupa/` subfolder of its

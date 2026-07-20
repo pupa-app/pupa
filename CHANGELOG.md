@@ -3,6 +3,20 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.109] — 2026-07-20
+
+### Added
+
+- **Canvas automations — apps that react to their own canvas.** A `.pupa`
+  bundle can now ship declarative rules (`pupa/automations.json`) that watch
+  for canvas events and propose a chat in response. v1 watches one event —
+  a tracker card moving into a kanban column — and one action: start a thread
+  with a prompt (e.g. move a card to "Review" → "Review this? Start / Dismiss").
+  Proposals confirm-by-default (per-rule `confirm: false` opts into auto-fire);
+  a rule never re-fires while its own reaction is still running, fires once per
+  transition, and a reaction editing the card can't re-trigger itself. More
+  events, actions, and a richer bubble follow.
+
 ## [0.0.108] — 2026-07-20
 
 ### Fixed

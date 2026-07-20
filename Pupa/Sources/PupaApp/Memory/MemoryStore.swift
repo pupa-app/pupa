@@ -273,6 +273,10 @@ public final class MemoryStore {
     public static let pupaAgentsPath = "pupa/AGENTS.md"
     /// Skills directory, relative to a scope-rooted store: `pupa/skills`.
     public static let pupaSkillsDir = "pupa/skills"
+    /// Bundle-scoped automation rules, relative to a scope-rooted store:
+    /// `pupa/automations.json`. Rides the memory subtree + `.pupa` bundle
+    /// unchanged (`.json` is importer-allowed). See `AutomationStore`.
+    public static let pupaAutomationsPath = "pupa/automations.json"
     /// Plugins directory, relative to a scope-rooted store: `pupa/plugins`.
     /// A plugin bundles managed skills at `pupa/plugins/<id>/skills/<name>/SKILL.md`,
     /// keeping them out of the user's `pupa/skills/` space.
