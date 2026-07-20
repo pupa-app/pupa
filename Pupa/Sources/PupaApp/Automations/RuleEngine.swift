@@ -67,9 +67,17 @@ public final class RuleEngine {
     /// decoupled from disk. First matching, unlocked, non-deduped rule per
     /// event is dispatched.
     public func ingest(_ event: CanvasEvent, rules: [AutomationRule]) {
-        for rule in rules where rule.event == event.type && rule.matcher.matches(event) {
+        let fields = event.matchFields
+        for rule in rules where rule.event == event.type && Self.matches(rule.matcher, fields) {
             dispatch(rule, event)
         }
+    }
+
+    /// Generic equality predicate: every `matcher` key must equal the event's
+    /// `matchFields` value (AND). Empty matcher ⇒ matches any.
+    private static func matches(_ matcher: [String: String], _ fields: [String: String]) -> Bool {
+        for (key, expected) in matcher where fields[key] != expected { return false }
+        return true
     }
 
     private func dispatch(_ rule: AutomationRule, _ event: CanvasEvent) {
@@ -90,7 +98,7 @@ public final class RuleEngine {
         inFlight.insert(key)
 
         let prompt: String
-        if let template = rule.action.startThread?.prompt {
+        if let template = rule.action.startThreadPrompt {
             prompt = AutomationRule.render(template, event: event)
         } else {
             prompt = ""

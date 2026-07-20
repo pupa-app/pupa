@@ -24,7 +24,10 @@ header   (read & validated first)   app (Codable MyApp tree)   memories[]
   rules** at `pupa/automations.json`) is app capability, not user data: it
   rides the bundle and **survives a memories-off export**. On import,
   `MemoryStore.writeFile` accepts only `.md` / `.json`, so a hostile bundle
-  can't drop an executable into the sandbox.
+  can't drop an executable into the sandbox. `pupa/automations.json` is a
+  memories-subtree file like a skill, so it needs **no `formatVersion`
+  bump**; it carries prompt text (the `startThread` template), the same
+  prompt-injection surface as `AGENTS.md`, and rides the same defense.
 
 The bundle carries **no executable content**. All rebuild logic lives in the
 app and is dispatched by component `kind`.

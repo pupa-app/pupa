@@ -15,7 +15,8 @@ public struct CanvasEvent: Sendable, Equatable {
     public let itemId: UUID
     /// Best-effort display name of the moved item (for `{{item.title}}`).
     public let itemTitle: String
-    /// The item's field values after the move (for `{{item.<field>}}`).
+    /// The item's field values after the move (for `{{item.<field>}}` and for
+    /// `matchFields` equality predicates on any field).
     public let values: [String: String]
     public let fromColumn: String?
     public let toColumn: String?
@@ -46,47 +47,43 @@ public struct CanvasEvent: Sendable, Equatable {
     public var transitionId: String {
         "\(itemId.uuidString)|\(type.rawValue)|\(fromColumn ?? "")->\(toColumn ?? "")"
     }
-}
 
-/// Predicate side of a rule — Claude Code's `matcher` term. v1: equality on
-/// `toColumn` only. Absent field ⇒ matches any.
-public struct AutomationMatcher: Codable, Sendable, Equatable {
-    public var toColumn: String?
-
-    public init(toColumn: String? = nil) { self.toColumn = toColumn }
-
-    public func matches(_ event: CanvasEvent) -> Bool {
-        if let toColumn, event.toColumn != toColumn { return false }
-        return true
+    /// Field values a rule `matcher` is tested against (equality predicates,
+    /// all AND). The item's own field values plus the structural transition
+    /// keys `toColumn` / `fromColumn`, so a matcher can key off any event
+    /// field without a schema change (forward-compatible to `field.changed`,
+    /// `item.added`, multi-field AND).
+    public var matchFields: [String: String] {
+        var f = values
+        if let toColumn { f["toColumn"] = toColumn }
+        if let fromColumn { f["fromColumn"] = fromColumn }
+        return f
     }
 }
 
-/// Action side of a rule. v1: `startThread` with a prompt template. Later:
-/// `runSkill`, `runWorkflow`, `notify`.
-public struct AutomationAction: Codable, Sendable, Equatable {
-    public struct StartThread: Codable, Sendable, Equatable {
-        public var prompt: String
-        public init(prompt: String) { self.prompt = prompt }
-    }
-    public var startThread: StartThread?
+/// Action side of a rule. v1: `startThread` with a prompt template. Kept a
+/// struct (not a bare String) so `runSkill` / `runWorkflow` slot in later
+/// without touching call sites.
+public struct AutomationAction: Sendable, Equatable {
+    /// `startThread` prompt template. Substituted at dispatch (see
+    /// `AutomationRule.render`). Non-nil is the only supported v1 shape.
+    public var startThreadPrompt: String?
 
-    public init(startThread: StartThread? = nil) { self.startThread = startThread }
+    public init(startThreadPrompt: String? = nil) {
+        self.startThreadPrompt = startThreadPrompt
+    }
 }
 
-/// One declarative automation rule. Keyed under an event name in
-/// `pupa/automations.json`; `event` is populated from that key on decode.
-///
-/// Naming mirrors Claude Code hook config where the concept maps —
-/// event-name → `matcher` → `action` — rather than the issue's YAML sketch
-/// (`on`/`when`/`do`); see the PR body for the per-field justification. The
-/// config is JSON because `MemoryStore.writableExtensions` is `{md, json}` and
-/// the rest of the `pupa/` config is JSON-shaped.
-public struct AutomationRule: Codable, Sendable, Equatable, Identifiable {
+/// One declarative automation rule, loaded from a bundle's
+/// `pupa/automations.json`. Naming mirrors Claude Code hook config where the
+/// concept maps — event-name → `matcher` → `action`.
+public struct AutomationRule: Sendable, Equatable, Identifiable {
     public let id: String
-    /// Which event name this rule was listed under. Not in the per-rule JSON;
-    /// set from the top-level key during `decodeSet`.
+    /// Which event name this rule was listed under (the config grouping key).
     public var event: CanvasEvent.EventType
-    public var matcher: AutomationMatcher
+    /// Equality predicates on the event's `matchFields` (all must hold — AND).
+    /// Empty ⇒ matches any event of `event`'s type.
+    public var matcher: [String: String]
     public var action: AutomationAction
     /// Confirm-bubble gate. Default `true` (propose, don't auto-fire).
     public var confirm: Bool
@@ -94,7 +91,7 @@ public struct AutomationRule: Codable, Sendable, Equatable, Identifiable {
     public init(
         id: String,
         event: CanvasEvent.EventType,
-        matcher: AutomationMatcher = .init(),
+        matcher: [String: String] = [:],
         action: AutomationAction = .init(),
         confirm: Bool = true
     ) {
@@ -103,42 +100,6 @@ public struct AutomationRule: Codable, Sendable, Equatable, Identifiable {
         self.matcher = matcher
         self.action = action
         self.confirm = confirm
-    }
-
-    enum CodingKeys: String, CodingKey { case id, matcher, action, confirm }
-
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        self.id = try c.decode(String.self, forKey: .id)
-        self.matcher = try c.decodeIfPresent(AutomationMatcher.self, forKey: .matcher) ?? .init()
-        self.action = try c.decodeIfPresent(AutomationAction.self, forKey: .action) ?? .init()
-        self.confirm = try c.decodeIfPresent(Bool.self, forKey: .confirm) ?? true
-        // Placeholder; overwritten by `decodeSet` from the enclosing key.
-        self.event = .itemMoved
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(id, forKey: .id)
-        try c.encode(matcher, forKey: .matcher)
-        try c.encode(action, forKey: .action)
-        try c.encode(confirm, forKey: .confirm)
-    }
-
-    /// Decode the `pupa/automations.json` shape — a dict keyed by event name,
-    /// each value an array of rules — into a flat, event-tagged rule list.
-    /// Unknown event names are skipped (forward-compatible). Malformed JSON
-    /// yields an empty list rather than throwing (inert config).
-    public static func decodeSet(_ json: String) -> [AutomationRule] {
-        guard let data = json.data(using: .utf8),
-              let raw = try? JSONDecoder().decode([String: [AutomationRule]].self, from: data)
-        else { return [] }
-        var out: [AutomationRule] = []
-        for (key, rules) in raw {
-            guard let type = CanvasEvent.EventType(rawValue: key) else { continue }
-            for var rule in rules { rule.event = type; out.append(rule) }
-        }
-        return out.sorted { $0.id < $1.id }
     }
 
     /// Render an action prompt template against an event. Substitutes
@@ -153,5 +114,58 @@ public struct AutomationRule: Codable, Sendable, Equatable, Identifiable {
             out = out.replacingOccurrences(of: "{{item.\(k)}}", with: v)
         }
         return out
+    }
+}
+
+/// Parser for `pupa/automations.json`.
+///
+/// Shape mirrors Claude Code's `hooks: { <EventName>: [ {matcher, …} ] }`:
+/// an `automations` map keyed by the domain event name, each a list of rules.
+/// The `automations` top-level wrapper leaves room for future config keys.
+///
+/// Deliberately **per-entry tolerant** — imported bundles are treated as
+/// hostile, so a malformed / missing-id / unknown-verb / unknown-event entry
+/// is skipped without failing the rest of the file (same posture as the
+/// `.pupa` importer). See docs/marketplace.md.
+public enum AutomationConfig {
+    /// Parse rule text into a flat, event-tagged rule list. Never throws;
+    /// returns `[]` on unreadable input. Rules are sorted by id for a
+    /// deterministic order.
+    public static func parse(_ json: String) -> [AutomationRule] {
+        guard let data = json.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let automations = root["automations"] as? [String: Any] else { return [] }
+
+        var rules: [AutomationRule] = []
+        for (eventKey, value) in automations {
+            guard let event = CanvasEvent.EventType(rawValue: eventKey),   // unknown event → skip
+                  let entries = value as? [[String: Any]] else { continue }
+            for entry in entries {
+                guard let rule = parseRule(entry, event: event) else { continue }   // bad entry → skip
+                rules.append(rule)
+            }
+        }
+        return rules.sorted { $0.id < $1.id }
+    }
+
+    private static func parseRule(_ entry: [String: Any], event: CanvasEvent.EventType) -> AutomationRule? {
+        guard let id = (entry["id"] as? String)?.nonEmpty,
+              let actionDict = entry["action"] as? [String: Any] else { return nil }
+
+        // v1: only `startThread` with a non-empty prompt. Unknown verbs skip.
+        guard let startThread = actionDict["startThread"] as? [String: Any],
+              let prompt = (startThread["prompt"] as? String)?.nonEmpty else { return nil }
+
+        let matcher = (entry["matcher"] as? [String: Any])?
+            .compactMapValues { $0 as? String } ?? [:]
+        let confirm = entry["confirm"] as? Bool ?? true   // default: propose, don't auto-fire
+
+        return AutomationRule(
+            id: id,
+            event: event,
+            matcher: matcher,
+            action: AutomationAction(startThreadPrompt: prompt),
+            confirm: confirm
+        )
     }
 }

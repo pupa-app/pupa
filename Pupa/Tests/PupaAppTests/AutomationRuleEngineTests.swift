@@ -44,8 +44,8 @@ struct AutomationRuleEngineTests {
     private func reviewRule(id: String = "review-on-move", confirm: Bool = true) -> AutomationRule {
         AutomationRule(
             id: id, event: .itemMoved,
-            matcher: AutomationMatcher(toColumn: "Review"),
-            action: AutomationAction(startThread: .init(prompt: "Review {{item.title}}.")),
+            matcher: ["toColumn": "Review"],
+            action: AutomationAction(startThreadPrompt: "Review {{item.title}}."),
             confirm: confirm
         )
     }
@@ -56,34 +56,40 @@ struct AutomationRuleEngineTests {
     func configParse() {
         let json = """
         {
-          "item.moved": [
-            { "id": "review-on-move",
-              "matcher": { "toColumn": "Review" },
-              "action": { "startThread": { "prompt": "Review {{item.title}}." } } },
-            { "id": "ship-it",
-              "matcher": { "toColumn": "Done" },
-              "action": { "startThread": { "prompt": "Ship it." } },
-              "confirm": false }
-          ]
+          "automations": {
+            "item.moved": [
+              { "id": "review-on-move",
+                "matcher": { "toColumn": "Review" },
+                "action": { "startThread": { "prompt": "Review {{item.title}}." } } },
+              { "id": "ship-it",
+                "matcher": { "toColumn": "Done" },
+                "action": { "startThread": { "prompt": "Ship it." } },
+                "confirm": false }
+            ]
+          }
         }
         """
-        let rules = AutomationRule.decodeSet(json)
+        let rules = AutomationConfig.parse(json)
         #expect(rules.count == 2)
         let review = rules.first { $0.id == "review-on-move" }
         #expect(review?.event == .itemMoved)
-        #expect(review?.matcher.toColumn == "Review")
-        #expect(review?.action.startThread?.prompt == "Review {{item.title}}.")
+        #expect(review?.matcher["toColumn"] == "Review")
+        #expect(review?.action.startThreadPrompt == "Review {{item.title}}.")
         #expect(review?.confirm == true)   // default when omitted
         #expect(rules.first { $0.id == "ship-it" }?.confirm == false)
     }
 
     // MARK: - 2. Matcher predicate
 
-    @Test("matcher equality on toColumn")
+    @Test("matcher equality on toColumn: fires on match, not on mismatch")
     func matcherEquality() {
-        let m = AutomationMatcher(toColumn: "Review")
-        #expect(m.matches(event(to: "Review")))
-        #expect(!m.matches(event(to: "Done")))
+        let engine = RuleEngine()
+        engine.ingest(event(to: "Review"), rules: [reviewRule()])
+        #expect(engine.pendingProposal != nil)
+
+        let miss = RuleEngine()
+        miss.ingest(event(to: "Done"), rules: [reviewRule()])
+        #expect(miss.pendingProposal == nil)
     }
 
     // MARK: - 3. End-to-end emission from the store choke-point
@@ -180,8 +186,8 @@ struct AutomationRuleEngineTests {
         // so Done won't propose — assert via a Done-matching rule instead).
         let engine2 = RuleEngine()
         f.store.onCanvasEvent = { engine2.ingest($0, rules: [
-            AutomationRule(id: "r", event: .itemMoved, matcher: AutomationMatcher(toColumn: "Review"),
-                           action: AutomationAction(startThread: .init(prompt: "Review {{item.title}}.")))
+            AutomationRule(id: "r", event: .itemMoved, matcher: ["toColumn": "Review"],
+                           action: AutomationAction(startThreadPrompt: "Review {{item.title}}."))
         ]) }
         _ = f.store.patchItem(id: f.itemId, with: ["status": "Review"],
                               myAppId: f.myAppId, componentId: f.compId, actor: .user)

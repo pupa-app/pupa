@@ -368,8 +368,19 @@ with `confirm: true` (default) surfaces a Start/Dismiss confirm bubble
 reusing the notification "propose a chat" path; `confirm: false`
 auto-fires. The action (`startThread`) opens a fresh thread and
 auto-sends a `{{item.title}}`-templated prompt. Config shape mirrors
-Claude Code hook ergonomics (event-name → `matcher` → `action`) but the
-events are Pupa **domain** events, not harness hooks.
+Claude Code hook ergonomics — an `automations` map keyed by event name,
+each a list of rules — but the events are Pupa **domain** events, not
+harness hooks. `matcher` is field-equality predicates on the event's
+`matchFields` (any field, all AND); parsing is **per-entry tolerant** —
+imported bundles are hostile, so a malformed / missing-id / unknown-verb
+entry is skipped, never fatal.
+
+```json
+{"automations":{"item.moved":[
+  {"id":"review-on-move","matcher":{"toColumn":"Review"},
+   "action":{"startThread":{"prompt":"Review {{item.title}}."}},"confirm":true}
+]}}
+```
 
 ### Deterministic write targeting
 

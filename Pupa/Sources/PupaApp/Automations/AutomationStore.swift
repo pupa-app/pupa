@@ -8,9 +8,6 @@ import Observation
 @MainActor
 @Observable
 public final class AutomationStore {
-    /// Bundle-scoped rules file, alongside `pupa/skills/`.
-    public static let path = "pupa/automations.json"
-
     private let memory: MemoryStore
     public private(set) var rules: [AutomationRule] = []
 
@@ -19,9 +16,18 @@ public final class AutomationStore {
         rescan()
     }
 
-    /// Rebuild the cache from disk. Cheap (one small JSON file).
+    /// Rebuild the cache from `pupa/automations.json`. Cheap (one small JSON
+    /// file). Missing / malformed file → empty ruleset (never throws).
     public func rescan() {
-        guard let read = try? memory.readFile(path: Self.path) else { rules = []; return }
-        rules = AutomationRule.decodeSet(read.content)
+        guard let read = try? memory.readFile(path: MemoryStore.pupaAutomationsPath) else {
+            rules = []
+            return
+        }
+        rules = AutomationConfig.parse(read.content)
+    }
+
+    /// Rules registered for one event type.
+    public func rules(for event: CanvasEvent.EventType) -> [AutomationRule] {
+        rules.filter { $0.event == event }
     }
 }
