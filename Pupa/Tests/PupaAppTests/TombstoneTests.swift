@@ -40,4 +40,23 @@ struct TombstoneTests {
         #expect(!b.myApps.contains { $0.id == doomed })   // suppressed
         #expect(b.myApps.contains { $0.id == kept })      // untouched
     }
+
+    @Test("removeMyApp writes a tombstone and a re-pushed body does not resurrect")
+    func removeWritesTombstoneNoResurrect() async throws {
+        await MyAppStore.clearStorage()
+        let a = MyAppStore()
+        let kept = a.addMyApp(typeId: "tracker", name: "Kept", iconSystemName: "star")
+        let doomed = a.addMyApp(typeId: "tracker", name: "Doomed", iconSystemName: "trophy")
+        let body = try Data(contentsOf: bodyURL(doomed))   // capture before delete
+
+        a.removeMyApp(doomed)
+        #expect(FileManager.default.fileExists(atPath: tombstoneURL(doomed).path))  // durable marker
+        #expect(!FileManager.default.fileExists(atPath: bodyURL(doomed).path))      // body gone
+
+        try body.write(to: bodyURL(doomed))                // another device re-pushes the stale body
+
+        let b = MyAppStore()                                // reload
+        #expect(!b.myApps.contains { $0.id == doomed })     // still dead (tombstone wins)
+        #expect(b.myApps.contains { $0.id == kept })
+    }
 }

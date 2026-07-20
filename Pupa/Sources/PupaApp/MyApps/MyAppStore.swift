@@ -352,6 +352,9 @@ public final class MyAppStore {
         // Remember this was a deliberate local delete so a later `reloadFromDisk`
         // doesn't mistake the resulting roster shrink for a bad sync merge.
         userInitiatedRemovals.insert(id)
+        // Durable, mirrored delete marker — survives relaunch and suppresses the
+        // body on every device, so a not-yet-synced copy can't resurrect it.
+        Self.writeTombstone(id)
         if activeMyAppId == id {
             activeMyAppId = myApps[0].id
         }
