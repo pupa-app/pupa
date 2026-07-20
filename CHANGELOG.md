@@ -3,6 +3,39 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.110] — 2026-07-20
+
+### Added
+
+- **`/pupa-automations` guide skill.** The shipped guide plugin now documents
+  how to author bundle automations — the `pupa/automations.json` format
+  (trigger, matcher, `startThread` prompt templates), the `confirm` gate, and
+  the automatic guards (self-mutation, once-per-transition, in-flight lock).
+  Users read it as `/pupa-automations`; the agent loads it to write rules.
+
+### Fixed
+
+- **Automation in-flight lock now releases when the reaction ends.** The lock
+  guarding a rule from re-firing while its reaction runs was only cleared by
+  the timeout backstop, so a genuine later move of the same item was dropped
+  for up to two minutes. A finished reaction thread now frees the lock at
+  once. Also bounds the once-per-transition dedupe map so it can't grow over a
+  long session.
+
+## [0.0.109] — 2026-07-20
+
+### Added
+
+- **Canvas-triggered automations (v1).** A `.pupa` bundle can now carry
+  declarative rules at `pupa/automations.json` that react to canvas changes.
+  v1 reacts to one event — an item dragged into a kanban column
+  (`item.moved`) — and can start a chat with a templated prompt
+  (`{{item.title}}`). Reactions are proposed via a **confirm bubble that is on
+  by default**; a rule can opt into silent auto-fire with `confirm: false`. An
+  in-flight lock stops a rule re-firing while its own reaction is still running,
+  duplicate emits of one move are de-duplicated, and agent-driven moves never
+  trigger rules (so a reaction can't re-trigger itself).
+
 ## [0.0.108] — 2026-07-20
 
 ### Fixed

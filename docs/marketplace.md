@@ -20,10 +20,14 @@ header   (read & validated first)   app (Codable MyApp tree)   memories[]
   here, so renaming or re-iconing a component (via `setComponentMeta`) needs
   **no format change** — `formatVersion` stays put and old bundles load as-is.
 - `memories`: `{path, content}`, paths relative to the app's memory root. The
-  `pupa/` config subtree (agent + subagent prompts, skills) is app
-  capability, not user data: it rides the bundle and **survives a memories-off
-  export**. On import, `MemoryStore.writeFile` accepts only `.md` / `.json`, so
-  a hostile bundle can't drop an executable into the sandbox.
+  `pupa/` config subtree (agent + subagent prompts, skills, **automation
+  rules** at `pupa/automations.json`) is app capability, not user data: it
+  rides the bundle and **survives a memories-off export**. On import,
+  `MemoryStore.writeFile` accepts only `.md` / `.json`, so a hostile bundle
+  can't drop an executable into the sandbox. `pupa/automations.json` is a
+  memories-subtree file like a skill, so it needs **no `formatVersion`
+  bump**; it carries prompt text (the `startThread` template), the same
+  prompt-injection surface as `AGENTS.md`, and rides the same defense.
 
 The bundle carries **no executable content**. All rebuild logic lives in the
 app and is dispatched by component `kind`.
@@ -116,6 +120,7 @@ The bundle is inert (no code execution). Remaining vectors → mitigations:
 |---|---|
 | Settings injection (`shell_approval_disabled` …) | allow-list to validated `llm.*` |
 | Prompt injection via `AGENTS.md` / Slack personas (runs with victim's tools) | export review pane + "imported" provenance + a confirm sheet (names app + agent prompts) on externally-opened files; **real fix = signing + moderation in the backend follow-on** |
+| Bundled automation rules (`pupa/automations.json`) that auto-invoke the model on a canvas move | rules are inert declarative config (no executable content); the only action is a model turn behind a **confirm bubble on by default**. A `confirm: false` rule auto-fires — the residual vector; mitigated today by confirm-on-by-default, and a global force-confirm ("paranoid") toggle is a deferred follow-on |
 | Memory path traversal | `MemoryStore.resolve()` prefix/`..`/`.md` guards |
 | Cross-app memory clobber via slug collision | slug-unique rename on import |
 | DoS (huge/nested bundle) | pre-decode byte cap + post-decode count caps |

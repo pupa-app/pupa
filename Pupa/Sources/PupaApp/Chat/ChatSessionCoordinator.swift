@@ -51,6 +51,11 @@ public final class ChatSessionCoordinator {
     /// property still triggers `@Observable` re-evaluation because it reads
     /// the observed `busyCounts` storage.
     public var busyMyApps: Set<UUID> { Set(busyCounts.keys) }
+    /// Fired when any session's turn ends (streaming true→false). Lets a caller
+    /// (AppView's automation reactor) learn a reaction thread finished so it can
+    /// release the rule's in-flight lock. `(scope, threadId)` of the idled
+    /// session. Not observed storage — a plain notify hook.
+    @ObservationIgnored public var onSessionIdle: ((ChatScope, String) -> Void)?
     /// Per-myApp refcount of in-flight streams. `> 0` means visible streaming.
     /// Bumped by per-session `onStreamingChange` (the user's own chat in that
     /// myApp) AND by `runOneShot` for the lifetime of each orchestrator
@@ -314,7 +319,10 @@ public final class ChatSessionCoordinator {
                 self?.updateBusy(scope: scope, streaming: streaming)
                 // Rescan the global store after each turn so the sidebar
                 // reflects any files the session's scoped store just wrote.
-                if !streaming { self?.memory.rescan() }
+                if !streaming {
+                    self?.memory.rescan()
+                    self?.onSessionIdle?(scope, threadId)
+                }
             }
         )
         // Refresh the session's skill cache whenever its scoped memory mutates

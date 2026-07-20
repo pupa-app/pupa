@@ -345,6 +345,43 @@ tools. Each mutation appends a lightweight `ItemEvent` to `ItemEventLog`
 that captions the History timeline (verb + component-kind noun); the log
 no longer drives undo.
 
+### Canvas events → automations (issue #209)
+
+The same choke-point also emits a typed **`CanvasEvent`** stream (the
+trigger side of bundle automations) via the `MyAppStore.onCanvasEvent`
+closure — decoupled from the automation layer the way `threadCapBytes`
+decouples the settings cap. v1 emits one event: `item.moved`, when a
+**user** drag through `patchItem(id:with:)` actually changes a kanban
+`columnField` value. Agent/reaction moves (`actor == .agent`) never
+emit — the self-mutation guard, so a reaction can't re-trigger its own
+rule (no dedicated `.automation` tag needed in v1).
+
+`AppView` wires the stream to a **`RuleEngine`**
+([Automations/](../Pupa/Sources/PupaApp/Automations/)): for each event
+it loads that MyApp's rules fresh from `pupa/automations.json`
+(`AutomationStore`, mirroring `SkillStore`), matches them, and applies
+the guards — an **in-flight lock** keyed `(ruleId, itemId)` (dropped
+while a reaction runs; cleared on dismiss/complete or a timeout
+backstop), and **once-per-transition** dedupe (same `transitionId`
+inside a short window fires once; a later re-entry fires again). A match
+with `confirm: true` (default) surfaces a Start/Dismiss confirm bubble
+reusing the notification "propose a chat" path; `confirm: false`
+auto-fires. The action (`startThread`) opens a fresh thread and
+auto-sends a `{{item.title}}`-templated prompt. Config shape mirrors
+Claude Code hook ergonomics — an `automations` map keyed by event name,
+each a list of rules — but the events are Pupa **domain** events, not
+harness hooks. `matcher` is field-equality predicates on the event's
+`matchFields` (any field, all AND); parsing is **per-entry tolerant** —
+imported bundles are hostile, so a malformed / missing-id / unknown-verb
+entry is skipped, never fatal.
+
+```json
+{"automations":{"item.moved":[
+  {"id":"review-on-move","matcher":{"toColumn":"Review"},
+   "action":{"startThread":{"prompt":"Review {{item.title}}."}},"confirm":true}
+]}}
+```
+
 ### Deterministic write targeting
 
 Agent-driven writes never route by the **active/view** component. Every

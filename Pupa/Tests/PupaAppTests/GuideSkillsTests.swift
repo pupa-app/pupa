@@ -12,7 +12,7 @@ struct GuideSkillsTests {
         return MemoryStore(rootOverride: root)
     }
 
-    private let allNames = ["pupa", "pupa-components", "pupa-sharing", "pupa-memory", "pupa-agents", "pupa-system"]
+    private let allNames = ["pupa", "pupa-components", "pupa-sharing", "pupa-memory", "pupa-agents", "pupa-automations", "pupa-system"]
 
     private func pluginPath(_ name: String) -> String {
         "\(GuideSkills.pluginDir)/skills/\(name)/SKILL.md"

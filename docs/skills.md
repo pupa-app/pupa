@@ -13,7 +13,17 @@ memories/<myapp-slug>/pupa/
   agents/<sub>/AGENTS.md          # subagent prompt (overrides inline persona)
   skills/<name>/SKILL.md          # a user skill — directory name is the /command
   plugins/<id>/skills/<name>/SKILL.md  # plugin-bundled skill (managed, e.g. the guide)
+  automations.json                # canvas-event → action rules (issue #209)
 ```
+
+`automations.json` is the **app-layer** reactor: declarative rules that
+react *inside* Pupa to canvas events (an item dragged into a column) by
+proposing a chat. Shape mirrors Claude Code hook config — event-name →
+`matcher` → `action` — but the events are Pupa domain events, not harness
+hooks. See the rule engine in
+[architecture.md](architecture.md#canvas-events--automations-issue-209).
+The **host-layer** counterpart (a `/setup` skill that prepares the CLI
+*outside* Pupa) is a deferred follow-on.
 
 Skill names share one flat namespace across both roots; on a collision the
 `pupa/skills/` skill wins over the plugin one.

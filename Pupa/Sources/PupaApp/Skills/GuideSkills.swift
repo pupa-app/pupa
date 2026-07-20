@@ -15,7 +15,7 @@ import Foundation
 /// component-kind list is generated from `MyAppType.kinds` so it can't drift.
 enum GuideSkills {
     /// Bump when any guide body changes so existing installs re-seed.
-    static let version = "8"
+    static let version = "9"
 
     /// The plugin folder holding this guide's skills.
     static let pluginDir = "\(MemoryStore.pupaPluginsDir)/pupa-guide"
@@ -28,6 +28,7 @@ enum GuideSkills {
             ("pupa-sharing", sharingBody),
             ("pupa-memory", memoryBody),
             ("pupa-agents", agentsBody),
+            ("pupa-automations", automationsBody),
             ("pupa-system", systemBody),
         ]
     }
@@ -125,6 +126,7 @@ enum GuideSkills {
     - /pupa-sharing — export and install myapps as `.pupa` files
     - /pupa-memory — memories, sessions, change history, archive
     - /pupa-agents — skills, subagents and slack rooms
+    - /pupa-automations — react to canvas events (an item moved) by proposing a chat
     - /pupa-system — where things live: on-device app vs backend, standing instructions
     """
 
@@ -215,6 +217,61 @@ enum GuideSkills {
     and posts its reply back to the channel. Agents can @-mention each other,
     so one message can start a chain of replies. Exporting the app keeps the
     channels and the agent personas but strips the transcripts.
+    """
+
+    /// Bundle automations (issue #209): the authoring contract for
+    /// `pupa/automations.json` — trigger catalog, matcher, action templates,
+    /// and the guards. User-conceptual up top; the JSON block is the agent's
+    /// write recipe (loaded via `app_skill_view`). Keep in sync with
+    /// `AutomationConfig` / `RuleEngine`.
+    private static let automationsBody = """
+    \(frontMatter(
+        description: "React to canvas events (an item moved) by proposing a chat — the pupa/automations.json rule format and its guards",
+        whenToUse: "when the user wants the app to act automatically on a canvas change, or when authoring or editing automation rules"
+    ))
+    An **automation** reacts *inside* a myapp to a canvas event by proposing a
+    chat. Declarative config, no code — rules ride the `.pupa` bundle and only
+    ever start a model turn, always behind a confirm bubble unless a rule
+    explicitly opts out.
+
+    **Trigger (v1).** `item.moved` — a user drags an item into a different
+    kanban column. Agent moves never trigger (so a reaction can't loop on
+    itself).
+
+    **Where.** One file per app: `pupa/automations.json`. Shape mirrors Claude
+    Code hook config — an `automations` map keyed by event name, each a list of
+    rules — but these are Pupa domain events, not harness hooks.
+
+    ```json
+    {"automations":{"item.moved":[
+      {"id":"review-on-move",
+       "matcher":{"toColumn":"Review"},
+       "action":{"startThread":{"prompt":"Review {{item.title}}."}},
+       "confirm":true}
+    ]}}
+    ```
+
+    **Fields.**
+    - `id` (required) — unique per rule; also the lock key.
+    - `matcher` — field-equality predicates, **all must hold (AND)**; omit or
+      `{}` to match every move. Keys are any of the item's own fields plus the
+      transition keys `toColumn` / `fromColumn`.
+    - `action.startThread.prompt` (required) — the chat prompt. Templates:
+      `{{item.title}}`, `{{item.<field>}}`, `{{toColumn}}`, `{{fromColumn}}`,
+      substituted literally (no code).
+    - `confirm` — `true` (default) proposes a Start/Dismiss bubble; `false`
+      auto-fires with no prompt. Only ship `confirm:false` in bundles you
+      trust — it invokes the model on a plain canvas move.
+
+    **Guards (automatic — you don't configure them).**
+    - **Self-mutation** — the reaction's own edits don't re-trigger the rule.
+    - **Once-per-transition** — the same move fires once within a short window.
+    - **In-flight lock** — while a rule's reaction for an item is running, the
+      same item won't re-fire it (a timeout backstop frees a stuck one).
+
+    **Limits.** v1 has one event (`item.moved`), one action (`startThread`),
+    equality-only matching, and no chaining. A malformed rule is skipped, not
+    fatal — the rest of the file still loads.
     """
 
     /// Agent-facing successor of the retired `/pupa-internals`: the
