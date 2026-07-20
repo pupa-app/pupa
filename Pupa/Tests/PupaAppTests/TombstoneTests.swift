@@ -59,4 +59,18 @@ struct TombstoneTests {
         #expect(!b.myApps.contains { $0.id == doomed })     // still dead (tombstone wins)
         #expect(b.myApps.contains { $0.id == kept })
     }
+
+    @Test("the orphan sweep reaps a tombstoned body but keeps live ones")
+    func sweepReapsTombstonedBody() async throws {
+        await MyAppStore.clearStorage()
+        let a = MyAppStore()
+        let live = a.addMyApp(typeId: "tracker", name: "Live", iconSystemName: "star")
+        let doomed = a.addMyApp(typeId: "tracker", name: "Doomed", iconSystemName: "trophy")
+        MyAppStore.writeTombstone(doomed)                  // fresh body, but tombstoned
+
+        _ = MyAppStore.sweepOrphanAppFiles(keeping: [])     // nothing pinned as live
+
+        #expect(!FileManager.default.fileExists(atPath: bodyURL(doomed).path))  // reaped despite being fresh + decodable
+        #expect(FileManager.default.fileExists(atPath: bodyURL(live).path))     // decodable, not tombstoned → kept
+    }
 }

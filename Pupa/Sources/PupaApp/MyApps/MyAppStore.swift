@@ -3246,12 +3246,21 @@ public final class MyAppStore {
     ) -> Int {
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(atPath: appsDir.path) else { return 0 }
+        let tombstoned = diskTombstoneIds()
         var deleted = 0
         for name in names {
             guard name.hasSuffix(".json"),
                   let id = UUID(uuidString: String(name.dropLast(".json".count))),
                   !live.contains(id) else { continue }
             let url = appsDir.appendingPathComponent(name)
+            // A tombstoned body is a confirmed delete, not recovery material —
+            // reap it regardless of decodability or age so the delete propagates
+            // (this is how an arriving tombstone reaps the second device's copy).
+            if tombstoned.contains(id) {
+                CloudDocument.delete(url)
+                deleted += 1
+                continue
+            }
             // Never delete a file that still decodes as a real MyApp body: a
             // stale/lost index can de-list an app without deleting it, and that
             // body is recovery material (union-load restores it), not an orphan.
