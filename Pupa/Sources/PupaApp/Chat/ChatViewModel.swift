@@ -1220,7 +1220,12 @@ public final class ChatViewModel {
                     .map { AgentMessage.user($0.content, id: $0.id ?? UUID().uuidString) }
                 await session.reset(messages: agentMessages)
                 await MainActor.run { [weak self] in
-                    guard let self, !self.isStreaming else { return }
+                    // Apply the backend transcript only while the on-screen
+                    // state is still exactly what we rendered from cache (or
+                    // nothing). Once the user has sent — bubbles diverged from
+                    // `cached` — a slow fetch resolving after the turn settled
+                    // must not overwrite the newer local state.
+                    guard let self, self.bubbles.isEmpty || self.bubbles == cached else { return }
                     self.bubbles = bubbles
                 }
             } catch {
@@ -1234,14 +1239,24 @@ public final class ChatViewModel {
         }
     }
 
+    /// Serializes transcript writes so they land in call order. Two `Task.detached`
+    /// saves (after send, at settle) would otherwise race — the earlier-captured,
+    /// smaller snapshot could land last and stale the cache.
+    private var persistTask: Task<Void, Never>?
+
     /// Snapshot the current bubbles to the on-device transcript cache off the
     /// main actor. Called at turn boundaries (after send, at turn settle), not
     /// per token. `CloudDocument.write` is synchronous file IO — kept off main
     /// per pupa#120; `[ChatBubble]` is `Sendable` so it copies into the task.
+    /// Writes chain off `persistTask` so they apply in call (= capture) order.
     private func persistTranscript() {
         let bubbles = self.bubbles
         let threadId = self.threadId
-        Task.detached(priority: .utility) { TranscriptCache.save(bubbles, threadId: threadId) }
+        let prev = persistTask
+        persistTask = Task.detached(priority: .utility) {
+            await prev?.value
+            TranscriptCache.save(bubbles, threadId: threadId)
+        }
     }
 
     // MARK: - Helpers

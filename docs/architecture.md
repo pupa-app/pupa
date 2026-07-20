@@ -227,11 +227,18 @@ the backend but also **cached on-device** by `TranscriptCache`
 bubbles at turn boundaries (after send, at turn settle — not per token);
 `loadHistoryIfNeeded` renders the cache first, then re-fetches from
 `GET /db/threads/{threadId}/messages` and overwrites **only** when the backend
-returns a non-empty transcript. So a reopened thread renders its history and
-re-seeds `AgentSession` even after the backend has aged the thread out; an empty
-backend reply never clobbers the cache. Cache files are reaped when a thread is
+returns a non-empty transcript **and** the on-screen bubbles are still exactly
+what was rendered from cache — once the user has sent (bubbles diverged), a slow
+fetch resolving after the turn settled can no longer clobber the newer local
+state. So a reopened thread renders its history and re-seeds `AgentSession` even
+after the backend has aged the thread out; an empty backend reply never clobbers
+the cache. Only the `.user` bubbles re-seed the agent, so a backend-lost thread
+resumes with the user's turns but not prior assistant/tool context — display is
+full, agent continuity is best-effort. Cache files are reaped when a thread is
 removed (`removeThread`), evicted by the cap (`enforceThreadCap`), or its MyApp
-is deleted (`removeMyApp`). `ChatBubble` is `Codable` for this.
+is deleted (`removeMyApp`). `ChatBubble` is `Codable` for this; inline image
+bytes are stripped on write (they'd ride the iCloud mirror uncounted by the
+cap), so the cache is a text-history fallback.
 
 **Chat-storage cap.** An opt-in **Settings ▸ Account ▸ Chat storage** cap
 (`SettingsStore.threadCapEnabled` / `threadCapMB` — off by default, fractional MB)

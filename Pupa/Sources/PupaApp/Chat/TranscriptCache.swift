@@ -26,11 +26,23 @@ enum TranscriptCache {
 
     /// Persist `bubbles` for `threadId`. No-op when empty (never writes an empty
     /// file that would mask a real backend transcript on the next load).
+    ///
+    /// Inline image bytes are dropped: they serialize as base64 and this file
+    /// rides the `state/` iCloud mirror uncounted by the chat-storage cap (which
+    /// measures thread metadata only), so keeping them would let one image-heavy
+    /// thread bloat the mirror without bound. The cache is a text-history
+    /// fallback; reopened user bubbles show their text, not the thumbnail.
     nonisolated static func save(_ bubbles: [ChatBubble], threadId: String) {
         guard !bubbles.isEmpty else { return }
+        let stripped = bubbles.map { bubble -> ChatBubble in
+            guard !bubble.imagesData.isEmpty else { return bubble }
+            var copy = bubble
+            copy.imagesData = []
+            return copy
+        }
         let enc = JSONEncoder()
         enc.outputFormatting = [.sortedKeys]
-        guard let data = try? enc.encode(bubbles) else { return }
+        guard let data = try? enc.encode(stripped) else { return }
         try? CloudDocument.write(data, to: url(threadId))
     }
 

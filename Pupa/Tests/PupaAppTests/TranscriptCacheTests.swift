@@ -197,6 +197,59 @@ struct TranscriptCacheTests {
         #expect(TranscriptCache.load("t2").isEmpty)
     }
 
+    // MARK: - Divergence guard
+
+    @Test("A local send after cache render is not clobbered by a non-empty backend fetch")
+    func load_localSendAfterCache_notClobbered() async {
+        await MyAppStore.clearStorage()
+        TranscriptMockURLProtocol.reset()
+        TranscriptMockURLProtocol.body = Data("""
+        [{"role":"human","content":"from backend","tool_calls":[]}]
+        """.utf8)
+        MyAppTypeRegistry.shared.registerBuiltins()
+
+        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
+        let store = MyAppStore(initial: ([a], a.id))
+        let scope: ChatScope = .myApp(a.id)
+        let tid = store.currentThreadId(for: scope)
+        let cached = [ChatBubble(role: .user, text: "remembered")]
+        TranscriptCache.save(cached, threadId: tid)
+
+        let vm = ChatViewModel(
+            store: store, memory: makeMemory(),
+            settings: SettingsStore(backendURL: URL(string: "http://mock.test/")!),
+            registry: ToolRegistry(), scope: scope, threadId: tid,
+            urlSession: mockSession(), toolGateState: ToolGateState())
+
+        vm.loadHistoryIfNeeded()
+        #expect(vm.bubbles == cached, "cache renders synchronously")
+        // Diverge from the cache before the in-flight fetch can apply — this
+        // runs on the main actor before any await lets the fetch's continuation
+        // execute, so the divergence is deterministic.
+        vm.send("new local")
+        #expect(vm.bubbles.contains { $0.text == "new local" })
+
+        try? await Task.sleep(for: .milliseconds(300))
+        #expect(vm.bubbles.contains { $0.text == "new local" },
+                "local send survives the backend fetch")
+        #expect(!vm.bubbles.contains { $0.text == "from backend" },
+                "diverged local state is never clobbered by a late fetch")
+    }
+
+    // MARK: - Image stripping
+
+    @Test("save drops inline image bytes so the mirrored file stays bounded")
+    func save_stripsImages() async {
+        await MyAppStore.clearStorage()
+        let id = "img-thread"
+        let withImg = [ChatBubble(role: .user, text: "pic", imagesData: [Data(count: 4096)])]
+        TranscriptCache.save(withImg, threadId: id)
+        let loaded = TranscriptCache.load(id)
+        #expect(loaded.count == 1)
+        #expect(loaded.first?.text == "pic", "text is kept")
+        #expect(loaded.first?.imagesData.isEmpty == true, "image bytes stripped from cache")
+    }
+
     @Test("removeMyApp deletes every one of its threads' transcript files")
     func removeMyApp_deletesAllCaches() async {
         await MyAppStore.clearStorage()
