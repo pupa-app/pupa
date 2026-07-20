@@ -3,6 +3,25 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.110] — 2026-07-20
+
+### Added
+
+- **`/pupa-automations` guide skill.** The shipped guide plugin now documents
+  how to author bundle automations — the `pupa/automations.json` format
+  (trigger, matcher, `startThread` prompt templates), the `confirm` gate, and
+  the automatic guards (self-mutation, once-per-transition, in-flight lock).
+  Users read it as `/pupa-automations`; the agent loads it to write rules.
+
+### Fixed
+
+- **Automation in-flight lock now releases when the reaction ends.** The lock
+  guarding a rule from re-firing while its reaction runs was only cleared by
+  the timeout backstop, so a genuine later move of the same item was dropped
+  for up to two minutes. A finished reaction thread now frees the lock at
+  once. Also bounds the once-per-transition dedupe map so it can't grow over a
+  long session.
+
 ## [0.0.109] — 2026-07-20
 
 ### Added

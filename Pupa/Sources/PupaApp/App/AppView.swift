@@ -30,6 +30,10 @@ public struct AppView: View {
     /// Bundle-automation reactor (issue #209). Fed the canvas-event stream from
     /// `store.onCanvasEvent`; publishes confirm-bubble / auto-fire proposals.
     @State private var engine = RuleEngine()
+    /// Reaction threadId → the rule lock it holds. Set when a reaction thread
+    /// starts; drained when that thread's turn ends so `engine.complete` frees
+    /// the `(ruleId, itemId)` in-flight lock (else it lingers to the timeout).
+    @State private var reactionLocks: [String: (ruleId: String, itemId: UUID)] = [:]
     @State private var screenShare: ScreenShareViewModel
     /// Watches the iCloud container for remote edits; reloads the synced
     /// stores so changes from another device appear live. Nil until started.
@@ -235,6 +239,13 @@ public struct AppView: View {
             let mem = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: name))
             engine.ingest(event, rules: AutomationStore(memory: mem).rules)
         }
+        // A reaction thread finishing its turn releases the rule's in-flight
+        // lock, so a genuine later move of the same item can react again
+        // (without waiting out the engine's timeout backstop).
+        coordinator.onSessionIdle = { _, threadId in
+            guard let lock = reactionLocks.removeValue(forKey: threadId) else { return }
+            engine.complete(ruleId: lock.ruleId, itemId: lock.itemId)
+        }
     }
 
     /// Run an automation reaction: navigate to its MyApp, open a fresh thread,
@@ -243,7 +254,10 @@ public struct AppView: View {
     private func startAutomationThread(_ proposal: RuleEngine.Proposal) {
         let id = proposal.event.myAppId
         setRoot(.myAppHome(id))
-        _ = store.addThread(for: .myApp(id))
+        let threadId = store.addThread(for: .myApp(id))
+        // Hold the rule's in-flight lock until this thread's turn ends
+        // (released in `wireAutomations`' `onSessionIdle`).
+        reactionLocks[threadId] = (proposal.ruleId, proposal.event.itemId)
         tour.chatAutoSend = proposal.prompt
         tour.wantChatOpen = true
     }

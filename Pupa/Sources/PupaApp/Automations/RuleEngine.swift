@@ -87,6 +87,9 @@ public final class RuleEngine {
             NSLog("[RuleEngine] deduped transition \(event.transitionId) for rule \(rule.id)")
             return
         }
+        // Evict entries past the window so the map can't grow unbounded over a
+        // long session — a stale entry can never dedupe anything again.
+        recentTransitions = recentTransitions.filter { t.timeIntervalSince($0.value) < dedupeWindow }
         recentTransitions[event.transitionId] = t
 
         // Guard 1: in-flight lock.
