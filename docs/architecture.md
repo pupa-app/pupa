@@ -219,9 +219,21 @@ lists threads newest-first. When 2+ threads exist each entry is a submenu with
 The list scrolls (`ChatPanel.threadListPopover` caps its height) so a long chat
 history stays reachable.
 
-**Chat-storage cap.** Threads are lightweight local metadata (`ChatThread` — id,
-title, `createdAt`, per-thread LLM override); the message transcript lives on the
-backend, never on local disk. An opt-in **Settings ▸ Account ▸ Chat storage** cap
+**Transcript cache.** Threads are lightweight local metadata (`ChatThread` — id,
+title, `createdAt`, per-thread LLM override). The message transcript is owned by
+the backend but also **cached on-device** by `TranscriptCache`
+(`state/transcripts/<threadId>.json`, one file per thread, riding the same
+`state/` iCloud mirror). `ChatViewModel.persistTranscript` writes the rendered
+bubbles at turn boundaries (after send, at turn settle — not per token);
+`loadHistoryIfNeeded` renders the cache first, then re-fetches from
+`GET /db/threads/{threadId}/messages` and overwrites **only** when the backend
+returns a non-empty transcript. So a reopened thread renders its history and
+re-seeds `AgentSession` even after the backend has aged the thread out; an empty
+backend reply never clobbers the cache. Cache files are reaped when a thread is
+removed (`removeThread`), evicted by the cap (`enforceThreadCap`), or its MyApp
+is deleted (`removeMyApp`). `ChatBubble` is `Codable` for this.
+
+**Chat-storage cap.** An opt-in **Settings ▸ Account ▸ Chat storage** cap
 (`SettingsStore.threadCapEnabled` / `threadCapMB` — off by default, fractional MB)
 bounds the bytes a scope's chats occupy: `MyAppStore.enforceThreadCap` — run on
 new-chat, on settings change (`pruneAllThreads`), and once at launch via
@@ -873,9 +885,12 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
   `appScopedStore` propagate their writes to the parent store's tree, so
   the sidebar / Memories tab refresh without a relaunch.
 - **Chat history** → owned by the *backend* checkpointer, keyed by
-  `threadId`. The client reloads old conversations from
-  `GET /db/threads/{threadId}/messages` after relaunch. Unset DB config
-  on the backend → history dies with the backend process.
+  `threadId`, **and** cached on-device by `TranscriptCache`
+  (`state/transcripts/<threadId>.json`). The client renders the cache on
+  relaunch, then refreshes from `GET /db/threads/{threadId}/messages` and
+  overwrites only when the backend returns a non-empty transcript. Unset DB
+  config on the backend → history dies with the backend process **server-side**,
+  but the on-device cache still renders it and re-seeds the agent.
 - **Paired-device token** → iOS Keychain (service
   `com.pupa.backend-token`).
 - **Onboarding flags** → `UserDefaults` booleans `pupa.onboarding.completed`

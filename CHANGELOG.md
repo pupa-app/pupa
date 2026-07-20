@@ -3,6 +3,18 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.108] — 2026-07-20
+
+### Fixed
+
+- **Chat history survives reopening the app.** Conversations are now cached
+  on-device, so a thread renders its full history the moment you reopen it —
+  even after a long time away or a backend restart — and the agent keeps its
+  memory of the discussion instead of acting like a brand-new chat. The backend
+  is still consulted and wins whenever it has the thread; an empty backend reply
+  never wipes your local copy. Cached history is removed alongside a chat when
+  it's deleted or evicted by the chat-storage cap.
+
 ## [0.0.107] — 2026-07-20
 
 ### Fixed
