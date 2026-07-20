@@ -73,4 +73,18 @@ struct TombstoneTests {
         #expect(!FileManager.default.fileExists(atPath: bodyURL(doomed).path))  // reaped despite being fresh + decodable
         #expect(FileManager.default.fileExists(atPath: bodyURL(live).path))     // decodable, not tombstoned → kept
     }
+
+    @Test("GC drops tombstones past the TTL and keeps recent ones")
+    func gcDropsExpiredTombstones() async throws {
+        await MyAppStore.clearStorage()
+        let old = UUID(), recent = UUID()
+        MyAppStore.writeTombstone(old, at: Date(timeIntervalSinceNow: -200 * 24 * 3600))
+        MyAppStore.writeTombstone(recent)
+
+        let dropped = MyAppStore.gcTombstones()   // default 180-day TTL, now = Date()
+
+        #expect(dropped == 1)
+        #expect(!FileManager.default.fileExists(atPath: tombstoneURL(old).path))     // expired → gone
+        #expect(FileManager.default.fileExists(atPath: tombstoneURL(recent).path))   // fresh → kept
+    }
 }

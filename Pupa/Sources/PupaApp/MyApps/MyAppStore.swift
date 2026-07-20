@@ -122,6 +122,7 @@ public final class MyAppStore {
                 // corrupt index) existing app files are potential recovery
                 // material, not orphans.
                 Self.sweepOrphanAppFiles(keeping: Set(myApps.map(\.id)))
+                Self.gcTombstones()
             } else if PupaStorage.iCloudActive {
                 // Local store is empty but iCloud is active — it may just be
                 // awaiting the first sync. Do NOT seed-and-push a default (that
@@ -3273,6 +3274,28 @@ public final class MyAppStore {
             deleted += 1
         }
         return deleted
+    }
+
+    /// Drop tombstones older than `ttl`. Tiny files, but unbounded otherwise.
+    /// The TTL is generous so a tombstone always outlives an un-synced stale
+    /// body (bodies sweep at 7 days). Returns the number GC'd.
+    @discardableResult
+    nonisolated static func gcTombstones(
+        ttl: TimeInterval = 180 * 24 * 3600,
+        now: Date = Date()
+    ) -> Int {
+        let dec = JSONDecoder()
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: tombstonesDir.path) else { return 0 }
+        var gcd = 0
+        for name in names where name.hasSuffix(".json") {
+            let url = tombstonesDir.appendingPathComponent(name)
+            guard let data = CloudDocument.read(url),
+                  let t = try? dec.decode(Tombstone.self, from: data),
+                  now.timeIntervalSince(t.deletedAt) > ttl else { continue }
+            CloudDocument.delete(url)
+            gcd += 1
+        }
+        return gcd
     }
 
     /// Fill the dirty-hash caches from current state without writing, so the
