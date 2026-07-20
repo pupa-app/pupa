@@ -349,6 +349,9 @@ public final class MyAppStore {
 
     public func removeMyApp(_ id: UUID) {
         guard myApps.count > 1, let idx = myApps.firstIndex(where: { $0.id == id }) else { return }
+        // Reap the deleted app's per-thread transcript caches before it leaves
+        // the roster — `persist()` no longer has the body to enumerate.
+        TranscriptCache.delete(myApps[idx].threads.map(\.id))
         myApps.remove(at: idx)
         // Remember this was a deliberate local delete so a later `reloadFromDisk`
         // doesn't mistake the resulting roster shrink for a bad sync merge.
@@ -557,6 +560,7 @@ public final class MyAppStore {
                 myApps[idx].currentThreadId = myApps[idx].threads.last!.id
             }
         }
+        TranscriptCache.delete(threadId)
         persist()
     }
 
@@ -608,15 +612,22 @@ public final class MyAppStore {
         case .memory:
             let kept = Self.threadsWithinCap(memoryThreads, current: memoryCurrentThreadId, capBytes: capBytes)
             guard kept.count != memoryThreads.count else { return false }
+            TranscriptCache.delete(Self.droppedIds(memoryThreads, kept: kept))
             memoryThreads = kept
             return true
         case .myApp(let id):
             guard let idx = myApps.firstIndex(where: { $0.id == id }) else { return false }
             let kept = Self.threadsWithinCap(myApps[idx].threads, current: myApps[idx].currentThreadId, capBytes: capBytes)
             guard kept.count != myApps[idx].threads.count else { return false }
+            TranscriptCache.delete(Self.droppedIds(myApps[idx].threads, kept: kept))
             myApps[idx].threads = kept
             return true
         }
+    }
+
+    /// Ids present in `before` but not `kept` — the threads an eviction dropped.
+    private nonisolated static func droppedIds(_ before: [ChatThread], kept: [ChatThread]) -> Set<String> {
+        Set(before.map(\.id)).subtracting(kept.map(\.id))
     }
 
     /// Apply the chat-storage cap to every scope. Persists only if a scope

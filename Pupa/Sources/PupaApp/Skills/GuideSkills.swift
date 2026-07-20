@@ -15,7 +15,7 @@ import Foundation
 /// component-kind list is generated from `MyAppType.kinds` so it can't drift.
 enum GuideSkills {
     /// Bump when any guide body changes so existing installs re-seed.
-    static let version = "7"
+    static let version = "8"
 
     /// The plugin folder holding this guide's skills.
     static let pluginDir = "\(MemoryStore.pupaPluginsDir)/pupa-guide"
@@ -182,7 +182,8 @@ enum GuideSkills {
       and edit it from the Memories tab; the agent reads and writes it too.
       Persists across sessions.
     - **Sessions** — "New session" starts a fresh conversation. The canvas
-      and memories stay.
+      and memories stay. Past conversations are kept on-device and re-open with
+      their full history when you reopen the app — even after a long time away.
     - **History** — every canvas change is recorded per myapp. Browse the
       History tab and restore any earlier state in one tap. Tap **Take
       snapshot** to pin the current state permanently (kept forever); pinned

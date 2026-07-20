@@ -3,7 +3,7 @@ import Observation
 import SwiftUI
 import AGUIKit
 
-public struct ChatBubble: Identifiable, Hashable {
+public struct ChatBubble: Identifiable, Hashable, Codable, Sendable {
     /// `system` bubbles are local-only — emitted by client-side slash commands
     /// (e.g. `/help` output, "Unknown command" fallbacks) and never reach the
     /// backend. `toolRound` bubbles are also local-only — they aggregate the
@@ -21,7 +21,7 @@ public struct ChatBubble: Identifiable, Hashable {
     /// backend — the user's actual replies are returned from the tool
     /// handler and the backend gets them as a `ToolMessage` via the
     /// `CopilotKitMiddlewareWithFrontendInterrupt` resume payload.
-    public enum Role: String { case user, assistant, system, toolRound, humanQuestion, shellApproval }
+    public enum Role: String, Codable, Sendable { case user, assistant, system, toolRound, humanQuestion, shellApproval }
     public let id: String
     public let role: Role
     public var text: String
@@ -83,7 +83,7 @@ public struct ChatChartSnapshot: Codable, Hashable, Sendable {
 /// waiting on, with its suggested options. Answer state is held in
 /// `ChatViewModel.pendingAnswers` keyed by index, not on the row itself,
 /// so the bubble stays a passive view of the conversation state.
-public struct HumanQuestionRow: Identifiable, Hashable, Sendable {
+public struct HumanQuestionRow: Identifiable, Hashable, Sendable, Codable {
     public let id: String
     public let question: String
     public let options: [String]
@@ -98,8 +98,8 @@ public struct HumanQuestionRow: Identifiable, Hashable, Sendable {
 /// One tool-call line item inside a `toolRound` bubble. The `id` is the AG-UI
 /// `toolCallId`, which is also the key used to patch the entry from `.pending`
 /// to `.done` / `.failed` when the paired `.toolCallFinished` arrives.
-public struct ToolCallEntry: Identifiable, Hashable {
-    public enum State: String, Hashable { case pending, done, failed }
+public struct ToolCallEntry: Identifiable, Hashable, Codable, Sendable {
+    public enum State: String, Hashable, Codable, Sendable { case pending, done, failed }
     public let id: String
     public let name: String
     /// Pretty-printed JSON of the arguments. Empty until the call finishes.
@@ -923,6 +923,8 @@ public final class ChatViewModel {
         }
 
         appendBubble(ChatBubble(role: .user, text: displayText, imagesData: images.map(\.data)))
+        // Cache the just-sent message so it survives an immediate app kill.
+        persistTranscript()
 
         // Capture the first user message as the thread title (set-once).
         let isFirstUserMessage = !bubbles.dropLast().contains(where: { $0.role == .user })
@@ -1116,6 +1118,8 @@ public final class ChatViewModel {
             }
             self?.setStreaming(false)
             self?.streamTask = nil
+            // Turn settled — persist the full transcript (assistant + tool bubbles).
+            self?.persistTranscript()
             // Turn settled. Auto-send the next queued message unless the stream
             // was torn down by an explicit Stop (`cancel`), which clears the
             // queue anyway. `drainQueue` re-checks error / interrupt state.
@@ -1183,12 +1187,23 @@ public final class ChatViewModel {
     public func loadHistoryIfNeeded() {
         guard bubbles.isEmpty, !hasLoadedHistory else { return }
         hasLoadedHistory = true
+        // Cache-first: render the on-device transcript immediately so a reopened
+        // thread shows its history even when the backend has since lost it.
+        let cached = TranscriptCache.load(threadId)
+        if !cached.isEmpty { self.bubbles = cached }
         let threadId = self.threadId
         let backendURL = settings.backendURL
         let headers = settings.authHeaders
         let urlSession = self.urlSession
         let session = self.session
         Task { [weak self] in
+            // Seed AGUIKit from the cache so the next send continues the thread
+            // even if the backend fetch comes back empty.
+            if !cached.isEmpty {
+                let seed = cached.filter { $0.role == .user }
+                    .map { AgentMessage.user($0.text, id: $0.id) }
+                await session.reset(messages: seed)
+            }
             let client = BackendThreadsClient(
                 backendURL: backendURL,
                 extraHeaders: headers,
@@ -1196,6 +1211,8 @@ public final class ChatViewModel {
             )
             do {
                 let messages = try await client.fetchTranscript(threadId: threadId)
+                // Backend wins only when it actually still has the thread; an
+                // empty response never clobbers the cached render.
                 guard !messages.isEmpty else { return }
                 let bubbles = TranscriptMapper.bubbles(from: messages)
                 let agentMessages = messages
@@ -1203,14 +1220,42 @@ public final class ChatViewModel {
                     .map { AgentMessage.user($0.content, id: $0.id ?? UUID().uuidString) }
                 await session.reset(messages: agentMessages)
                 await MainActor.run { [weak self] in
-                    guard let self, self.bubbles.isEmpty else { return }
+                    // Apply the backend transcript only while the on-screen
+                    // state is still exactly what we rendered from cache (or
+                    // nothing). Once the user has sent — bubbles diverged from
+                    // `cached` — a slow fetch resolving after the turn settled
+                    // must not overwrite the newer local state.
+                    guard let self, self.bubbles.isEmpty || self.bubbles == cached else { return }
                     self.bubbles = bubbles
                 }
             } catch {
                 await MainActor.run { [weak self] in
-                    self?.bubbles = [ChatBubble(role: .system, text: "Could not load history: \(error.localizedDescription)")]
+                    // Only surface the inline error when nothing (cache or live)
+                    // is on screen — a cached render must not be replaced by it.
+                    guard let self, self.bubbles.isEmpty else { return }
+                    self.bubbles = [ChatBubble(role: .system, text: "Could not load history: \(error.localizedDescription)")]
                 }
             }
+        }
+    }
+
+    /// Serializes transcript writes so they land in call order. Two `Task.detached`
+    /// saves (after send, at settle) would otherwise race — the earlier-captured,
+    /// smaller snapshot could land last and stale the cache.
+    private var persistTask: Task<Void, Never>?
+
+    /// Snapshot the current bubbles to the on-device transcript cache off the
+    /// main actor. Called at turn boundaries (after send, at turn settle), not
+    /// per token. `CloudDocument.write` is synchronous file IO — kept off main
+    /// per pupa#120; `[ChatBubble]` is `Sendable` so it copies into the task.
+    /// Writes chain off `persistTask` so they apply in call (= capture) order.
+    private func persistTranscript() {
+        let bubbles = self.bubbles
+        let threadId = self.threadId
+        let prev = persistTask
+        persistTask = Task.detached(priority: .utility) {
+            await prev?.value
+            TranscriptCache.save(bubbles, threadId: threadId)
         }
     }
 
