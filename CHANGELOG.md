@@ -3,6 +3,15 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.107] — 2026-07-20
+
+### Fixed
+
+- **Deleting a MyApp now sticks across devices.** A delete writes a durable,
+  synced marker, so iCloud can no longer resurrect a deleted app when another
+  device's not-yet-synced copy arrives — and duplicate apps (left over from an
+  earlier sync divergence) can finally be pruned for good.
+
 ## [0.0.106] — 2026-07-18
 
 ### Fixed

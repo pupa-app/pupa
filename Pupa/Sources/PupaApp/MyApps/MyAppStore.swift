@@ -122,6 +122,7 @@ public final class MyAppStore {
                 // corrupt index) existing app files are potential recovery
                 // material, not orphans.
                 Self.sweepOrphanAppFiles(keeping: Set(myApps.map(\.id)))
+                Self.gcTombstones()
             } else if PupaStorage.iCloudActive {
                 // Local store is empty but iCloud is active — it may just be
                 // awaiting the first sync. Do NOT seed-and-push a default (that
@@ -352,6 +353,9 @@ public final class MyAppStore {
         // Remember this was a deliberate local delete so a later `reloadFromDisk`
         // doesn't mistake the resulting roster shrink for a bad sync merge.
         userInitiatedRemovals.insert(id)
+        // Durable, mirrored delete marker — survives relaunch and suppresses the
+        // body on every device, so a not-yet-synced copy can't resurrect it.
+        Self.writeTombstone(id)
         if activeMyAppId == id {
             activeMyAppId = myApps[0].id
         }
@@ -422,6 +426,9 @@ public final class MyAppStore {
     public func importMyApp(_ myApp: MyApp) -> UUID {
         var myApp = myApp
         if myApp.colorIndex == nil { myApp.colorIndex = nextColorIndex() }
+        // Re-importing a previously-deleted id is a deliberate un-delete — clear
+        // any tombstone or union-load would suppress it again on relaunch.
+        Self.clearTombstone(myApp.id)
         myApps.append(myApp)
         activeMyAppId = myApp.id
         persist()
@@ -3131,6 +3138,47 @@ public final class MyAppStore {
         })
     }
 
+    // MARK: - Deletion tombstones
+
+    /// A durable, mirrored "this app id is deleted" marker. Lives under
+    /// `state/tombstones/<uuid>.json` so it syncs like an app body. Union-load
+    /// subtracts tombstoned ids; the orphan sweep reaps their bodies.
+    private struct Tombstone: Codable {
+        var id: UUID
+        var deletedAt: Date
+    }
+
+    private nonisolated static var tombstonesDir: URL {
+        stateRoot.appendingPathComponent("tombstones", isDirectory: true)
+    }
+    private nonisolated static func tombstoneURL(_ id: UUID) -> URL {
+        tombstonesDir.appendingPathComponent("\(id.uuidString).json")
+    }
+
+    /// Record `id` as deleted. Durable + mirrored, so the delete survives a
+    /// relaunch and reaches every device. Re-deleting just refreshes `deletedAt`.
+    nonisolated static func writeTombstone(_ id: UUID, at now: Date = Date()) {
+        guard let data = try? stateEncoder().encode(Tombstone(id: id, deletedAt: now)) else { return }
+        try? CloudDocument.write(data, to: tombstoneURL(id))
+    }
+
+    /// Drop `id`'s tombstone. Call whenever an app with that id legitimately
+    /// comes back (restore a pinned snapshot, re-import a bundle) — an un-delete
+    /// must clear the marker, else union-load re-suppresses it and the sweep
+    /// reaps its body on the next relaunch.
+    nonisolated static func clearTombstone(_ id: UUID) {
+        CloudDocument.delete(tombstoneURL(id))
+    }
+
+    /// UUIDs of every `tombstones/<uuid>.json` on disk. Ids come from filenames
+    /// (no decode) so even a half-written tombstone still suppresses its app.
+    private nonisolated static func diskTombstoneIds() -> Set<UUID> {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: tombstonesDir.path) else { return [] }
+        return Set(names.compactMap { name in
+            name.hasSuffix(".json") ? UUID(uuidString: String(name.dropLast(".json".count))) : nil
+        })
+    }
+
     /// `index.json` — everything that isn't a single MyApp body.
     private struct IndexFile: Codable {
         var order: [UUID]
@@ -3147,7 +3195,7 @@ public final class MyAppStore {
     /// deterministic — Foundation's default key order can differ between
     /// encodes of the same value, which would fail the dirty-hash skip and
     /// rewrite (re-upload) every unchanged app file.
-    private static func stateEncoder() -> JSONEncoder {
+    private nonisolated static func stateEncoder() -> JSONEncoder {
         let enc = JSONEncoder()
         enc.outputFormatting = [.sortedKeys]
         return enc
@@ -3210,12 +3258,21 @@ public final class MyAppStore {
     ) -> Int {
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(atPath: appsDir.path) else { return 0 }
+        let tombstoned = diskTombstoneIds()
         var deleted = 0
         for name in names {
             guard name.hasSuffix(".json"),
                   let id = UUID(uuidString: String(name.dropLast(".json".count))),
                   !live.contains(id) else { continue }
             let url = appsDir.appendingPathComponent(name)
+            // A tombstoned body is a confirmed delete, not recovery material —
+            // reap it regardless of decodability or age so the delete propagates
+            // (this is how an arriving tombstone reaps the second device's copy).
+            if tombstoned.contains(id) {
+                CloudDocument.delete(url)
+                deleted += 1
+                continue
+            }
             // Never delete a file that still decodes as a real MyApp body: a
             // stale/lost index can de-list an app without deleting it, and that
             // body is recovery material (union-load restores it), not an orphan.
@@ -3228,6 +3285,34 @@ public final class MyAppStore {
             deleted += 1
         }
         return deleted
+    }
+
+    /// Drop tombstones older than `ttl`. Tiny files, but unbounded otherwise.
+    /// The TTL is generous so a tombstone always outlives an un-synced stale
+    /// body (bodies sweep at 7 days). Returns the number GC'd.
+    ///
+    /// Age comes from the decoded `deletedAt`; a tombstone that won't decode
+    /// (corrupt / half-written) falls back to the file's mtime, so it can't
+    /// suppress its app forever — it still ages out and GC's.
+    @discardableResult
+    nonisolated static func gcTombstones(
+        ttl: TimeInterval = 180 * 24 * 3600,
+        now: Date = Date()
+    ) -> Int {
+        let fm = FileManager.default
+        let dec = JSONDecoder()
+        guard let names = try? fm.contentsOfDirectory(atPath: tombstonesDir.path) else { return 0 }
+        var gcd = 0
+        for name in names where name.hasSuffix(".json") {
+            let url = tombstonesDir.appendingPathComponent(name)
+            let deletedAt: Date? = CloudDocument.read(url)
+                .flatMap { try? dec.decode(Tombstone.self, from: $0) }?.deletedAt
+                ?? (try? fm.attributesOfItem(atPath: url.path)[.modificationDate]) as? Date
+            guard let deletedAt, now.timeIntervalSince(deletedAt) > ttl else { continue }
+            CloudDocument.delete(url)
+            gcd += 1
+        }
+        return gcd
     }
 
     /// Fill the dirty-hash caches from current state without writing, so the
@@ -3276,17 +3361,19 @@ public final class MyAppStore {
             // then let the 7-day orphan sweep delete it (the reinstall wipe).
             // A genuine delete removes the body file too, so a deleted app is
             // absent from disk here and never resurrects.
+            let tombstoned = diskTombstoneIds()
             var seen = Set<UUID>()
             var apps: [MyApp] = []
             for id in index.order {                       // index order first; tolerate missing/corrupt
+                guard !tombstoned.contains(id) else { continue }   // deleted → never load
                 guard seen.insert(id).inserted else { continue }
                 if let d = CloudDocument.read(appURL(id)), let app = try? dec.decode(MyApp.self, from: d) {
                     apps.append(app)
                 }
             }
-            // Recover any on-disk body the index omitted, appended in a stable
-            // (id-sorted) order so the roster is deterministic across launches.
-            for id in diskAppIds().subtracting(seen).sorted(by: { $0.uuidString < $1.uuidString }) {
+            // Recover any on-disk body the index omitted (minus tombstoned),
+            // appended id-sorted so the roster is deterministic across launches.
+            for id in diskAppIds().subtracting(seen).subtracting(tombstoned).sorted(by: { $0.uuidString < $1.uuidString }) {
                 if let d = CloudDocument.read(appURL(id)), let app = try? dec.decode(MyApp.self, from: d) {
                     apps.append(app)
                 }
@@ -3441,6 +3528,9 @@ public final class MyAppStore {
         for id in notice.ids where !myApps.contains(where: { $0.id == id }) {
             if let head = SnapshotStore.head(id),
                let app = SnapshotStore.restoredApp(id, id: head.id) {
+                // User explicitly restored — clear any tombstone (e.g. a remote
+                // delete) so it isn't re-suppressed on relaunch.
+                Self.clearTombstone(id)
                 myApps.append(app)
             }
         }
@@ -3578,6 +3668,10 @@ public final class MyAppStore {
             return restore(myAppId: appId, snapshotId: snapshotId) ? appId : nil
         }
         guard let revived = SnapshotStore.restoredApp(appId, id: snapshotId) else { return nil }
+        // Restoring a pinned snapshot of a deleted app is an un-delete — clear
+        // its tombstone or union-load re-suppresses it and the sweep reaps the
+        // restored body on the next relaunch.
+        Self.clearTombstone(revived.id)
         myApps.append(revived)
         activeMyAppId = revived.id
         historyRevision += 1

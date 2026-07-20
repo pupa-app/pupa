@@ -786,6 +786,20 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
   `MyApp` (undecodable / partial), never a real body the index happens to omit —
   and `persist()` only deletes files it saw during its own session; the age gate
   protects an iCloud merge that lands an app file before its index.
+- **Deletion tombstones.** Because union-load treats any on-disk body as a live
+  app, a delete needs a durable record or a not-yet-synced copy on another device
+  would resurrect it. So deleting a MyApp writes a mirrored marker
+  `state/tombstones/<uuid>.json` (`{id, deletedAt}`) alongside removing the body.
+  Union-load subtracts tombstoned ids (a tombstone suppresses a body even while
+  it's still on disk), and the orphan sweep reaps a tombstoned body regardless of
+  decodability or age — that's how an arriving tombstone reaps the second device's
+  copy. A tombstone beats a concurrent body edit (a delete is sticky, and lets the
+  user prune duplicate apps for good). An explicit un-delete — restoring a pinned
+  snapshot, re-importing a bundle, or restoring a sync-removed app — clears the
+  tombstone (`clearTombstone`), or union-load would re-suppress the revived app and
+  the sweep reap its body on the next relaunch. Tombstones GC after 180 days —
+  generous so one always outlives an un-synced stale body (which sweeps at 7 days);
+  a corrupt tombstone ages out via file mtime so it can't suppress forever.
 - **Component folders (UI-only)** → the home-page grid
   (`MyAppHomeView.componentsPanel`) lets you drag component tiles into folders,
   iOS-home-screen style. The layout (`ComponentFolderLayout`: folders +
