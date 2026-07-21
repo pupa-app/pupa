@@ -92,13 +92,13 @@ public struct MyAppBottomBar: View {
                       highlight: .bottomBarHome) {
                 onSelect(homeSelection)
             }
-            barButton(system: "person.2", active: currentPage == .agents, help: "Agents",
-                      highlight: .bottomBarAgents) {
-                onSelect(agentsSelection)
-            }
             barButton(system: "brain", active: currentPage == .memories, help: "Memories",
                       highlight: .bottomBarMemories) {
                 onSelect(memoriesSelection)
+            }
+            barButton(system: "person.2", active: currentPage == .agents, help: "Agents",
+                      highlight: .bottomBarAgents) {
+                onSelect(agentsSelection)
             }
             if let id = myAppId {
                 barButton(system: "clock", active: currentPage == .history, help: "History",
