@@ -3,6 +3,15 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.213] — 2026-07-22
+
+### Changed
+
+- **App icon inverted to a white Pupa on a brand-red background** for the iOS
+  home screen and macOS Dock/desktop. The opaque red fill keeps the mark legible
+  under the iOS liquid-glass treatment, which washed out the old red-on-white
+  icon. The in-app Pupa mark (sidebar header) is unchanged.
+
 ## [0.0.110] — 2026-07-20
 
 ### Added
