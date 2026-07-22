@@ -3,6 +3,17 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.214] — 2026-07-22
+
+### Fixed
+
+- **macOS demo Dock icon now matches the shipped white-on-red icon.** The
+  SwiftPM demo binary has no asset-catalog AppIcon, so it sets
+  `NSApp.applicationIconImage` from `AppIcon.macDockImage`, which was still
+  masking the red-on-white in-app mark. Added a dedicated `AppIconDock.png`
+  (white Pupa on brand-red) as the Dock source; the in-app sidebar mark
+  (`AppIcon.png`) stays red-on-white.
+
 ## [0.0.213] — 2026-07-22
 
 ### Changed
