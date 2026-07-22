@@ -11,6 +11,10 @@ import UIKit
 /// by the macOS executable to set `NSApp.applicationIconImage`.
 public enum AppIcon {
     private static let resourceName = "AppIcon"
+    /// Dock/Home-screen art: white Pupa on opaque brand-red. Distinct from the
+    /// in-app mark (`AppIcon`, red-on-white) so the macOS Dock icon matches the
+    /// shipped asset-catalog icon without recolouring the sidebar mark.
+    private static let dockResourceName = "AppIconDock"
 
     public static var swiftUIImage: Image? {
         guard let url = Bundle.module.url(forResource: resourceName, withExtension: "png") else {
@@ -39,7 +43,9 @@ public enum AppIcon {
     /// AppIcon, so macOS won't auto-mask; without this the demo Dock icon is a
     /// raw square. Mirrors `scripts/gen-macos-appicon.swift`.
     public static var macDockImage: NSImage? {
-        guard let base = nsImage,
+        let dock = Bundle.module.url(forResource: dockResourceName, withExtension: "png")
+            .flatMap { NSImage(contentsOf: $0) }
+        guard let base = dock ?? nsImage,
               let cg = base.cgImage(forProposedRect: nil, context: nil, hints: nil),
               let ctx = CGContext(data: nil, width: 1024, height: 1024,
                                   bitsPerComponent: 8, bytesPerRow: 0,
