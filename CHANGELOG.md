@@ -3,6 +3,24 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.215] — 2026-07-23
+
+### Fixed
+
+- **Backend connection errors read like plain English.** Settings, pairing,
+  and harness screens no longer dump raw `NSURLErrorDomain` / `String(describing:)`
+  text. A new `FriendlyBackendError.message(for:)` maps the failure to short
+  copy (offline, timed out, can't reach host…) and logs the raw error under
+  subsystem `com.pupa-app.client`, category `backend`.
+- **Settings category rows no longer flash blue.** The top-level rows didn't
+  pin a foreground style, so List selection/press/focus rendered them in accent
+  blue while navigating. Title now pinned `.primary`, icon `.secondary`.
+- **A long calendar event title no longer breaks page fit.** The event title
+  was unconstrained, so a long title reported a huge minimum width that stretched
+  the whole canvas sideways. Title now `.lineLimit(2)` + tail-truncated + width-
+  capped; linked-item pills capped and the flow layout no longer reports a width
+  wider than its container.
+
 ## [0.0.214] — 2026-07-22
 
 ### Fixed

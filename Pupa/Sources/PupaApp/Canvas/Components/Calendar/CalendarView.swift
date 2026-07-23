@@ -365,6 +365,9 @@ private struct EventRow: View {
                 Text(event.title)
                     .font(.body)
                     .fontWeight(.medium)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 if !event.linkedItems.isEmpty {
                     LinkedItemsRow(refs: event.linkedItems, store: store, myAppId: myAppId)
                 }
@@ -419,6 +422,7 @@ private struct LinkedItemsRow: View {
             myAppId: myAppId
         )
         LinkedRefPill(ref: ref, resolvedName: resolved)
+            .frame(maxWidth: 220, alignment: .leading)
     }
 }
 
@@ -447,6 +451,9 @@ private struct FlowLayout: Layout {
         }
         totalHeight += rowHeight
         maxRowWidth = max(maxRowWidth, rowWidth - spacing)
+        // Never report a width wider than the container: a single very long
+        // pill must not push the row (and the whole canvas) beyond page fit.
+        if maxWidth.isFinite { maxRowWidth = min(maxRowWidth, maxWidth) }
         return CGSize(width: maxRowWidth, height: totalHeight)
     }
 

@@ -265,12 +265,14 @@ public struct SettingsSheet: View {
         Label {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
+                    .foregroundStyle(.primary)
                 Text(caption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         } icon: {
             Image(systemName: icon)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -585,7 +587,7 @@ public struct SettingsSheet: View {
                         let config = try await client.fetch()
                         return (entry.id, .reachable(config))
                     } catch {
-                        return (entry.id, .unreachable(String(describing: error)))
+                        return (entry.id, .unreachable(FriendlyBackendError.message(for: error)))
                     }
                 }
             }
@@ -807,7 +809,7 @@ private struct ToolsSettingsView: View {
                 load = .failed("No harnesses advertised by the backend.")
             }
         } catch {
-            load = .failed(String(describing: error))
+            load = .failed(FriendlyBackendError.message(for: error))
         }
     }
 }
@@ -1116,7 +1118,7 @@ private struct NotificationComposerSheet: View {
             errorMessage = "Notification permission denied. Enable it in Settings → Pupa."
             isScheduling = false
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = FriendlyBackendError.message(for: error)
             isScheduling = false
         }
     }

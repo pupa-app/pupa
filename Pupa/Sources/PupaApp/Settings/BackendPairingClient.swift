@@ -24,7 +24,7 @@ public enum PairingError: Error, CustomStringConvertible {
         case .decoding:
             return "Couldn't decode the backend's response"
         case .transport(let error):
-            return "Couldn't reach the backend: \(error.localizedDescription)"
+            return FriendlyBackendError.message(for: error)
         }
     }
 }
