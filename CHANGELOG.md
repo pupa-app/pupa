@@ -3,6 +3,20 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.219] — 2026-07-28
+
+### Fixed
+
+- **iCloud conflict-renamed memory folders are adopted back into their app.**
+  When two devices each seed a MyApp's `memories/<slug>/` before the first
+  sync, iCloud keeps one and renames the other to `memories/<slug> 2`, which
+  no longer matched any app and showed as orphaned. The app now folds a
+  `<slug> N` twin back into `<slug>` on provisioning and after each sync pull
+  (per-file, existing file wins; a differing twin copy is preserved under the
+  local-only `conflicts/` tree), then lets the mirror drop the emptied twin.
+  Only folds twins of a real app (or the orchestrator); agent-created folders
+  with spaces are left alone.
+
 ## [0.0.218] — 2026-07-27
 
 ### Fixed
