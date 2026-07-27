@@ -15,7 +15,7 @@ import Foundation
 /// component-kind list is generated from `MyAppType.kinds` so it can't drift.
 enum GuideSkills {
     /// Bump when any guide body changes so existing installs re-seed.
-    static let version = "9"
+    static let version = "10"
 
     /// The plugin folder holding this guide's skills.
     static let pluginDir = "\(MemoryStore.pupaPluginsDir)/pupa-guide"
@@ -167,6 +167,9 @@ enum GuideSkills {
 
     **Export.** Settings ▸ Import & Export: pick components, choose whether
     records and memories ride along, then Share (AirDrop, Messages, Files…).
+    Exporting a pinned snapshot (from History or Settings ▸ Pinned snapshots)
+    opens this same screen with a "Pinned version" banner — records and memories
+    default off there too.
 
     **Install.** Open a `.pupa` file (or import from Settings). A confirmation
     sheet shows what's inside before anything is added. Imported agent
@@ -189,7 +192,8 @@ enum GuideSkills {
     - **History** — every canvas change is recorded per myapp. Browse the
       History tab and restore any earlier state in one tap. Tap **Take
       snapshot** to pin the current state permanently (kept forever); pinned
-      snapshots can be **Export**ed as a `.pupa` file. Pins survive deleting
+      snapshots can be **Export**ed as a `.pupa` file (same share screen as
+      Settings, flagged as the pinned version). Pins survive deleting
       the myapp — find them all in **Settings ▸ Pinned snapshots**, where a
       deleted app can be restored (revived) from a pin.
     - **Archive** — hide a myapp without deleting it (its data and memories

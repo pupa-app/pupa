@@ -219,7 +219,14 @@ struct SnapshotHistoryTests {
         #expect(store.pinnedSnapshotCount(forMyApp: id) == 1)
 
         let pin = try #require(SnapshotStore.pinnedMetas(id).first)
-        let data = try #require(store.snapshotBundleData(forSnapshot: pin.id, appId: id))
+        // Mirrors ExportShareScreen's snapshot path: resolve the pin, then build
+        // via the shared exporter (records/memories ON keeps the row).
+        let resolved = try #require(store.restoredApp(forSnapshot: pin.id, appId: id))
+        let data = try MyAppExporter.makeBundle(
+            app: resolved,
+            options: .init(selectedComponentIds: Set(resolved.components.map(\.id)),
+                           includeRecords: true, includeMemories: true),
+            memory: mem).encoded()
 
         // Import the exported pin into a fresh store → the tracker row survives.
         let dest = MyAppStore(initial: ([], UUID()))
@@ -228,6 +235,42 @@ struct SnapshotHistoryTests {
         if case .tracker(let t) = imported.component(withId: "tracker-1")?.body {
             #expect(t.items.count == 1)
         } else { Issue.record("tracker missing after import") }
+    }
+
+    @Test("Pinned export with records/memories OFF strips rows + user notes (share default)")
+    func pinnedExportOffDefaultsStrips() throws {
+        let (store, id) = freshTrackerStore()
+        let mem = tempMemory()
+        store.globalMemory = mem
+        let appName = app(store, id).name
+        try mem.appScopedStore(forAppNamed: appName)
+            .writeFile(path: "notes/scratch.md", content: "user note")
+        try mem.appScopedStore(forAppNamed: appName)
+            .writeFile(path: "pupa/agents/coach/AGENTS.md", content: "persona")
+
+        store.addItem(["title": "secret"], myAppId: id)
+        #expect(store.takeSnapshot(myAppId: id, label: "v1") != nil)
+        let pin = try #require(SnapshotStore.pinnedMetas(id).first)
+
+        let resolved = try #require(store.restoredApp(forSnapshot: pin.id, appId: id))
+        // Snapshot-mode default in ExportShareScreen: both toggles OFF.
+        let bundle = MyAppExporter.makeBundle(
+            app: resolved,
+            options: .init(selectedComponentIds: Set(resolved.components.map(\.id)),
+                           includeRecords: false, includeMemories: false),
+            memory: mem)
+
+        // Records OFF: rows stripped, schema kept.
+        if case .tracker(let t) = bundle.app.component(withId: "tracker-1")?.body {
+            #expect(t.items.isEmpty)
+            #expect(t.fields.first?.name == "title")
+        } else { Issue.record("tracker missing") }
+        #expect(bundle.header.includedRecords == false)
+        #expect(bundle.header.includedMemories == false)
+        // Memories OFF: user note dropped; app config under pupa/ still ships.
+        let paths = Set(bundle.memories.map(\.path))
+        #expect(!paths.contains("notes/scratch.md"))
+        #expect(paths.contains("pupa/agents/coach/AGENTS.md"))
     }
 
     // MARK: - Pins survive deletion

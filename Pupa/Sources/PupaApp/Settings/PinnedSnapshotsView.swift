@@ -13,7 +13,8 @@ struct PinnedSnapshotsView: View {
     var onRestored: ((UUID) -> Void)?
 
     @State private var pendingRestore: PendingRestore?
-    @State private var exportItem: SnapshotExportItem?
+    /// The pin whose Export screen is pushed onto the Settings nav stack.
+    @State private var exportTarget: SnapshotMeta?
     /// App ids whose pin list is expanded. Empty by default → all collapsed.
     @State private var expanded: Set<UUID> = []
 
@@ -92,8 +93,25 @@ struct PinnedSnapshotsView: View {
                  ? "Your current state is snapshotted first, so you can switch back."
                  : "This deleted app is rebuilt from the snapshot and added back to your apps.")
         }
-        .sheet(item: $exportItem) { item in
-            SnapshotExportSheet(url: item.url)
+        .navigationDestination(item: $exportTarget) { snap in
+            exportDestination(snap)
+        }
+    }
+
+    /// The shared export screen, scoped to a resolved pin — same page as
+    /// Settings ▸ Share an app, with a "Pinned version" banner and toggles.
+    @ViewBuilder
+    private func exportDestination(_ snap: SnapshotMeta) -> some View {
+        if let memory = store.globalMemory,
+           let resolved = store.restoredApp(forSnapshot: snap.id, appId: snap.appId) {
+            ExportShareScreen(
+                store: store, memory: memory,
+                source: .snapshot(app: resolved, meta: snap))
+        } else {
+            ContentUnavailableView(
+                "Can't export",
+                systemImage: "exclamationmark.triangle",
+                description: Text("This snapshot couldn't be resolved."))
         }
     }
 
@@ -130,11 +148,7 @@ struct PinnedSnapshotsView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Button("Export") {
-                exportItem = makeSnapshotExportItem(
-                    store: store, snapshotId: snap.id, appId: group.appId,
-                    baseName: group.appName)
-            }
+            Button("Export") { exportTarget = snap }
             .font(.caption).buttonStyle(.bordered).controlSize(.mini)
             Button(group.isLive ? "Restore" : "Recreate") {
                 pendingRestore = PendingRestore(group: group, snap: snap)

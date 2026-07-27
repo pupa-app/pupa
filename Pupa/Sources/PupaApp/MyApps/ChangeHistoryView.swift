@@ -15,7 +15,8 @@ public struct ChangeHistoryView: View {
     @State private var pendingRestore: SnapshotMeta?
     @State private var showingSnapshotPrompt = false
     @State private var draftLabel = ""
-    @State private var exportItem: SnapshotExportItem?
+    /// The pin whose Export screen is pushed onto this History nav stack.
+    @State private var exportTarget: SnapshotMeta?
 
     private let cal = Calendar.autoupdatingCurrent
     private let relFmt: RelativeDateTimeFormatter = {
@@ -67,7 +68,7 @@ public struct ChangeHistoryView: View {
                                     relative: relFmt.localizedString(for: snap.timestamp, relativeTo: Date()),
                                     onRestore: { pendingRestore = snap },
                                     onExport: snap.reason == .pinned
-                                        ? { exportSnapshot(snap) } : nil
+                                        ? { exportTarget = snap } : nil
                                 )
                             }
                         }
@@ -95,8 +96,8 @@ public struct ChangeHistoryView: View {
         } message: {
             Text("Pins this exact state to your history and keeps it forever. You can export it later.")
         }
-        .sheet(item: $exportItem) { item in
-            SnapshotExportSheet(url: item.url)
+        .navigationDestination(item: $exportTarget) { snap in
+            exportDestination(snap)
         }
         .confirmationDialog(
             "Restore this version?",
@@ -160,12 +161,21 @@ public struct ChangeHistoryView: View {
         return fmt.string(from: date)
     }
 
-    /// Encode the pinned snapshot to a temp `.pupa` file and present the share
-    /// sheet. Reuses `makeSnapshotExportItem` (shared with Settings).
-    private func exportSnapshot(_ snap: SnapshotMeta) {
-        exportItem = makeSnapshotExportItem(
-            store: store, snapshotId: snap.id, appId: myAppId,
-            baseName: app?.name ?? "snapshot")
+    /// The shared export screen, scoped to a resolved pin — same page as
+    /// Settings ▸ Share an app, with a "Pinned version" banner and toggles.
+    @ViewBuilder
+    private func exportDestination(_ snap: SnapshotMeta) -> some View {
+        if let memory = store.globalMemory,
+           let resolved = store.restoredApp(forSnapshot: snap.id, appId: myAppId) {
+            ExportShareScreen(
+                store: store, memory: memory,
+                source: .snapshot(app: resolved, meta: snap))
+        } else {
+            ContentUnavailableView(
+                "Can't export",
+                systemImage: "exclamationmark.triangle",
+                description: Text("This snapshot couldn't be resolved."))
+        }
     }
 }
 
