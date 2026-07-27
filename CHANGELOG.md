@@ -3,6 +3,17 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.220] — 2026-07-28
+
+### Fixed
+
+- **macOS: exporting a MyApp via Share → Save no longer crashes.** The macOS
+  app sandbox granted only read-only access to user-selected files, so the
+  system share sheet's "Save to Files" (a Powerbox write) was denied while
+  "Copy" (pasteboard) worked. `ENABLE_USER_SELECTED_FILES` is now `readwrite`,
+  so Xcode grants the `files.user-selected.read-write` entitlement and Save
+  writes the `.pupa` bundle.
+
 ## [0.0.219] — 2026-07-28
 
 ### Fixed
