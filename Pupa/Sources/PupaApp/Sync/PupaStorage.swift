@@ -90,17 +90,74 @@ public enum PupaStorage {
         try? FileManager.default.removeItem(at: rosterEstablishedURL)
     }
 
+    /// Kick a download of every not-yet-materialized item under `dir` and
+    /// return how many are still pending (0 = subtree fully materialized).
+    /// FileManager-enumeration based — never gated on `NSMetadataQuery` (which
+    /// is unreliable on macOS). Detects iOS `.name.icloud` stubs by name and
+    /// macOS dataless items via `ubiquitousItemDownloadingStatus != .current`.
+    /// No-op returning 0 on a plain non-ubiquitous dir (tests, iCloud off).
+    @discardableResult
+    public static func kickUndownloaded(under dir: URL) -> Int {
+        let fm = FileManager.default
+        guard let en = fm.enumerator(
+            at: dir, includingPropertiesForKeys: [.ubiquitousItemDownloadingStatusKey])
+        else { return 0 }
+        var pending = 0
+        for case let url as URL in en {
+            if let real = StorageMirror.materializedName(forPlaceholder: url.lastPathComponent) {
+                pending += 1
+                try? fm.startDownloadingUbiquitousItem(
+                    at: url.deletingLastPathComponent().appendingPathComponent(real))
+                continue
+            }
+            let status = (try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]))?
+                .ubiquitousItemDownloadingStatus
+            if let status, status != .current { pending += 1 }
+            // Kick unconditionally (materialized items no-op): the status
+            // resource value can under-report dataless items on macOS, and the
+            // always-kick behavior is what made the state/ pull reliable.
+            try? fm.startDownloadingUbiquitousItem(at: url)
+        }
+        return pending
+    }
+
+    /// `kickUndownloaded` over a mirrored subtree of the iCloud container.
+    /// 0 when iCloud is off.
+    @discardableResult
+    public static func kickUndownloaded(subtree: String) -> Int {
+        guard let cloud = cloudMirrorRoot else { return 0 }
+        return kickUndownloaded(under: cloud.appendingPathComponent(subtree, isDirectory: true))
+    }
+
     /// Force-download every item under the iCloud mirror's `state/` subtree so
     /// a device awaiting its first sync materializes the real `index.json` +
     /// app files instead of racing ahead on placeholders. No-op when iCloud is
     /// off or the items aren't ubiquitous (tests use a plain mirror dir).
     public static func startDownloadingState() {
-        guard let cloud = cloudMirrorRoot else { return }
-        let stateDir = cloud.appendingPathComponent("state", isDirectory: true)
-        guard let en = FileManager.default.enumerator(at: stateDir, includingPropertiesForKeys: nil)
-        else { return }
-        for case let url as URL in en {
-            try? FileManager.default.startDownloadingUbiquitousItem(at: url)
+        kickUndownloaded(subtree: "state")
+    }
+
+    /// Force-download a mirrored subtree, reconciling between kicks so landed
+    /// bytes pull into the local tree. Settles when nothing is pending (after a
+    /// final reconcile) or `timeout` elapses. Runs its sleeps in the caller's
+    /// task — each `reconcile()` is an ordinary serialized actor call, so the
+    /// `StorageMirror` actor is never blocked waiting on a download.
+    @discardableResult
+    public static func downloadSubtreeUntilSettled(
+        _ subtree: String,
+        timeout: Duration = .seconds(60),
+        initialPoll: Duration = .milliseconds(500)
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now + timeout
+        var poll = initialPoll
+        while true {
+            let pending = kickUndownloaded(subtree: subtree)
+            await StorageMirror.shared.reconcile()
+            if pending == 0 { return true }
+            if clock.now + poll > deadline { return false }
+            try? await Task.sleep(for: poll)
+            poll = min(poll * 2, .seconds(4))
         }
     }
 

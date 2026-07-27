@@ -794,7 +794,15 @@ is seen). It never waits on the actor's cooperative thread — a file not yet
 finished download fires an `NSMetadataQuery` update that re-triggers `converge`.
 (An earlier version blocked the actor up to ~20s per subtree waiting for
 downloads, stalling `drain()` and first-launch store reload; the kick-and-retrigger
-loop replaces that.) Without materialization at all the mirror only ever pushed
+loop replaces that.) Because the re-trigger (`NSMetadataQuery`) is itself
+unreliable on macOS, landing is not left to it alone:
+`PupaStorage.kickUndownloaded(subtree:)` does a deterministic FileManager walk
+that re-kicks every pending item (kicking unconditionally — the downloading
+status can under-report dataless items on macOS) and returns the pending count;
+`downloadSubtreeUntilSettled` loops kick → reconcile with backoff off the actor.
+Provisioning runs that settle loop for `memories/` (parity with the forced
+`state/` pull) **before** guide seeding, and `convergeAndReloadStores` re-kicks
+both subtrees on every trigger. Without materialization at all the mirror only ever pushed
 and devices never converged. An un-fetched placeholder is reported `unresolved`
 so a still-present-but-evicted cloud file is **not** mistaken for a remote delete
 of the local copy — and, symmetrically, a brand-new (no-baseline) local file whose

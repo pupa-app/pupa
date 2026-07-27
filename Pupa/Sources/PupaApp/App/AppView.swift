@@ -353,6 +353,11 @@ public struct AppView: View {
                     // (or seed only if the cloud is genuinely empty) before we
                     // ever push. Prevents the seed-race roster wipe.
                     await store.finishProvisioning()
+                    // Memories parity with state: force-download the cloud
+                    // subtree and pull it before seeding, so guide seeds land
+                    // in already-materialized app folders instead of racing
+                    // the first pull (which spawned iCloud conflict twins).
+                    await PupaStorage.downloadSubtreeUntilSettled("memories")
                     for app in store.myApps { GuideSkills.seed(appName: app.name) }
                     await memory.reloadFromDisk()
                     await settings.reloadFromDisk()
@@ -461,6 +466,15 @@ public struct AppView: View {
         guard !isReloadingStores else { return }
         isReloadingStores = true
         defer { isReloadingStores = false }
+        // Deterministic (FileManager-walk) download kick — NSMetadataQuery
+        // misses remote arrivals on macOS, leaving placeholders undownloaded
+        // forever; every converge trigger now re-kicks whatever is pending.
+        // Off-main: it walks the cloud dir. Landed bytes pull on this pass or
+        // the next trigger (foreground / 45s poll / watcher).
+        Task.detached(priority: .utility) {
+            PupaStorage.kickUndownloaded(subtree: "memories")
+            PupaStorage.kickUndownloaded(subtree: "state")
+        }
         let changed = await StorageMirror.shared.reconcile()
         guard changed else { return }
         await store.reloadFromDisk()
