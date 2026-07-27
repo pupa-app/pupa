@@ -261,7 +261,14 @@ public actor StorageMirror {
             return (rel, readHash(dst), true)
 
         case let .deleteLocal(rel):
-            remove(localRoot.appendingPathComponent(rel), coordinate: false)
+            // Quarantine before unlink: a "remote delete" can also be iCloud
+            // renaming a whole dir away (conflict twin), so the bytes must
+            // stay recoverable under local-only `conflicts/`.
+            let url = localRoot.appendingPathComponent(rel)
+            if let data = read(url, coordinate: false) {
+                preserveLoser(data, rel: rel, under: conflictsRoot)
+            }
+            remove(url, coordinate: false)
             return (rel, nil, true)
 
         case let .deleteCloud(rel):

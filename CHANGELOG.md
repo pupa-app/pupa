@@ -3,6 +3,18 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.217] — 2026-07-27
+
+### Fixed
+
+- **A remote delete now quarantines the local file under `conflicts/` before
+  removing it.** iCloud can conflict-rename a whole directory (e.g.
+  `memories/<slug>` → `memories/<slug> 2`), which the mirror previously read
+  as "cloud deleted these files" and hard-unlinked the local copies — the
+  root cause of memories vanishing after a two-device sync. Deletes still
+  propagate; the bytes are now recoverable from the local-only, bounded
+  `conflicts/` tree.
+
 ## [0.0.216] — 2026-07-27
 
 ### Changed

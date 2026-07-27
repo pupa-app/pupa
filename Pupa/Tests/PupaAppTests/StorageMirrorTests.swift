@@ -243,6 +243,33 @@ struct StorageMirrorTests {
         #expect(changed == true)
     }
 
+    @Test("converge: a remote delete propagates but quarantines the local bytes under conflicts/")
+    func convergeRemoteDeleteQuarantines() {
+        let (local, cloud) = (tmp(), tmp())
+        put(local, "state/apps/x.json", "precious")
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)
+        try? FileManager.default.removeItem(at: cloud.appendingPathComponent("state/apps/x.json"))
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)
+        #expect(!exists(local, "state/apps/x.json"))
+        #expect(bodiesUnder(local.appendingPathComponent("conflicts/state/apps/x.json")) == ["precious"])
+    }
+
+    @Test("converge: a cloud dir renamed away (conflict twin) deletes nothing irrecoverably and pulls the twin")
+    func convergeCloudDirRenamedAway() {
+        let (local, cloud) = (tmp(), tmp())
+        put(local, "memories/app/a.md", "note A")
+        put(local, "memories/app/pupa/AGENTS.md", "prompt")
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)
+        // iCloud conflict-renames the whole dir: original rels vanish, twin appears.
+        try? FileManager.default.moveItem(
+            at: cloud.appendingPathComponent("memories/app"),
+            to: cloud.appendingPathComponent("memories/app 2"))
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)
+        #expect(get(local, "memories/app 2/a.md") == "note A")          // twin pulled
+        let rescued = bodiesUnder(local.appendingPathComponent("conflicts/memories/app"))
+        #expect(rescued.sorted() == ["note A", "prompt"])               // originals quarantined
+    }
+
     @Test("converge: a delete racing a remote edit restores the edit locally")
     func convergeDeleteVsEdit() {
         let (local, cloud) = (tmp(), tmp())
