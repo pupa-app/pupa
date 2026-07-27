@@ -349,6 +349,73 @@ public final class MemoryStore {
         rescan()
     }
 
+    /// Fold iCloud conflict-renamed twin dirs (`<base> N/`, space+digits —
+    /// never valid slugify output, so never app-addressable) back into their
+    /// base dir per-file, destination-wins. A differing twin copy is preserved
+    /// under the sibling `conflicts/memories/<base>/<rel>/` tree (local-only).
+    /// Only folds a twin whose `base` is in `addressableBases` (agent-created
+    /// dirs can legitimately contain spaces) and whose cloud counterpart has
+    /// nothing left to download (else adoption would miss files — retried on a
+    /// later pass). Cloud-side twin files are removed by the mirror's normal
+    /// baseline delete propagation on the next reconcile. Idempotent.
+    @discardableResult
+    public func foldConflictTwinDirs(addressableBases: Set<String>) -> Bool {
+        let fm = FileManager.default
+        let top = (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey]))
+            ?? []
+        var changed = false
+        for src in top {
+            let name = src.lastPathComponent
+            guard (try? src.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true,
+                  let space = name.lastIndex(of: " "),
+                  case let digits = name[name.index(after: space)...],
+                  !digits.isEmpty, digits.allSatisfy(\.isNumber),
+                  case let base = String(name[..<space]),
+                  addressableBases.contains(base)
+            else { continue }
+            // Cloud twin still materializing → folding now would strand its files.
+            if let cloudTwin = PupaStorage.cloudMirrorRoot?
+                .appendingPathComponent("memories/\(name)", isDirectory: true),
+               fm.fileExists(atPath: cloudTwin.path),
+               PupaStorage.kickUndownloaded(under: cloudTwin) > 0 { continue }
+            let dst = root.appendingPathComponent(base, isDirectory: true)
+            let srcComponents = src.standardizedFileURL.pathComponents.count
+            for file in filesUnder(src) {
+                let rel = file.standardizedFileURL.pathComponents
+                    .dropFirst(srcComponents).joined(separator: "/")
+                let target = dst.appendingPathComponent(rel)
+                if !fm.fileExists(atPath: target.path) {
+                    try? CloudDocument.move(from: file, to: target)
+                } else if CloudDocument.read(file) == CloudDocument.read(target) {
+                    CloudDocument.delete(file)
+                } else {
+                    quarantineTwinCopy(file, base: base, rel: rel)
+                }
+                changed = true
+            }
+            if filesUnder(src).isEmpty {
+                try? fm.removeItem(at: src)
+                changed = true
+            }
+        }
+        if changed { rescan() }
+        return changed
+    }
+
+    /// Move a losing twin copy to `<root parent>/conflicts/memories/<base>/<rel>/<stamp>`
+    /// — same layout as `StorageMirror`'s conflict preservation, local-only.
+    private func quarantineTwinCopy(_ file: URL, base: String, rel: String) {
+        let fm = FileManager.default
+        let dir = root.deletingLastPathComponent()
+            .appendingPathComponent("conflicts/memories/\(base)/\(rel)", isDirectory: true)
+        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let ext = file.pathExtension
+        let name = "\(stamp)-\(UUID().uuidString.prefix(4))" + (ext.isEmpty ? "" : ".\(ext)")
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        try? fm.moveItem(at: file, to: dir.appendingPathComponent(name))
+        StorageMirror.shared.scheduleReconcile()   // twin rel vanished locally
+    }
+
     /// Absolute URL for the orchestrator's memory root.
     public static func orchestratorRoot() -> URL {
         defaultRoot().appendingPathComponent(orchestratorFolder(), isDirectory: true)

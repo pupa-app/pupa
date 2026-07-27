@@ -359,6 +359,7 @@ public struct AppView: View {
                     // the first pull (which spawned iCloud conflict twins).
                     await PupaStorage.downloadSubtreeUntilSettled("memories")
                     for app in store.myApps { GuideSkills.seed(appName: app.name) }
+                    memory.foldConflictTwinDirs(addressableBases: addressableMemoryBases())
                     await memory.reloadFromDisk()
                     await settings.reloadFromDisk()
                 } else {
@@ -476,10 +477,20 @@ public struct AppView: View {
             PupaStorage.kickUndownloaded(subtree: "state")
         }
         let changed = await StorageMirror.shared.reconcile()
-        guard changed else { return }
+        // Adopt any iCloud conflict-renamed twin dir the pull just landed
+        // (`memories/<slug> 2`). Cheap no-op when none exist.
+        let folded = memory.foldConflictTwinDirs(addressableBases: addressableMemoryBases())
+        guard changed || folded else { return }
         await store.reloadFromDisk()
         await memory.reloadFromDisk()
         await settings.reloadFromDisk()
+    }
+
+    /// Memory dirs an app (or the orchestrator) can address — the only bases
+    /// twin-folding may touch.
+    private func addressableMemoryBases() -> Set<String> {
+        Set(store.myApps.map { MemoryStore.myAppFolder(myAppName: $0.name) })
+            .union([MemoryStore.orchestratorFolder()])
     }
 
     /// Auto-start the interactive tour exactly once: after onboarding finishes
