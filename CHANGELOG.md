@@ -3,6 +3,20 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.218] — 2026-07-27
+
+### Fixed
+
+- **Memories now force-download from iCloud like app state does.** A fresh
+  device pulled `state/` reliably (provisioning loops a forced download until
+  the roster lands) but `memories/` waited on NSMetadataQuery re-triggers,
+  which macOS drops — so memory folders arrived as empty directory skeletons
+  and stayed that way. Provisioning now runs the same kick-and-reconcile
+  settle loop for `memories/`, guide seeding waits until after that pull
+  (shrinking the window that spawned iCloud conflict twins), and every
+  converge trigger re-kicks pending downloads via a deterministic
+  FileManager walk (`PupaStorage.kickUndownloaded`).
+
 ## [0.0.217] — 2026-07-27
 
 ### Fixed
