@@ -423,10 +423,12 @@ eviction never breaks a chain.
 History page to capture a labelled `.pinned` restore point — a "keep this
 state forever" milestone. Pins are always stored as a full `base`
 (self-contained) and are **exempt from `prune`**: never aged out, never
-counted toward the cap. Each pinned row carries an **Export** button that
-resolves the snapshot to its `MyApp` and hands it to `MyAppExporter` as a
-`.pupa` bundle (`MyAppStore.snapshotBundleData`), reusing the marketplace
-export path. Pinning is unlimited (no gate).
+counted toward the cap. Each pinned row carries an **Export** button that opens the *same* shared
+export screen as **Settings ▸ Share an app** (`ExportShareScreen`), scoped to
+the resolved pin (`MyAppStore.restoredApp(forSnapshot:appId:)`) with a "Pinned
+version" banner and the same component + records + memories toggles (both
+default **off** — a share is stripped unless you opt in). Pinning is unlimited
+(no gate).
 
 **Pins survive deletion.** Deleting a MyApp keeps its pins:
 `persist()` calls `SnapshotStore.deleteNonPinned` (drops only automatic

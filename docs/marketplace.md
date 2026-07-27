@@ -66,6 +66,12 @@ component selection or the records/memories toggles change.
 memories (drop a deselected kind's subtree; memories-off keeps only `AGENTS.md`)
 → reset volatile state (threads) → assemble header.
 
+A pin's **Export** (History / Settings ▸ Pinned snapshots) reuses this *same*
+screen (`ExportShareScreen`), fed the resolved snapshot
+(`MyAppStore.restoredApp(forSnapshot:appId:)`) instead of the live app and
+flagged with a "Pinned version" banner. Records/memories default off, same as a
+live share.
+
 ## Import — two entry points, one authority
 
 A bundle reaches the importer two ways: the in-app **Import bundle…** picker, and

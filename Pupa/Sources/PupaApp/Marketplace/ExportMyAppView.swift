@@ -60,11 +60,24 @@ private struct SharingNotice: Identifiable {
 
 /// Export a MyApp to a `.pupa` and hand it to the system share sheet:
 /// component selection + records/memories toggles + a review of the agent
-/// prompts being shared. The app picker also offers **All apps** — every MyApp
-/// bundled into one `.pupa` library (no component picker; each app whole).
-private struct ExportShareScreen: View {
+/// prompts being shared. Two entry points share this one screen (`source`):
+/// **live** (Settings ▸ Share an app — the app picker also offers **All apps**,
+/// every MyApp as one library) and **snapshot** (a pin's Export from History /
+/// Settings ▸ Pinned snapshots — fixed to the resolved pinned state, no picker,
+/// with a "Pinned version" banner so it reads as pinned, not latest).
+struct ExportShareScreen: View {
+    /// Where the exported app comes from.
+    enum Source {
+        /// Settings: pick any live app, or **All apps** as one library.
+        case live
+        /// A pin's Export: the resolved snapshot `app` + its `meta` (label,
+        /// timestamp). Picker and All-apps are hidden; a banner names the pin.
+        case snapshot(app: MyApp, meta: SnapshotMeta)
+    }
+
     @Bindable var store: MyAppStore
     var memory: MemoryStore
+    var source: Source = .live
 
     /// Sentinel picker tag selecting "every app as one library bundle".
     private static let allAppsTag = UUID()
@@ -80,17 +93,38 @@ private struct ExportShareScreen: View {
     @State private var shareURL: URL?
     @State private var notice: SharingNotice?
 
-    private var isAllApps: Bool { selectedAppId == Self.allAppsTag }
+    private let relFmt: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .abbreviated
+        return f
+    }()
 
+    private var isSnapshot: Bool {
+        if case .snapshot = source { return true }
+        return false
+    }
+    private var snapshotApp: MyApp? {
+        if case .snapshot(let app, _) = source { return app }
+        return nil
+    }
+    private var snapshotMeta: SnapshotMeta? {
+        if case .snapshot(_, let meta) = source { return meta }
+        return nil
+    }
+
+    private var isAllApps: Bool { !isSnapshot && selectedAppId == Self.allAppsTag }
+
+    /// Snapshot mode exports its fixed resolved pin; live mode the picked app.
     private var app: MyApp? {
-        store.myApps.first { $0.id == selectedAppId } ?? store.myApps.first
+        if let snapshotApp { return snapshotApp }
+        return store.myApps.first { $0.id == selectedAppId } ?? store.myApps.first
     }
 
     var body: some View {
         Form {
             content
         }
-        .navigationTitle("Share an app")
+        .navigationTitle(isSnapshot ? "Export snapshot" : "Share an app")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -107,13 +141,30 @@ private struct ExportShareScreen: View {
     @ViewBuilder
     private var content: some View {
         if let app {
-            Section("App") {
-                Picker("App", selection: Binding(
-                    get: { isAllApps ? Self.allAppsTag : app.id },
-                    set: { selectedAppId = $0 }
-                )) {
-                    Text("All apps").tag(Self.allAppsTag)
-                    ForEach(store.myApps) { Text($0.name).tag($0.id) }
+            if let meta = snapshotMeta {
+                Section {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(meta.label?.isEmpty == false ? meta.label! : "Saved snapshot")
+                                .fontWeight(.semibold)
+                            Text("Pinned version · \(relFmt.localizedString(for: meta.timestamp, relativeTo: Date()))")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: "pin.fill").foregroundStyle(.tint)
+                    }
+                } footer: {
+                    Text("Exporting the state you pinned — not the app's latest state.")
+                }
+            } else {
+                Section("App") {
+                    Picker("App", selection: Binding(
+                        get: { isAllApps ? Self.allAppsTag : app.id },
+                        set: { selectedAppId = $0 }
+                    )) {
+                        Text("All apps").tag(Self.allAppsTag)
+                        ForEach(store.myApps) { Text($0.name).tag($0.id) }
+                    }
                 }
             }
 
@@ -215,6 +266,12 @@ private struct ExportShareScreen: View {
     }
 
     private func syncSelection() {
+        if isSnapshot {
+            guard let app else { return }
+            selectedComponentIds = Set(app.components.map(\.id))
+            regenerateShareFile()
+            return
+        }
         if isAllApps { regenerateShareFile(); return }
         guard let app else { return }
         selectedAppId = app.id

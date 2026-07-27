@@ -3,6 +3,19 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.216] — 2026-07-27
+
+### Changed
+
+- **Exporting a pinned snapshot now opens the same share screen as Settings ▸
+  Share an app.** The old bare snapshot sheet is gone. A pin's **Export** — from
+  a MyApp's History or Settings ▸ Pinned snapshots — opens the full export
+  screen scoped to the pinned state, with a "Pinned version" banner so it's
+  clear it's the pin and not the latest, plus the same component picker and
+  **Include records** / **Include memories** toggles. Both toggles now default
+  **off** for a pin (a share is stripped unless you opt in), where before a pin
+  always exported everything.
+
 ## [0.0.215] — 2026-07-23
 
 ### Fixed

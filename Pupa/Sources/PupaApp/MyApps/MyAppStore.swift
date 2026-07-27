@@ -3655,22 +3655,12 @@ public final class MyAppStore {
         return id
     }
 
-    /// Encode an exportable `.pupa` bundle for a snapshot: resolve it to its
-    /// MyApp state and hand it to `MyAppExporter`. The whole app is exported
-    /// with records + memories included — a pin is a personal keepsake, not a
-    /// stripped share. Returns nil if the snapshot can't be resolved or no
-    /// memory store is wired.
-    public func snapshotBundleData(forSnapshot snapshotId: UUID, appId: UUID) -> Data? {
-        guard let app = SnapshotStore.restoredApp(appId, id: snapshotId),
-              let memory = globalMemory else { return nil }
-        let bundle = MyAppExporter.makeBundle(
-            app: app,
-            options: .init(
-                selectedComponentIds: Set(app.components.map(\.id)),
-                includeRecords: true,
-                includeMemories: true),
-            memory: memory)
-        return try? bundle.encoded()
+    /// Resolve a pinned snapshot back to its `MyApp` state so it can be fed to
+    /// the shared export screen (`ExportShareScreen`). Works for deleted-app
+    /// pins too. Returns nil if the snapshot can't be resolved.
+    public func restoredApp(forSnapshot snapshotId: UUID, appId: UUID) -> MyApp? {
+        _ = historyRevision
+        return SnapshotStore.restoredApp(appId, id: snapshotId)
     }
 
     /// One MyApp's permanent pins, for the Settings ▸ Pinned snapshots page.
