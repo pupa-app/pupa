@@ -120,4 +120,51 @@ struct ConflictTwinFoldTests {
         #expect(!exists(cloud, "memories/jobhunting 2/notes/a.md"))               // twin rel deleted
         #expect(get(memories, "jobhunting/notes/a.md") == "user note")
     }
+
+    // MARK: - Nested twins (inside an addressable app subtree)
+
+    @Test("fold adopts a nested twin dir that has a surviving sibling base dir")
+    func foldNestedTwinWithSibling() {
+        let (store, _, memories) = makeStore()
+        put(memories, "jobhunting/companies/acme/role.md", "sibling exists")
+        put(memories, "jobhunting/companies/acme 2/notes.md", "twin only")
+        put(memories, "jobhunting/companies/acme 2/role.md", "sibling exists")   // identical → dropped
+        #expect(store.foldConflictTwinDirs(addressableBases: ["jobhunting"]))
+        #expect(get(memories, "jobhunting/companies/acme/notes.md") == "twin only")
+        #expect(get(memories, "jobhunting/companies/acme/role.md") == "sibling exists")
+        #expect(!exists(memories, "jobhunting/companies/acme 2"))
+    }
+
+    @Test("fold leaves a nested space-digit dir alone when no sibling base exists")
+    func foldNestedNoSiblingLeftAlone() {
+        let (store, _, memories) = makeStore()
+        put(memories, "jobhunting/companies/acme 2/notes.md", "legit agent dir")
+        #expect(store.foldConflictTwinDirs(addressableBases: ["jobhunting"]) == false)
+        #expect(get(memories, "jobhunting/companies/acme 2/notes.md") == "legit agent dir")
+    }
+
+    @Test("fold quarantines a differing nested twin copy under conflicts/, destination wins")
+    func foldNestedPreservesDiffering() {
+        let (store, parent, memories) = makeStore()
+        put(memories, "jobhunting/companies/acme/role.md", "keep me")
+        put(memories, "jobhunting/companies/acme 2/role.md", "twin variant")
+        #expect(store.foldConflictTwinDirs(addressableBases: ["jobhunting"]))
+        #expect(get(memories, "jobhunting/companies/acme/role.md") == "keep me")   // destination wins
+        let quarantine = parent.appendingPathComponent(
+            "conflicts/memories/jobhunting/companies/acme/role.md", isDirectory: true)
+        let copies = (try? FileManager.default.contentsOfDirectory(
+            at: quarantine, includingPropertiesForKeys: nil)) ?? []
+        #expect(copies.count == 1)
+        #expect(copies.first.flatMap { try? String(contentsOf: $0, encoding: .utf8) } == "twin variant")
+        #expect(!exists(memories, "jobhunting/companies/acme 2"))
+    }
+
+    @Test("fold ignores a nested twin under a non-addressable top dir")
+    func foldNestedUnderUnaddressableIgnored() {
+        let (store, _, memories) = makeStore()
+        put(memories, "scratch/companies/acme/role.md", "base")
+        put(memories, "scratch/companies/acme 2/notes.md", "twin")
+        #expect(store.foldConflictTwinDirs(addressableBases: ["jobhunting"]) == false)
+        #expect(get(memories, "scratch/companies/acme 2/notes.md") == "twin")
+    }
 }

@@ -810,10 +810,13 @@ and renames the other to `memories/<slug> 2` (a space + digits — never valid
 `slugify` output, so never app-addressable). `MemoryStore.foldConflictTwinDirs`
 folds a `<slug> N` twin back into `<slug>` per-file (existing file wins; a
 differing twin copy goes to the local-only `conflicts/` tree) and removes the
-emptied twin; the mirror then propagates the cloud-side deletion. It only folds
-twins whose base is a live app slug (or `orchestrator`) and skips a twin whose
-cloud copy is still materializing (else adoption would miss files — retried next
-pass). Runs at provisioning (after the memories pull settles) and after each
+emptied twin; the mirror then propagates the cloud-side deletion. Top-level
+twins fold when their base is a live app slug (or `orchestrator`). A
+conflict-rename can also hit a **nested** dir (`memories/<slug>/…/<x> N`);
+inside an addressable subtree those fold too, but only when a sibling `<x>` dir
+survives — nested agent dirs may legitimately contain spaces, so the name alone
+isn't proof. Any twin whose cloud copy is still materializing is skipped (else
+adoption would miss files — retried next pass). Runs at provisioning (after the memories pull settles) and after each
 `convergeAndReloadStores` pull; idempotent. Without materialization at all the mirror only ever pushed
 and devices never converged. An un-fetched placeholder is reported `unresolved`
 so a still-present-but-evicted cloud file is **not** mistaken for a remote delete
