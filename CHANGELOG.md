@@ -3,6 +3,18 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.221] — 2026-07-28
+
+### Fixed
+
+- **iCloud conflict-twin adoption now reaches nested memory dirs.** A
+  conflict-rename can hit a dir *inside* an app's memory subtree
+  (`memories/<slug>/…/<x> 2/`), not just the top-level `memories/<slug> 2/`.
+  `foldConflictTwinDirs` now recurses each addressable subtree and folds a
+  nested `<x> N` twin into its sibling `<x>` — gated on that sibling surviving,
+  since agent-made nested dirs may legitimately contain spaces. Same
+  destination-wins + `conflicts/` quarantine as the top-level fold.
+
 ## [0.0.220] — 2026-07-28
 
 ### Fixed
