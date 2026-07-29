@@ -3,6 +3,18 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.223] — 2026-07-29
+
+### Added
+
+- **Liveness heartbeat while frontend tools run (pupa-backend#82).** During a
+  frontend-tool dispatch the session POSTs `command.keepalive` every ~10s
+  (interval-first — sub-second tool calls never ping) so the backend can fail
+  a dead app in ~30s instead of waiting out the 300s park wall. Backgrounding
+  sends one explicit `state: "background"` notice (the backend falls back to
+  its absolute wall so a briefly-backgrounded subagent survives); foregrounding
+  re-arms the short grace.
+
 ## [0.0.222] — 2026-07-29
 
 ### Fixed

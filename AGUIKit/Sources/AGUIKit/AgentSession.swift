@@ -141,18 +141,34 @@ public actor AgentSession {
     private let maxReattachAttempts = 4
     private let reattachBaseDelayNanos: UInt64 = 500_000_000
 
+    /// Liveness heartbeat (pupa-backend#82): while a frontend-tool dispatch is
+    /// in flight the backend's handler is parked with no open socket, so the
+    /// session POSTs `command.keepalive` every `keepaliveInterval` seconds.
+    /// The backend fails a silent (dead) app one grace period after the last
+    /// ping instead of burning the full per-tool wall.
+    private let keepaliveIntervalNanos: UInt64
+    /// Host-reported scene phase. While backgrounded (iOS freezes timers) the
+    /// pinger pauses and the backend is told once via `state: "background"` —
+    /// it then falls back to its absolute per-tool wall.
+    private var hostBackgrounded = false
+    /// Number of `dispatchFrontendTools` bodies currently running — gates the
+    /// immediate state ping in `setHostBackgrounded`.
+    private var activeDispatches = 0
+
     public init(
         client: AgentClient,
         registry: ToolRegistry,
         threadId: String,
         initialMessages: [AgentMessage] = [],
-        maxRounds: Int? = 24
+        maxRounds: Int? = 24,
+        keepaliveInterval: TimeInterval = 10
     ) {
         self.client = client
         self.registry = registry
         self.threadId = threadId
         self.messages = initialMessages
         self.maxRounds = maxRounds
+        self.keepaliveIntervalNanos = UInt64(max(0.01, keepaliveInterval) * 1_000_000_000)
         let toolNames = registry.descriptors.map(\.name).sorted().joined(separator: ",")
         AGUIKitLog.session(
             "AgentSession init thread=\(threadId) maxRounds=\(Self.capDescription(maxRounds)) " +
@@ -541,12 +557,79 @@ public actor AgentSession {
         }
     }
 
-    /// Run every frontend tool the backend asked us to dispatch. Tools
-    /// marked `parallelSafe` start concurrently; the rest run inline in
-    /// submission order. Results are returned in submission order so the
-    /// resume payload mirrors the call order the model emitted, and the
-    /// caller's `.toolCallFinished` events fire deterministically.
+    /// Tell the session the host app's scene phase changed. While a dispatch
+    /// is in flight, a transition posts one immediate keepalive carrying the
+    /// new state — backgrounding tells the backend to fall back to its
+    /// absolute wall (pupa-backend#82); foregrounding re-arms the short
+    /// liveness grace. The periodic pinger pauses while backgrounded.
+    public func setHostBackgrounded(_ flag: Bool) async {
+        guard flag != hostBackgrounded else { return }
+        hostBackgrounded = flag
+        guard activeDispatches > 0 else { return }
+        await postKeepalive(state: flag ? "background" : "active")
+    }
+
+    /// Minimal `POST /` body for the liveness ping — the endpoint answers 204
+    /// without starting a run.
+    private func keepaliveInput(state: String) -> RunAgentInput {
+        RunAgentInput(
+            threadId: threadId,
+            messages: [],
+            tools: [],
+            context: [],
+            forwardedProps: .object([
+                "command": .object([
+                    "keepalive": .object(["state": .string(state)])
+                ])
+            ])
+        )
+    }
+
+    /// Fire one liveness ping. Best-effort: a failed ping is logged and
+    /// dropped — the next interval retries, and the backend's grace absorbs
+    /// isolated losses.
+    private func postKeepalive(state: String) async {
+        do {
+            for try await _ in client.runSequenced(keepaliveInput(state: state)) {}
+        } catch {
+            AGUIKitLog.session("keepalive ping failed (ignored): \(error)")
+        }
+    }
+
+    /// Run every frontend tool the backend asked us to dispatch, pinging
+    /// `command.keepalive` every `keepaliveInterval` while the dispatch is in
+    /// flight so the backend's parked handler can tell a slow tool from a
+    /// dead app (pupa-backend#82).
     private func dispatchFrontendTools(
+        calls: [FrontendToolCall],
+        yield: @Sendable (SessionEvent) -> Void
+    ) async -> [AnyJSON] {
+        activeDispatches += 1
+        let intervalNanos = keepaliveIntervalNanos
+        // Interval-first: a dispatch faster than one interval (sub-second CRUD)
+        // never pings at all — only genuinely long parks arm the backend's
+        // liveness deadline.
+        let pinger = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: intervalNanos)
+                if Task.isCancelled { break }
+                if let self, await !self.hostBackgrounded {
+                    await self.postKeepalive(state: "active")
+                }
+            }
+        }
+        defer {
+            pinger.cancel()
+            activeDispatches -= 1
+        }
+        return await runFrontendDispatch(calls: calls, yield: yield)
+    }
+
+    /// Dispatch body. Tools marked `parallelSafe` start concurrently; the rest
+    /// run inline in submission order. Results are returned in submission
+    /// order so the resume payload mirrors the call order the model emitted,
+    /// and the caller's `.toolCallFinished` events fire deterministically.
+    private func runFrontendDispatch(
         calls: [FrontendToolCall],
         yield: @Sendable (SessionEvent) -> Void
     ) async -> [AnyJSON] {
