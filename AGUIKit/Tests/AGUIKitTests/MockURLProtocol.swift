@@ -23,6 +23,11 @@ final class MockURLProtocol: URLProtocol, @unchecked Sendable {
     /// the request fail at connect time — mimicking a dropped socket. Returning
     /// nil falls through to `responder`. Lets re-attach / retry paths be tested.
     nonisolated(unsafe) static var failer: (@Sendable (Int) -> URLError?)?
+    /// Optional mid-stream failure injector: deliver a 200 SSE response with
+    /// `prefix` bytes, then kill the connection with `error` — mimicking a
+    /// socket that died while streaming. Takes precedence over `responder`.
+    nonisolated(unsafe) static var midStreamFailer:
+        (@Sendable (Int) -> (prefix: Data, error: URLError)?)?
 
     static func reset() {
         responder = nil
@@ -30,6 +35,7 @@ final class MockURLProtocol: URLProtocol, @unchecked Sendable {
         lastRequestBody = nil
         requestBodies = []
         failer = nil
+        midStreamFailer = nil
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -58,6 +64,21 @@ final class MockURLProtocol: URLProtocol, @unchecked Sendable {
 
         // Injected connect-time failure (dropped socket) takes precedence.
         if let failer = MockURLProtocol.failer, let err = failer(MockURLProtocol.requestCount) {
+            client?.urlProtocol(self, didFailWithError: err)
+            return
+        }
+
+        // Injected mid-stream failure: 200 SSE headers + partial body, then die.
+        if let midFailer = MockURLProtocol.midStreamFailer,
+           let (prefix, err) = midFailer(MockURLProtocol.requestCount) {
+            let response = HTTPURLResponse(
+                url: request.url ?? URL(string: "http://mock/")!,
+                statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "text/event-stream"]
+            )!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            if !prefix.isEmpty { client?.urlProtocol(self, didLoad: prefix) }
             client?.urlProtocol(self, didFailWithError: err)
             return
         }

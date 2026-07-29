@@ -3,6 +3,26 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.222] — 2026-07-29
+
+### Fixed
+
+- **A killed app no longer loses an in-flight turn ("connection closed" after
+  backgrounding).** The transcript cache now snapshots the SSE replay cursor +
+  a turn-in-flight flag alongside the bubbles (legacy cache files still load),
+  persisted at turn boundaries and on backgrounding. On next open of the
+  thread, `loadHistoryIfNeeded` seeds the session cursor and reattaches,
+  streaming the missed tail into the cached transcript — the backend buffers
+  the turn for ~6h (pupa#103). A reattach answered 204 (buffer gone) settles
+  silently instead of posting a "connection closed" notice.
+- **Flaky-edge transport hardening.** Mid-stream socket death now classifies
+  as a reattachable drop (it previously surfaced as a raw error and skipped
+  the in-flight retry), and edge 5xx/408/429 answers (e.g. a Cloudflare
+  tunnel blip) re-attach with backoff instead of failing the turn. `reattach()`
+  itself retries a dropped connect. An assistant-message END whose text is
+  already the bubble's suffix no longer truncates a hydrated head after a
+  relaunch catch-up.
+
 ## [0.0.221] — 2026-07-28
 
 ### Fixed

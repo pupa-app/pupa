@@ -243,6 +243,15 @@ public final class ChatSessionCoordinator {
         for vm in sessions.values { vm.reattachIfNeeded() }
     }
 
+    /// Backgrounding hook: snapshot every in-flight session's transcript +
+    /// replay cursor so an OS kill while backgrounded can catch up on next
+    /// launch (pupa#103). Idle sessions no-op. Called on scene-phase
+    /// `.background` and again when the iOS background task expires (the
+    /// cursor keeps advancing while the socket survives the grace window).
+    public func persistAllForBackground() {
+        for vm in sessions.values { vm.persistForBackground() }
+    }
+
     private func makeSession(for scope: ChatScope, threadId: String) -> ChatViewModel {
         let registry = ToolRegistry()
         // Each session gets its own scoped MemoryStore so `lsMemories` /

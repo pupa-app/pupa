@@ -32,6 +32,12 @@ public enum SessionEvent: Sendable {
     case completed(CompletionOutcome)
     /// The agent emitted an error event.
     case error(message: String, code: String?)
+    /// The replay cursor advanced: the frame stamped with this seq has been
+    /// fully delivered (its session event, if any, was yielded first). Hosts
+    /// that persist the cursor per thread (pupa#103) track this instead of
+    /// `AgentSession.lastEventSeq` so a persisted value never runs ahead of
+    /// the UI state saved alongside it.
+    case cursorAdvanced(Int)
 }
 
 /// How a `send` / `reattach` settled, so the host can decide whether to show
@@ -116,8 +122,19 @@ public actor AgentSession {
     /// and the backend replays only what was missed. Nil until the first
     /// sequenced event arrives (older backends never stamp ids, in which
     /// case re-attach replays the whole buffered turn — events the UI has
-    /// already applied may repeat; acceptable degraded mode). See pupa#103.
-    private var lastEventSeq: Int?
+    /// already applied may repeat; acceptable degraded mode). Readable so the
+    /// host can persist it per thread and seed a relaunched session via
+    /// `seedReplayCursor` — the launch-time catch-up half of pupa#103.
+    public private(set) var lastEventSeq: Int?
+
+    /// Adopt a persisted replay cursor (relaunch catch-up after an app kill).
+    /// Keeps the newer of the two when this session already streamed past
+    /// `seq`, so a stale persisted value can never rewind a live cursor.
+    public func seedReplayCursor(_ seq: Int) {
+        guard lastEventSeq.map({ seq > $0 }) ?? true else { return }
+        lastEventSeq = seq
+        AGUIKitLog.session("seeded replay cursor thread=\(threadId) after_seq=\(seq)")
+    }
 
     /// Transport drops mid-round are retried this many times (exponential
     /// backoff, base 0.5s) before the error is surfaced to the caller.
@@ -255,8 +272,8 @@ public actor AgentSession {
         // No replay cursor → either the backend never stamped a seq (predates
         // the replay layer) or this session never streamed. Reattaching would
         // hit a real agent loop with an empty message list — do nothing.
-        // (Launch-time catch-up after an app kill needs the cursor persisted;
-        // follow-up on pupa#103.)
+        // (Launch-time catch-up after an app kill seeds the persisted cursor
+        // via `seedReplayCursor` before calling this — pupa#103.)
         guard lastEventSeq != nil else {
             AGUIKitLog.session("reattach() skipped — no replay cursor for thread=\(threadId)")
             // Nothing to catch up on — not a silent stop, so no notice.
@@ -271,14 +288,20 @@ public actor AgentSession {
         var round = 0
         while maxRounds == nil || round < maxRounds! {
             round += 1
-            var state = RoundState()
-            try await consumeRoundStream(client.runSequenced(input), state: &state, yield: yield)
-            finishRound(state: state, yield: yield)
-            producedText = producedText || state.outcome.producedText
+            let outcome = try await runOneRound(input: input, yield: yield)
+            producedText = producedText || outcome.producedText
 
-            guard let dispatch = state.outcome.pendingDispatch else {
-                if state.outcome.hadOutput { lastSendSettledCleanly = true }
-                let result = settleOutcome(producedText: producedText, outcome: state.outcome)
+            guard let dispatch = outcome.pendingDispatch else {
+                // A first round with no frames at all is the replay layer's
+                // "nothing buffered" answer (204, or an expired/evicted
+                // buffer) — a clean no-op catch-up, not a dropped stream.
+                if round == 1, !outcome.sawAnyFrame {
+                    AGUIKitLog.session("reattach: nothing buffered for thread=\(threadId) → completed")
+                    yield(.completed(.produced))
+                    return
+                }
+                if outcome.hadOutput { lastSendSettledCleanly = true }
+                let result = settleOutcome(producedText: producedText, outcome: outcome)
                 AGUIKitLog.session("reattach round \(round) settled → completed (\(result))")
                 yield(.completed(result))
                 return
@@ -630,6 +653,10 @@ public actor AgentSession {
         /// couldn't be decoded into frontend tool calls — the turn would
         /// otherwise settle silently with no dispatch.
         var interruptDecodeFailed: Bool = false
+        /// True once ANY frame arrived this round. A reattach round that ends
+        /// with this false is the replay layer's "nothing buffered" answer
+        /// (204 / expired buffer) — benign, not a dropped stream.
+        var sawAnyFrame: Bool = false
     }
 
     private struct PendingFrontendDispatch {
@@ -654,11 +681,20 @@ public actor AgentSession {
     }
 
     /// True for errors worth a re-attach: the socket died (app backgrounded,
-    /// network blip) but the backend run may well still be going. HTTP-level
-    /// errors, malformed events, and user cancellation are NOT re-attachable.
+    /// network blip) but the backend run may well still be going. Edge 5xx
+    /// (and 408/429) count too — a flaky tunnel/proxy answering for a healthy
+    /// origin is indistinguishable from a drop, and the replay log makes the
+    /// retry safe. Other HTTP errors, malformed events, and user cancellation
+    /// are NOT re-attachable.
     private static func isReattachable(_ error: Error) -> Bool {
-        if case AgentClientError.requestFailed = error { return true }
-        return false
+        switch error {
+        case AgentClientError.requestFailed:
+            return true
+        case AgentClientError.httpStatus(let code, _):
+            return code >= 500 || code == 408 || code == 429
+        default:
+            return false
+        }
     }
 
     /// Minimal `POST /` body for the replay layer's re-attach branch. The
@@ -732,10 +768,10 @@ public actor AgentSession {
         yield: @Sendable (SessionEvent) -> Void
     ) async throws {
         for try await sequenced in stream {
-            if let seq = sequenced.seq { lastEventSeq = seq }
+            state.outcome.sawAnyFrame = true
             switch sequenced.event {
             case .runStarted:
-                continue
+                break
             case .runFinished(let r):
                 state.outcome.sawRunFinished = true
                 yield(.roundFinished(threadId: r.threadId, runId: r.runId))
@@ -762,19 +798,20 @@ public actor AgentSession {
             case .toolCallArgs(let a):
                 state.pendingArgs[a.toolCallId, default: ""].append(a.delta)
             case .toolCallEnd(let e):
-                guard let name = state.pendingNames[e.toolCallId] else { continue }
-                let argsString = state.pendingArgs[e.toolCallId] ?? ""
-                let parsedArgs: AnyJSON
-                do {
-                    parsedArgs = try ToolCallFunction(name: name, arguments: argsString).parsedArguments()
-                } catch {
-                    parsedArgs = .object([:])
+                if let name = state.pendingNames[e.toolCallId] {
+                    let argsString = state.pendingArgs[e.toolCallId] ?? ""
+                    let parsedArgs: AnyJSON
+                    do {
+                        parsedArgs = try ToolCallFunction(name: name, arguments: argsString).parsedArguments()
+                    } catch {
+                        parsedArgs = .object([:])
+                    }
+                    state.outcome.observedToolCalls[e.toolCallId] = (name: name, args: parsedArgs)
                 }
-                state.outcome.observedToolCalls[e.toolCallId] = (name: name, args: parsedArgs)
             case .toolCallResult(let r):
                 state.outcome.backendResults[r.toolCallId] = r.content
             case .stateSnapshot, .stateDelta, .messagesSnapshot:
-                continue
+                break
             case .custom(let c):
                 // `ag_ui_langgraph` emits `CUSTOM(on_interrupt, value=…)`
                 // when the graph pauses via `langgraph.interrupt(...)`.
@@ -791,9 +828,13 @@ public actor AgentSession {
                         AGUIKitLog.session("⚠️ on_interrupt payload undecodable — will surface as silent stop")
                     }
                 }
-                continue
             case .stepStarted, .stepFinished, .raw, .unknown:
-                continue
+                break
+            }
+            // After the frame's own event (if any): the cursor now covers it.
+            if let seq = sequenced.seq {
+                lastEventSeq = seq
+                yield(.cursorAdvanced(seq))
             }
         }
     }

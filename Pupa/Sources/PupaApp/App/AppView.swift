@@ -400,10 +400,15 @@ public struct AppView: View {
         #if os(iOS)
         switch phase {
         case .background:
+            // Snapshot in-flight turns first: if the OS kills the process,
+            // the persisted cursor lets the next launch catch up (pupa#103).
+            coordinator.persistAllForBackground()
             guard coordinator.anyStreaming, streamKeepAlive == .invalid else { return }
             streamKeepAlive = UIApplication.shared.beginBackgroundTask(withName: "pupa.sse.stream") {
-                // Expiry: end the hold; the socket dies and the backend's
-                // replay buffer takes over until the next foreground.
+                // Expiry: persist the cursor as far as the grace window got,
+                // then end the hold; the socket dies and the backend's replay
+                // buffer takes over until the next foreground or launch.
+                coordinator.persistAllForBackground()
                 endStreamKeepAlive()
             }
         case .active:
@@ -413,7 +418,14 @@ public struct AppView: View {
             break
         }
         #else
-        if phase == .active { coordinator.reattachAllAfterForeground() }
+        switch phase {
+        case .background:
+            coordinator.persistAllForBackground()
+        case .active:
+            coordinator.reattachAllAfterForeground()
+        default:
+            break
+        }
         #endif
     }
 
