@@ -252,6 +252,14 @@ public final class ChatSessionCoordinator {
         for vm in sessions.values { vm.persistForBackground() }
     }
 
+    /// Scene-phase fan-out for the frontend-tool liveness heartbeat
+    /// (pupa-backend#82): every live session notifies the backend of the
+    /// background/foreground transition so parked tools switch between the
+    /// short liveness grace and the absolute wall.
+    public func setAllHostBackgrounded(_ flag: Bool) {
+        for vm in sessions.values { vm.setHostBackgrounded(flag) }
+    }
+
     private func makeSession(for scope: ChatScope, threadId: String) -> ChatViewModel {
         let registry = ToolRegistry()
         // Each session gets its own scoped MemoryStore so `lsMemories` /

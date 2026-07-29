@@ -400,8 +400,11 @@ public struct AppView: View {
         #if os(iOS)
         switch phase {
         case .background:
-            // Snapshot in-flight turns first: if the OS kills the process,
-            // the persisted cursor lets the next launch catch up (pupa#103).
+            // Tell parked frontend tools we're backgrounding (backend falls
+            // back to its absolute wall — pupa-backend#82) while the network
+            // is still alive, then snapshot in-flight turns so an OS kill can
+            // catch up on next launch (pupa#103).
+            coordinator.setAllHostBackgrounded(true)
             coordinator.persistAllForBackground()
             guard coordinator.anyStreaming, streamKeepAlive == .invalid else { return }
             streamKeepAlive = UIApplication.shared.beginBackgroundTask(withName: "pupa.sse.stream") {
@@ -413,6 +416,7 @@ public struct AppView: View {
             }
         case .active:
             endStreamKeepAlive()
+            coordinator.setAllHostBackgrounded(false)
             coordinator.reattachAllAfterForeground()
         default:
             break
@@ -420,8 +424,10 @@ public struct AppView: View {
         #else
         switch phase {
         case .background:
+            coordinator.setAllHostBackgrounded(true)
             coordinator.persistAllForBackground()
         case .active:
+            coordinator.setAllHostBackgrounded(false)
             coordinator.reattachAllAfterForeground()
         default:
             break

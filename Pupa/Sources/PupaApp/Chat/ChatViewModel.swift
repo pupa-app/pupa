@@ -1313,6 +1313,15 @@ public final class ChatViewModel {
         persistTranscript()
     }
 
+    /// Forward the host scene phase to the session's keepalive pinger
+    /// (pupa-backend#82): backgrounding sends one `state: "background"` notice
+    /// so the backend parks on its absolute wall instead of the short liveness
+    /// grace; foregrounding re-arms the grace.
+    public func setHostBackgrounded(_ flag: Bool) {
+        let session = self.session
+        Task { await session.setHostBackgrounded(flag) }
+    }
+
     // MARK: - Helpers
 
     /// Trim `text` to its first ~6 words / 40 characters for use as a thread title.

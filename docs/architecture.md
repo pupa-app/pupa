@@ -260,7 +260,13 @@ it seeds the session cursor (`seedReplayCursor`) and fires a catch-up reattach
 that streams the missed tail into the hydrated transcript. A reattach answered
 `204` (buffer expired / unknown thread) settles silently as a clean no-op. An
 `END` frame whose text is already the bubble's suffix never truncates a
-hydrated head (post-relaunch session buffers only hold the tail).
+hydrated head (post-relaunch session buffers only hold the tail). While a
+frontend-tool dispatch is in flight, `AgentSession` also POSTs
+`command.keepalive` every ~10s (pupa-backend#82) so the backend's parked
+handler can tell a slow tool from a dead app; scene-phase background sends one
+`state: "background"` notice (backend falls back to its absolute wall) and
+foreground re-arms the short liveness grace
+(`ChatSessionCoordinator.setAllHostBackgrounded`).
 
 **Chat-storage cap.** An opt-in **Settings ▸ Account ▸ Chat storage** cap
 (`SettingsStore.threadCapEnabled` / `threadCapMB` — off by default, fractional MB)
