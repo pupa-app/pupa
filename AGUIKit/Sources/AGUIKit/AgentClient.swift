@@ -177,8 +177,18 @@ public struct AgentClient: Sendable {
                         try yieldFrame(frame)
                     }
                     continuation.finish()
-                } catch {
+                } catch let error as AgentClientError {
                     continuation.finish(throwing: error)
+                } catch {
+                    // Mid-stream transport death (the byte loop threw a raw
+                    // URLError) classifies as `.requestFailed`, same as a
+                    // connect-time drop — the session's re-attach logic keys
+                    // off that case.
+                    if Task.isCancelled || error is CancellationError {
+                        continuation.finish(throwing: AgentClientError.cancelled)
+                    } else {
+                        continuation.finish(throwing: AgentClientError.requestFailed(error))
+                    }
                 }
             }
             continuation.onTermination = { _ in

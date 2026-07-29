@@ -223,8 +223,13 @@ history stays reachable.
 title, `createdAt`, per-thread LLM override). The message transcript is owned by
 the backend but also **cached on-device** by `TranscriptCache`
 (`state/transcripts/<threadId>.json`, one file per thread, riding the same
-`state/` iCloud mirror). `ChatViewModel.persistTranscript` writes the rendered
-bubbles at turn boundaries (after send, at turn settle — not per token);
+`state/` iCloud mirror). The file is a v1 snapshot envelope — bubbles **plus**
+the applied SSE replay cursor (`lastEventSeq`) and a `turnInFlight` flag,
+captured together on the main actor so they are always mutually consistent;
+legacy bare-array files still decode (no cursor). `ChatViewModel.persistTranscript`
+writes the snapshot at turn boundaries (after send, per assistant-message end,
+at turn settle — not per token) and on scene-phase `.background` /
+background-task expiry via `ChatSessionCoordinator.persistAllForBackground`;
 `loadHistoryIfNeeded` renders the cache first, then re-fetches from
 `GET /db/threads/{threadId}/messages` and overwrites **only** when the backend
 returns a non-empty transcript **and** the on-screen bubbles are still exactly
@@ -239,6 +244,23 @@ removed (`removeThread`), evicted by the cap (`enforceThreadCap`), or its MyApp
 is deleted (`removeMyApp`). `ChatBubble` is `Codable` for this; inline image
 bytes are stripped on write (they'd ride the iCloud mirror uncounted by the
 cap), so the cache is a text-history fallback.
+
+**Resumable SSE (pupa#103).** Every backend frame carries a replay seq (SSE
+`id:`); the backend buffers each thread's turn for ~6h (pupa-backend#40).
+`AgentSession` tracks the highest seq and yields `.cursorAdvanced` after each
+applied frame; the VM mirrors that into `appliedEventSeq` (main-actor, never
+ahead of the rendered bubbles). Recovery layers, innermost out: (1) mid-turn
+drops — including mid-stream socket death and edge 5xx/408/429 (flaky
+tunnel/proxy) — re-attach in-flight with backoff (`command.reattach.after_seq`);
+(2) short backgrounds ride a ~30s UIKit background task, then foreground
+re-attach (`reattachIfNeeded`) resumes any turn that surfaced a
+`connectionIssue`; (3) an **app kill** mid-turn is recovered at next open:
+`loadHistoryIfNeeded` reads the cached snapshot, and when `turnInFlight` is set
+it seeds the session cursor (`seedReplayCursor`) and fires a catch-up reattach
+that streams the missed tail into the hydrated transcript. A reattach answered
+`204` (buffer expired / unknown thread) settles silently as a clean no-op. An
+`END` frame whose text is already the bubble's suffix never truncates a
+hydrated head (post-relaunch session buffers only hold the tail).
 
 **Chat-storage cap.** An opt-in **Settings ▸ Account ▸ Chat storage** cap
 (`SettingsStore.threadCapEnabled` / `threadCapMB` — off by default, fractional MB)

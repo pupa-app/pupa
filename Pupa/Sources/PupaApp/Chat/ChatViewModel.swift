@@ -209,6 +209,13 @@ public final class ChatViewModel {
     public private(set) var isStreaming = false
     /// Inline connection banner state; `nil` when the stream is healthy.
     public private(set) var connectionIssue: ChatConnectionState?
+    /// Highest replay seq whose event has been APPLIED to `bubbles` — driven
+    /// by `.cursorAdvanced` on the main actor, so it can never run ahead of
+    /// the rendered state the way `AgentSession.lastEventSeq` can (the session
+    /// stamps its cursor before the UI consumes the event). Persisted with the
+    /// transcript so a relaunch reattaches exactly where the cache ends
+    /// (pupa#103).
+    private(set) var appliedEventSeq: Int?
     /// True when a turn finished while this thread was not on screen — drives
     /// the "unviewed answer" badge on the pupa circle / thread lists. Set when
     /// a real turn settles (see `setStreaming`); cleared by `markViewed()` when
@@ -923,8 +930,6 @@ public final class ChatViewModel {
         }
 
         appendBubble(ChatBubble(role: .user, text: displayText, imagesData: images.map(\.data)))
-        // Cache the just-sent message so it survives an immediate app kill.
-        persistTranscript()
 
         // Capture the first user message as the thread title (set-once).
         let isFirstUserMessage = !bubbles.dropLast().contains(where: { $0.role == .user })
@@ -970,6 +975,10 @@ public final class ChatViewModel {
             forwardedProps: baseForwardedProps
         )
         consume(stream: stream)
+        // Cache the just-sent message (with the turn marked in flight) so an
+        // immediate app kill can catch up on relaunch. After `setStreaming` +
+        // `consume` so the snapshot records `turnInFlight = true`.
+        persistTranscript()
     }
 
     // MARK: - Queued messages
@@ -1089,13 +1098,25 @@ public final class ChatViewModel {
     ///
     /// No-op when a stream is still live (short background survived) or the
     /// last turn settled cleanly. Launch-time catch-up after a full app kill
-    /// additionally needs the replay cursor persisted per thread — tracked as
-    /// follow-up on pupa#103.
+    /// is the separate `catchUpAfterRelaunch` path, driven by the persisted
+    /// snapshot in `loadHistoryIfNeeded` (pupa#103).
     public func reattachIfNeeded() {
         guard streamTask == nil else { return }       // stream survived the background
         guard connectionIssue != nil else { return }   // nothing was interrupted
         AGUIKitLog.session("foreground reattach: thread=\(threadId)")
         connectionIssue = nil
+        setStreaming(true)
+        consume(stream: session.reattach())
+    }
+
+    /// Launch-time catch-up after an app kill: the persisted snapshot said a
+    /// turn was in flight, and the session's replay cursor has been seeded
+    /// from it. Reattach and stream the missed tail into the transcript.
+    /// Unlike `reattachIfNeeded` there is no `connectionIssue` to clear — a
+    /// freshly built VM has none.
+    private func catchUpAfterRelaunch() {
+        guard streamTask == nil, !isStreaming else { return }
+        AGUIKitLog.session("relaunch catch-up: thread=\(threadId)")
         setStreaming(true)
         consume(stream: session.reattach())
     }
@@ -1189,8 +1210,12 @@ public final class ChatViewModel {
         hasLoadedHistory = true
         // Cache-first: render the on-device transcript immediately so a reopened
         // thread shows its history even when the backend has since lost it.
-        let cached = TranscriptCache.load(threadId)
+        let snapshot = TranscriptCache.loadSnapshot(threadId)
+        let cached = snapshot?.bubbles ?? []
         if !cached.isEmpty { self.bubbles = cached }
+        // Adopt the persisted replay cursor so the next snapshot doesn't
+        // regress it even if no catch-up runs.
+        if let seq = snapshot?.lastEventSeq { appliedEventSeq = seq }
         let threadId = self.threadId
         let backendURL = settings.backendURL
         let headers = settings.authHeaders
@@ -1203,6 +1228,17 @@ public final class ChatViewModel {
                 let seed = cached.filter { $0.role == .user }
                     .map { AgentMessage.user($0.text, id: $0.id) }
                 await session.reset(messages: seed)
+            }
+            // Launch-time catch-up (pupa#103): the cache says a turn was still
+            // in flight when the process last persisted — an app kill mid-turn.
+            // Seed the session's replay cursor and reattach: the backend's
+            // replay log serves everything missed (or 204 when the buffer is
+            // gone, a clean no-op). A missing cursor replays the whole turn —
+            // the cached bubbles only hold user messages then, so nothing
+            // duplicates.
+            if let snapshot, snapshot.turnInFlight {
+                await session.seedReplayCursor(snapshot.lastEventSeq ?? -1)
+                await MainActor.run { [weak self] in self?.catchUpAfterRelaunch() }
             }
             let client = BackendThreadsClient(
                 backendURL: backendURL,
@@ -1244,19 +1280,37 @@ public final class ChatViewModel {
     /// smaller snapshot could land last and stale the cache.
     private var persistTask: Task<Void, Never>?
 
-    /// Snapshot the current bubbles to the on-device transcript cache off the
-    /// main actor. Called at turn boundaries (after send, at turn settle), not
-    /// per token. `CloudDocument.write` is synchronous file IO — kept off main
-    /// per pupa#120; `[ChatBubble]` is `Sendable` so it copies into the task.
-    /// Writes chain off `persistTask` so they apply in call (= capture) order.
+    /// Snapshot the current bubbles + applied replay cursor + in-flight flag
+    /// to the on-device transcript cache off the main actor. Called at turn
+    /// boundaries (after send, per message end, at turn settle) and on
+    /// backgrounding, not per token. All snapshot fields are captured here on
+    /// the main actor in one synchronous read, so bubbles and cursor are
+    /// always mutually consistent. `CloudDocument.write` is synchronous file
+    /// IO — kept off main per pupa#120; writes chain off `persistTask` so
+    /// they apply in call (= capture) order.
     private func persistTranscript() {
-        let bubbles = self.bubbles
+        // `.reconnecting` counts as in flight: the socket died but the backend
+        // run may still be going — a relaunch should catch up, not go quiet.
+        let snapshot = TranscriptSnapshot(
+            bubbles: bubbles,
+            lastEventSeq: appliedEventSeq,
+            turnInFlight: isStreaming || connectionIssue == .reconnecting,
+            savedAt: Date()
+        )
         let threadId = self.threadId
         let prev = persistTask
         persistTask = Task.detached(priority: .utility) {
             await prev?.value
-            TranscriptCache.save(bubbles, threadId: threadId)
+            TranscriptCache.save(snapshot, threadId: threadId)
         }
+    }
+
+    /// Backgrounding hook: snapshot an in-flight turn so an OS kill while
+    /// backgrounded can catch up on next launch. No-op when idle — the settle
+    /// path already persisted the final state.
+    public func persistForBackground() {
+        guard isStreaming || connectionIssue != nil else { return }
+        persistTranscript()
     }
 
     // MARK: - Helpers
@@ -1287,7 +1341,18 @@ public final class ChatViewModel {
         case .assistantMessageDelta(let id, let delta):
             mutateBubble(id: id) { $0.text.append(delta) }
         case .assistantMessageEnd(let id, let text):
-            mutateBubble(id: id) { $0.text = text }
+            // END carries the session's assembled buffer. After a relaunch
+            // catch-up that buffer only holds the post-cursor tail (the head
+            // streamed before the kill and lives in the hydrated bubble), so
+            // an END whose text is already the bubble's suffix must not
+            // truncate it. A genuinely divergent END (missed deltas) still
+            // wins.
+            mutateBubble(id: id) { bubble in
+                if !bubble.text.hasSuffix(text) { bubble.text = text }
+            }
+            // Message boundary — keep the mid-turn snapshot fresh so a kill
+            // between rounds loses at most the message in progress.
+            persistTranscript()
         case .toolCallStarted(let id, let name):
             openOrAppendToolRoundEntry(id: id, name: name)
         case .toolCallFinished(let id, let name, let arguments, let result):
@@ -1311,6 +1376,8 @@ public final class ChatViewModel {
             openToolRoundId = nil
             AGUIKitLog.session("backend run error [\(code ?? "-")]: \(message)")
             connectionIssue = .failed(Self.backendErrorMessage)
+        case .cursorAdvanced(let seq):
+            appliedEventSeq = seq
         }
     }
 

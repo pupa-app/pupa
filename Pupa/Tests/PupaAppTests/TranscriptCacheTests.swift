@@ -102,6 +102,67 @@ struct TranscriptCacheTests {
         #expect(!FileManager.default.fileExists(atPath: TranscriptCache.url(id).path))
     }
 
+    // MARK: - Replay-cursor snapshot (pupa#103 relaunch catch-up)
+
+    @Test("snapshot save/load round-trips cursor + in-flight flag with the bubbles")
+    func snapshot_roundTrip() async {
+        await MyAppStore.clearStorage()
+        let id = "snap-thread"
+        let bubbles = [ChatBubble(role: .user, text: "q"),
+                       ChatBubble(role: .assistant, text: "half a reply")]
+        let snap = TranscriptSnapshot(
+            bubbles: bubbles, lastEventSeq: 37, turnInFlight: true,
+            savedAt: Date(timeIntervalSince1970: 1_000))
+        TranscriptCache.save(snap, threadId: id)
+
+        let loaded = TranscriptCache.loadSnapshot(id)
+        #expect(loaded?.bubbles == bubbles)
+        #expect(loaded?.lastEventSeq == 37)
+        #expect(loaded?.turnInFlight == true)
+        #expect(loaded?.savedAt == Date(timeIntervalSince1970: 1_000))
+        // The bubbles-only accessor reads the same file.
+        #expect(TranscriptCache.load(id) == bubbles)
+    }
+
+    @Test("legacy bare-array cache files still load; their snapshot carries no cursor")
+    func snapshot_legacyArrayFallback() async throws {
+        await MyAppStore.clearStorage()
+        let id = "legacy-thread"
+        let bubbles = [ChatBubble(role: .user, text: "old format")]
+        let data = try JSONEncoder().encode(bubbles)
+        try CloudDocument.write(data, to: TranscriptCache.url(id))
+
+        #expect(TranscriptCache.load(id) == bubbles)
+        let snap = TranscriptCache.loadSnapshot(id)
+        #expect(snap?.bubbles == bubbles)
+        #expect(snap?.lastEventSeq == nil)
+        #expect(snap?.turnInFlight == false)
+    }
+
+    @Test("unknown thread has no snapshot; bubble-only save yields cursor-less snapshot")
+    func snapshot_missingAndBubbleOnly() async {
+        await MyAppStore.clearStorage()
+        #expect(TranscriptCache.loadSnapshot("nope") == nil)
+
+        TranscriptCache.save([ChatBubble(role: .user, text: "plain")], threadId: "plain-thread")
+        let snap = TranscriptCache.loadSnapshot("plain-thread")
+        #expect(snap?.lastEventSeq == nil)
+        #expect(snap?.turnInFlight == false)
+    }
+
+    @Test("snapshot save strips inline image bytes like the legacy save")
+    func snapshot_stripsImages() async {
+        await MyAppStore.clearStorage()
+        let id = "snap-img"
+        let snap = TranscriptSnapshot(
+            bubbles: [ChatBubble(role: .user, text: "pic", imagesData: [Data(count: 2048)])],
+            lastEventSeq: 5, turnInFlight: false, savedAt: .now)
+        TranscriptCache.save(snap, threadId: id)
+        let loaded = TranscriptCache.loadSnapshot(id)
+        #expect(loaded?.bubbles.first?.imagesData.isEmpty == true)
+        #expect(loaded?.lastEventSeq == 5)
+    }
+
     // MARK: - Never-clobber on load
 
     @Test("Empty backend response keeps the cached render (never-clobber)")
