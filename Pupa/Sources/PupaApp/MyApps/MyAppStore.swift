@@ -1069,22 +1069,27 @@ public final class MyAppStore {
     ) -> Bool {
         let resolvedCompId = componentId ?? trackerComponentId(myAppId: myAppId)
         var ok = false
-        // Captured inside the choke-point for the canvas-event stream: the
-        // kanban column field and its value before/after this patch.
-        var columnField: String?
-        var priorColumn: String?
-        var newColumn: String?
+        // Captured inside the choke-point for the canvas-event stream: every
+        // `.select` field this patch actually changed, with its before/after
+        // value. Deliberately NOT scoped to `t.columnField` — the kanban
+        // group-by is view state, and an automation must fire on the field it
+        // watches whichever way the board happens to be grouped.
+        var moves: [(field: String, from: String?, to: String?)] = []
         var itemTitle = ""
         var itemValues: [String: String] = [:]
         let body: (inout CanvasApp) -> Bool = { canvas in
             guard case .tracker(var t) = canvas,
                   let idx = t.items.firstIndex(where: { $0.id == id }) else { return false }
-            columnField = t.columnField
-            if let cf = t.columnField { priorColumn = t.items[idx].values[cf] }
+            let selectFields = Set(t.fields.filter { $0.type == .select }.map(\.name))
+            let before = t.items[idx].values
             for (k, v) in patch { t.items[idx].values[k] = v }
-            if let cf = t.columnField { newColumn = t.items[idx].values[cf] }
+            let after = t.items[idx].values
+            moves = patch.keys
+                .filter { selectFields.contains($0) && before[$0] != after[$0] }
+                .sorted()   // deterministic emission order for a multi-field patch
+                .map { (field: $0, from: before[$0], to: after[$0]) }
             itemTitle = t.items[idx].displayName
-            itemValues = t.items[idx].values
+            itemValues = after
             canvas = .tracker(t)
             ok = true
             return true
@@ -1097,41 +1102,39 @@ public final class MyAppStore {
         if ok, let compId = resolvedCompId {
             emitItemEvent(myAppId: myAppId, componentId: compId, kind: .patched, actor: actor,
                           itemId: id)
-            emitCanvasMove(actor: actor, myAppId: myAppId, componentId: compId, itemId: id,
-                           itemTitle: itemTitle, values: itemValues, columnField: columnField,
-                           patchKeys: Set(patch.keys), from: priorColumn, to: newColumn)
+            emitCanvasMoves(actor: actor, myAppId: myAppId, componentId: compId, itemId: id,
+                            itemTitle: itemTitle, values: itemValues, moves: moves)
         }
         return ok
     }
 
-    /// Emit an `item.moved` canvas event when a *user* drag actually changes
-    /// the kanban column field. Self-mutation guard: agent/reaction moves
+    /// Emit one `item.moved` canvas event per `.select` field a *user* edit
+    /// changed — inline in a card, in the edit sheet, or by dragging a kanban
+    /// lane; all three land here. Self-mutation guard: agent/reaction moves
     /// (`actor == .agent`) never emit, so a reaction can't re-trigger its rule.
-    private func emitCanvasMove(
+    private func emitCanvasMoves(
         actor: ItemEventActor,
         myAppId: UUID?,
         componentId: String,
         itemId: UUID,
         itemTitle: String,
         values: [String: String],
-        columnField: String?,
-        patchKeys: Set<String>,
-        from: String?,
-        to: String?
+        moves: [(field: String, from: String?, to: String?)]
     ) {
-        guard case .user = actor,
-              let cf = columnField, patchKeys.contains(cf),
-              (from ?? "") != (to ?? "") else { return }
-        onCanvasEvent?(CanvasEvent(
-            type: .itemMoved,
-            myAppId: myAppId ?? activeMyAppId,
-            componentId: componentId,
-            itemId: itemId,
-            itemTitle: itemTitle,
-            values: values,
-            fromColumn: from,
-            toColumn: to
-        ))
+        guard case .user = actor, let emit = onCanvasEvent else { return }
+        for move in moves {
+            emit(CanvasEvent(
+                type: .itemMoved,
+                myAppId: myAppId ?? activeMyAppId,
+                componentId: componentId,
+                itemId: itemId,
+                itemTitle: itemTitle,
+                values: values,
+                field: move.field,
+                fromColumn: move.from,
+                toColumn: move.to
+            ))
+        }
     }
 
     public func patchItem(at index: Int, with patch: [String: String], myAppId: UUID? = nil, actor: ItemEventActor = .user) {

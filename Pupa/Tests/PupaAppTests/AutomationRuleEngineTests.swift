@@ -36,9 +36,10 @@ struct AutomationRuleEngineTests {
     }
 
     private func event(to column: String, from: String? = "Todo", itemId: UUID = UUID(),
-                       title: String = "Ship v2") -> CanvasEvent {
+                       title: String = "Ship v2", field: String = "status") -> CanvasEvent {
         CanvasEvent(type: .itemMoved, myAppId: UUID(), componentId: "c", itemId: itemId,
-                    itemTitle: title, values: ["title": title], fromColumn: from, toColumn: column)
+                    itemTitle: title, values: ["title": title], field: field,
+                    fromColumn: from, toColumn: column)
     }
 
     private func reviewRule(id: String = "review-on-move", confirm: Bool = true) -> AutomationRule {
@@ -90,6 +91,31 @@ struct AutomationRuleEngineTests {
         let miss = RuleEngine()
         miss.ingest(event(to: "Done"), rules: [reviewRule()])
         #expect(miss.pendingProposal == nil)
+    }
+
+    @Test("matcher can scope to one field via the `field` key")
+    func matcherScopesByField() {
+        let rule = AutomationRule(
+            id: "priority-only", event: .itemMoved,
+            matcher: ["field": "priority", "toColumn": "High"],
+            action: AutomationAction(startThreadPrompt: "Escalate {{item.title}}.")
+        )
+        let hit = RuleEngine()
+        hit.ingest(event(to: "High", from: "Low", field: "priority"), rules: [rule])
+        #expect(hit.pendingProposal != nil)
+
+        // Same value on a different field must not fire the scoped rule.
+        let miss = RuleEngine()
+        miss.ingest(event(to: "High", from: "Low", field: "status"), rules: [rule])
+        #expect(miss.pendingProposal == nil)
+    }
+
+    @Test("{{field}} renders the changed field name")
+    func rendersFieldToken() {
+        let rendered = AutomationRule.render(
+            "{{field}}: {{fromColumn}} -> {{toColumn}}",
+            event: event(to: "Review", field: "status"))
+        #expect(rendered == "status: Todo -> Review")
     }
 
     // MARK: - 3. End-to-end emission from the store choke-point

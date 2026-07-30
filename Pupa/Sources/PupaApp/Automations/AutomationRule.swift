@@ -18,6 +18,10 @@ public struct CanvasEvent: Sendable, Equatable {
     /// The item's field values after the move (for `{{item.<field>}}` and for
     /// `matchFields` equality predicates on any field).
     public let values: [String: String]
+    /// Name of the select field whose value changed. Independent of the
+    /// tracker's kanban group-by — a move is a domain fact, not a property of
+    /// the view. Scope a rule to one field with `matcher: {"field": "…"}`.
+    public let field: String
     public let fromColumn: String?
     public let toColumn: String?
 
@@ -28,6 +32,7 @@ public struct CanvasEvent: Sendable, Equatable {
         itemId: UUID,
         itemTitle: String,
         values: [String: String] = [:],
+        field: String,
         fromColumn: String?,
         toColumn: String?
     ) {
@@ -37,24 +42,28 @@ public struct CanvasEvent: Sendable, Equatable {
         self.itemId = itemId
         self.itemTitle = itemTitle
         self.values = values
+        self.field = field
         self.fromColumn = fromColumn
         self.toColumn = toColumn
     }
 
-    /// Stable id for `(item, type, from→to)` — the once-per-transition dedupe
-    /// key. A later re-entry into the same state is the same transitionId and
-    /// is distinguished only by time (see `RuleEngine` dedupe window).
+    /// Stable id for `(item, type, field, from→to)` — the once-per-transition
+    /// dedupe key. Field-scoped so one patch touching two select fields isn't
+    /// deduped down to a single event. A later re-entry into the same state is
+    /// the same transitionId and is distinguished only by time (see
+    /// `RuleEngine` dedupe window).
     public var transitionId: String {
-        "\(itemId.uuidString)|\(type.rawValue)|\(fromColumn ?? "")->\(toColumn ?? "")"
+        "\(itemId.uuidString)|\(type.rawValue)|\(field)|\(fromColumn ?? "")->\(toColumn ?? "")"
     }
 
     /// Field values a rule `matcher` is tested against (equality predicates,
     /// all AND). The item's own field values plus the structural transition
-    /// keys `toColumn` / `fromColumn`, so a matcher can key off any event
-    /// field without a schema change (forward-compatible to `field.changed`,
-    /// `item.added`, multi-field AND).
+    /// keys `field` / `toColumn` / `fromColumn`, so a matcher can key off any
+    /// event field without a schema change (forward-compatible to
+    /// `field.changed`, `item.added`, multi-field AND).
     public var matchFields: [String: String] {
         var f = values
+        f["field"] = field
         if let toColumn { f["toColumn"] = toColumn }
         if let fromColumn { f["fromColumn"] = fromColumn }
         return f
@@ -103,11 +112,12 @@ public struct AutomationRule: Sendable, Equatable, Identifiable {
     }
 
     /// Render an action prompt template against an event. Substitutes
-    /// `{{item.title}}`, `{{item.<field>}}`, `{{fromColumn}}`, `{{toColumn}}`
-    /// with literal field values — no code evaluation.
+    /// `{{item.title}}`, `{{item.<field>}}`, `{{field}}`, `{{fromColumn}}`,
+    /// `{{toColumn}}` with literal field values — no code evaluation.
     public static func render(_ template: String, event: CanvasEvent) -> String {
         var out = template
         out = out.replacingOccurrences(of: "{{item.title}}", with: event.itemTitle)
+        out = out.replacingOccurrences(of: "{{field}}", with: event.field)
         out = out.replacingOccurrences(of: "{{fromColumn}}", with: event.fromColumn ?? "")
         out = out.replacingOccurrences(of: "{{toColumn}}", with: event.toColumn ?? "")
         for (k, v) in event.values {

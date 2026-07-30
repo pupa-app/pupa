@@ -3,6 +3,27 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.224] — 2026-07-30
+
+### Fixed
+
+- **Automations now fire whatever the board is grouped by.** `item.moved` was
+  emitted only when the edited field was the kanban `columnField`, so a rule
+  watching `Priority` stayed silent while the board was grouped by `Status`
+  (and in grid view). The canvas-event choke-point no longer consults view
+  state: it emits one event per **select** field a user edit actually changed —
+  lane drag, inline card edit, or edit sheet alike. Agent moves stay silent
+  (self-mutation guard) and a no-op rewrite still emits nothing.
+
+### Changed
+
+- **Automation rules can scope to a field.** `CanvasEvent` carries the changed
+  field's name as `field`; it is a `matcher` key (`{"field":"Status",
+  "toColumn":"Review"}`) and a `{{field}}` prompt token. Add it to a rule when
+  two select fields share an option name — an unscoped matcher now fires on
+  either. Dedupe keys are field-scoped, so one patch touching two select fields
+  produces two events.
+
 ## [0.0.223] — 2026-07-29
 
 ### Added

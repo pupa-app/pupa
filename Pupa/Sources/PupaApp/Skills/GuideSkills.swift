@@ -15,7 +15,7 @@ import Foundation
 /// component-kind list is generated from `MyAppType.kinds` so it can't drift.
 enum GuideSkills {
     /// Bump when any guide body changes so existing installs re-seed.
-    static let version = "10"
+    static let version = "11"
 
     /// The plugin folder holding this guide's skills.
     static let pluginDir = "\(MemoryStore.pupaPluginsDir)/pupa-guide"
@@ -238,9 +238,12 @@ enum GuideSkills {
     ever start a model turn, always behind a confirm bubble unless a rule
     explicitly opts out.
 
-    **Trigger (v1).** `item.moved` — a user drags an item into a different
-    kanban column. Agent moves never trigger (so a reaction can't loop on
-    itself).
+    **Trigger (v1).** `item.moved` — a user changes any **select** field on a
+    tracker item: dragging a kanban lane, editing the field on the card, or
+    saving the edit sheet. Independent of the board's group-by — a rule
+    watching `Priority` fires while the board is grouped by `Status`, and in
+    grid view too. One event per changed select field. Agent moves never
+    trigger (so a reaction can't loop on itself).
 
     **Where.** One file per app: `pupa/automations.json`. Shape mirrors Claude
     Code hook config — an `automations` map keyed by event name, each a list of
@@ -249,7 +252,7 @@ enum GuideSkills {
     ```json
     {"automations":{"item.moved":[
       {"id":"review-on-move",
-       "matcher":{"toColumn":"Review"},
+       "matcher":{"field":"Status","toColumn":"Review"},
        "action":{"startThread":{"prompt":"Review {{item.title}}."}},
        "confirm":true}
     ]}}
@@ -259,10 +262,11 @@ enum GuideSkills {
     - `id` (required) — unique per rule; also the lock key.
     - `matcher` — field-equality predicates, **all must hold (AND)**; omit or
       `{}` to match every move. Keys are any of the item's own fields plus the
-      transition keys `toColumn` / `fromColumn`.
+      transition keys `field` / `toColumn` / `fromColumn`. Add `field` whenever
+      two select fields share an option name, or the rule fires on both.
     - `action.startThread.prompt` (required) — the chat prompt. Templates:
-      `{{item.title}}`, `{{item.<field>}}`, `{{toColumn}}`, `{{fromColumn}}`,
-      substituted literally (no code).
+      `{{item.title}}`, `{{item.<field>}}`, `{{field}}`, `{{toColumn}}`,
+      `{{fromColumn}}`, substituted literally (no code).
     - `confirm` — `true` (default) proposes a Start/Dismiss bubble; `false`
       auto-fires with no prompt. Only ship `confirm:false` in bundles you
       trust — it invokes the model on a plain canvas move.

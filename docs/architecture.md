@@ -378,11 +378,18 @@ no longer drives undo.
 The same choke-point also emits a typed **`CanvasEvent`** stream (the
 trigger side of bundle automations) via the `MyAppStore.onCanvasEvent`
 closure — decoupled from the automation layer the way `threadCapBytes`
-decouples the settings cap. v1 emits one event: `item.moved`, when a
-**user** drag through `patchItem(id:with:)` actually changes a kanban
-`columnField` value. Agent/reaction moves (`actor == .agent`) never
-emit — the self-mutation guard, so a reaction can't re-trigger its own
-rule (no dedicated `.automation` tag needed in v1).
+decouples the settings cap. v1 emits one event: `item.moved`, once per
+**`.select` field** a **user** edit through `patchItem(id:with:)`
+actually changed. Emission is deliberately **independent of
+`TrackerData.columnField`** — the kanban group-by is view state, so
+gating on it made a rule fire only while the board happened to be
+grouped by that field (and stay silent in grid view). Every user path
+lands on the same choke-point: lane drag, inline card edit, edit sheet.
+The changed field's name rides the event as `field` (and as a
+`matchFields` key) so a rule can scope itself to one field.
+Agent/reaction moves (`actor == .agent`) never emit — the self-mutation
+guard, so a reaction can't re-trigger its own rule (no dedicated
+`.automation` tag needed in v1).
 
 `AppView` wires the stream to a **`RuleEngine`**
 ([Automations/](../Pupa/Sources/PupaApp/Automations/)): for each event
@@ -390,8 +397,10 @@ it loads that MyApp's rules fresh from `pupa/automations.json`
 (`AutomationStore`, mirroring `SkillStore`), matches them, and applies
 the guards — an **in-flight lock** keyed `(ruleId, itemId)` (dropped
 while a reaction runs; cleared on dismiss/complete or a timeout
-backstop), and **once-per-transition** dedupe (same `transitionId`
-inside a short window fires once; a later re-entry fires again). A match
+backstop), and **once-per-transition** dedupe (same `transitionId` —
+`(item, type, field, from→to)` — inside a short window fires once; a
+later re-entry fires again; the field in the key keeps a two-select
+patch from collapsing to one event). A match
 with `confirm: true` (default) surfaces a Start/Dismiss confirm bubble
 reusing the notification "propose a chat" path; `confirm: false`
 auto-fires. The action (`startThread`) opens a fresh thread and
@@ -399,13 +408,14 @@ auto-sends a `{{item.title}}`-templated prompt. Config shape mirrors
 Claude Code hook ergonomics — an `automations` map keyed by event name,
 each a list of rules — but the events are Pupa **domain** events, not
 harness hooks. `matcher` is field-equality predicates on the event's
-`matchFields` (any field, all AND); parsing is **per-entry tolerant** —
-imported bundles are hostile, so a malformed / missing-id / unknown-verb
-entry is skipped, never fatal.
+`matchFields` (any item field plus `field` / `toColumn` / `fromColumn`,
+all AND); parsing is **per-entry tolerant** — imported bundles are
+hostile, so a malformed / missing-id / unknown-verb entry is skipped,
+never fatal.
 
 ```json
 {"automations":{"item.moved":[
-  {"id":"review-on-move","matcher":{"toColumn":"Review"},
+  {"id":"review-on-move","matcher":{"field":"Status","toColumn":"Review"},
    "action":{"startThread":{"prompt":"Review {{item.title}}."}},"confirm":true}
 ]}}
 ```
