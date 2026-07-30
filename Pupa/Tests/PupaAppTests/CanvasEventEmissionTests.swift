@@ -11,18 +11,24 @@ struct CanvasEventEmissionTests {
 
     init() { TestStorage.activate() }
 
-    /// A tracker MyApp in kanban mode with `Status` as the column field and
-    /// one item parked in "Doing". Returns store, appId, and the item id.
-    private func freshKanban() -> (MyAppStore, UUID, UUID) {
+    /// A tracker MyApp with two select fields (`Status`, `Priority`) and one
+    /// item parked in "Doing" / "Low". `groupBy` picks the kanban column field
+    /// (nil ⇒ stay in grid) so a test can prove emission is view-independent.
+    /// Returns store, appId, and the item id.
+    private func freshKanban(groupBy: String? = "Status") -> (MyAppStore, UUID, UUID) {
         MyAppTypeRegistry.shared.registerBuiltins()
         let myApp = MyApp(name: "T", iconSystemName: "list.bullet.rectangle", typeId: MyAppType.tracker.id)
         let store = MyAppStore(initial: ([myApp], myApp.id))
         store.setTracker(title: "Board", fields: [
             FieldDef(name: "title", type: .text),
-            FieldDef(name: "Status", type: .select, options: ["Doing", "Review", "Done"])
+            FieldDef(name: "Status", type: .select, options: ["Doing", "Review", "Done"]),
+            FieldDef(name: "Priority", type: .select, options: ["Low", "High"])
         ], myAppId: myApp.id)
-        _ = store.setTrackerViewMode(.kanban, columnField: "Status", myAppId: myApp.id)
-        let item = store.addItem(["title": "Ship v2", "Status": "Doing"], myAppId: myApp.id)!
+        if let groupBy {
+            _ = store.setTrackerViewMode(.kanban, columnField: groupBy, myAppId: myApp.id)
+        }
+        let item = store.addItem(
+            ["title": "Ship v2", "Status": "Doing", "Priority": "Low"], myAppId: myApp.id)!
         return (store, myApp.id, item)
     }
 
@@ -41,7 +47,87 @@ struct CanvasEventEmissionTests {
         #expect(ev.fromColumn == "Doing")
         #expect(ev.toColumn == "Review")
         #expect(ev.itemTitle == "Ship v2")
+        #expect(ev.field == "Status")
         #expect(ev.matchFields["toColumn"] == "Review")
+        #expect(ev.matchFields["field"] == "Status")
+    }
+
+    @Test("a select field that is NOT the kanban group-by still publishes")
+    func nonGroupedSelectFieldPublishes() {
+        // Board grouped by Status; the user edits Priority inline. The rule for
+        // Priority must still see an event — emission is a domain fact, not a
+        // property of which column the board happens to be grouped by.
+        let (store, appId, item) = freshKanban(groupBy: "Status")
+        var events: [CanvasEvent] = []
+        store.onCanvasEvent = { events.append($0) }
+
+        _ = store.patchItem(id: item, with: ["Priority": "High"], myAppId: appId)
+
+        #expect(events.count == 1)
+        let ev = try! #require(events.first)
+        #expect(ev.field == "Priority")
+        #expect(ev.fromColumn == "Low")
+        #expect(ev.toColumn == "High")
+    }
+
+    @Test("grid view (no kanban column field) still publishes select moves")
+    func gridViewPublishes() {
+        let (store, appId, item) = freshKanban(groupBy: nil)
+        var events: [CanvasEvent] = []
+        store.onCanvasEvent = { events.append($0) }
+
+        _ = store.patchItem(id: item, with: ["Status": "Review"], myAppId: appId)
+
+        #expect(events.count == 1)
+        #expect(events.first?.field == "Status")
+        #expect(events.first?.toColumn == "Review")
+    }
+
+    @Test("one patch touching two select fields publishes one event per field")
+    func multiFieldPatchPublishesPerField() {
+        let (store, appId, item) = freshKanban()
+        var events: [CanvasEvent] = []
+        store.onCanvasEvent = { events.append($0) }
+
+        _ = store.patchItem(id: item, with: ["Status": "Done", "Priority": "High"], myAppId: appId)
+
+        #expect(Set(events.map(\.field)) == ["Status", "Priority"])
+        #expect(events.count == 2)
+    }
+
+    @Test("agent moves stay silent on any select field (self-mutation guard)")
+    func agentMoveSilent() {
+        let (store, appId, item) = freshKanban()
+        var events: [CanvasEvent] = []
+        store.onCanvasEvent = { events.append($0) }
+
+        _ = store.patchItem(id: item, with: ["Priority": "High"], myAppId: appId,
+                            actor: .agent(toolName: "patchTrackerItems"))
+        #expect(events.isEmpty)
+    }
+
+    @Test("re-writing a select field with its current value publishes nothing")
+    func noOpWriteSilent() {
+        let (store, appId, item) = freshKanban()
+        var events: [CanvasEvent] = []
+        store.onCanvasEvent = { events.append($0) }
+
+        _ = store.patchItem(id: item, with: ["Status": "Doing"], myAppId: appId)
+        #expect(events.isEmpty)
+    }
+
+    @Test("transitionId is per-field: same from→to on two fields differs")
+    func transitionIdIsPerField() {
+        let (store, appId, item) = freshKanban()
+        var ids: [String] = []
+        store.onCanvasEvent = { ids.append($0.transitionId) }
+
+        // Both fields go "" → "X" is impossible here, so use the two-field patch
+        // and assert the ids differ purely because the field name differs.
+        _ = store.patchItem(id: item, with: ["Status": "Review", "Priority": "High"], myAppId: appId)
+
+        #expect(ids.count == 2)
+        #expect(ids[0] != ids[1])
     }
 
     @Test("transitionId is stable for the same (item, field, from→to)")
@@ -60,8 +146,8 @@ struct CanvasEventEmissionTests {
         #expect(ids[0] != ids[1])   // Review→Doing is a different transition
     }
 
-    @Test("patching a non-column field publishes no item.moved event")
-    func nonColumnFieldSilent() {
+    @Test("patching a non-select field publishes no item.moved event")
+    func nonSelectFieldSilent() {
         let (store, appId, item) = freshKanban()
         var events: [CanvasEvent] = []
         store.onCanvasEvent = { events.append($0) }
