@@ -1,9 +1,11 @@
 import SwiftUI
 import MarkdownUI
 
-/// Renders a single markdown file from the user's memories in a GitHub-style
-/// column. Supports an inline Edit / Preview toggle so the user can paste
-/// content directly into a note without going through the agent.
+/// Renders a single file from the user's memories. `.md` gets a GitHub-style
+/// markdown column; anything else (`.json`) is shown verbatim as monospaced,
+/// horizontally scrolling code so newlines and indentation survive. Supports an
+/// inline Edit / Preview toggle so the user can paste content directly into a
+/// note without going through the agent.
 ///
 /// **Concurrent edit safety.** If the agent rewrites the same file while the
 /// user is mid-edit, the user's `editBuffer` is preserved — their next Save
@@ -53,10 +55,12 @@ public struct MemoryFileView: View {
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
                                 .strokeBorder(Color.secondary.opacity(0.25), lineWidth: 1)
                         )
-                } else {
+                } else if MemoryFilenameHelper.rendersAsMarkdown(path) {
                     Markdown(loadedContent)
                         .markdownTheme(.gitHub)
                         .textSelection(.enabled)
+                } else {
+                    codeView
                 }
             }
             .padding(24)
@@ -89,6 +93,30 @@ public struct MemoryFileView: View {
         isEditing && editBuffer != loadedContent
     }
 
+    /// Verbatim preview for non-markdown files. `Text` is left unconstrained so
+    /// it takes its unwrapped ideal width and long lines scroll instead of
+    /// reflowing; the background sits on the scroll view so it spans the column.
+    private var codeView: some View {
+        ScrollView(.horizontal, showsIndicators: true) {
+            Text(loadedContent)
+                .font(.system(.callout, design: .monospaced))
+                .textSelection(.enabled)
+                .fixedSize(horizontal: true, vertical: true)
+                .padding(16)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color.primary.opacity(0.06))
+        )
+    }
+
+    /// "Memory file" for markdown, "JSON file" otherwise.
+    private var kindLabel: String {
+        if MemoryFilenameHelper.rendersAsMarkdown(path) { return "Memory file" }
+        return "\((path as NSString).pathExtension.uppercased()) file"
+    }
+
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 4) {
@@ -96,7 +124,7 @@ public struct MemoryFileView: View {
                     .font(.title3.weight(.semibold))
                     .lineLimit(2)
                 HStack(spacing: 8) {
-                    Text("Memory file")
+                    Text(kindLabel)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     if hasUnsavedChanges {

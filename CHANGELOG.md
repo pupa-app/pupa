@@ -3,6 +3,24 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.225] — 2026-07-30
+
+### Fixed
+
+- **JSON memory files keep their line breaks and indentation.** Every memory
+  file was previewed through the markdown renderer, whose soft-break default
+  turns each newline into a space — a `.json` note (e.g. `pupa/automations.json`)
+  collapsed into one reflowed paragraph, lost its indentation, and had `*` / `#`
+  inside string values eaten as markup. Non-markdown files now render verbatim
+  as monospaced, horizontally scrolling code, byte-identical to the editor. Disk
+  content was never affected.
+
+### Added
+
+- **New Note accepts a `.json` name.** Typing `automations.json` used to produce
+  `automations.json.md`; the sheet now keeps any extension the store can write
+  (`.md` / `.json`) and appends `.md` to everything else.
+
 ## [0.0.224] — 2026-07-30
 
 ### Fixed

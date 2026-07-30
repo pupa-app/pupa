@@ -1459,6 +1459,12 @@ public enum AppTools {
         ))
     }
 
+    // TODO: memory tool descriptions are misaligned with the store. They say
+    // markdown-only ("must end in .md", "Read a markdown file", "Search markdown
+    // files") while `MemoryStore.writableExtensions` accepts `.md` + `.json` and
+    // `pupa/automations.json` ships that way — so the model is told it can't write
+    // a file the app itself relies on. Widen the descriptions (and `grepMemories`'
+    // glob wording) to both extensions in one pass.
     public static func registerMemoryTools(on registry: ToolRegistry, memory: MemoryStore) {
         registry.register(ClientTool(
             descriptor: ToolDescriptor(

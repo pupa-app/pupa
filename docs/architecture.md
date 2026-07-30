@@ -162,7 +162,14 @@ without the agent: the header `+` menu adds a Note / Folder at the scope root; a
 folder row's long-press menu adds inside it; any row can be renamed / moved or
 deleted. Rows funnel these through `MemoryRowActions` into the shared
 `MemorySheet` shells (`New*MemorySheet` / `RenameMemorySheet`) and a delete
-confirmation over `MemoryStore`), **History**
+confirmation over `MemoryStore`. A new note keeps a store-writable extension you
+type (`.md` / `.json`, per `MemoryStore.writableExtensions`) and gets `.md`
+otherwise — `MemoryFilenameHelper.resolveFilename`. `MemoryFileView` splits its
+preview on that extension via `MemoryFilenameHelper.rendersAsMarkdown`: `.md`
+renders through MarkdownUI, anything else verbatim as monospaced h-scrolling code
+— markdown's soft-break-as-space would otherwise flatten a `.json` note's
+newlines and indentation. Edit mode is a monospaced `TextEditor` either way, so
+preview and buffer match byte for byte), **History**
 (`clock`, pushes `ChangeHistoryView` via `.myAppHistory` — **myApp only**; the
 orchestrator has no canvas change-log so it omits this), the **Pupa** chat launcher (toggles
 `AppView.chatOpen`, carrying the scope's `StatusBadge`), and a **⋯** menu that

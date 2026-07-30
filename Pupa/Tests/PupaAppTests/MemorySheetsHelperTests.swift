@@ -27,6 +27,33 @@ struct MemorySheetsHelperTests {
             == "notes.md")
     }
 
+    @Test("Explicit .json name is kept — the store allows md + json")
+    func explicitNameKeepsJsonExtension() {
+        #expect(MemoryFilenameHelper.resolveFilename(name: "automations.json", content: "")
+            == "automations.json")
+        #expect(MemoryFilenameHelper.resolveFilename(name: "Data.JSON", content: "")
+            == "Data.JSON")
+    }
+
+    @Test("Non-allowlisted extensions still get .md appended")
+    func unsupportedExtensionGetsMdSuffix() {
+        #expect(MemoryFilenameHelper.resolveFilename(name: "notes.v2", content: "")
+            == "notes.v2.md")
+        #expect(MemoryFilenameHelper.resolveFilename(name: "run.py", content: "")
+            == "run.py.md")
+    }
+
+    // MARK: - Render mode
+
+    @Test("Only .md and extensionless files render as markdown")
+    func rendersAsMarkdownByExtension() {
+        #expect(MemoryFilenameHelper.rendersAsMarkdown("diet.md"))
+        #expect(MemoryFilenameHelper.rendersAsMarkdown("pupa/AGENTS.MD"))
+        #expect(MemoryFilenameHelper.rendersAsMarkdown("notes"))
+        #expect(!MemoryFilenameHelper.rendersAsMarkdown("pupa/automations.json"))
+        #expect(!MemoryFilenameHelper.rendersAsMarkdown("x.py"))
+    }
+
     @Test("Falls back to slug derived from the first non-empty content line")
     func slugFromFirstContentLine() {
         let result = MemoryFilenameHelper.resolveFilename(

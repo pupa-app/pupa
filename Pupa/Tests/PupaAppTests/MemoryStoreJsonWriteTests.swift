@@ -21,6 +21,22 @@ struct MemoryStoreJsonWriteTests {
         #expect(store.fileExists(at: "pupa/AGENTS.md"))
     }
 
+    @Test("Multi-line JSON round-trips byte-exact, indentation and trailing newline kept")
+    func multiLineJsonRoundTrip() throws {
+        let store = tempStore()
+        let json = """
+        {"automations":{"item.moved":[
+          {"id":"today-on-move",
+           "matcher":{"toColumn":"Today"},
+           "action":{"startThread":{"prompt":"Today! *now* #1"}},
+           "confirm":true}
+        ]}}
+
+        """
+        try store.writeFile(path: "pupa/automations.json", content: json)
+        #expect(try store.readFile(path: "pupa/automations.json").content == json)
+    }
+
     @Test("Non-allowlisted extensions are rejected")
     func rejectsOtherExtensions() {
         let store = tempStore()
