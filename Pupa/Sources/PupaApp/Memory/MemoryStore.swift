@@ -253,7 +253,7 @@ public final class MemoryStore {
     /// File extensions the agent may write. Config is JSON-shaped; everything
     /// else stays markdown. Executable/free-format types are intentionally
     /// excluded (marketplace import threat surface; nothing executes them).
-    static let writableExtensions: Set<String> = ["md", "json"]
+    nonisolated static let writableExtensions: Set<String> = ["md", "json"]
 
     /// Top-level folder for a myApp: `<slug>` (e.g. `"my-fitness-app"`).
     public nonisolated static func myAppFolder(myAppName: String) -> String {

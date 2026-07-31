@@ -53,7 +53,7 @@ public struct NewMemoryNoteSheet: View {
         NavigationStack {
             Form {
                 Section("Name") {
-                    TextField("e.g. diet, workouts (\".md\" added if omitted)", text: $name)
+                    TextField("e.g. diet, workouts (\".md\" added unless you type .md / .json)", text: $name)
                         .focused($nameFocused)
                 }
                 Section("Content") {
@@ -291,13 +291,14 @@ public struct RenameMemorySheet: View {
 /// they're easy to unit-test without standing up a `MemoryStore`.
 public enum MemoryFilenameHelper {
     /// Compute the filename a new note should use. If the user typed a name,
-    /// trim it and ensure it ends in `.md`. Otherwise derive a slug from the
-    /// first non-empty content line (strip leading `#`/`-`/`*` markdown
+    /// trim it and ensure it ends in a store-writable extension (`.md` /
+    /// `.json`), appending `.md` otherwise. Without a name, derive a slug from
+    /// the first non-empty content line (strip leading `#`/`-`/`*` markdown
     /// markers). Falls back to `"untitled.md"` only if both are empty.
     public static func resolveFilename(name: String, content: String) -> String {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedName.isEmpty {
-            return ensureMarkdownExtension(trimmedName)
+            return ensureSupportedExtension(trimmedName)
         }
         if let firstLine = content
             .components(separatedBy: .newlines)
@@ -350,7 +351,19 @@ public enum MemoryFilenameHelper {
         return String(out)
     }
 
-    private static func ensureMarkdownExtension(_ name: String) -> String {
-        name.lowercased().hasSuffix(".md") ? name : "\(name).md"
+    /// True when a memory file should be previewed as rendered markdown. Only
+    /// `.md` and extensionless files qualify — everything else (`.json`, or an
+    /// arbitrary extension smuggled in by a rename) is shown verbatim as code,
+    /// since markdown rendering eats its newlines and indentation.
+    public static func rendersAsMarkdown(_ path: String) -> Bool {
+        let ext = (path as NSString).pathExtension.lowercased()
+        return ext.isEmpty || ext == "md"
+    }
+
+    /// Keep an extension the store can write (`MemoryStore.writableExtensions`);
+    /// append `.md` to anything else, so `notes.v2` → `notes.v2.md`.
+    private static func ensureSupportedExtension(_ name: String) -> String {
+        let ext = (name as NSString).pathExtension.lowercased()
+        return MemoryStore.writableExtensions.contains(ext) ? name : "\(name).md"
     }
 }
