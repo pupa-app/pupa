@@ -3,6 +3,39 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.226] — 2026-07-31
+
+### Fixed
+
+- **The Mac app can reach a backend again.** The native macOS build runs under
+  App Sandbox, which is deny-by-default, but its entitlements declared only the
+  iCloud containers — so the shipped Mac binary had no outbound network access
+  at all, localhost included, plus no camera (QR pairing) and no microphone.
+  Sandboxed builds now request all four. This never affected the iPad-on-Mac
+  build, which follows iOS rules and was the only Mac binary exercised so far.
+- **`http://` backends on your LAN connect.** App Transport Security blocks
+  cleartext to anything but loopback, so a backend at `http://192.168.x.x` or
+  `http://something.local` failed even though the URL editor accepted it. Local
+  networking is now permitted for local destinations only — public backends
+  still have to be `https://`. Also adds the Local Network usage string iOS
+  needs before it can even show the permission prompt.
+
+### Changed
+
+- **Minimum OS drops to iOS 17 / macOS 14** (from iOS 26.2 / macOS 26.0). The
+  26.x floor was Xcode's default when the host project was created, not a real
+  requirement — the package has always declared iOS 17 / macOS 14 and the source
+  uses no newer API. Widens installs to iPhone XS and later.
+
+### Added
+
+- **`PrivacyInfo.xcprivacy`.** Declares the two required-reason API categories
+  the app uses — `UserDefaults` (`CA92.1`) and file timestamps (`C617.1`, app
+  and iCloud containers) — plus no tracking and no collected data types, which
+  matches the architecture: chat goes to a backend you run, and state/memories
+  mirror to your own iCloud. Also declares exempt encryption and the Mac App
+  Store category.
+
 ## [0.0.225] — 2026-07-30
 
 ### Fixed
