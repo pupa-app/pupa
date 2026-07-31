@@ -29,6 +29,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
 
 ### Added
 
+- **Settings ▸ Account now links out to pupa-app.com** — the site, the privacy
+  policy, the terms, and the support page, under Support next to the version.
+  The privacy policy has to be reachable from inside the app, not just listed
+  in App Store Connect.
 - **`PrivacyInfo.xcprivacy`.** Declares the two required-reason API categories
   the app uses — `UserDefaults` (`CA92.1`) and file timestamps (`C617.1`, app
   and iCloud containers) — plus no tracking and no collected data types, which
