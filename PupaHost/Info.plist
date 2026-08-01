@@ -3,9 +3,24 @@
 <!-- Only the keys Xcode can't synthesize from INFOPLIST_KEY_* build settings.
      GENERATE_INFOPLIST_FILE stays on; the generated keys merge over this file.
      Declares the .pupa file type so the share sheet carries a branded
-     bundle and the OS opens received .pupa files in Pupa (tap-to-import). -->
+     bundle and the OS opens received .pupa files in Pupa (tap-to-import),
+     plus the App Store keys that have no INFOPLIST_KEY_ equivalent. -->
 <plist version="1.0">
 <dict>
+	<!-- Exempt encryption only (TLS + Keychain) — skips the per-upload question. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<!-- Mac App Store category. -->
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.productivity</string>
+	<!-- Backends run on the user's own machine or LAN. Loopback is already ATS-exempt;
+	     this covers http:// to a LAN address or *.local. Deliberately NOT
+	     NSAllowsArbitraryLoads — public backends must be https. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>

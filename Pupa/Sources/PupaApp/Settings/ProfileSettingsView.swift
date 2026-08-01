@@ -203,9 +203,39 @@ struct ProfileSettingsView: View {
 
     // MARK: Support / About
 
+    /// pupa-app.com pages. The privacy policy must be reachable in-app, not only
+    /// in App Store Connect (App Review 5.1.2).
+    private struct WebLink: Identifiable {
+        let title: String
+        let url: URL
+        var id: String { title }
+        init(_ title: String, _ path: String) {
+            self.title = title
+            self.url = URL(string: "https://pupa-app.com" + path)!
+        }
+    }
+
+    private static let webLinks = [
+        WebLink("Website", ""),
+        WebLink("Privacy Policy", "/privacy"),
+        WebLink("Terms of Use", "/terms"),
+        WebLink("Help & Support", "/support"),
+    ]
+
     private var supportSection: some View {
         Section("Support") {
             LabeledContent("Version", value: PupaAppVersion)
+            ForEach(Self.webLinks) { link in
+                Link(destination: link.url) {
+                    HStack {
+                        Text(link.title)
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
         }
     }
 
