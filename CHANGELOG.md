@@ -3,6 +3,15 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.228] — 2026-08-02
+
+### Fixed
+
+- **The guided tour now walks the bottom bar in its real order.** The tour's
+  Agents and Memories cards were sequenced Agents → Memories while the bar
+  shows Memories → Agents, so the "left to right" walk skipped back and forth.
+  The cards are swapped to match the bar.
+
 ## [0.0.227] — 2026-08-01
 
 ### Fixed

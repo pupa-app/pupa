@@ -188,13 +188,13 @@ struct GuidedTourStoreTests {
     func myAppStepsWalkBottomBar() {
         let id = UUID()
         let steps = TourContent.steps(activeMyAppId: id, isPaired: true)
-        // Ordered Home → Agents → Memories → History → Pupa(chat), each
+        // Ordered Home → Memories → Agents → History → Pupa(chat), each
         // navigating to its page and highlighting the matching bottom-bar
         // control. The Pupa step returns to the home canvas and opens the chat.
         let expected: [(String, SidebarSelection?, TourHighlight)] = [
             ("myapp-home", .myAppHome(id), .bottomBarHome),
-            ("myapp-agents", .myAppAgents(id), .bottomBarAgents),
             ("myapp-memories", .myAppMemories(id), .bottomBarMemories),
+            ("myapp-agents", .myAppAgents(id), .bottomBarAgents),
             ("myapp-history", .myAppHistory(id), .bottomBarHistory),
             ("chat", .myAppHome(id), .bottomBarChat),
         ]

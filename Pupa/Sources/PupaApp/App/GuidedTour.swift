@@ -125,16 +125,6 @@ enum TourContent {
                 highlight: .bottomBarHome
             ),
             TourStep(
-                id: "myapp-agents",
-                title: "Agents",
-                body: "Every MyApp has its own main agent. Here you can see the tools it "
-                    + "can call, open its AGENTS.md persona file, and review the components "
-                    + "it manages.",
-                placement: .bottom,
-                selection: .myAppAgents(activeMyAppId),
-                highlight: .bottomBarAgents
-            ),
-            TourStep(
                 id: "myapp-memories",
                 title: "Memories",
                 body: "Long-term memory for this MyApp — markdown notes the agent writes "
@@ -144,6 +134,16 @@ enum TourContent {
                 placement: .bottom,
                 selection: .myAppMemories(activeMyAppId),
                 highlight: .bottomBarMemories
+            ),
+            TourStep(
+                id: "myapp-agents",
+                title: "Agents",
+                body: "Every MyApp has its own main agent. Here you can see the tools it "
+                    + "can call, open its AGENTS.md persona file, and review the components "
+                    + "it manages.",
+                placement: .bottom,
+                selection: .myAppAgents(activeMyAppId),
+                highlight: .bottomBarAgents
             ),
             TourStep(
                 id: "myapp-history",
