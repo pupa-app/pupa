@@ -11,6 +11,8 @@ set -euo pipefail
 PBXPROJ="PupaHost/PupaHost.xcodeproj/project.pbxproj"
 VERSION_SWIFT="Pupa/Sources/PupaApp/Version.swift"
 ICON="PupaHost/PupaHost/Assets.xcassets/AppIcon.appiconset/icon_1024.png"
+ICON_BUNDLE="PupaHost/PupaHost/AppIcon.icon"
+ICON_MARK="$ICON_BUNDLE/Assets/mark.png"
 SCHEME="PupaHost"
 PROJECT="PupaHost/PupaHost.xcodeproj"
 ARCHIVE_IOS="build/Pupa.xcarchive"
@@ -31,7 +33,7 @@ usage() {
 usage: $0 [--build N] [--no-bump] [--skip-icon-check] [--no-flow]
   --build N            Set CURRENT_PROJECT_VERSION to N (default: current + 1)
   --no-bump            Don't change the build number
-  --skip-icon-check    Skip alpha-channel check on icon_1024.png
+  --skip-icon-check    Skip the icon_1024.png / AppIcon.icon integrity checks
   --no-flow            Bump + archive the current branch in place; skip the
                        $DEV_BRANCH→$MAIN_BRANCH fast-forward (local validation builds)
 EOF
@@ -80,13 +82,25 @@ if [[ $NO_FLOW -eq 0 ]]; then
   fi
 fi
 
-# --- icon alpha check -----------------------------------------------------
+# --- icon checks ----------------------------------------------------------
+# Two files, opposite alpha requirements:
+#   icon_1024.png            master source art, must be OPAQUE
+#   AppIcon.icon/…/mark.png  Icon Composer layer, must HAVE alpha
 if [[ $SKIP_ICON -eq 0 ]]; then
   ALPHA=$(sips -g hasAlpha "$ICON" 2>/dev/null | awk '/hasAlpha/{print $2}')
   if [[ "$ALPHA" != "no" ]]; then
     die "$ICON has alpha channel (App Store Connect rejects 1024×1024 icons with alpha — shows wireframe placeholder). Flatten it before archiving."
   fi
   note "icon_1024.png has no alpha channel"
+
+  [[ -f "$ICON_BUNDLE/icon.json" ]] || die "Missing $ICON_BUNDLE/icon.json."
+  [[ -f "$ICON_MARK" ]] || die "Missing $ICON_MARK — run: swift scripts/gen-icon-mark.swift"
+  MARK_ALPHA=$(sips -g hasAlpha "$ICON_MARK" 2>/dev/null | awk '/hasAlpha/{print $2}')
+  [[ "$MARK_ALPHA" == "yes" ]] \
+    || die "$ICON_MARK has no alpha (the mark must be transparent-backed). Regenerate: swift scripts/gen-icon-mark.swift"
+  grep -q '"glass" : false' "$ICON_BUNDLE/icon.json" \
+    || die "$ICON_BUNDLE/icon.json lost \"glass\": false — the icon would ship with Liquid Glass blur."
+  note "AppIcon.icon intact (alpha mark, glass off)"
 fi
 
 # --- read versions --------------------------------------------------------

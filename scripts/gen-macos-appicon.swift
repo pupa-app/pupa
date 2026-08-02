@@ -7,6 +7,9 @@
 // full-bleed source art into that shape and emits mac_icon_<px>.png for
 // every mac-idiom size. iOS/universal icon_1024.png is left untouched.
 //
+// These are legacy-path only: AppIcon.icon supersedes the whole appiconset
+// on current toolchains. See gen-icon-mark.swift for that bundle's layer.
+//
 // Usage:
 //   swift scripts/gen-macos-appicon.swift [SOURCE_PNG] [OUTPUT_DIR]
 // Defaults:

@@ -1,0 +1,31 @@
+{
+  "fill" : {
+    "solid" : "srgb:0.90980,0.12941,0.09020,1.00000"
+  },
+  "groups" : [
+    {
+      "blur-material" : null,
+      "layers" : [
+        {
+          "glass" : false,
+          "hidden" : false,
+          "image-name" : "mark.png",
+          "name" : "Mark"
+        }
+      ],
+      "name" : "Pupa",
+      "shadow" : {
+        "kind" : "none",
+        "opacity" : 0
+      },
+      "specular" : false,
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : "shared"
+  }
+}

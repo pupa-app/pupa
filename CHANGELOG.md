@@ -3,6 +3,18 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.227] — 2026-08-01
+
+### Fixed
+
+- **The app icon is sharp again on iOS 26 / macOS 26.** With only a flat
+  `AppIcon.appiconset`, the system derives its own Liquid Glass layers from the
+  art — which washed the white mark out to pink and blurred its edges. The app
+  now ships an Icon Composer `AppIcon.icon` with glass, specular, blur and
+  translucency switched off, so the mark stays crisp white on solid red in
+  light, dark and tinted Home Screen modes. Older systems get flat renditions
+  generated from the same bundle.
+
 ## [0.0.226] — 2026-07-31
 
 ### Fixed

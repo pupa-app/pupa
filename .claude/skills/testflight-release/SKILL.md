@@ -35,7 +35,7 @@ User wants `.xcarchive`s ready for TestFlight upload. Typical phrasings: "ship t
 |---|---|
 | `--build N` | Set `CURRENT_PROJECT_VERSION` explicitly (default: current + 1) |
 | `--no-bump` | Don't change the build number at all (rare — only for local validation builds) |
-| `--skip-icon-check` | Skip the alpha-channel check on `icon_1024.png` (don't use unless you know why) |
+| `--skip-icon-check` | Skip the `icon_1024.png` / `AppIcon.icon` integrity checks (don't use unless you know why) |
 | `--no-flow` | Bump + archive the current branch in place; skip the `dev`→`main` fast-forward (local validation builds) |
 
 Branch names default to `dev`/`main`; override with `DEV_BRANCH=` / `MAIN_BRANCH=` env vars if needed.
@@ -43,7 +43,7 @@ Branch names default to `dev`/`main`; override with `DEV_BRANCH=` / `MAIN_BRANCH
 ## What the script does
 
 1. Switches to `dev` (unless `--no-flow`) so the bump lands there first.
-2. Checks that `icon_1024.png` has no alpha channel — fails loudly if it does (App Store Connect silently shows the wireframe placeholder for icons with transparency).
+2. Checks the icons: `icon_1024.png` has no alpha (App Store Connect silently shows the wireframe placeholder for icons with transparency), and `AppIcon.icon` still has its alpha-backed `mark.png` and `"glass": false`.
 3. Reads `PupaAppVersion` from `Version.swift`, syncs `MARKETING_VERSION` in `project.pbxproj` if they differ.
 4. Bumps `CURRENT_PROJECT_VERSION` for the app target's buildSettings blocks only (matched by the app `MARKETING_VERSION`; test targets stay at `1`).
 5. If pbxproj changed, commits the bump on `dev` with a generic `chore(ios): bump build to N` message. Stops if working tree is otherwise dirty.
@@ -76,7 +76,8 @@ If the user wants to skip Organizer and upload via CLI: `xcrun altool --upload-a
 
 ## Failure modes to surface clearly
 
-- **Icon has alpha**: tell the user the icon must be flattened. Suggest running our flatten one-liner (composite onto white, save back). Don't auto-flatten — icon edits are visual, the user should approve. This check is for the **iOS/universal** `icon_1024.png` only — the `mac_icon_*.png` files are *supposed* to have alpha (squircle mask + inset); regenerate them with `swift scripts/gen-macos-appicon.swift` if the source art changes.
+- **Icon has alpha**: tell the user the icon must be flattened. Suggest running our flatten one-liner (composite onto white, save back). Don't auto-flatten — icon edits are visual, the user should approve. This check is for the **master source art** `icon_1024.png` only. Two derived sets are *supposed* to have alpha: `mac_icon_*.png` (squircle mask + inset — `swift scripts/gen-macos-appicon.swift`) and `AppIcon.icon/Assets/mark.png` (transparent-backed mark — `swift scripts/gen-icon-mark.swift`). Regenerate both if the source art changes.
+- **`AppIcon.icon` missing or `"glass": false` gone**: the shipped icon would revert to the system's auto-applied Liquid Glass, which visibly blurs the mark. Restore the key rather than skipping the check.
 - **Working tree dirty (non-pbxproj files)**: refuse and ask the user to commit/stash first.
 - **`main` can't fast-forward from `dev`**: `main` has commits not on `dev` (they diverged). The script aborts before archiving. Resolve the branch state manually (or merge `main` into `dev`), then re-run. The bump commit is already on `dev` at this point — no harm in re-running.
 - **Archive fails on signing**: usually means agreements unaccepted at `developer.apple.com` or the Xcode Apple ID needs re-auth. Direct the user there; don't try to fix from the CLI.
