@@ -1074,3 +1074,22 @@ domain `pupa-app.com`; platform-neutral so one Universal Purchase record
 covers iOS + macOS). Tests/UITests use the `.tests` / `.uitests` suffixes.
 The bundle ID is permanent once an app record exists in App Store Connect,
 so settle on the final value before creating that record.
+
+### App icon
+
+[`PupaHost/PupaHost/AppIcon.icon`](../PupaHost/PupaHost/AppIcon.icon) — an
+Icon Composer bundle (`icon.json` + `Assets/mark.png`): solid red `fill`
+plus one white-mark layer with `glass`, `specular`, `blur-material` and
+`translucency` all off. Without it the system derives its own Liquid Glass
+layers from flat art and blurs the mark. `actool` picks the bundle up from
+the target's synchronized group — no build setting, no pbxproj entry — and
+it **supersedes** `AppIcon.appiconset` on every deployment target, deriving
+the older systems' flat renditions from the same stack. There is no
+Info.plist opt-out; `UIDesignRequiresCompatibility` covers in-app UI only.
+
+`icon_1024.png` stays the master source art (opaque, no alpha). Two derived
+sets regenerate from it: `swift scripts/gen-icon-mark.swift` →
+`AppIcon.icon/Assets/mark.png` (alpha-backed, mask-free — the platform
+supplies the shape), and `swift scripts/gen-macos-appicon.swift` →
+`mac_icon_*.png` (squircle + inset, now only a fallback if the `.icon` is
+ever removed).
