@@ -35,7 +35,7 @@ struct GuidedTourStoreTests {
         let store = startedStore(defaults: freshDefaults())
         #expect(store.isActive)
         #expect(store.index == 0)
-        #expect(store.steps.count == 15)
+        #expect(store.steps.count == 16)
         #expect(store.isFirstStep)
         #expect(!store.isLastStep)
         #expect(store.currentStep?.id == "welcome")
@@ -241,6 +241,16 @@ struct GuidedTourStoreTests {
         #expect(last.id == "add-example")
         #expect(last.settingsPage == .examples)
         #expect(last.highlight == .settingsExamples)
+    }
+
+    @Test("The account card sits just before the closing example card")
+    func accountStepPrecedesExamples() {
+        let steps = TourContent.steps(activeMyAppId: UUID(), isPaired: true)
+        let account = steps.firstIndex { $0.id == "settings-account" }!
+        let example = steps.firstIndex { $0.id == "add-example" }!
+        #expect(account == example - 1)
+        #expect(steps[account].settingsPage == .account)
+        #expect(steps[account].highlight == .settingsAccount)
     }
 
     @Test("Walking the tour reaches the example card, then finishing completes it")

@@ -94,9 +94,12 @@ struct ProfileSettingsView: View {
 
     private var iCloudSection: some View {
         Section {
-            LabeledContent("Status", value: statusText)
-            LabeledContent("This device", value: DeviceInfo.localName)
-            LabeledContent("Data location", value: iCloudActive ? "iCloud" : "On this device")
+            Group {
+                LabeledContent("Status", value: statusText)
+                LabeledContent("This device", value: DeviceInfo.localName)
+                LabeledContent("Data location", value: iCloudActive ? "iCloud" : "On this device")
+            }
+            .tourAnchor(.settingsAccount)
             if iCloudActive {
                 Button {
                     Task { await syncNow() }

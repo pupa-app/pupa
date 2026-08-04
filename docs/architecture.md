@@ -320,13 +320,15 @@ sets a flag that surfaces a dismissible "connect your backend" banner in
 Once onboarding finishes, an **interactive guided tour** runs once
 (`App/GuidedTour.swift` + `App/GuidedTourOverlay.swift`). A floating *coach
 card* explains each step while the tour programmatically navigates the **real**
-app to that surface — fifteen steps: welcome (opens the sidebar menu), Settings
+app to that surface — sixteen steps: welcome (opens the sidebar menu), Settings
 overview (the category list), Settings · Backend (deep-linked), then the MyApp
-bottom bar walked left to right — Home, Agents, Memories, History — followed by
+bottom bar walked left to right — Home, Memories, Agents, History — followed by
 chat, agents & threads, the Orchestrator introduced from its sidebar-menu button
 then opened (prefilled "create a new myapp"), slash commands, screen share (rings
 its sidebar button), Share a MyApp (rings the Settings button — Import & Export
-lives inside), and a closing "add an example" card that deep-links to
+lives inside), Settings · Account (`settingsPage: .account` → the `.profile`
+page; rings the iCloud rows and points at pupa-app.com for docs and support),
+and a closing "add an example" card that deep-links to
 Settings · Examples (`settingsPage: .examples`) and rings the example list
 (`highlight: .settingsExamples`), so the user taps **Restore** on whichever
 example they like to drop a workspace in to explore. It is

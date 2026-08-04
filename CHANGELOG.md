@@ -5,6 +5,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
 
 ## [0.0.228] — 2026-08-02
 
+### Added
+
+- **The tour now ends on your account.** A new card, second-to-last, deep-links
+  to Settings · Account and rings the iCloud rows: there's no Pupa account, your
+  Apple ID is the identity, and iCloud carries MyApps, memories and settings
+  between devices. It also points at pupa-app.com for docs, updates and support.
+  The "add an example" card stays the closer.
+
 ### Fixed
 
 - **The guided tour now walks the bottom bar in its real order.** The tour's

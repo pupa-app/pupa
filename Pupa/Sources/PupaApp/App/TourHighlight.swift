@@ -18,6 +18,8 @@ enum TourHighlight: Hashable {
     case sidebarOrchestrator
     case sidebarScreenShare
     case sidebarSettings
+    /// The Settings · Account iCloud section.
+    case settingsAccount
     /// The Settings · Examples list — the final step rings it so the user knows
     /// where to tap Restore.
     case settingsExamples
