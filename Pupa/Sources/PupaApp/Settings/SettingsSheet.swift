@@ -608,6 +608,7 @@ public struct SettingsSheet: View {
         case .backend: path = [.backend]
         case .sharing: path = [.sharing]
         case .examples: path = [.examples]
+        case .account: path = [.profile]
         case nil: break
         }
     }

@@ -4,8 +4,8 @@ import SwiftUI
 /// "tab bar". Always visible (mounted via `.safeAreaInset`) on a myApp's home /
 /// component / memories pages and on the orchestrator's home / memories pages.
 ///
-///   myApp:        Home · Agents · Memories · History · Pupa(chat) · ⋯(components)
-///   orchestrator: Home · Agents · Memories ·           Pupa(chat) · ⋯(jump to myapps)
+///   myApp:        Home · Memories · Agents · History · Pupa(chat) · ⋯(components)
+///   orchestrator: Home · Memories · Agents ·           Pupa(chat) · ⋯(jump to myapps)
 ///
 /// (The orchestrator has no canvas change-log, so it omits History.) Icons are
 /// tinted in the subject's color; the pupa keeps its own look.

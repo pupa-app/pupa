@@ -17,6 +17,7 @@ enum TourSettingsPage: Equatable {
     case backend
     case sharing
     case examples
+    case account
 }
 
 /// One stop on the guided tour. Pure data — reorder / add / remove entries in
@@ -125,16 +126,6 @@ enum TourContent {
                 highlight: .bottomBarHome
             ),
             TourStep(
-                id: "myapp-agents",
-                title: "Agents",
-                body: "Every MyApp has its own main agent. Here you can see the tools it "
-                    + "can call, open its AGENTS.md persona file, and review the components "
-                    + "it manages.",
-                placement: .bottom,
-                selection: .myAppAgents(activeMyAppId),
-                highlight: .bottomBarAgents
-            ),
-            TourStep(
                 id: "myapp-memories",
                 title: "Memories",
                 body: "Long-term memory for this MyApp — markdown notes the agent writes "
@@ -144,6 +135,16 @@ enum TourContent {
                 placement: .bottom,
                 selection: .myAppMemories(activeMyAppId),
                 highlight: .bottomBarMemories
+            ),
+            TourStep(
+                id: "myapp-agents",
+                title: "Agents",
+                body: "Every MyApp has its own main agent. Here you can see the tools it "
+                    + "can call, open its AGENTS.md persona file, and review the components "
+                    + "it manages.",
+                placement: .bottom,
+                selection: .myAppAgents(activeMyAppId),
+                highlight: .bottomBarAgents
             ),
             TourStep(
                 id: "myapp-history",
@@ -228,6 +229,17 @@ enum TourContent {
                 placement: .top,
                 opensSidebar: true,
                 highlight: .sidebarSettings
+            ),
+            TourStep(
+                id: "settings-account",
+                title: "Your account",
+                body: "There's no Pupa account — your Apple ID is the identity, and iCloud "
+                    + "carries your MyApps, memories and settings between devices. This page "
+                    + "also links out to [pupa-app.com](https://pupa-app.com) for docs, "
+                    + "updates and support.",
+                placement: .bottom,
+                settingsPage: .account,
+                highlight: .settingsAccount
             ),
             TourStep(
                 id: "add-example",
