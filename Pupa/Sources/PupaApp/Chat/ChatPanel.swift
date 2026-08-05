@@ -67,17 +67,15 @@ public struct ChatPanel: View {
     /// In-flight typewriter task for a streamed tour prefill, cancelled when the
     /// panel disappears or the user starts typing.
     @State private var prefillTask: Task<Void, Never>?
-    /// The exact composer text the last tour prefill wrote (full or partial).
-    /// Lets a later step's prefill replace its own parked example while never
-    /// clobbering anything the user typed.
-    @State private var streamedDraft: String = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var draft: String = ""
+    // Unsent composer content (`viewModel.draft` / `.draftImages`) is session
+    // state, not `@State`: closing the overlay unmounts this panel, and the
+    // user's typing must survive that. Same for `viewModel.streamedDraft`,
+    // which only means anything paired with `draft`.
     /// Focus binding for the composer; lets a tap outside / scroll resign
     /// first responder so the iOS soft keyboard closes.
     @FocusState private var composerFocused: Bool
     @State private var pickerItems: [PhotosPickerItem] = []
-    @State private var pickedImages: [PickedImage] = []
     @State private var isLoadingImage: Bool = false
     @State private var isDropTargeted: Bool = false
     /// Presents the system photo-library picker (driven by the paperclip menu).
@@ -264,9 +262,9 @@ public struct ChatPanel: View {
             // First chat opened after onboarding: pre-fill the composer with a
             // suggested message so the user's first action is a single tap.
             // Consume-once, so ordinary chat opens are untouched.
-            if draft.isEmpty, !viewModel.isStreaming,
+            if viewModel.draft.isEmpty, !viewModel.isStreaming,
                let suggested = OnboardingHandoff.shared.consumeSuggestedPrompt() {
-                draft = suggested
+                viewModel.draft = suggested
             }
             // Guided tour: the chat step opens this overlay, so the prefill is
             // already parked before the panel mounts — type it in on appear.
@@ -309,33 +307,34 @@ public struct ChatPanel: View {
         prefillTask?.cancel()
         // Replace an empty composer or our own previously-parked prefill; bail
         // the moment it holds something the user typed.
-        guard draft.isEmpty || draft == streamedDraft else { return }
+        guard viewModel.draft.isEmpty || viewModel.draft == viewModel.streamedDraft else { return }
         // A single-char prefill ("/" for the slash step) can't be "typed", but
         // still wait a beat so the composer is settled and the palette's appear
         // animation reads clearly rather than popping in on arrival.
         let isShort = text.count <= 1
         if reduceMotion && !isShort {
-            draft = text
-            streamedDraft = text
+            viewModel.draft = text
+            viewModel.streamedDraft = text
             return
         }
         prefillTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(isShort ? 300 : 400))
             // Re-check after the lead-in — the user may have started typing.
-            guard !Task.isCancelled, draft.isEmpty || draft == streamedDraft else { return }
+            guard !Task.isCancelled,
+                  viewModel.draft.isEmpty || viewModel.draft == viewModel.streamedDraft else { return }
             if isShort {
-                draft = text
-                streamedDraft = text
+                viewModel.draft = text
+                viewModel.streamedDraft = text
                 return
             }
             var typed = ""
-            draft = ""
-            streamedDraft = ""
+            viewModel.draft = ""
+            viewModel.streamedDraft = ""
             for ch in text {
-                if Task.isCancelled || draft != streamedDraft { return }
+                if Task.isCancelled || viewModel.draft != viewModel.streamedDraft { return }
                 typed.append(ch)
-                draft = typed
-                streamedDraft = typed
+                viewModel.draft = typed
+                viewModel.streamedDraft = typed
                 try? await Task.sleep(for: .milliseconds(24))
             }
         }
@@ -507,14 +506,14 @@ public struct ChatPanel: View {
                 SlashCommandPalette(
                     commands: viewModel.slashCommands.filter(prefix: prefix),
                     onPick: { name in
-                        draft = "/\(name) "
+                        viewModel.draft = "/\(name) "
                     }
                 )
             }
             if !viewModel.queuedMessages.isEmpty {
                 queuedMessagesStack
             }
-            if !pickedImages.isEmpty {
+            if !viewModel.draftImages.isEmpty {
                 attachmentPreviewRow
             } else if isDropTargeted {
                 Text("Drop images to attach")
@@ -548,7 +547,7 @@ public struct ChatPanel: View {
                     }
                 }
                 #endif
-                TextField(composerPlaceholder, text: $draft, axis: .vertical)
+                TextField(composerPlaceholder, text: $viewModel.draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .focused($composerFocused)
                     .lineLimit(1...4)
@@ -599,7 +598,7 @@ public struct ChatPanel: View {
                     if let img = await loadPickedImage(from: item) { prepared.append(img) }
                 }
                 await MainActor.run {
-                    self.pickedImages.append(contentsOf: prepared.prefix(self.remainingImageSlots))
+                    self.viewModel.draftImages.append(contentsOf: prepared.prefix(self.remainingImageSlots))
                     self.isLoadingImage = false
                     self.pickerItems = []
                 }
@@ -634,7 +633,7 @@ public struct ChatPanel: View {
             let prepared = ImagePreparer.prepare(data)
             await MainActor.run {
                 if let prepared, self.remainingImageSlots > 0 {
-                    self.pickedImages.append(PickedImage(data: prepared.data, mimeType: prepared.mimeType))
+                    self.viewModel.draftImages.append(PickedImage(data: prepared.data, mimeType: prepared.mimeType))
                 }
                 self.isLoadingImage = false
             }
@@ -689,7 +688,7 @@ public struct ChatPanel: View {
     private func applyDroppedRawData(_ raw: Data?) {
         guard remainingImageSlots > 0,
               let raw, let prepared = ImagePreparer.prepare(raw) else { return }
-        pickedImages.append(PickedImage(data: prepared.data, mimeType: prepared.mimeType))
+        viewModel.draftImages.append(PickedImage(data: prepared.data, mimeType: prepared.mimeType))
     }
 
     /// When the draft is a partial slash command (slash followed by zero or
@@ -698,8 +697,8 @@ public struct ChatPanel: View {
     /// palette stays hidden — e.g. once the user types a space after the
     /// command name (entering "args" territory) or for plain text.
     private var activeSlashPrefix: String? {
-        guard draft.first == "/" else { return nil }
-        let rest = draft.dropFirst()
+        guard viewModel.draft.first == "/" else { return nil }
+        let rest = viewModel.draft.dropFirst()
         if rest.contains(where: { $0.isWhitespace }) { return nil }
         if !rest.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }) { return nil }
         return String(rest)
@@ -709,19 +708,19 @@ public struct ChatPanel: View {
         if viewModel.isAwaitingHumanInput { return true }  // resolve via the card, not the composer
         if viewModel.isStreaming { return false }  // tap = queue (has content) or Stop (empty)
         if isLoadingImage { return true }
-        return draft.trimmingCharacters(in: .whitespaces).isEmpty && pickedImages.isEmpty
+        return viewModel.draft.trimmingCharacters(in: .whitespaces).isEmpty && viewModel.draftImages.isEmpty
     }
 
     /// Whether the composer has any submittable content (text or attached
     /// images). Drives the streaming-mode button: content → arrow-up (queue),
     /// empty → stop (cancel the turn).
     private var composerHasContent: Bool {
-        !draft.trimmingCharacters(in: .whitespaces).isEmpty || !pickedImages.isEmpty
+        !viewModel.draft.trimmingCharacters(in: .whitespaces).isEmpty || !viewModel.draftImages.isEmpty
     }
 
     /// Remaining attachment slots before the per-message image cap is hit.
     private var remainingImageSlots: Int {
-        max(0, ChatViewModel.maxImagesPerMessage - pickedImages.count)
+        max(0, ChatViewModel.maxImagesPerMessage - viewModel.draftImages.count)
     }
 
     /// The button shows Stop only while streaming with nothing to send. With
@@ -787,8 +786,8 @@ public struct ChatPanel: View {
     /// removing it from the queue. If the composer already holds unsent text we
     /// don't clobber it — the tap is ignored so the user's current draft is safe.
     private func editQueuedMessage(_ queued: QueuedMessage) {
-        guard draft.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        draft = queued.text
+        guard viewModel.draft.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        viewModel.draft = queued.text
         viewModel.removeQueuedMessage(id: queued.id)
     }
 
@@ -798,14 +797,14 @@ public struct ChatPanel: View {
         VStack(alignment: .leading, spacing: 4) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    ForEach(Array(pickedImages.enumerated()), id: \.offset) { index, image in
+                    ForEach(Array(viewModel.draftImages.enumerated()), id: \.offset) { index, image in
                         attachmentThumbnailCell(image, at: index)
                     }
                 }
                 .padding(.horizontal, 2)
             }
-            if pickedImages.count > 1 {
-                Text("\(pickedImages.count)/\(ChatViewModel.maxImagesPerMessage) images")
+            if viewModel.draftImages.count > 1 {
+                Text("\(viewModel.draftImages.count)/\(ChatViewModel.maxImagesPerMessage) images")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .padding(.leading, 2)
@@ -820,8 +819,8 @@ public struct ChatPanel: View {
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay(alignment: .topTrailing) {
                 Button {
-                    guard pickedImages.indices.contains(index) else { return }
-                    pickedImages.remove(at: index)
+                    guard viewModel.draftImages.indices.contains(index) else { return }
+                    viewModel.draftImages.remove(at: index)
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.white, .black.opacity(0.5))
@@ -851,17 +850,23 @@ public struct ChatPanel: View {
             // Mid-stream: content typed → queue it (auto-sends when the turn
             // settles); empty composer → the button is Stop, so cancel.
             if composerHasContent {
-                viewModel.send(draft, images: pickedImages)
-                draft = ""
-                pickedImages = []
+                viewModel.send(viewModel.draft, images: viewModel.draftImages)
+                clearComposer()
             } else {
                 viewModel.cancel()
             }
             return
         }
-        viewModel.send(draft, images: pickedImages)
-        draft = ""
-        pickedImages = []
+        viewModel.send(viewModel.draft, images: viewModel.draftImages)
+        clearComposer()
+    }
+
+    /// Empty the composer after a send. `streamedDraft` goes with it so a
+    /// later tour prefill compares against a clean slate.
+    private func clearComposer() {
+        viewModel.draft = ""
+        viewModel.draftImages = []
+        viewModel.streamedDraft = ""
     }
 
     private func loadPickedImage(from item: PhotosPickerItem) async -> PickedImage? {

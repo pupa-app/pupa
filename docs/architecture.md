@@ -132,6 +132,17 @@ selectable on every platform and expose a **Copy** context-menu action
 (`ChatClipboard`, right-click on macOS / long-press on iOS) that copies the
 whole bubble.
 
+**Drafts survive closing the chat.** `ChatOverlay` mounts its card behind
+`if isOpen`, so tapping the X (or the bottom bar's chat button) unmounts
+`ChatPanel` and everything it holds in `@State`. Unsent composer content
+therefore lives on the session — `ChatViewModel.draft` / `.draftImages`, plus
+the tour typewriter's `streamedDraft` — which `ChatSessionCoordinator` caches
+per `(scope, threadId)`. Reopening the overlay re-fetches the same session and
+finds the text and staged attachments intact; each thread and each myApp keeps
+its own draft, and deleting a thread (`discardSession`) drops its draft with
+it. In-memory only: drafts don't survive a relaunch. The composer clears them
+on send.
+
 **Queued messages while busy.** The composer stays typable while a turn is in
 flight. Submitting mid-stream doesn't wait or drop — `ChatViewModel.send`
 appends the text to `queuedMessages` (FIFO) instead of starting a run. Queued

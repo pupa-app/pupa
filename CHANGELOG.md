@@ -3,6 +3,19 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.229] — 2026-08-05
+
+### Fixed
+
+- **A message you were still typing survives closing the chat.** The composer's
+  text and staged image attachments lived in the chat panel's view state, and
+  closing the overlay with the X unmounts that panel — so reopening it showed
+  an empty composer with no warning. Unsent content now belongs to the
+  conversation itself: close and reopen, switch myApps, or background the app
+  and your text and attachments are still there. Each conversation thread keeps
+  its own draft, so switching threads no longer drags your half-written message
+  along. Drafts are cleared on send and are not kept across app relaunches.
+
 ## [0.0.228] — 2026-08-02
 
 ### Added
