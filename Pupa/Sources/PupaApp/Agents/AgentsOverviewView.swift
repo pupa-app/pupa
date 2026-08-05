@@ -190,8 +190,8 @@ public struct AgentsOverviewView: View {
 
     // MARK: - Usage formatting
 
-    /// One-line `"12.3k tok · $0.04"` for a thread, or `nil` when no usage
-    /// is known (Langfuse off, or no trace ingested yet).
+    /// One-line `"12.3k tok · $0.04"` for a thread, or `nil` when the backend
+    /// reports no usage for it.
     private func usageLine(for threadId: String) -> String? {
         guard let u = usage.usage(for: threadId) else { return nil }
         var parts: [String] = []

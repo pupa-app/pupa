@@ -1,11 +1,12 @@
 import Foundation
 
-/// Token + cost totals for one thread, read back from Langfuse via the backend.
-/// Mirrors `ThreadUsage` in `backend/langgraph_connectors/schemas.py`.
+/// Token + cost totals for one thread, as reported by the backend.
+/// Mirrors `ThreadUsage` in
+/// `backend/pupa_backend/harnesses/langgraph/db/schemas.py`.
 ///
-/// `totalTokens` / `costUSD` are `nil` when Langfuse is disabled server-side or
-/// the thread has no ingested trace yet. `fingerprint` is the latest
-/// checkpoint_id and changes only on a new turn.
+/// `totalTokens` / `costUSD` are `nil` when the backend has no usage figures
+/// for the thread — how it collects them is its own business. `fingerprint`
+/// is the latest checkpoint_id and changes only on a new turn.
 public struct ThreadUsage: Decodable, Sendable, Hashable {
     public let threadId: String
     public let totalTokens: Int?
@@ -41,8 +42,8 @@ public struct ThreadUsage: Decodable, Sendable, Hashable {
 }
 
 /// Prompt-cache breakdown for one thread. Mirrors `ThreadCacheUsage` in
-/// `backend/langgraph_connectors/schemas.py`. Heavier to compute server-side
-/// (walks Langfuse observations) — fetched on demand, not in the bulk paint.
+/// `backend/pupa_backend/harnesses/langgraph/db/schemas.py`. Heavier for the
+/// backend to compute — fetched on demand, not in the bulk paint.
 public struct ThreadCacheUsage: Decodable, Sendable, Hashable {
     public let threadId: String
     public let inputTotal: Int?
