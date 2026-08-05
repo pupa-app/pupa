@@ -29,7 +29,7 @@ public final class ChatSessionCoordinator {
     /// Merge the active backend harness's own permission-control values (e.g.
     /// Claude Code's `claude_loop_native` / `claude_loop_auto_approve`) into a
     /// `RunAgentInput.state` dict, keyed by the exact state key its gate reads.
-    /// Empty for LangGraph. Shared by the sub-run / A2A / slack state builders.
+    /// Empty for Deep Agents. Shared by the sub-run / A2A / slack state builders.
     @MainActor
     static func mergeActiveHarnessControls(into entries: inout [String: AnyJSON], settings: SettingsStore) {
         guard let harnessID = settings.activeHarnessID else { return }

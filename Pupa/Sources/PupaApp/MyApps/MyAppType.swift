@@ -205,8 +205,8 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
     ]
 
     /// Human-in-the-loop frontend tools — currently just
-    /// `ask_user_questions`, which routes through `CopilotKitMiddlewareWithFrontendInterrupt`
-    /// on the backend and `HumanInTheLoopBridge` on iOS to pause the
+    /// `ask_user_questions`, which routes through the frontend-tool
+    /// middleware on the backend and `HumanInTheLoopBridge` on iOS to pause the
     /// agent until the user fills in a panel of clarifying questions.
     public static let humanInTheLoopToolNames: Set<String> = [
         "ask_user_questions",

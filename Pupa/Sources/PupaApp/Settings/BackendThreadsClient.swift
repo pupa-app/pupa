@@ -1,7 +1,7 @@
 import Foundation
 
 /// One message from the normalized transcript endpoint.
-/// Mirrors `TranscriptMessage` in `backend/langgraph_connectors/schemas.py`.
+/// Mirrors the backend's `TranscriptMessage` schema.
 public struct TranscriptMessage: Decodable, Sendable {
     public let id: String?
     /// LangChain role: `"human"` | `"ai"` | `"tool"`.

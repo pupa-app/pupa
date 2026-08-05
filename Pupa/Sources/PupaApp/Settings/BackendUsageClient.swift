@@ -1,8 +1,7 @@
 import Foundation
 
 /// Token + cost totals for one thread, as reported by the backend.
-/// Mirrors `ThreadUsage` in
-/// `backend/pupa_backend/harnesses/langgraph/db/schemas.py`.
+/// Mirrors the backend's `ThreadUsage` schema.
 ///
 /// `totalTokens` / `costUSD` are `nil` when the backend has no usage figures
 /// for the thread — how it collects them is its own business. `fingerprint`
@@ -41,9 +40,9 @@ public struct ThreadUsage: Decodable, Sendable, Hashable {
     }
 }
 
-/// Prompt-cache breakdown for one thread. Mirrors `ThreadCacheUsage` in
-/// `backend/pupa_backend/harnesses/langgraph/db/schemas.py`. Heavier for the
-/// backend to compute — fetched on demand, not in the bulk paint.
+/// Prompt-cache breakdown for one thread. Mirrors the backend's
+/// `ThreadCacheUsage` schema. Heavier for the backend to compute — fetched
+/// on demand, not in the bulk paint.
 public struct ThreadCacheUsage: Decodable, Sendable, Hashable {
     public let threadId: String
     public let inputTotal: Int?

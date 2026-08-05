@@ -5,7 +5,7 @@ import Testing
 /// E2E tests for `AgentSession`'s interrupt-driven dispatch loop.
 ///
 /// Frontend tool execution flows: the model emits tool_use blocks → the
-/// backend pauses via `langgraph.interrupt(...)` → the AG-UI stream emits a
+/// backend pauses on an interrupt → the AG-UI stream emits a
 /// `CUSTOM(on_interrupt, value={"frontend_tool_calls": […]})` event →
 /// AGUIKit dispatches each call locally and POSTs a follow-up round with
 /// `forwardedProps.command.resume = {"tool_results": [...]}`. Backend tools
@@ -592,12 +592,12 @@ struct AgentSessionTests {
         #expect(Set(r2.tools.map(\.name)) == ["alpha", "gamma"])
     }
 
-    /// Mid-turn refresh side-channel. `ag_ui_langgraph` discards
+    /// Mid-turn refresh side-channel. The backend discards
     /// `RunAgentInput.tools` on the resume branch, so the iOS client
     /// mirrors the widened descriptor list inside
     /// `forwardedProps.command.resume.tools_after_round`. The backend's
-    /// `CopilotKitMiddlewareWithFrontendInterrupt` reads from there to
-    /// refresh `state["copilotkit"]["actions"]` before the model is
+    /// the backend reads from there to refresh the tool set it exposes
+    /// to the model before the model is
     /// re-invoked.
     @Test("resume POST embeds the post-dispatch tool descriptors in tools_after_round")
     func resumePayload_carriesToolsAfterRound() async throws {
@@ -667,7 +667,7 @@ struct AgentSessionTests {
                 "resume payload's tools_after_round should mirror the post-dispatch filter, got \(names)")
 
         // Each descriptor carries name/description/parameters so the
-        // backend can write them straight into `copilotkit.actions`.
+        // backend can write them straight into its advertised tool set.
         let alpha = try #require(toolsAfterRound.first { $0["name"]?.stringValue == "alpha" }?.objectValue)
         #expect(alpha["description"]?.stringValue == "alpha")
         #expect(alpha["parameters"] != nil)
@@ -838,7 +838,7 @@ struct AgentSessionTests {
         }
     }
 
-    // MARK: - Dropped-interrupt self-heal (ag-ui-langgraph tasks[0] emit bug)
+    // MARK: - Dropped-interrupt self-heal (upstream emit bug)
 
     @Test("Frontend tool with no on_interrupt self-heals via a resume-less recovery re-POST")
     func droppedInterrupt_selfHeals_viaRecoveryRePost() async throws {

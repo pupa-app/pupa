@@ -290,7 +290,7 @@ public struct AgentsOverviewView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
-            // Backend LangGraph threadId — surfaced for debugging. Selectable,
+            // Backend threadId — surfaced for debugging. Selectable,
             // and long-press / right-click copies it.
             Text(thread.id)
                 .font(.caption2.monospaced())

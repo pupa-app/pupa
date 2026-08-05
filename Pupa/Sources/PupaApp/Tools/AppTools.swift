@@ -1793,9 +1793,8 @@ public enum AppTools {
     /// renders a question panel through the supplied
     /// [HumanInTheLoopBridge](HumanInTheLoopBridge.swift), awaits the
     /// user's submission, and returns the answers as a JSON array of
-    /// strings. Pairs with the backend's
-    /// [CopilotKitMiddlewareWithFrontendInterrupt](../../../../backend/frontend_interrupt.py):
-    /// when the model emits this call, the middleware pauses the graph,
+    /// strings. Pairs with the backend's frontend-tool middleware:
+    /// when the model emits this call, the backend pauses the run,
     /// AGUIKit dispatches the handler locally, this method suspends on
     /// the bridge, the user submits, the handler returns, and AGUIKit
     /// POSTs the resume with the answers as the tool result content —

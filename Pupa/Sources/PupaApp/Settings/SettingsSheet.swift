@@ -622,7 +622,7 @@ public struct SettingsSheet: View {
 /// parent's `@State` mutated from the destination is not reliably re-observed.
 /// Settings → Tools. The controls shown depend on the **active backend
 /// harness**: they're rendered from the harness's permission schema advertised
-/// by `GET /harnesses`, so LangGraph shows its shell-approval toggle + backend
+/// by `GET /harnesses`, so Deep Agents shows its shell-approval toggle + backend
 /// tool mutes while Claude Code shows its host-tool scope + auto-approve. No
 /// hardcoded fallback: an unreachable backend shows an explicit error row.
 private struct ToolsSettingsView: View {
@@ -688,7 +688,7 @@ private struct ToolsSettingsView: View {
         }
     }
 
-    // MARK: toolset (backend tool mute list — LangGraph `disabled_tools`)
+    // MARK: toolset (backend tool mute list — Deep Agents `disabled_tools`)
 
     @ViewBuilder
     private func toolsetSection(_ control: HarnessPermissionControl, tools: [BackendToolDescriptor]) -> some View {

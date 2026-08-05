@@ -8,13 +8,13 @@ import Testing
 @Suite("BackendHarnesses decode")
 struct BackendHarnessesDecodeTests {
 
-    /// Trimmed but structurally faithful sample: one langgraph + one claude_code
+    /// Trimmed but structurally faithful sample: one deepagents + one claude_code
     /// harness, covering `toolset` (disabled_tools), `bool`, and `choice` controls.
     private let sample = """
     [
       {
-        "id": "langgraph",
-        "label": "LangGraph",
+        "id": "deepagents",
+        "label": "Deep Agents",
         "isDefault": true,
         "models": [
           {"provider": "anthropic", "modelId": "claude-opus-4-8", "label": "Claude Opus 4.8"},
@@ -48,7 +48,7 @@ struct BackendHarnessesDecodeTests {
     func decodesRealShape() throws {
         let harnesses = try BackendHarnessesClient.decode(Data(sample.utf8))
 
-        #expect(harnesses.map(\.id) == ["langgraph", "claude_code"])
+        #expect(harnesses.map(\.id) == ["deepagents", "claude_code"])
 
         let lg = harnesses[0]
         #expect(lg.isDefault)

@@ -20,7 +20,7 @@ public struct ChatBubble: Identifiable, Hashable, Codable, Sendable {
     /// own options. Like other app-only bubbles, they never reach the
     /// backend — the user's actual replies are returned from the tool
     /// handler and the backend gets them as a `ToolMessage` via the
-    /// `CopilotKitMiddlewareWithFrontendInterrupt` resume payload.
+    /// resume payload.
     public enum Role: String, Codable, Sendable { case user, assistant, system, toolRound, humanQuestion, shellApproval }
     public let id: String
     public let role: Role
@@ -295,7 +295,7 @@ public final class ChatViewModel {
 
     /// Mutable so the session can be swapped when `SettingsStore.backendURL`
     /// or `SettingsStore.apiKey` change — see `rebuildSessionIfSettingsChanged()`.
-    /// The threadId is preserved across the swap so the backend checkpointer
+    /// The threadId is preserved across the swap so the backend's stored history
     /// keeps the conversation history; in-flight bubbles aren't affected
     /// because they live on `self.bubbles`, not on the session.
     private var session: AgentSession
@@ -855,7 +855,7 @@ public final class ChatViewModel {
 
     /// Swap `session` for a fresh one if the user changed `backendURL` or
     /// `apiKey` in Settings since the current session was built. The threadId
-    /// is preserved across the swap so the backend's checkpointer continues
+    /// is preserved across the swap so the backend's stored history continues
     /// the same conversation. Bubbles already in `self.bubbles` stay put —
     /// they're a `ChatViewModel` property, not a session property.
     private func rebuildSessionIfSettingsChanged() {
@@ -870,7 +870,7 @@ public final class ChatViewModel {
             extraHeaders: headers
         )
         // threadId is immutable — carry it across the rebuild so the backend
-        // checkpointer keeps the conversation history.
+        // backend keeps the conversation history.
         session = AgentSession(
             client: client,
             registry: registry,
@@ -1560,9 +1560,9 @@ public final class ChatViewModel {
     }
 
     /// Build the `RunAgentInput.state` payload pushed every turn. Lands in
-    /// the LangGraph agent state on the server via `prepare_stream`; the
-    /// `ToolGatingMiddleware` reads `state["disabled_tools"]` to drop muted
-    /// backend tools from the model's tool list per call. Distinct from
+    /// the agent state on the server; the backend reads
+    /// `state["disabled_tools"]` to drop muted backend tools from the model's
+    /// tool list per call. Distinct from
     /// `context` because state is typed runtime data, not free-text guidance.
     private static func stateJSON(
         settings: SettingsStore,
@@ -1603,7 +1603,7 @@ public final class ChatViewModel {
             // Merge the active harness's own permission-control values (e.g.
             // Claude Code's `claude_loop_native` scope / `claude_loop_auto_approve`),
             // keyed by the exact state key the backend gate reads. Empty for
-            // LangGraph, whose controls are the disabled_tools + shell keys above.
+            // Deep Agents, whose controls are the disabled_tools + shell keys above.
             if let harnessID = settings.activeHarnessID {
                 for (key, value) in settings.harnessControls(harnessID: harnessID) {
                     switch value {

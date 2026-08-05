@@ -1124,8 +1124,8 @@ private struct ShellApprovalBubbleView: View {
 }
 
 /// A clarifying-question panel raised by the agent via the
-/// `ask_user_questions` backend tool. The graph is paused on a LangGraph
-/// `interrupt(...)`; the user picks an option or types a custom reply per
+/// `ask_user_questions` backend tool. The backend is paused on an
+/// interrupt; the user picks an option or types a custom reply per
 /// question and taps Submit; `ChatViewModel.submitInterruptAnswers()`
 /// routes the collected list into `AgentSession.resume(answers:)`.
 ///

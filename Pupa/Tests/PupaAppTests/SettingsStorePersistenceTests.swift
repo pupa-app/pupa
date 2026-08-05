@@ -247,7 +247,7 @@ struct SettingsStorePersistenceTests {
         #expect(reader.harnessControl(harnessID: "claude_code", key: "claude_loop_native") == .string("read"))
         #expect(reader.harnessControl(harnessID: "claude_code", key: "claude_loop_auto_approve") == .bool(true))
         // A different harness has no controls stored.
-        #expect(reader.harnessControls(harnessID: "langgraph").isEmpty)
+        #expect(reader.harnessControls(harnessID: "deepagents").isEmpty)
     }
 
     @Test("clearing a harness control removes it (falls back to default)")

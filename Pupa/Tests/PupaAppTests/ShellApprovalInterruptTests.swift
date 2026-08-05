@@ -200,7 +200,7 @@ private func sseEvents(_ events: [String]) -> Data {
     Data(events.map { "data: \($0)\n\n" }.joined().utf8)
 }
 
-/// Build a `CUSTOM(on_interrupt, value=…)` event the way `ag_ui_langgraph`
+/// Build a `CUSTOM(on_interrupt, value=…)` event the way the backend
 /// does: the interrupt dict is JSON-encoded into a *string* `value`. Built
 /// with `JSONSerialization` so the multiline command's newlines are escaped
 /// correctly through both encoding layers.

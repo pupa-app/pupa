@@ -62,9 +62,9 @@ public enum SilentReason: Sendable, Equatable {
     case droppedStream
     /// A frontend tool call arrived with no `on_interrupt` to drive it, and a
     /// bounded recovery re-POST didn't surface one either — so the client
-    /// couldn't run the tool. Fingerprint of the upstream `ag-ui-langgraph`
-    /// emit-path bug: an interrupt parked on a non-first task is dropped at
-    /// emit time (`state.tasks[0]` only), leaving the run looking finished.
+    /// couldn't run the tool. Fingerprint of a known upstream bug in the
+    /// backend's AG-UI adapter: an interrupt parked on a non-first task is
+    /// dropped at emit time, leaving the run looking finished.
     case droppedInterrupt
     /// A backend-attributed reason, or a client-side dispatch failure —
     /// carries a short human-readable message.
@@ -77,7 +77,7 @@ public enum SilentReason: Sendable, Equatable {
 ///   1. POST the user message + registered tool descriptors + caller-supplied context.
 ///   2. Stream events; accumulate text deltas into `messageId`-keyed buffers; surface
 ///      tool-call lifecycle to the host via `.toolCallStarted` / `.toolCallFinished`.
-///   3. When `ag_ui_langgraph` emits `CUSTOM(on_interrupt, …)` with a
+///   3. When the backend emits `CUSTOM(on_interrupt, …)` with a
 ///      `frontend_tool_calls` payload, dispatch every call through the local
 ///      `ToolRegistry` (parallel-safe handlers run concurrently, others run in
 ///      submission order), collect their results, and POST a follow-up round
@@ -90,7 +90,7 @@ public actor AgentSession {
     public private(set) var threadId: String
     /// Hard cap on rounds per send to bound runaway loops, or `nil` to run
     /// with no cap. With interrupt-driven dispatch every iteration is either a
-    /// fresh model turn or a resume; LangGraph's `recursion_limit` counts graph
+    /// fresh model turn or a resume; the backend's own step limit counts graph
     /// steps, which this cap doesn't, so we keep an iOS-side breaker for runaway
     /// tool loops. Kept generous because EVERY frontend-tool round-trip consumes
     /// a round — a low cap silently truncates legitimate multi-step turns. When
@@ -100,7 +100,7 @@ public actor AgentSession {
     public let maxRounds: Int?
 
     /// User messages accumulated across turns. Re-POSTed every round so
-    /// `ag_ui_langgraph.prepare_stream` recognises the run as a continuation
+    /// the backend recognises the run as a continuation
     /// (its HumanMessage-id-based check) rather than a time-travel
     /// regeneration. We don't track assistant / tool messages locally — the
     /// backend checkpoint is the source of truth for those, and the chat UI
@@ -210,8 +210,7 @@ public actor AgentSession {
     ///   per round**, so the host can read live MainActor-bound state to
     ///   grow / shrink the advertised surface mid-turn.
     /// - Parameter state: Optional `RunAgentInput.state` provider, called once
-    ///   per round. Top-level keys are merged into `state` server-side via
-    ///   `ag_ui_langgraph.prepare_stream`.
+    ///   per round. Top-level keys are merged into `state` server-side.
     /// - Parameter forwardedProps: Optional base `RunAgentInput.forwardedProps`
     ///   resolved once at `send` time and re-applied on every round of the
     ///   turn (including resume rounds after a frontend interrupt). The
@@ -416,10 +415,10 @@ public actor AgentSession {
         // Dispatch the interrupt's frontend tools and return the resume payload
         // for the next POST. Mid-turn tool-surface refresh: after the handlers
         // run (e.g. `addComponent` updates the local store), recompute the
-        // advertised descriptors and embed them so the backend refreshes
-        // `state["copilotkit"]["actions"]` before the model is re-invoked
-        // (`ag_ui_langgraph` discards `RunAgentInput.tools` on the resume
-        // branch). The resume merges on top of the caller's base forwardedProps
+        // advertised descriptors and embed them so the backend refreshes the
+        // tool set it exposes to the model before the model is re-invoked (it
+        // discards `RunAgentInput.tools` on the resume branch). The resume
+        // merges on top of the caller's base forwardedProps
         // so per-turn config (e.g. `llm`) survives every round.
         func resumeProps(for dispatch: PendingFrontendDispatch) async -> AnyJSON {
             let toolResults = await dispatchFrontendTools(calls: dispatch.calls, yield: yield)
@@ -451,8 +450,8 @@ public actor AgentSession {
 
         var nextForwardedProps: AnyJSON = baseForwardedProps
         var round = 0
-        // Bounded recovery for the `ag-ui-langgraph` dropped-interrupt bug —
-        // see the settle branch below.
+        // Bounded recovery for the dropped-interrupt bug — see the settle
+        // branch below.
         var recoveryAttempts = 0
         let maxRecoveryAttempts = 2
         while true {
@@ -470,7 +469,7 @@ public actor AgentSession {
             // tracks whether the round produced anything (empty round →
             // next send replaces the orphaned user message).
             guard let dispatch = outcome.pendingDispatch else {
-                // Self-heal the `ag-ui-langgraph` dropped-interrupt bug: a
+                // Self-heal the dropped-interrupt bug: a
                 // frontend tool was called this round but no `on_interrupt`
                 // arrived to drive it (the emit path reads `state.tasks[0]`
                 // only, so an interrupt parked on a non-first task is dropped
@@ -486,7 +485,7 @@ public actor AgentSession {
                     AGUIKitLog.session(
                         "round \(round) settled with frontend tool(s) but no interrupt " +
                         "[\(dropped.map { $0.name }.joined(separator: ", "))] → recovery re-POST " +
-                        "\(recoveryAttempts)/\(maxRecoveryAttempts) (ag-ui-langgraph tasks[0] emit bug)"
+                        "\(recoveryAttempts)/\(maxRecoveryAttempts) (upstream dropped-interrupt bug)"
                     )
                     nextForwardedProps = baseForwardedProps  // resume-less continuation
                     continue
@@ -544,9 +543,9 @@ public actor AgentSession {
     /// Frontend tool calls the model emitted this round that the client has
     /// registered locally, but which arrived WITHOUT an `on_interrupt` to drive
     /// them (no pending dispatch) and WITHOUT a backend-produced result. This is
-    /// the fingerprint of the `ag-ui-langgraph` dropped-interrupt bug: the graph
-    /// parked an interrupt on a non-first task and the emit path (`state.tasks[0]`
-    /// only) never sent the `on_interrupt`. Backend-executed tools (e.g.
+    /// the fingerprint of the dropped-interrupt bug: the backend parked an
+    /// interrupt on a non-first task and its emit path never sent the
+    /// `on_interrupt`. Backend-executed tools (e.g.
     /// `tavily_search`) don't resolve in the registry, so they're excluded.
     private func droppedFrontendCalls(in outcome: RoundOutcome) -> [(id: String, name: String)] {
         outcome.observedOrder.compactMap { id in
@@ -714,8 +713,8 @@ public actor AgentSession {
         /// for backend tools that resolve mid-stream.
         var observedToolCalls: [String: (name: String, args: AnyJSON)] = [:]
         var observedOrder: [String] = []
-        /// Set when `ag_ui_langgraph` emitted a `CUSTOM(on_interrupt, ...)`
-        /// event during the round. The graph is paused; the run loop should
+        /// Set when the backend emitted a `CUSTOM(on_interrupt, ...)`
+        /// event during the round. The run is paused; the run loop should
         /// dispatch the listed tools locally and POST a resume.
         var pendingDispatch: PendingFrontendDispatch?
         /// True if the round produced any text or any tool-call event. An
@@ -896,10 +895,9 @@ public actor AgentSession {
             case .stateSnapshot, .stateDelta, .messagesSnapshot:
                 break
             case .custom(let c):
-                // `ag_ui_langgraph` emits `CUSTOM(on_interrupt, value=…)`
-                // when the graph pauses via `langgraph.interrupt(...)`.
-                // `CopilotKitMiddlewareWithFrontendInterrupt` is the sole producer in
-                // pupa; its payload carries `frontend_tool_calls`.
+                // The backend emits `CUSTOM(on_interrupt, value=…)` when it
+                // pauses for a frontend tool; the payload carries
+                // `frontend_tool_calls`.
                 if c.name == "on_interrupt" {
                     if let parsed = decodeFrontendDispatch(c.value) {
                         state.outcome.pendingDispatch = PendingFrontendDispatch(calls: parsed)
@@ -966,8 +964,8 @@ private func decodeJSONStringPermissive(_ s: String) -> AnyJSON {
     return .string(s)
 }
 
-/// Parse the `value` field of `CUSTOM(on_interrupt, …)`. `ag_ui_langgraph`
-/// runs the interrupt payload through `dump_json_safe`, which JSON-encodes
+/// Parse the `value` field of `CUSTOM(on_interrupt, …)`. The backend
+/// runs the interrupt payload through a JSON-safe dump, which JSON-encodes
 /// non-string values and leaves strings untouched — so on the wire `value`
 /// arrives as either a JSON-encoded string `'{"frontend_tool_calls":[…]}'`
 /// or (if some future code path passes the dict through Pydantic without

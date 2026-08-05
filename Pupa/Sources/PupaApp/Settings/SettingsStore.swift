@@ -26,7 +26,7 @@ public struct BackendEntry: Identifiable, Codable, Equatable, Sendable {
     /// on system trust — required for self-hosted HTTPS without a CA-signed cert.
     /// Populated automatically when pairing via QR (the QR encodes `fp=<hex>`).
     public var certFingerprint: String?
-    /// Which backend agent harness this connection talks to (`langgraph`,
+    /// Which backend agent harness this connection talks to (`deepagents`,
     /// `claude_code`, …). Chosen from the backend's `GET /harnesses` discovery.
     /// `nil` → the backend's default harness (talks to `POST /`, un-migrated).
     /// Drives the run endpoint (`/harnesses/{id}`) and which permission controls
@@ -58,8 +58,8 @@ public struct BackendEntry: Identifiable, Codable, Equatable, Sendable {
 ///
 /// Stored:
 ///   - `disabledBackendTools` — which backend tools the user has muted; pushed
-///     into every turn's `RunAgentInput.state` so the LangGraph
-///     `ToolGatingMiddleware` can drop them from the model's tool list.
+///     into every turn's `RunAgentInput.state` so the backend can drop them
+///     from the model's tool list.
 ///   - `backends` — list of configured backends (URL + label + paired device id).
 ///     `activeBackendID` picks which one drives `backendURL` / `authHeaders`.
 ///     The previous single-URL schema (snapshot field `backendURL`) migrates
@@ -102,7 +102,7 @@ public final class SettingsStore {
     public private(set) var disabledBackendTools: Set<String>
     /// Harness-specific permission-control values, keyed by harness id, then by
     /// the control `key` the backend advertised (e.g. `claude_loop_native`).
-    /// The LangGraph controls (`disabled_tools`, `shell_approval_disabled`) keep
+    /// The Deep Agents controls (`disabled_tools`, `shell_approval_disabled`) keep
     /// their dedicated fields above; this holds the *other* harnesses' controls
     /// (native scope, auto-approve, …) so tool/permission UI is per-harness.
     public private(set) var backendHarnessControls: [String: [String: HarnessSettingValue]]
