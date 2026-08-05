@@ -206,6 +206,20 @@ public final class ChatViewModel {
     /// turn once the current one settles cleanly (see `drainQueue()`). Empty
     /// whenever the session is idle with nothing waiting.
     public private(set) var queuedMessages: [QueuedMessage] = []
+    /// Unsent composer content for this thread — typed text plus staged
+    /// attachments. Unlike `queuedMessages` (already submitted, waiting on the
+    /// in-flight turn) this was never sent. It lives on the session rather than
+    /// in `ChatPanel` `@State` because closing the chat overlay unmounts the
+    /// panel (`ChatOverlay` gates its card on `isOpen`), which would drop
+    /// whatever the user had typed. Cleared by the composer on send;
+    /// in-memory only, not persisted across launches.
+    public var draft: String = ""
+    public var draftImages: [PickedImage] = []
+    /// The exact composer text the last guided-tour prefill wrote (full or
+    /// partial), so a later step can replace its own parked example while never
+    /// clobbering user typing. Must live beside `draft`: as panel `@State` it
+    /// resets on remount, making a leftover prefill look like real input.
+    var streamedDraft: String = ""
     public private(set) var isStreaming = false
     /// Inline connection banner state; `nil` when the stream is healthy.
     public private(set) var connectionIssue: ChatConnectionState?
