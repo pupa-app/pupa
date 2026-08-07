@@ -469,7 +469,7 @@ public struct SettingsSheet: View {
             )) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("No limit")
-                    Text("Let a turn run as many tool rounds as it needs. Removes the safety breaker — a stuck turn can loop indefinitely.")
+                    Text("On by default: a turn runs as many tool rounds as it needs. Turn this off to add a client-side breaker for turns you want cut short.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -494,7 +494,7 @@ public struct SettingsSheet: View {
         } header: {
             Text("Turn limits")
         } footer: {
-            Text("A turn that hits this limit stops with a note instead of hanging. Applies on the next message.")
+            Text("A turn that hits this limit finishes the tool calls already in flight, then stops with a note in the chat. Applies on the next message.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

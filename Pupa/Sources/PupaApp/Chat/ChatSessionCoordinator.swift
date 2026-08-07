@@ -487,6 +487,11 @@ public final class ChatSessionCoordinator {
                 if case .silent = outcome, accumulated.isEmpty {
                     accumulated = "[sub-agent ended its turn with no reply]"
                 }
+                // Partial answer: mark it, or the orchestrator reads a
+                // cut-off reply as the sub-agent's final word.
+                if case .truncated = outcome {
+                    accumulated.append("\n[sub-agent was cut short before finishing]")
+                }
             default:
                 break
             }
@@ -631,6 +636,9 @@ public final class ChatSessionCoordinator {
             case .completed(let outcome):
                 if case .silent = outcome, accumulated.isEmpty {
                     accumulated = "[sub-agent ended its turn with no reply]"
+                }
+                if case .truncated = outcome {
+                    accumulated.append("\n[sub-agent was cut short before finishing]")
                 }
             default:
                 break

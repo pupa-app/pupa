@@ -32,16 +32,26 @@ handlers.
   per-turn `llm = {provider, model}` selection) is captured at send time
   and re-applied on every round, including resume rounds after a frontend
   interrupt. A computed frontend-tool dispatch **always** gets its resume
-  POST — even when the runaway round cap (`maxRounds`, from
-  `SettingsStore.effectiveMaxToolRounds`: `maxToolRounds` default 24, range
-  4–64, or `nil` when the "No limit" toggle is on; every tool round-trip
-  consumes one) is hit mid-interrupt — so the backend session is never left
-  parked. `nil` removes the breaker: the turn runs until the backend settles. The loop settles with
-  `.completed(CompletionOutcome)`: `.produced` when the turn emitted
-  assistant text, else `.silent(reason)` (`emptyTurn` / `maxRounds` /
-  `droppedStream` / `droppedInterrupt` / `backend`) so the UI can flag a turn
-  that ended with no reply instead of silently dropping the spinner.
-  `ChatViewModel` renders a `.system` notice bubble for `.silent`.
+  POST — its handlers have already mutated local state by then, so dropping
+  it would leave the backend parked forever. The runaway round cap
+  (`maxRounds`, from `SettingsStore.effectiveMaxToolRounds`) is therefore
+  checked only *after* a resume is staged, and hitting it starts a **drain**:
+  the loop keeps POSTing staged resumes for up to `maxDrainRounds` (2) more
+  rounds, then stops with a notice. Both `runLoop` and `reattach` follow that
+  contract. The cap is **off by default** (`nil`) — every tool round-trip
+  consumes a round, so a finite cap truncated long agentic turns; the
+  backend's graph-step limit is the runaway guard. Users can switch the
+  breaker on in Settings → Turn limits (`maxToolRounds`, range 4–64), and
+  `AgentSession.setMaxRounds` applies the change on the very next message
+  without rebuilding the session (which would drop `messages` and the replay
+  cursor). The loop settles with `.completed(CompletionOutcome)`:
+  `.produced` only for a clean settle; `.silent(reason)` when the turn ended
+  early having said nothing; `.truncated(reason)` when it ended early after
+  emitting text (`reason` ∈ `emptyTurn` / `maxRounds` / `droppedStream` /
+  `droppedInterrupt` / `backend`). Cut-short reasons outrank "did it speak" —
+  reporting a capped or dropped turn as `.produced` is what used to make
+  those stops invisible. `ChatViewModel` renders a `.system` notice bubble
+  for any non-nil `outcome.noticeReason`.
   **Dropped-interrupt self-heal:** if a round settles with a registered
   frontend tool observed but no `on_interrupt` to drive it (the upstream
   `ag-ui-langgraph` `tasks[0]` emit bug — an interrupt parked on a non-first
