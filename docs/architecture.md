@@ -1058,7 +1058,13 @@ latest toggle change. Cross-component references are enumerated/pruned by a sing
 unified model on `CanvasApp` (`componentReferences` / `remapReferences`) shared
 with the delete cascade; each kind registers a `ComponentExportPolicy`. Import
 treats the bundle as untrusted (settings allow-list, size/count caps,
-slug-safe rename, traversal-safe memory writes). Full design + threat model:
+slug-safe rename, traversal-safe memory writes).
+
+`onOpenURL` also takes the marketplace page's iOS path: a
+`pupa-install://import?url=…&sha256=…` link, whose bundle URL
+`MarketplaceInstallLink` allow-lists by component to the catalog's `main/apps/`
+tree, downloads under the importer's byte cap, and checksums — then stages for
+the *same* confirm sheet a tapped file gets. Full design + threat model:
 [marketplace.md](marketplace.md).
 
 ## Backend

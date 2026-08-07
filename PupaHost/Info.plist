@@ -101,5 +101,28 @@
 			</array>
 		</dict>
 	</array>
+	<!-- Marketplace install links: `pupa-install://import?url=…&sha256=…`, tapped
+	     from the marketplace page on iOS/iPadOS. Safari can't hand a website's
+	     `.pupa` to Pupa directly (the file lands in Downloads and needs a manual
+	     "Open in"), so the site sends a link instead and Pupa fetches the bytes
+	     itself — see `stageRemoteImport` in AppView. One target builds both
+	     platforms (SDKROOT = auto), so macOS registers the scheme too.
+	     ONLY `pupa-install` is registered. The in-app `pupa` scheme (ChatLink)
+	     and `pupa-pair` (QR pairing) are parsed in-process from trusted, locally
+	     produced text; registering either would let any web page feed URLs into
+	     navigation paths that were never written to distrust their input. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.pupa-app.client.install</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>pupa-install</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

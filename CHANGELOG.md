@@ -3,6 +3,20 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.231] — 2026-08-07
+
+### Added
+
+- **Marketplace apps open straight in Pupa on iPhone and iPad.** Tapping *Open
+  in Pupa* used to drop the `.pupa` into Safari's downloads, leaving you to find
+  the file and pick "Open in" from the share menu. The marketplace page can now
+  hand the app to Pupa directly: Pupa opens, fetches the bundle itself, and shows
+  the same confirm preview — with the app's name and agent prompts — that a
+  tapped file gets. Nothing is saved to your device first, and nothing is
+  imported until you confirm. Only bundles published in the Pupa marketplace can
+  be opened this way, and their contents are checked against the catalog's
+  checksum before you're shown anything.
+
 ## [0.0.230] — 2026-08-07
 
 ### Fixed

@@ -72,15 +72,40 @@ screen (`ExportShareScreen`), fed the resolved snapshot
 flagged with a "Pinned version" banner. Records/memories default off, same as a
 live share.
 
-## Import — two entry points, one authority
+## Import — three entry points, one authority
 
-A bundle reaches the importer two ways: the in-app **Import bundle…** picker, and
-**tap-to-open** — a `.pupa` opened from Files / Mail / a chat app. The OS
-routes the latter to Pupa via the registered file type (see *File type*);
-SwiftUI delivers it to `AppView.onOpenURL`. Because that source is untrusted, an
-external open is **read-only decoded for a confirm sheet** (app name + agent
-prompts) before anything runs — only on confirm does it call the same
-`MyAppImporter.importBundle`. Both paths share that one validation authority.
+A bundle reaches the importer three ways: the in-app **Import bundle…** picker,
+**tap-to-open** — a `.pupa` opened from Files / Mail / a chat app — and a
+**marketplace install link** on iOS/iPadOS. The OS routes tap-to-open via the
+registered file type (see *File type*) and the link via the registered
+`pupa-install` scheme; SwiftUI delivers both to `AppView.onOpenURL`. Because
+those sources are untrusted, an external open is **read-only decoded for a
+confirm sheet** (app name + agent prompts) before anything runs — only on
+confirm does it call the same `MyAppImporter.importBundle`. All three paths
+share that one validation authority.
+
+### Install links (`pupa-install://`)
+
+`pupa-install://import?url=<https .pupa>&sha256=<hex>`. Safari can't hand a
+website's `.pupa` to Pupa — it lands in Downloads and needs a manual "Open in" —
+so the marketplace page sends a link and Pupa fetches the bytes itself. The
+website already holds the catalog entry, so the link carries what Pupa needs and
+the app learns nothing about catalogs. Universal Links can't serve this: iOS
+suppresses them when link and page share a domain.
+
+`MarketplaceInstallLink` owns the untrusted edge. It allow-lists the bundle URL
+**by URL component** (`https`, host `raw.githubusercontent.com`, path under
+`/pupa-app/marketplace/main/apps/`, extension `.pupa`, no `..`) — a string
+prefix would accept `https://raw.githubusercontent.com@evil.example/…`, and a
+repo-wide prefix would accept unmerged fork-PR heads, which raw.githubusercontent
+serves under the base repo's path. `fetchBundle` then caps the transfer at
+`MyAppImporter.maxBundleBytes` (declared `Content-Length` first, running cap
+while reading) and verifies the bytes against the link's digest before anything
+is staged. One target builds both platforms, so macOS registers the scheme too.
+
+Only `pupa-install` is registered. The in-app `pupa` (ChatLink) and `pupa-pair`
+(QR) schemes stay unregistered — both feed paths written for locally produced
+text, not for anything a web page can emit.
 
 `MyAppImporter.importBundle` treats the bundle as **hostile** and validates
 fully before any store/disk mutation:
@@ -130,6 +155,7 @@ The bundle is inert (no code execution). Remaining vectors → mitigations:
 | Memory path traversal | `MemoryStore.resolve()` prefix/`..`/`.md` guards |
 | Cross-app memory clobber via slug collision | slug-unique rename on import |
 | DoS (huge/nested bundle) | pre-decode byte cap + post-decode count caps |
+| Hostile `pupa-install://` link from any web page | component-wise source allow-list (pinned to `main/apps/`, so unmerged fork-PR heads don't qualify) + `Content-Length`/streaming cap + digest check; a link naming a *real* app the user didn't ask for is left to the confirm sheet |
 | Integrity (duplicate ids, dangling `activeComponentId`, unknown kind) | stage-0 validation |
 | Cross-app ref escape | refs resolve only within the imported app; `id` reassigned |
 
@@ -139,8 +165,10 @@ structure; the export screen surfaces personas for review.
 ## Follow-on (not yet built)
 
 Remote marketplace service (store/serve bundles + in-app browser). Add a
-signature/checksum to `MyAppBundle` and server-side moderation then — the
-primary defense against prompt injection, which the importer can only surface.
+**signature** to `MyAppBundle` and server-side moderation then — the primary
+defense against prompt injection, which the importer can only surface. (A
+checksum exists for install links, but it binds bytes to a link, not a bundle to
+a publisher.)
 
 ## File type
 
@@ -159,4 +187,5 @@ In Swift it's `UTType.pupaAppBundle` (`PupaUTType.swift`): the share/export side
 writes it, the importer accepts it **and** legacy `.json` exports. A bundle is
 still JSON, so the importer validates via the header `format` magic, not the
 extension. The Info.plist holds only the array keys — `GENERATE_INFOPLIST_FILE`
-stays on and merges the generated keys over it.
+stays on and merges the generated keys over it. `CFBundleURLTypes` in the same
+file registers `pupa-install` (see *Install links*).

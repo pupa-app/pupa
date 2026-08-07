@@ -98,6 +98,10 @@ public struct AppView: View {
     @State private var pendingImport: PendingImport?
     /// Result/error surfaced after an external import attempt.
     @State private var importNotice: ImportNotice?
+    /// In-flight `pupa-install://` download, held so a second tap supersedes
+    /// the first instead of racing it into `pendingImport`.
+    @State private var remoteImport: Task<Void, Never>?
+    @State private var isFetchingRemoteImport = false
     /// Set when a tapped notification deep-links into a myApp that no longer
     /// exists (deleted after the notification was scheduled). Drives an error
     /// popup instead of navigating into a ghost target.
@@ -279,10 +283,12 @@ public struct AppView: View {
             // coordinator's one-slot buffer here. Consume-once (the drain clears
             // it) so a live tap isn't also replayed.
             .task { handleNotificationTap() }
-            // Tap-to-import: a `.pupa` opened from Files / Mail / a chat app
-            // arrives here. Stage it for a confirm step rather than importing
-            // straight into the store (untrusted source).
-            .onOpenURL { stagePendingImport($0) }
+            // Tap-to-import: a `.pupa` opened from Files / Mail / a chat app,
+            // or a `pupa-install://` marketplace link, arrives here. Either way
+            // it is staged for a confirm step rather than imported straight
+            // into the store (untrusted source).
+            .onOpenURL { handleOpenURL($0) }
+            .overlay { if isFetchingRemoteImport { remoteImportProgress } }
             .sheet(item: $pendingImport) { pending in
                 ImportConfirmSheet(
                     pending: pending,
@@ -1279,21 +1285,100 @@ public struct AppView: View {
 
     // MARK: Tap-to-import
 
+    /// Route a URL opened from outside the app: a `.pupa` file (Files, Mail, a
+    /// chat app, AirDrop) or a marketplace install link. Anything else is
+    /// ignored — notably `pupa://`, which is an in-app-only scheme and is
+    /// deliberately not registered, so it never arrives here from a web page.
+    private func handleOpenURL(_ url: URL) {
+        if url.isFileURL {
+            stagePendingImport(url)
+        } else if url.scheme?.lowercased() == MarketplaceInstallLink.scheme {
+            stageRemoteImport(url)
+        }
+    }
+
     /// Read + read-only-decode an opened `.pupa` for the confirm preview.
     /// `MyAppImporter` is the validation authority — this only extracts the app
     /// name + agent prompts and never mutates the store.
     private func stagePendingImport(_ url: URL) {
-        guard url.isFileURL else { return }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         guard let data = try? Data(contentsOf: url) else {
             importNotice = ImportNotice(message: "Couldn't read that file.")
             return
         }
+        stage(data)
+    }
+
+    /// Fetch the bundle named by a `pupa-install://` link and stage it for the
+    /// same confirm step as a tapped file — the marketplace page's iOS path,
+    /// which skips downloading the `.pupa` to the device first.
+    ///
+    /// `MarketplaceInstallLink` allow-lists the source, caps the transfer and
+    /// checksums the bytes; the confirm sheet below it is unchanged, so a link
+    /// reaches exactly the same gates a file does.
+    ///
+    /// A second link supersedes the first: the app foregrounds on each tap, so
+    /// two in-flight fetches would race to fill the one confirm slot.
+    private func stageRemoteImport(_ url: URL) {
+        let request: MarketplaceInstallLink.Request
+        do {
+            request = try MarketplaceInstallLink.parse(url)
+        } catch {
+            importNotice = ImportNotice(message: error.localizedDescription)
+            return
+        }
+        remoteImport?.cancel()
+        isFetchingRemoteImport = true
+        remoteImport = Task {
+            // Only the surviving task clears the flag — a superseded one would
+            // otherwise hide the progress its replacement is still earning.
+            defer { if !Task.isCancelled { isFetchingRemoteImport = false } }
+            do {
+                let data = try await MarketplaceInstallLink.fetchBundle(request)
+                guard !Task.isCancelled else { return }
+                stage(data)
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                importNotice = ImportNotice(message: error.localizedDescription)
+            }
+        }
+    }
+
+    /// Covers the wait between tapping a marketplace link and the confirm
+    /// sheet: the app foregrounds on a tap, so without this the launch looks
+    /// like nothing happened.
+    private var remoteImportProgress: some View {
+        VStack(spacing: 14) {
+            ProgressView()
+            Text("Fetching from the marketplace…")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Button("Cancel") { cancelRemoteImport() }
+                .font(.subheadline.weight(.semibold))
+                .buttonStyle(.plain)
+                .foregroundStyle(.tint)
+        }
+        .padding(24)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .shadow(radius: 12)
+    }
+
+    private func cancelRemoteImport() {
+        remoteImport?.cancel()
+        remoteImport = nil
+        isFetchingRemoteImport = false
+    }
+
+    /// Read-only-decode bundle bytes for the confirm preview, whatever their
+    /// source. Never mutates the store — `confirmImport` does that.
+    private func stage(_ data: Data) {
         switch MyAppImporter.probeFormat(data) {
         case .single:
             guard let bundle = try? MyAppBundle.makeDecoder().decode(MyAppBundle.self, from: data) else {
-                importNotice = ImportNotice(message: "This file isn't a valid Pupa app bundle.")
+                importNotice = ImportNotice(message: "This isn't a valid Pupa app bundle.")
                 return
             }
             pendingImport = PendingImport(
@@ -1303,7 +1388,7 @@ public struct AppView: View {
                 agentPrompts: agentPrompts(in: bundle.app))
         case .library:
             guard let library = try? MyAppBundle.makeDecoder().decode(MyAppLibraryBundle.self, from: data) else {
-                importNotice = ImportNotice(message: "This file isn't a valid Pupa app bundle.")
+                importNotice = ImportNotice(message: "This isn't a valid Pupa app bundle.")
                 return
             }
             pendingImport = PendingImport(
@@ -1312,7 +1397,7 @@ public struct AppView: View {
                 appNames: library.apps.map { $0.app.name },
                 agentPrompts: library.apps.flatMap { agentPrompts(in: $0.app) })
         case .unknown:
-            importNotice = ImportNotice(message: "This file isn't a valid Pupa app bundle.")
+            importNotice = ImportNotice(message: "This isn't a valid Pupa app bundle.")
         }
     }
 
