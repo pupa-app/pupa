@@ -15,11 +15,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   a clean finish and the spinner simply vanished. The note now appears whenever
   a turn ends early, even if the agent already replied, and the same applies to
   a connection that drops mid-reply.
-- **The agent can no longer be left waiting on results that never arrive.** If
-  the round limit was reached while a tool was still being handed back, the app
-  could stop without sending the result — the agent stayed parked and the chat
-  looked frozen. It now always delivers what it already ran before stopping,
-  including on the catch-up path after the app was backgrounded or killed.
+- **The agent is far less likely to be left waiting on results that never
+  arrive.** If the round limit was reached while a tool was still being handed
+  back, the app could stop without sending the result — the agent stayed parked
+  and the chat looked frozen. It now keeps delivering what it already ran for a
+  couple of extra rounds before stopping, including on the catch-up path after
+  the app was backgrounded or killed. An agent that asks for yet another tool on
+  every one of those rounds can still be left waiting on the last one.
 - **Delegated agents report being cut short.** A sub-agent that ran out of
   rounds handed its partial answer up as if it were finished.
 

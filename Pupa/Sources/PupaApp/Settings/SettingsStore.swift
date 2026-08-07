@@ -136,10 +136,10 @@ public final class SettingsStore {
     public private(set) var a2aMaxChainDepth: Int
     public private(set) var a2aMaxTurnsPerPair: Int
     /// Max tool rounds per turn, fed into `AgentSession.setMaxRounds` on every
-    /// send. A pending frontend-tool interrupt always gets its resume even at
-    /// the cap (the session drains rather than stranding the backend); this
-    /// just bounds runaway tool loops. Applies on the next message. Ignored
-    /// when `toolRoundsUnlimited` is on.
+    /// send. A pending frontend-tool interrupt still gets its resume at the cap
+    /// — the session drains instead of returning, which bounds (not removes)
+    /// the stranded-backend window; this just bounds runaway tool loops.
+    /// Applies on the next message. Ignored when `toolRoundsUnlimited` is on.
     public private(set) var maxToolRounds: Int
     /// When true (the default), turns run with NO tool-round cap
     /// (`AgentSession.maxRounds == nil`) — the client-side breaker is off and

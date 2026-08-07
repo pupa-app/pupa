@@ -111,9 +111,11 @@ public actor AgentSession {
     /// opt-in client-side breaker on top of it.
     ///
     /// When the cap is hit mid-interrupt the loop enters *draining*: it keeps
-    /// POSTing staged resumes (up to `maxDrainRounds` more) so the backend
-    /// session is never left parked, then stops with a `.maxRounds` notice.
-    /// See `runLoop`.
+    /// POSTing staged resumes (up to `maxDrainRounds` more) before stopping
+    /// with a `.maxRounds` notice. A backend that answers every resume with
+    /// another tool call outlives the drain budget, so the final round's
+    /// resume goes unsent and that run stays parked — unavoidable for any
+    /// bounded loop, but bounded, not eliminated. See `runLoop`.
     public private(set) var maxRounds: Int?
 
     /// Change the cap for subsequent rounds. The host calls this when the user
@@ -392,7 +394,8 @@ public actor AgentSession {
 
             // The resume is staged; the next iteration POSTs it. Only then may
             // the cap stop us — exiting here would strand the parked backend
-            // after the tools had already mutated local state.
+            // after the tools had already mutated local state. Draining shrinks
+            // that window to the last round only; see `maxRounds`.
             if let cap = maxRounds, round >= cap {
                 if !draining {
                     draining = true
@@ -580,9 +583,10 @@ public actor AgentSession {
             nextForwardedProps = await resumeProps(for: dispatch)
 
             // Runaway guard. The resume for this dispatch is now staged and the
-            // next iteration POSTs it, so the backend is never left parked —
-            // including when the dispatch was produced by a drain round, which
-            // the old "one final round then return" shape silently dropped.
+            // next iteration POSTs it — including when the dispatch was produced
+            // by a drain round, which the old "one final round then return"
+            // shape silently dropped. Only the round that spends the last drain
+            // budget returns with its resume unsent, leaving that run parked.
             // A `nil` cap removes the breaker: run until the backend settles.
             if let cap = maxRounds, round >= cap {
                 if !draining {

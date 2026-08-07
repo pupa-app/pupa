@@ -31,14 +31,18 @@ handlers.
   results, and re-POST until the model stops. `forwardedProps` (e.g. the
   per-turn `llm = {provider, model}` selection) is captured at send time
   and re-applied on every round, including resume rounds after a frontend
-  interrupt. A computed frontend-tool dispatch **always** gets its resume
-  POST — its handlers have already mutated local state by then, so dropping
-  it would leave the backend parked forever. The runaway round cap
+  interrupt. A computed frontend-tool dispatch gets its resume POST on the
+  next round — its handlers have already mutated local state by then, so
+  dropping it leaves the backend parked forever. The runaway round cap
   (`maxRounds`, from `SettingsStore.effectiveMaxToolRounds`) is therefore
   checked only *after* a resume is staged, and hitting it starts a **drain**:
   the loop keeps POSTing staged resumes for up to `maxDrainRounds` (2) more
   rounds, then stops with a notice. Both `runLoop` and `reattach` follow that
-  contract. The cap is **off by default** (`nil`) — every tool round-trip
+  contract. Draining **bounds** the stranding, it doesn't remove it: a backend
+  that answers every resume with another tool call outlives the budget, and
+  the round that spends the last of it returns with its resume unsent. That is
+  inherent — any bounded loop leaves the final request unanswered. Unparking
+  cleanly would need a terminal resume carrying a cancelled tool result. The cap is **off by default** (`nil`) — every tool round-trip
   consumes a round, so a finite cap truncated long agentic turns; the
   backend's graph-step limit is the runaway guard. Users can switch the
   breaker on in Settings → Turn limits (`maxToolRounds`, range 4–64), and
