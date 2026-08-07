@@ -164,16 +164,41 @@ struct SettingsStorePersistenceTests {
     func toolRoundsUnlimited_roundtrip() {
         SettingsStore.clearStorage()
         let writer = SettingsStore(credentials: InMemoryCredentialStore())
-        // Off by default → effective cap is the numeric value.
-        #expect(writer.toolRoundsUnlimited == false)
-        #expect(writer.effectiveMaxToolRounds == writer.maxToolRounds)
-
-        writer.setToolRoundsUnlimited(true)
+        // On by default → no client-side breaker.
+        #expect(writer.toolRoundsUnlimited == true)
         #expect(writer.effectiveMaxToolRounds == nil)
 
+        // Switching the breaker on hands the session the numeric value.
+        writer.setToolRoundsUnlimited(false)
+        #expect(writer.effectiveMaxToolRounds == writer.maxToolRounds)
+
         let reader = SettingsStore(credentials: InMemoryCredentialStore())
-        #expect(reader.toolRoundsUnlimited == true)
-        #expect(reader.effectiveMaxToolRounds == nil)
+        #expect(reader.toolRoundsUnlimited == false)
+        #expect(reader.effectiveMaxToolRounds == reader.maxToolRounds)
+    }
+
+    /// The cap defaults off: a finite default cut long agentic turns short, and
+    /// the turn reported clean, so the stop was invisible. Existing installs
+    /// have no `toolRoundsUnlimited` key and must migrate to unlimited too.
+    @Test("Tool rounds are uncapped by default, including for a pre-existing settings blob")
+    func toolRounds_defaultUnlimited() throws {
+        let fresh = freshStore()
+        #expect(fresh.toolRoundsUnlimited == SettingsStore.defaultToolRoundsUnlimited)
+        #expect(fresh.effectiveMaxToolRounds == nil)
+
+        SettingsStore.clearStorage()
+        let id = UUID()
+        let legacy: [String: Any] = [
+            "disabledBackendTools": [],
+            "backends": [["id": id.uuidString, "label": "L", "url": "https://x.example.com/"]],
+            "activeBackendID": id.uuidString,
+        ]
+        try CloudDocument.write(
+            try JSONSerialization.data(withJSONObject: legacy), to: SettingsStore.settingsURL)
+
+        let migrated = SettingsStore(credentials: InMemoryCredentialStore())
+        #expect(migrated.toolRoundsUnlimited == true)
+        #expect(migrated.effectiveMaxToolRounds == nil)
     }
 
     @Test("Pre-existing settings blob without maxToolRounds decodes to the default")

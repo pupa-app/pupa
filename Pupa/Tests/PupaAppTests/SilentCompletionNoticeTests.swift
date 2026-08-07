@@ -64,9 +64,39 @@ struct SilentCompletionNoticeTests {
         let reasons: [SilentReason] = [
             .emptyTurn, .maxRounds, .droppedStream, .droppedInterrupt, .backend("boom"),
         ]
-        let messages = reasons.map(ChatViewModel.silentStopMessage)
+        let messages = reasons.map { ChatViewModel.silentStopMessage($0) }
         #expect(messages.allSatisfy { !$0.isEmpty })
         #expect(Set(messages).count == reasons.count)
         #expect(ChatViewModel.silentStopMessage(.backend("boom")).contains("boom"))
+    }
+
+    /// The regression this suite exists for: a turn that narrated first and
+    /// then hit the round cap reported `.produced` and drew nothing at all, so
+    /// the spinner just vanished after a tool call.
+    @Test("A truncated completion appends a notice even though the agent replied")
+    func truncatedCompletion_appendsSystemNotice() {
+        let vm = makeViewModel()
+        vm.apply(.completed(.truncated(.maxRounds)))
+        let notices = systemBubbles(vm)
+        #expect(notices.count == 1)
+        #expect(notices.first?.text == ChatViewModel.silentStopMessage(.maxRounds))
+    }
+
+    @Test("A user Stop suppresses the notice for a late truncated completion too")
+    func userStop_suppressesTruncatedNotice() {
+        let vm = makeViewModel()
+        vm.cancel()
+        vm.apply(.completed(.truncated(.maxRounds)))
+        #expect(systemBubbles(vm).isEmpty)
+    }
+
+    @Test("A dropped stream reads differently once the agent had already replied")
+    func droppedStream_wordingSplitsOnTruncation() {
+        let vm = makeViewModel()
+        vm.apply(.completed(.truncated(.droppedStream)))
+        let notice = systemBubbles(vm).first?.text
+        #expect(notice == ChatViewModel.silentStopMessage(.droppedStream, truncated: true))
+        #expect(notice != ChatViewModel.silentStopMessage(.droppedStream))
+        #expect(notice?.contains("mid-reply") == true)
     }
 }

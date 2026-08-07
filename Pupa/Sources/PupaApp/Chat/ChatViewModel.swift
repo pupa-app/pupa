@@ -956,6 +956,12 @@ public final class ChatViewModel {
         didUserStop = false
 
         rebuildSessionIfSettingsChanged()
+        // Pick up a Settings change to the tool-round cap without rebuilding
+        // the session (a rebuild would drop `messages` and the replay cursor).
+        // The loop re-reads the cap each round and can't trip it before the
+        // first round's POST returns, so this lands well in time.
+        let roundCap = settings.effectiveMaxToolRounds
+        Task { await session.setMaxRounds(roundCap) }
 
         let scope = pinnedScope
         let focusedPath = memoryFocusedPath
@@ -1388,12 +1394,19 @@ public final class ChatViewModel {
             break
         case .completed(let outcome):
             openToolRoundId = nil
-            // A turn that settled without any assistant text and without an
-            // error would otherwise just drop the spinner and look dead. Show
-            // an inline system note with the reason so the user knows it
-            // stopped (and can nudge it) rather than wondering if it crashed.
-            if case .silent(let reason) = outcome, !didUserStop {
-                appendBubble(ChatBubble(role: .system, text: Self.silentStopMessage(reason)))
+            // A turn that ended before the agent settled would otherwise just
+            // drop the spinner and look dead. Show an inline system note with
+            // the reason so the user knows it stopped (and can nudge it) rather
+            // than wondering if it crashed. `.truncated` counts too — a turn
+            // that narrated first and *then* hit the round cap used to report
+            // clean and show nothing at all.
+            if let reason = outcome.noticeReason, !didUserStop {
+                var truncated = false
+                if case .truncated = outcome { truncated = true }
+                appendBubble(ChatBubble(
+                    role: .system,
+                    text: Self.silentStopMessage(reason, truncated: truncated)
+                ))
             }
         case .error(let message, let code):
             openToolRoundId = nil
@@ -1417,15 +1430,19 @@ public final class ChatViewModel {
         return .failed(backendErrorMessage)
     }
 
-    /// User-facing note for a turn that ended with no assistant reply.
-    static func silentStopMessage(_ reason: SilentReason) -> String {
+    /// User-facing note for a turn that ended before the agent settled.
+    /// `truncated` means the agent had already replied, so the text above the
+    /// note is partial rather than absent.
+    static func silentStopMessage(_ reason: SilentReason, truncated: Bool = false) -> String {
         switch reason {
         case .emptyTurn:
             return "The agent finished its turn without a reply. Say \u{201C}continue\u{201D} to nudge it."
         case .maxRounds:
             return "Stopped after the tool-round safety limit. Say \u{201C}continue\u{201D} to resume."
         case .droppedStream:
-            return "The connection closed before the agent replied. Say \u{201C}continue\u{201D} or try again."
+            return truncated
+                ? "The connection closed mid-reply. Say \u{201C}continue\u{201D} or try again."
+                : "The connection closed before the agent replied. Say \u{201C}continue\u{201D} or try again."
         case .droppedInterrupt:
             return "The agent\u{2019}s last action didn\u{2019}t come through. Say \u{201C}continue\u{201D} to retry it."
         case .backend(let detail):

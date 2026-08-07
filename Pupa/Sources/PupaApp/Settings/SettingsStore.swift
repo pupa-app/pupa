@@ -87,9 +87,13 @@ public final class SettingsStore {
 
     /// Per-turn tool-round cap (`AgentSession.maxRounds`). Every frontend-tool
     /// round-trip consumes one round, so multi-step turns need headroom; this
-    /// is the client-side runaway breaker, not an A2A limit.
+    /// is the client-side runaway breaker, not an A2A limit. It is **off by
+    /// default** — a finite cap cut long agentic turns short, and the backend's
+    /// own graph-step limit is the real runaway guard. This value is what the
+    /// stepper starts from when the user switches the breaker back on.
     public nonisolated static let defaultMaxToolRounds = 24
     public static let maxToolRoundsRange = 4...64
+    public nonisolated static let defaultToolRoundsUnlimited = true
 
     /// Per-MyApp cap on the bytes used by stored chat threads. When enabled,
     /// the oldest chats in a scope are auto-deleted once it exceeds this size.
@@ -131,14 +135,15 @@ public final class SettingsStore {
     /// `a2aMaxChainDepth` caps how deep a chain of agents-calling-agents can go.
     public private(set) var a2aMaxChainDepth: Int
     public private(set) var a2aMaxTurnsPerPair: Int
-    /// Max tool rounds per turn, fed into every `AgentSession(maxRounds:)`.
-    /// A pending frontend-tool interrupt always gets its resume even at the
-    /// cap (the session never strands the backend); this just bounds runaway
-    /// tool loops. Applies on the next session build. Ignored when
-    /// `toolRoundsUnlimited` is on.
+    /// Max tool rounds per turn, fed into `AgentSession.setMaxRounds` on every
+    /// send. A pending frontend-tool interrupt always gets its resume even at
+    /// the cap (the session drains rather than stranding the backend); this
+    /// just bounds runaway tool loops. Applies on the next message. Ignored
+    /// when `toolRoundsUnlimited` is on.
     public private(set) var maxToolRounds: Int
-    /// When true, turns run with NO tool-round cap (`AgentSession(maxRounds:
-    /// nil)`) — the breaker is off. Use for very long agentic turns.
+    /// When true (the default), turns run with NO tool-round cap
+    /// (`AgentSession.maxRounds == nil`) — the client-side breaker is off and
+    /// the backend's graph-step limit bounds the turn.
     public private(set) var toolRoundsUnlimited: Bool
     /// When true, each scope keeps only its most recent chats within
     /// `threadCapMB`; older chats are auto-deleted on new-chat and on settings
@@ -589,7 +594,7 @@ public final class SettingsStore {
                 a2aMaxChainDepth: defaultA2AMaxChainDepth,
                 a2aMaxTurnsPerPair: defaultA2AMaxTurnsPerPair,
                 maxToolRounds: defaultMaxToolRounds,
-                toolRoundsUnlimited: false,
+                toolRoundsUnlimited: defaultToolRoundsUnlimited,
                 threadCapEnabled: false,
                 threadCapMB: defaultThreadCapMB
             )
@@ -607,7 +612,7 @@ public final class SettingsStore {
             a2aMaxChainDepth: snap.a2aMaxChainDepth ?? defaultA2AMaxChainDepth,
             a2aMaxTurnsPerPair: snap.a2aMaxTurnsPerPair ?? defaultA2AMaxTurnsPerPair,
             maxToolRounds: snap.maxToolRounds ?? defaultMaxToolRounds,
-            toolRoundsUnlimited: snap.toolRoundsUnlimited ?? false,
+            toolRoundsUnlimited: snap.toolRoundsUnlimited ?? defaultToolRoundsUnlimited,
             threadCapEnabled: snap.threadCapEnabled ?? false,
             threadCapMB: snap.threadCapMB ?? defaultThreadCapMB
         )

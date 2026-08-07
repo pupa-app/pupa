@@ -41,17 +41,33 @@ public enum SessionEvent: Sendable {
 }
 
 /// How a `send` / `reattach` settled, so the host can decide whether to show
-/// the user a "the turn ended with no reply" notice.
+/// the user a "the turn ended early" notice.
 public enum CompletionOutcome: Sendable, Equatable {
-    /// The turn produced assistant text (or there was nothing to surface,
-    /// e.g. a no-op reattach). Render no notice.
+    /// The turn ran to a clean settle (or there was nothing to surface, e.g. a
+    /// no-op reattach). Render no notice.
     case produced
     /// The turn ended with no assistant text and no error — the "looks like
     /// it died" case. `reason` says why, for a user-facing notice.
     case silent(SilentReason)
+    /// The turn DID emit assistant text but was cut short before the agent
+    /// settled — the reply is partial, not final. Distinct from `.produced`:
+    /// a turn that narrated in round 1 and then hit the round cap (or lost its
+    /// socket) used to be indistinguishable from a clean finish, so the UI
+    /// dropped the spinner with no explanation.
+    case truncated(SilentReason)
+
+    /// The reason to surface to the user, or `nil` for a clean settle. Hosts
+    /// render a notice for any non-nil value.
+    public var noticeReason: SilentReason? {
+        switch self {
+        case .produced: return nil
+        case .silent(let reason), .truncated(let reason): return reason
+        }
+    }
 }
 
-/// Why a turn ended without an assistant reply.
+/// Why a turn ended before the agent settled — with no reply at all
+/// (`.silent`) or with only a partial one (`.truncated`).
 public enum SilentReason: Sendable, Equatable {
     /// `RUN_FINISHED` with no assistant text (tool-only or empty turn).
     case emptyTurn
@@ -88,16 +104,32 @@ public actor AgentSession {
     public let client: AgentClient
     public let registry: ToolRegistry
     public private(set) var threadId: String
-    /// Hard cap on rounds per send to bound runaway loops, or `nil` to run
-    /// with no cap. With interrupt-driven dispatch every iteration is either a
-    /// fresh model turn or a resume; the backend's own step limit counts graph
-    /// steps, which this cap doesn't, so we keep an iOS-side breaker for runaway
-    /// tool loops. Kept generous because EVERY frontend-tool round-trip consumes
-    /// a round — a low cap silently truncates legitimate multi-step turns. When
-    /// the cap is hit mid-interrupt the loop still POSTs the staged resume so
-    /// the backend session is never left parked (see `runLoop`). `nil` removes
-    /// the breaker entirely — the turn runs until the backend settles.
-    public let maxRounds: Int?
+    /// Hard cap on rounds per send to bound runaway loops, or `nil` (the
+    /// default) to run with no cap. EVERY frontend-tool round-trip consumes a
+    /// round, so any finite cap truncates legitimate multi-step turns; the
+    /// backend's own graph-step limit is the runaway guard, and this is an
+    /// opt-in client-side breaker on top of it.
+    ///
+    /// When the cap is hit mid-interrupt the loop enters *draining*: it keeps
+    /// POSTing staged resumes (up to `maxDrainRounds` more) so the backend
+    /// session is never left parked, then stops with a `.maxRounds` notice.
+    /// See `runLoop`.
+    public private(set) var maxRounds: Int?
+
+    /// Change the cap for subsequent rounds. The host calls this when the user
+    /// edits the setting, so a live thread picks the new value up on its next
+    /// message — rebuilding the session instead would drop `messages` and the
+    /// replay cursor.
+    public func setMaxRounds(_ cap: Int?) {
+        guard cap != maxRounds else { return }
+        maxRounds = cap
+        AGUIKitLog.session("maxRounds → \(Self.capDescription(cap)) thread=\(threadId)")
+    }
+
+    /// Once the cap trips, how many further rounds the loop may POST purely to
+    /// flush staged tool results. Bounded so a model that answers every resume
+    /// with another tool call can't defeat the breaker.
+    private let maxDrainRounds = 2
 
     /// User messages accumulated across turns. Re-POSTed every round so
     /// the backend recognises the run as a continuation
@@ -160,7 +192,7 @@ public actor AgentSession {
         registry: ToolRegistry,
         threadId: String,
         initialMessages: [AgentMessage] = [],
-        maxRounds: Int? = 24,
+        maxRounds: Int? = nil,
         keepaliveInterval: TimeInterval = 10
     ) {
         self.client = client
@@ -301,7 +333,12 @@ public actor AgentSession {
         var input = reattachInput()
         var producedText = false
         var round = 0
-        while maxRounds == nil || round < maxRounds! {
+        // Same drain contract as `runLoop`: the cap is checked AFTER the resume
+        // is staged, never before, so a dispatch whose side effects already ran
+        // locally can't leave the backend parked on results we never POST.
+        var draining = false
+        var drainRounds = 0
+        while true {
             round += 1
             let outcome = try await runOneRound(input: input, yield: yield)
             producedText = producedText || outcome.producedText
@@ -316,7 +353,9 @@ public actor AgentSession {
                     return
                 }
                 if outcome.hadOutput { lastSendSettledCleanly = true }
-                let result = settleOutcome(producedText: producedText, outcome: outcome)
+                let result = draining
+                    ? cutShort(producedText, .maxRounds)
+                    : settleOutcome(producedText: producedText, outcome: outcome)
                 AGUIKitLog.session("reattach round \(round) settled → completed (\(result))")
                 yield(.completed(result))
                 return
@@ -350,9 +389,23 @@ public actor AgentSession {
                     ])
                 ])
             )
+
+            // The resume is staged; the next iteration POSTs it. Only then may
+            // the cap stop us — exiting here would strand the parked backend
+            // after the tools had already mutated local state.
+            if let cap = maxRounds, round >= cap {
+                if !draining {
+                    draining = true
+                    AGUIKitLog.session("reattach hit maxRounds=\(cap) → draining staged resumes")
+                }
+                drainRounds += 1
+                if drainRounds > maxDrainRounds {
+                    AGUIKitLog.session("reattach drain budget spent after \(maxDrainRounds) round(s) → stop")
+                    yield(.completed(cutShort(producedText, .maxRounds)))
+                    return
+                }
+            }
         }
-        AGUIKitLog.session("reattach hit maxRounds=\(Self.capDescription(maxRounds)) → completed")
-        yield(.completed(producedText ? .produced : .silent(.maxRounds)))
     }
 
     private func runLoop(
@@ -454,6 +507,10 @@ public actor AgentSession {
         // branch below.
         var recoveryAttempts = 0
         let maxRecoveryAttempts = 2
+        // Set once the round cap trips. From then on the loop only runs to
+        // flush staged tool results back to the parked backend.
+        var draining = false
+        var drainRounds = 0
         while true {
             let input = await makeInput(nextForwardedProps)
             AGUIKitLog.session(
@@ -478,8 +535,10 @@ public actor AgentSession {
                 // collects interrupts from ALL tasks and re-emits the dropped
                 // one — the next round then decodes it and dispatches normally.
                 // Bounded so a genuine no-interrupt settle can't loop.
+                // While draining, the cap has already tripped — a recovery
+                // re-POST would extend a turn we've decided to end.
                 let dropped = droppedFrontendCalls(in: outcome)
-                if !dropped.isEmpty, !outcome.interruptDecodeFailed,
+                if !dropped.isEmpty, !outcome.interruptDecodeFailed, !draining,
                    recoveryAttempts < maxRecoveryAttempts {
                     recoveryAttempts += 1
                     AGUIKitLog.session(
@@ -495,9 +554,16 @@ public actor AgentSession {
                 // exhausted) surfaces `.droppedInterrupt` even if the model also
                 // narrated. An *undecodable* interrupt keeps `settleOutcome`'s
                 // `.backend(...)` reason — re-POSTing wouldn't have helped it.
-                let result: CompletionOutcome = (!dropped.isEmpty && !outcome.interruptDecodeFailed)
-                    ? .silent(.droppedInterrupt)
-                    : settleOutcome(producedText: producedText, outcome: outcome)
+                // A settle reached while draining is attributed to the cap: we
+                // stopped offering the agent more rounds, so say so.
+                let result: CompletionOutcome
+                if draining {
+                    result = cutShort(producedText, .maxRounds)
+                } else if !dropped.isEmpty, !outcome.interruptDecodeFailed {
+                    result = cutShort(producedText, .droppedInterrupt)
+                } else {
+                    result = settleOutcome(producedText: producedText, outcome: outcome)
+                }
                 AGUIKitLog.session("round \(round) settled → completed (\(result))")
                 yield(.completed(result))
                 return
@@ -513,30 +579,49 @@ public actor AgentSession {
             )
             nextForwardedProps = await resumeProps(for: dispatch)
 
-            // Runaway guard. The pending dispatch's resume is now staged; when
-            // the cap is hit, POST it once to unpark the backend, consume the
-            // settling round, then stop with a notice rather than looping
-            // forever. A `nil` cap removes the breaker — keep going until the
-            // backend settles on its own.
+            // Runaway guard. The resume for this dispatch is now staged and the
+            // next iteration POSTs it, so the backend is never left parked —
+            // including when the dispatch was produced by a drain round, which
+            // the old "one final round then return" shape silently dropped.
+            // A `nil` cap removes the breaker: run until the backend settles.
             if let cap = maxRounds, round >= cap {
-                AGUIKitLog.session("hit maxRounds=\(cap) mid-interrupt → final resume then stop")
-                let finalOutcome = try await runOneRound(input: await makeInput(nextForwardedProps), yield: yield)
-                producedText = producedText || finalOutcome.producedText
-                // Not a clean settle — next send replaces the orphaned user message.
-                lastSendSettledCleanly = false
-                yield(.completed(producedText ? .produced : .silent(.maxRounds)))
-                return
+                if !draining {
+                    draining = true
+                    AGUIKitLog.session("hit maxRounds=\(cap) mid-interrupt → draining staged resumes")
+                }
+                drainRounds += 1
+                if drainRounds > maxDrainRounds {
+                    AGUIKitLog.session(
+                        "drain budget spent after \(maxDrainRounds) round(s) — the backend keeps " +
+                        "asking for tools; stopping with a notice"
+                    )
+                    // Not a clean settle — next send replaces the orphaned user message.
+                    lastSendSettledCleanly = false
+                    yield(.completed(cutShort(producedText, .maxRounds)))
+                    return
+                }
             }
         }
     }
 
-    /// Classify a settled round for the UI: `.produced` when any assistant
-    /// text was emitted this turn, otherwise a `.silent` reason so the host
-    /// can show a "turn ended with no reply" notice.
+    /// Classify a turn that ended before the agent settled: `.truncated` when it
+    /// had already emitted assistant text (the reply is partial), `.silent` when
+    /// it never spoke at all. Both carry the same reason and both draw a notice.
+    private func cutShort(_ producedText: Bool, _ reason: SilentReason) -> CompletionOutcome {
+        producedText ? .truncated(reason) : .silent(reason)
+    }
+
+    /// Classify a settled round for the UI. Cut-short reasons are checked
+    /// BEFORE `producedText`: a turn that narrated and then lost its socket is
+    /// still an incomplete turn, and reporting it as `.produced` is what made
+    /// those stops invisible. Only a round that reached `RUN_FINISHED` with
+    /// text is a clean `.produced`.
     private func settleOutcome(producedText: Bool, outcome: RoundOutcome) -> CompletionOutcome {
+        if outcome.interruptDecodeFailed {
+            return cutShort(producedText, .backend("couldn't read the agent's tool request"))
+        }
+        if !outcome.sawRunFinished { return cutShort(producedText, .droppedStream) }
         if producedText { return .produced }
-        if outcome.interruptDecodeFailed { return .silent(.backend("couldn't read the agent's tool request")) }
-        if !outcome.sawRunFinished { return .silent(.droppedStream) }
         return .silent(.emptyTurn)
     }
 

@@ -3,6 +3,33 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.230] — 2026-08-07
+
+### Fixed
+
+- **Long turns no longer stop dead without saying why.** A turn was capped at
+  24 tool rounds, and every on-device action (adding a component, editing a
+  memory…) spends one — so a busy turn could run out mid-flow. Worse, the
+  "stopped at the limit" note only appeared if the agent had said *nothing* all
+  turn; the moment it opened with "Sure, adding that…" the stop was reported as
+  a clean finish and the spinner simply vanished. The note now appears whenever
+  a turn ends early, even if the agent already replied, and the same applies to
+  a connection that drops mid-reply.
+- **The agent can no longer be left waiting on results that never arrive.** If
+  the round limit was reached while a tool was still being handed back, the app
+  could stop without sending the result — the agent stayed parked and the chat
+  looked frozen. It now always delivers what it already ran before stopping,
+  including on the catch-up path after the app was backgrounded or killed.
+- **Delegated agents report being cut short.** A sub-agent that ran out of
+  rounds handed its partial answer up as if it were finished.
+
+### Changed
+
+- **Tool rounds are unlimited by default.** Settings · Turn limits starts with
+  "No limit" on — the server keeps its own guard against runaway loops. Switch
+  it off to reinstate a client-side breaker; the limit now takes effect on your
+  next message instead of waiting for a fresh session.
+
 ## [0.0.229] — 2026-08-05
 
 ### Fixed
