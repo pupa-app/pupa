@@ -10,7 +10,9 @@ public enum MyAppImporter {
 
     // MARK: Resource caps (DoS guards)
 
-    static let maxBundleBytes = 64 * 1024 * 1024     // 64 MB raw, checked pre-decode
+    // `nonisolated` so the same cap can bound a download off the main actor
+    // (`MarketplaceInstallLink.fetchBundle`) — one number, both entry points.
+    nonisolated static let maxBundleBytes = 64 * 1024 * 1024  // 64 MB raw, checked pre-decode
     static let maxLibraryBytes = 256 * 1024 * 1024   // 256 MB aggregate for a library
     static let maxAppsPerLibrary = 128
     static let maxComponents = 64
