@@ -14,7 +14,6 @@ public struct ChangeHistoryView: View {
 
     @State private var pendingRestore: SnapshotMeta?
     @State private var showingSnapshotPrompt = false
-    @State private var draftLabel = ""
     /// The pin whose Export screen is pushed onto this History nav stack.
     @State private var exportTarget: SnapshotMeta?
 
@@ -24,17 +23,26 @@ public struct ChangeHistoryView: View {
         f.unitsStyle = .abbreviated
         return f
     }()
+    @MainActor private static let dayFmt: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .none
+        return f
+    }()
 
     private var app: MyApp? { store.myApps.first { $0.id == myAppId } }
     private var appColor: Color { .color(atIndex: store.colorIndex(for: myAppId)) }
 
+    /// Both hit storage or scan the event log, so `body` reads each exactly
+    /// once into a local and passes it down — never per row.
     private var snapshots: [SnapshotMeta] { store.snapshots(forMyApp: myAppId) }
     private var events: [ItemEvent] { store.itemEventLog.events(forMyApp: myAppId) }
 
-    private var groupedByDay: [(label: String, snaps: [SnapshotMeta])] {
+    /// Bucket a newest-first listing into consecutive same-day sections.
+    func grouped(_ snaps: [SnapshotMeta]) -> [(label: String, snaps: [SnapshotMeta])] {
         var result: [(label: String, snaps: [SnapshotMeta])] = []
         var current: (label: String, snaps: [SnapshotMeta])? = nil
-        for snap in snapshots {
+        for snap in snaps {
             let label = dayLabel(for: snap.timestamp)
             if current?.label == label {
                 current!.snaps.append(snap)
@@ -48,8 +56,10 @@ public struct ChangeHistoryView: View {
     }
 
     public var body: some View {
+        let snaps = snapshots
+        let log = events
         Group {
-            if snapshots.isEmpty {
+            if snaps.isEmpty {
                 ContentUnavailableView(
                     "No history yet",
                     systemImage: "clock.arrow.circlepath",
@@ -57,13 +67,13 @@ public struct ChangeHistoryView: View {
                 )
             } else {
                 List {
-                    ForEach(groupedByDay, id: \.label) { group in
+                    ForEach(grouped(snaps), id: \.label) { group in
                         Section(group.label) {
                             ForEach(group.snaps) { snap in
                                 SnapshotRow(
-                                    caption: caption(for: snap),
+                                    caption: caption(for: snap, events: log),
                                     reason: snap.reason,
-                                    isCurrent: snap.id == snapshots.first?.id,
+                                    isCurrent: snap.id == snaps.first?.id,
                                     fromThisDevice: snap.device == SnapshotStore.deviceLabel,
                                     relative: relFmt.localizedString(for: snap.timestamp, relativeTo: Date()),
                                     onRestore: { pendingRestore = snap },
@@ -82,19 +92,18 @@ public struct ChangeHistoryView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    draftLabel = ""
                     showingSnapshotPrompt = true
                 } label: {
                     Label("Take snapshot", systemImage: "pin")
                 }
             }
         }
-        .alert("Save a snapshot", isPresented: $showingSnapshotPrompt) {
-            TextField("Label (e.g. \"before redesign\")", text: $draftLabel)
-            Button("Save") { store.takeSnapshot(myAppId: myAppId, label: draftLabel) }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Pins this exact state to your history and keeps it forever. You can export it later.")
+        // The label field owns its own draft state (see `SnapshotLabelAlert`),
+        // so typing never invalidates this view — and never re-reads history.
+        .background {
+            SnapshotLabelAlert(isPresented: $showingSnapshotPrompt) { label in
+                store.takeSnapshot(myAppId: myAppId, label: label)
+            }
         }
         .navigationDestination(item: $exportTarget) { snap in
             exportDestination(snap)
@@ -137,7 +146,7 @@ public struct ChangeHistoryView: View {
 
     /// One-line caption for a restore point: reason-driven for sync/conflict/
     /// restore, else the most recent change-feed summary at that moment.
-    private func caption(for snap: SnapshotMeta) -> String {
+    private func caption(for snap: SnapshotMeta, events: [ItemEvent]) -> String {
         switch snap.reason {
         case .pinned: return snap.label?.isEmpty == false ? snap.label! : "Saved snapshot"
         case .conflict: return "Recovered from a sync conflict"
@@ -155,10 +164,7 @@ public struct ChangeHistoryView: View {
     private func dayLabel(for date: Date) -> String {
         if cal.isDateInToday(date) { return "Today" }
         if cal.isDateInYesterday(date) { return "Yesterday" }
-        let fmt = DateFormatter()
-        fmt.dateStyle = .medium
-        fmt.timeStyle = .none
-        return fmt.string(from: date)
+        return Self.dayFmt.string(from: date)
     }
 
     /// The shared export screen, scoped to a resolved pin — same page as
@@ -176,6 +182,33 @@ public struct ChangeHistoryView: View {
                 systemImage: "exclamationmark.triangle",
                 description: Text("This snapshot couldn't be resolved."))
         }
+    }
+}
+
+/// The "Save a snapshot" prompt, hosted in a zero-size background view.
+///
+/// The draft label lives here rather than on `ChangeHistoryView` so a keystroke
+/// invalidates only this view. Owned by the parent, each character re-ran the
+/// parent's `body` — which re-reads the whole snapshot history off disk.
+private struct SnapshotLabelAlert: View {
+    @Binding var isPresented: Bool
+    let onSave: (String) -> Void
+
+    @State private var draft = ""
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .alert("Save a snapshot", isPresented: $isPresented) {
+                TextField("Label (e.g. \"before redesign\")", text: $draft)
+                Button("Save") { onSave(draft) }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Pins this exact state to your history and keeps it forever. You can export it later.")
+            }
+            .onChange(of: isPresented) { _, shown in
+                if shown { draft = "" }
+            }
     }
 }
 

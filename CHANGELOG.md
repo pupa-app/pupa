@@ -3,6 +3,17 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.232] — 2026-08-10
+
+### Fixed
+
+- **Naming a saved snapshot is instant again.** On a MyApp with a long history,
+  every character you typed into the *Save a snapshot* label field took seconds
+  to appear: each keystroke re-read the entire snapshot history off disk, once
+  per row on screen, decoding every stored copy of the app's state along the
+  way. The label field now keeps its own draft, and listing history reads only
+  each entry's header. Opening and scrolling the History page is faster too.
+
 ## [0.0.231] — 2026-08-07
 
 ### Added
