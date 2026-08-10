@@ -381,19 +381,12 @@ public final class ChatViewModel {
     /// tool-gate logic in `allowedToolNames(scope:store:toolGateState:)`.
     private let toolGateState: ToolGateState
 
-    /// Client-side slash commands (e.g. `/reset`, `/help`). Built lazily so
+    /// Client-side slash commands (e.g. `/help`, `/tools`). Built lazily so
     /// the closures can capture `self`. See [SlashCommands.swift].
     /// `@ObservationIgnored` so the `@Observable` macro doesn't try to
     /// instrument a `lazy var` (unsupported combination).
     @ObservationIgnored
     public private(set) lazy var slashCommands: SlashCommandRegistry = SlashCommandRegistry(commands: [
-        SlashCommand(
-            name: "reset",
-            summary: "Start a new chat thread (clears conversation; canvas and memories untouched)"
-        ) { [weak self] _ in
-            self?.newThread()
-            return .appOnly
-        },
         SlashCommand(
             name: "help",
             summary: "List available slash commands (local-only — not sent to the agent)"
@@ -923,7 +916,7 @@ public final class ChatViewModel {
         }
 
         // Slash-command interception. Runs before the user bubble is appended
-        // so app-only commands (e.g. `/reset`) leave no trace in the chat
+        // so app-only commands (e.g. `/help`) leave no trace in the chat
         // transcript and never hit the backend. Image attachments paired with
         // a slash command are dropped.
         switch slashCommands.dispatch(text) {

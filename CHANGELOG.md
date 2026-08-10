@@ -3,6 +3,14 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.233] — 2026-08-10
+
+### Removed
+
+- **The `/reset` slash command.** It dated from single-thread chat and only
+  duplicated the composer's **+** button, which starts a new chat thread.
+  Canvas and memories were never touched by it and still aren't by **+**.
+
 ## [0.0.232] — 2026-08-10
 
 ### Fixed

@@ -742,7 +742,7 @@ public struct ChatPanel: View {
         if viewModel.hasPendingShellApproval { return "Approve or deny the command above…" }
         if viewModel.hasPendingQuestion { return "Answer above and tap Submit…" }
         if viewModel.isStreaming { return "Type to queue for when this finishes…" }
-        return "Type a message or /reset…"
+        return "Type a message or /help…"
     }
 
     /// Pending-message pills shown above the composer while a turn is in
