@@ -2590,25 +2590,28 @@ public enum AppTools {
         ]
     }
 
+    /// Patch fields read only as part of the `kind` block (via
+    /// `parseCalcRowKind`). Sent without `kind` they cannot take effect, so
+    /// `calcRowPatchError` rejects them.
+    static let calcKindOnlyPatchFields = ["value", "control", "aggregate", "expression", "list", "linkedField"]
+
+    /// Patch fields that stand on their own.
+    static let calcPresentationPatchFields = ["name", "unit", "format"]
+
     static func calcRowPatchSchema() -> AnyJSON {
-        // NOTE: `value`/`control`/`aggregate`/`expression`/`list`/`linkedField`
-        // are read ONLY as part of the kind block — they take effect solely
-        // when `kind` is also present in the same patch (see parseCalcRowPatch,
-        // which parses them via parseCalcRowKind). Sent without `kind` they are
-        // silently ignored. The descriptions below say so at the field level.
-        let kindOnly = "Only applied when `kind` is set in the same patch; ignored otherwise."
+        let kindOnly = "Requires `kind` in the same patch; rejected on its own."
         return [
             "type": "object",
             "properties": [
-                "name": ["type": "string", "description": "Display label. Can be patched on its own."],
-                "unit": ["type": "string", "description": "Display unit. Can be patched on its own."],
-                "format": ["type": "string", "description": "printf format hint. Can be patched on its own."],
+                "name": ["type": "string", "description": "Display label. Patchable on its own."],
+                "unit": ["type": "string", "description": "Display unit. Patchable on its own."],
+                "format": ["type": "string", "description": "printf format hint. Patchable on its own."],
                 "kind": [
                     "type": "string",
                     "enum": ["variable", "aggregate", "formula", "list", "linkedField", "header"],
-                    "description": "Replaces the row's behaviour wholesale. Set this AND resend the full kind block (all sibling fields below) to change any kind-specific value — omitted siblings reset to defaults.",
+                    "description": "Replaces the row's behaviour. Set it with the full kind block — omitted siblings reset to defaults.",
                 ],
-                "value": ["type": "number", "description": .string("variable value. \(kindOnly) Pair with `control` or the slider/stepper resets to a plain input.")],
+                "value": ["type": "number", "description": .string("variable value. \(kindOnly) Pair with `control`, else the slider resets to a plain input.")],
                 "control": ["type": "object", "description": .string("variable control (slider/stepper/plain). \(kindOnly)")],
                 "aggregate": ["type": "object", "description": .string("aggregate spec. \(kindOnly)")],
                 "expression": ["type": "string", "description": .string("formula expression. \(kindOnly)")],
@@ -2616,6 +2619,28 @@ public enum AppTools {
                 "linkedField": ["type": "object", "description": .string("linkedField spec. \(kindOnly)")],
             ],
         ]
+    }
+
+    /// Why this patch cannot take effect, or nil if it is applicable.
+    ///
+    /// Kind-specific fields are parsed only as part of the `kind` block, so a
+    /// patch carrying them alone would be a silent no-op — reject it instead.
+    static func calcRowPatchError(from json: AnyJSON?) -> String? {
+        guard let json, let obj = json.objectValue else { return "`patch` must be an object" }
+        let stray = calcKindOnlyPatchFields.filter { obj[$0] != nil }
+        guard obj["kind"] != nil else {
+            if !stray.isEmpty {
+                return "\(stray.joined(separator: ", ")) apply only as part of the `kind` block — set `kind` and resend the whole block, e.g. {kind:\"variable\", value:7, control:{type:\"slider\", min:2, max:15, step:0.5}}"
+            }
+            guard calcPresentationPatchFields.contains(where: { obj[$0] != nil }) else {
+                return "patch has no recognised field — pass at least one of \(calcPresentationPatchFields.joined(separator: ", ")), or `kind` with its block"
+            }
+            return nil
+        }
+        guard parseCalcRowKind(from: json) != nil else {
+            return "`kind` is missing or malformed — expected one of variable, aggregate, formula, list, linkedField, header with its required fields"
+        }
+        return nil
     }
 
     private static func parseCalcControl(from json: AnyJSON?) -> CalcControl {
@@ -2756,10 +2781,10 @@ public enum AppTools {
         if obj["unit"] != nil { patch.unit = obj["unit"]?.stringValue }
         if obj["format"] != nil { patch.format = obj["format"]?.stringValue }
         // Kind-specific fields (value/control/expression/aggregate/list/
-        // linkedField) are read only via parseCalcRowKind, i.e. ONLY when `kind`
-        // is present. A value-only patch like {value: 7} therefore leaves the
-        // row untouched by design — the whole kind block must be resent. This is
-        // documented on the tool description and per-field in calcRowPatchSchema.
+        // linkedField) are read only via parseCalcRowKind, i.e. only when `kind`
+        // is present — the whole kind block must be resent. Callers that send
+        // them alone are rejected up front by calcRowPatchError, so by here a
+        // kind-less patch legitimately touches presentation fields only.
         if obj["kind"] != nil, let k = parseCalcRowKind(from: json) { patch.kind = k }
         return patch
     }

@@ -93,6 +93,13 @@ render or `summary`-only), bulk `addCalcRows` / `patchCalcRows` /
 item, or clear it), and discovery `listCalcRows` / `getCalcRow`. Every
 mutating tool echoes the live-resolved `{key, value, status}` results.
 
+`patchCalcRows` validates every entry before writing any of them. A patch
+that could not take effect — a kind-specific field (`value`, `control`,
+`expression`, `aggregate`, `list`, `linkedField`) without `kind`, an unknown
+row key, a missing `key`, an empty patch, an unparseable `kind` — fails the
+whole call with `{ok:false, errors:[{key, error}]}` and leaves every row
+untouched, rather than reporting `ok:true` on a silent no-op.
+
 ## Quirks
 
 - Calculator rows hold no `linkedItems` — the shape is **non-linkable**. It
