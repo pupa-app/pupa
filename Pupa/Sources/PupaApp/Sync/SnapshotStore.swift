@@ -76,6 +76,34 @@ public struct SnapshotMeta: Sendable, Identifiable, Hashable {
     public let label: String?
 }
 
+/// Header-only view of a snapshot record: everything `SnapshotMeta` needs,
+/// decoded without materialising `base`/`diff`. Listing a MyApp's history must
+/// not decode every full app state it has ever held.
+private struct SnapshotHeader: Decodable {
+    let meta: SnapshotMeta
+
+    private enum CodingKeys: String, CodingKey {
+        case id, contentHash, appId, timestamp, device, parentId, reason, base, label
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        // `base` is skipped, not decoded — its presence alone marks a chain
+        // root. `JSONEncoder` omits nil optionals, so an absent key means diff.
+        let isBase = c.contains(.base) && !((try? c.decodeNil(forKey: .base)) ?? true)
+        meta = SnapshotMeta(
+            id: try c.decode(UUID.self, forKey: .id),
+            contentHash: try c.decode(String.self, forKey: .contentHash),
+            appId: try c.decode(UUID.self, forKey: .appId),
+            timestamp: try c.decode(Date.self, forKey: .timestamp),
+            device: try c.decode(String.self, forKey: .device),
+            parentId: try c.decodeIfPresent(UUID.self, forKey: .parentId),
+            reason: try c.decode(SnapshotReason.self, forKey: .reason),
+            isBase: isBase,
+            label: try c.decodeIfPresent(String.self, forKey: .label))
+    }
+}
+
 /// Git-style snapshot history per MyApp. Files live at
 /// `state/snapshots/<appId>/<snapshotId>.json` and ride the same
 /// `CloudDocument`/`PupaStorage` seam as everything else, so history syncs
@@ -118,14 +146,17 @@ public enum SnapshotStore {
 
     // MARK: - Public API
 
-    /// Newest-first history listing for `appId` (metadata only).
+    /// Newest-first history listing for `appId` (metadata only). Decodes only
+    /// each record's header — never its `base`/`diff` payload, which is the
+    /// whole serialized MyApp and dwarfs everything else on disk.
     public static func metas(_ appId: UUID) -> [SnapshotMeta] {
         guard let files = try? FileManager.default.contentsOfDirectory(
             at: dir(appId), includingPropertiesForKeys: nil) else { return [] }
         var out: [SnapshotMeta] = []
+        out.reserveCapacity(files.count)
         for file in files where file.pathExtension == "json" {
-            guard let rec = readRecord(at: file) else { continue }
-            out.append(meta(rec))
+            guard let h = readHeader(at: file) else { continue }
+            out.append(h.meta)
         }
         return out.sorted { $0.timestamp > $1.timestamp }
     }
@@ -305,12 +336,6 @@ public enum SnapshotStore {
 
     // MARK: - IO helpers
 
-    private static func meta(_ rec: Snapshot) -> SnapshotMeta {
-        SnapshotMeta(id: rec.id, contentHash: rec.contentHash, appId: rec.appId,
-                     timestamp: rec.timestamp, device: rec.device, parentId: rec.parentId,
-                     reason: rec.reason, isBase: rec.base != nil, label: rec.label)
-    }
-
     private static func stateJSON(_ app: MyApp) -> AnyJSON? {
         guard let data = try? JSONEncoder().encode(app) else { return nil }
         return try? JSONDecoder().decode(AnyJSON.self, from: data)
@@ -323,11 +348,25 @@ public enum SnapshotStore {
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
+    #if DEBUG
+    /// Full-record decodes performed. Tests assert the History listing never
+    /// leaves the metadata-only path.
+    nonisolated(unsafe) static var fullDecodeCount = 0
+    #endif
+
+    private static func readHeader(at url: URL) -> SnapshotHeader? {
+        guard let data = CloudDocument.read(url) else { return nil }
+        return try? JSONDecoder().decode(SnapshotHeader.self, from: data)
+    }
+
     private static func readRecord(_ appId: UUID, _ id: UUID) -> Snapshot? {
         readRecord(at: url(appId, id))
     }
 
     private static func readRecord(at url: URL) -> Snapshot? {
+        #if DEBUG
+        fullDecodeCount += 1
+        #endif
         guard let data = CloudDocument.read(url) else { return nil }
         return try? JSONDecoder().decode(Snapshot.self, from: data)
     }

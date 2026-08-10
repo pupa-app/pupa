@@ -165,6 +165,52 @@ struct SnapshotHistoryTests {
         #expect(winner == versionData)
     }
 
+    // MARK: - Listing cost
+
+    /// The History timeline lists metadata only. Decoding each record's `base`
+    /// (a whole serialized MyApp) made every `metas` call proportional to total
+    /// history size — and `ChangeHistoryView` calls it once per body pass, so
+    /// typing a pin label re-decoded the entire history per keystroke.
+    @Test("listing history never decodes full snapshot state")
+    func metasSkipsFullDecode() {
+        let (store, id) = freshTrackerStore()
+        for i in 0..<30 {
+            store.addItem(["title": "r\(i)"], myAppId: id)
+            SnapshotStore.record(
+                app(store, id),
+                reason: i % 10 == 0 ? .pinned : .edit,
+                label: i % 10 == 0 ? "pin\(i)" : nil,
+                now: t(i))
+        }
+
+        SnapshotStore.fullDecodeCount = 0
+        let metas = SnapshotStore.metas(id)
+        #expect(metas.count == 30)
+        #expect(SnapshotStore.fullDecodeCount == 0)
+    }
+
+    @Test("history groups into consecutive same-day sections, newest first")
+    func groupsByDay() {
+        let (store, id) = freshTrackerStore()
+        let view = ChangeHistoryView(store: store, myAppId: id)
+        let cal = Calendar.autoupdatingCurrent
+        let day: TimeInterval = 24 * 60 * 60
+        // Anchor at noon so no offset below can slip across a midnight.
+        let noon = cal.startOfDay(for: Date()).addingTimeInterval(12 * 60 * 60)
+
+        func meta(_ offset: TimeInterval) -> SnapshotMeta {
+            SnapshotMeta(id: UUID(), contentHash: "h", appId: id,
+                         timestamp: noon.addingTimeInterval(offset), device: "d",
+                         parentId: nil, reason: .edit, isBase: true, label: nil)
+        }
+        // Newest-first, as `metas` returns: two today, one yesterday, one older.
+        let groups = view.grouped([meta(0), meta(-60), meta(-day), meta(-5 * day)])
+
+        #expect(groups.map(\.snaps.count) == [2, 1, 1])
+        #expect(groups.map(\.label).prefix(2) == ["Today", "Yesterday"])
+        #expect(groups.last.map { !["Today", "Yesterday"].contains($0.label) } == true)
+    }
+
     // MARK: - Pinned snapshots (permanent, exportable)
 
     private func tempMemory() -> MemoryStore {

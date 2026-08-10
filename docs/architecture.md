@@ -491,6 +491,12 @@ identical edits dedup by content hash; `prune` bounds each app (cap + TTL,
 mirroring `ItemEventLog.prune`) and re-bases the oldest *non-base* survivor so
 eviction never breaks a chain.
 
+Listing is header-only: `metas` decodes just the `SnapshotMeta` fields and
+never materialises `base`/`diff` (the whole serialized MyApp). Full records are
+decoded only on `resolve` / `restoredApp`. `ChangeHistoryView` reads the
+listing once per body pass and passes it down, so rendering history is
+independent of how much state it holds.
+
 **Pinned snapshots (permanent).** A user can **Take snapshot** from the
 History page to capture a labelled `.pinned` restore point — a "keep this
 state forever" milestone. Pins are always stored as a full `base`
