@@ -3,6 +3,21 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.234] — 2026-08-10
+
+### Fixed
+
+- **The kanban board no longer freezes when you change "Group by".** Switching
+  which field drove the columns could lock the app up completely — not a pause,
+  a hang that needed a force-quit. Long text on a card was to blame: to decide
+  whether to offer its "Show more" link, a card measured how tall its own text
+  would be if shown in full. Adding or removing that link changed the card's
+  height, which changed how many cards the lane had room for, which triggered a
+  fresh round of measuring — round and round, forever. Cards now decide from the
+  length of the text itself, so nothing measures anything. "Show more" appears
+  slightly more eagerly on borderline text; it never wedges. (pupa#120,
+  `PupaApp` `0.0.233` → `0.0.234`)
+
 ## [0.0.233] — 2026-08-10
 
 ### Removed

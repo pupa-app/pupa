@@ -442,23 +442,49 @@ struct CardLayout {
 
 // MARK: - Expandable caption
 
+/// Predicts whether a string needs more than `lineLimit` lines, from the
+/// string alone.
+///
+/// Deliberately never measures geometry. `ExpandableText` used to compare a
+/// hidden unconstrained copy of the text against the line-limited one through
+/// two `GeometryReader`s and write both heights into `@State`. Inside a
+/// `LazyVStack` that never terminates: the measurement decides whether the
+/// "Show more" button exists, the button changes the height being measured,
+/// the changed height re-places the lazy stack, and placement re-fires the
+/// measurement's `onAppear`. That is the pupa#120 hang — main thread pinned at
+/// 100%, force-quit to recover.
+enum TextOverflowEstimate {
+    /// Characters that fit on one `.caption` line in a 260pt kanban lane.
+    static let laneCharsPerLine = 34
+    /// Same, for the wider grid card.
+    static let gridCharsPerLine = 52
+
+    /// Deliberately eager: offering the toggle on a string that happens to fit
+    /// costs one tap that changes nothing, while withholding it brings back
+    /// the bare ellipsis this view exists to avoid.
+    static func mayOverflow(_ text: String, lineLimit: Int, charsPerLine: Int) -> Bool {
+        guard lineLimit > 0 else { return false }
+        let hardLines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        if hardLines.count > lineLimit { return true }
+        return text.count > lineLimit * charsPerLine
+    }
+}
+
 /// Caption-styled text that truncates to `lineLimit` lines and surfaces a
-/// "Show more" / "Show less" toggle when the value would actually overflow
-/// at the current width. Used on `TrackerItemCard` so long `.text` values
-/// no longer collapse to a single ellipsis. Truncation is detected by
-/// rendering an unconstrained-height copy of the same string into a hidden
-/// background and comparing its measured height against the visible
-/// (line-limited) one — both are remeasured via `.onChange` so the toggle
-/// stays correct across width changes / dynamic-type updates.
+/// "Show more" / "Show less" toggle when the value is long enough to need one.
+/// Used on `TrackerItemCard` so long `.text` values no longer collapse to a
+/// single ellipsis. See `TextOverflowEstimate` for why the toggle is predicted
+/// rather than measured.
 private struct ExpandableText: View {
     let text: String
     let lineLimit: Int
+    let charsPerLine: Int
 
     @State private var isExpanded: Bool = false
-    @State private var fullHeight: CGFloat = 0
-    @State private var truncatedHeight: CGFloat = 0
 
-    private var canExpand: Bool { fullHeight > truncatedHeight + 0.5 }
+    private var canExpand: Bool {
+        TextOverflowEstimate.mayOverflow(text, lineLimit: lineLimit, charsPerLine: charsPerLine)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -467,27 +493,6 @@ private struct ExpandableText: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(isExpanded ? nil : lineLimit)
                 .fixedSize(horizontal: false, vertical: true)
-                .background(
-                    GeometryReader { geo in
-                        Color.clear
-                            .onAppear { truncatedHeight = geo.size.height }
-                            .onChange(of: geo.size.height) { _, h in truncatedHeight = h }
-                    }
-                )
-                .background(
-                    Text(text)
-                        .font(.caption)
-                        .lineLimit(nil)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .hidden()
-                        .background(
-                            GeometryReader { geo in
-                                Color.clear
-                                    .onAppear { fullHeight = geo.size.height }
-                                    .onChange(of: geo.size.height) { _, h in fullHeight = h }
-                            }
-                        )
-                )
 
             if canExpand {
                 Button {
@@ -555,7 +560,13 @@ struct TrackerItemCard: View {
 
                 ForEach(metaEntries, id: \.field) { entry in
                     if entry.isText {
-                        ExpandableText(text: entry.value, lineLimit: compact ? 2 : 3)
+                        ExpandableText(
+                            text: entry.value,
+                            lineLimit: compact ? 2 : 3,
+                            charsPerLine: compact
+                                ? TextOverflowEstimate.laneCharsPerLine
+                                : TextOverflowEstimate.gridCharsPerLine
+                        )
                     } else {
                         Text(entry.value)
                             .font(.caption)
