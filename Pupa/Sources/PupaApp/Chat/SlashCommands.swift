@@ -6,7 +6,7 @@ import Foundation
 /// declare exactly what should reach the agent and what should appear in the
 /// visible transcript.
 public enum SlashCommandResult: Equatable {
-    /// Pure client-side action. No user bubble, no backend call. Example: `/reset`.
+    /// Pure client-side action. No user bubble, no backend call. Example: `/help`.
     case appOnly
     /// Send `payload` to the backend as the user turn, but render `display` in
     /// the user bubble instead. Lets `/skill foo bar` show `/skill foo bar`

@@ -203,9 +203,9 @@ enum TourContent {
             TourStep(
                 id: "slash-commands",
                 title: "Slash commands",
-                body: "Type \"/\" in the composer for quick commands — /help lists them all, "
-                    + "/tools shows what the agent can do, and /reset starts a fresh "
-                    + "conversation. Also skills created by the agent can be invoked here.",
+                body: "Type \"/\" in the composer for quick commands — /help lists them all "
+                    + "and /tools shows what the agent can do. Also skills created by the "
+                    + "agent can be invoked here.",
                 placement: .top,
                 opensChat: true,
                 chatPrefill: "/"
