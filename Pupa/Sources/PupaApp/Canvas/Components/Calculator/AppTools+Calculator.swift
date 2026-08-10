@@ -147,22 +147,18 @@ extension AppTools {
                 description: """
                 Edit one or more rows by `key`. Always pass a `patches` array \
                 — wrap a single edit as `[{ ... }]`. Each entry is {key, patch}. \
-                `patch` may change presentation fields on their own — \
-                {name?, unit?, format?}. To change ANY kind-specific field (a \
-                variable's `value` or `control`, a formula's `expression`, an \
-                aggregate / list / linkedField spec) you MUST set `kind` AND \
-                resend the WHOLE kind block in the same patch. Setting `kind` \
-                REPLACES the row's behaviour wholesale — sibling fields you omit \
-                reset to their defaults (e.g. `{kind:"variable", value:7}` with \
-                no `control` drops a slider back to a plain input, and \
-                `{kind:"variable", control:{…}}` with no `value` resets it to 0). \
-                Conversely, `value` / `control` / `expression` / `aggregate` / \
-                `list` / `linkedField` sent WITHOUT `kind` are IGNORED (the patch \
-                reports ok but the row is unchanged) — this is the #1 gotcha. \
-                Example — nudge a slider variable: {key:"return_rate", \
+                `patch` takes {name?, unit?, format?} on their own. Any \
+                kind-specific field (a variable's `value` / `control`, a \
+                formula's `expression`, an aggregate / list / linkedField spec) \
+                needs `kind` plus the whole kind block in the same patch: `kind` \
+                replaces the row's behaviour, so omitted siblings reset to \
+                defaults. Sending one without `kind` is rejected. Example — \
+                nudge a slider variable: {key:"return_rate", \
                 patch:{kind:"variable", value:7, control:{type:"slider", min:2, \
-                max:15, step:0.5}}}. `key` itself is immutable (so formulas never \
-                break). Result echoes {patched:[keys], rowCount, results}.
+                max:15, step:0.5}}}. `key` is immutable, so formulas never \
+                break. Invalid entries reject the whole call with \
+                {ok:false, errors:[{key, error}]} and nothing is written. \
+                Otherwise echoes {patched:[keys], rowCount, results}.
                 """,
                 parameters: [
                     "type": "object",
@@ -196,12 +192,42 @@ extension AppTools {
                     case .resolved(let id):
                         resolvedId = id
                     }
-                    var patched: [AnyJSON] = []
+                    // Validate every entry before writing anything: a patch that
+                    // cannot take effect used to report ok:true, costing callers
+                    // blind round-trips. Rejected calls leave the rows untouched.
+                    let existingKeys = calculator(store, myAppId: myAppId, componentId: resolvedId)?.rows.map(\.key) ?? []
+                    var errors: [AnyJSON] = []
+                    var plan: [(key: String, patch: MyAppStore.CalcRowPatch)] = []
                     for entry in entries {
-                        guard let key = entry["key"]?.stringValue else { continue }
-                        let patch = parseCalcRowPatch(from: entry["patch"])
-                        if store.patchCalcRow(key: key, patch: patch, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "patchCalcRows")) {
-                            patched.append(.string(key))
+                        guard let key = entry["key"]?.stringValue, !key.isEmpty else {
+                            errors.append(.object(["error": .string("entry is missing `key`")]))
+                            continue
+                        }
+                        if let message = calcRowPatchError(from: entry["patch"]) {
+                            errors.append(.object(["key": .string(key), "error": .string(message)]))
+                            continue
+                        }
+                        guard existingKeys.contains(key) else {
+                            errors.append(.object([
+                                "key": .string(key),
+                                "error": .string("no row with key '\(key)' — existing keys: \(existingKeys.joined(separator: ", "))"),
+                            ]))
+                            continue
+                        }
+                        plan.append((key, parseCalcRowPatch(from: entry["patch"])))
+                    }
+                    guard errors.isEmpty else {
+                        return .object([
+                            "ok": .bool(false),
+                            "componentId": .string(resolvedId),
+                            "error": .string("no rows were patched — \(errors.count) of \(entries.count) \(entries.count == 1 ? "entry is" : "entries are") invalid; fix them and resend"),
+                            "errors": .array(errors),
+                        ])
+                    }
+                    var patched: [AnyJSON] = []
+                    for step in plan {
+                        if store.patchCalcRow(key: step.key, patch: step.patch, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "patchCalcRows")) {
+                            patched.append(.string(step.key))
                         }
                     }
                     let data = calculator(store, myAppId: myAppId, componentId: resolvedId)

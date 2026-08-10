@@ -3,6 +3,22 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.236] — 2026-08-10
+
+### Fixed
+
+- **`patchCalcRows` no longer reports success on a patch it ignored.** Editing a
+  calculator row with a natural-looking payload like `{value: 7}` changed
+  nothing, yet the tool still answered `ok:true, patched:[key]` — kind-specific
+  fields (`value`, `control`, `expression`, `aggregate`, `list`, `linkedField`)
+  are only read as part of the `kind` block. 0.0.235 documented the trap; this
+  release enforces it. Every entry is now validated before anything is written,
+  and a call carrying a kind-specific field without `kind`, an unknown or
+  missing row key, an empty patch, or an unparseable `kind` fails as
+  `{ok:false, errors:[{key, error}]}` with all rows left untouched — so a bad
+  patch is caught on the first round-trip instead of being discovered later.
+  The tool description was also trimmed.
+
 ## [0.0.235] — 2026-08-10
 
 ### Fixed
