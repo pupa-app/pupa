@@ -146,11 +146,23 @@ extension AppTools {
                 name: "patchCalcRows",
                 description: """
                 Edit one or more rows by `key`. Always pass a `patches` array \
-                — wrap a single edit as `[{ ... }]`. Each entry is {key, \
-                patch} where `patch` may contain {name?, unit?, format?, \
-                kind?}. `key` itself is immutable (so formulas never break); \
-                `kind` replaces the whole row behaviour. Result echoes \
-                {patched:[keys], rowCount, results}.
+                — wrap a single edit as `[{ ... }]`. Each entry is {key, patch}. \
+                `patch` may change presentation fields on their own — \
+                {name?, unit?, format?}. To change ANY kind-specific field (a \
+                variable's `value` or `control`, a formula's `expression`, an \
+                aggregate / list / linkedField spec) you MUST set `kind` AND \
+                resend the WHOLE kind block in the same patch. Setting `kind` \
+                REPLACES the row's behaviour wholesale — sibling fields you omit \
+                reset to their defaults (e.g. `{kind:"variable", value:7}` with \
+                no `control` drops a slider back to a plain input, and \
+                `{kind:"variable", control:{…}}` with no `value` resets it to 0). \
+                Conversely, `value` / `control` / `expression` / `aggregate` / \
+                `list` / `linkedField` sent WITHOUT `kind` are IGNORED (the patch \
+                reports ok but the row is unchanged) — this is the #1 gotcha. \
+                Example — nudge a slider variable: {key:"return_rate", \
+                patch:{kind:"variable", value:7, control:{type:"slider", min:2, \
+                max:15, step:0.5}}}. `key` itself is immutable (so formulas never \
+                break). Result echoes {patched:[keys], rowCount, results}.
                 """,
                 parameters: [
                     "type": "object",
