@@ -594,6 +594,29 @@ blurb); `supportedComponentKinds`, `toolNamesByKind`, and
 `promptFragmentsByKind` all derive from it. Full recipe in
 [docs/adding-a-component.md](adding-a-component.md).
 
+### Layout constraint: shapes get an unbounded height proposal
+
+`CanvasView` renders every shape inside a vertical `ScrollView`, so a shape
+view is laid out against an **unbounded height proposal**. Two things are
+therefore unsafe inside a shape:
+
+- **Stretching to fill height** (`frame(maxHeight: .infinity)`). There is no
+  definite height to fill, so the view's height and its content's height end up
+  defining each other.
+- **A lazy container that needs a viewport** (`LazyVStack` / `LazyHStack`).
+  Without a definite viewport it cannot virtualize — it builds every row
+  anyway — while still running the placement/estimation pass.
+
+Combined they do not converge, which froze the app on the kanban board
+(pupa#120): lanes stretched to fill an undefined height while a `LazyVStack`
+inside negotiated against it. `KanbanView`'s lanes now size to their content
+and use a plain `VStack`.
+
+Related: never let a measurement change the size of the thing being measured
+(a `GeometryReader` writing `@State` that adds or removes a subview). That was
+the same issue's other half — see `TextOverflowEstimate` in
+`TrackerSharedViews.swift`.
+
 ### Component modules — one folder, one self-registering module (#162)
 
 The per-kind wiring for a shape used to be smeared across ~10 shared files

@@ -300,7 +300,13 @@ private struct Lane: View {
                             )
                     )
             } else {
-                LazyVStack(spacing: 8) {
+                // Plain VStack, deliberately not Lazy. This lane sits inside a
+                // horizontal ScrollView inside the canvas's vertical one, so it
+                // is laid out against an unbounded height proposal — a lazy
+                // stack has no viewport to virtualize against there, builds
+                // every row anyway, and its placement/estimation pass is one
+                // half of the layout loop that froze the board (pupa#120).
+                VStack(spacing: 8) {
                     ForEach(items, id: \.item.id) { entry in
                         TrackerItemCard(
                             item: entry.item,
@@ -315,7 +321,11 @@ private struct Lane: View {
             }
         }
         .padding(12)
-        .frame(maxHeight: .infinity, alignment: .top)
+        // No `maxHeight: .infinity`: the height proposal here is unbounded
+        // (vertical ScrollView → horizontal ScrollView → lane), so stretching
+        // to fill it makes lane height and content height define each other.
+        // Lanes now size to their content and end ragged, which is the honest
+        // rendering of "this lane holds fewer cards".
         .background(Color.cardBackground.opacity(0.6))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(
