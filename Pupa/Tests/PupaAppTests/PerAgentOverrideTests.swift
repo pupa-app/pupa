@@ -151,6 +151,105 @@ struct PerAgentOverrideTests {
         #expect(ChatViewModel.forwardedPropsJSON(scope: scope, threadId: tid, store: store, settings: settings) == .object([:]))
     }
 
+    // MARK: - Per-agent thinking override
+
+    @Test("Per-MyApp thinking level round-trips and clears")
+    func myAppThinkingRoundTrip() {
+        let (store, myApp) = freshStore()
+        #expect(store.myAppThinking(for: myApp.id) == nil)
+
+        store.setMyAppThinking("high", for: myApp.id)
+        #expect(store.myAppThinking(for: myApp.id) == "high")
+
+        store.setMyAppThinking(nil, for: myApp.id)
+        #expect(store.myAppThinking(for: myApp.id) == nil)
+        // Empty string also clears.
+        store.setMyAppThinking("low", for: myApp.id)
+        store.setMyAppThinking("", for: myApp.id)
+        #expect(store.myAppThinking(for: myApp.id) == nil)
+    }
+
+    @Test("forwardedProps folds thinking into the llm object alongside the model")
+    func forwardedPropsCarriesThinking() {
+        let (store, myApp) = freshStore()
+        let settings = SettingsStore(backendURL: URL(string: "http://localhost:65535/")!)
+        let scope: ChatScope = .myApp(myApp.id)
+        let tid = store.addThread(for: scope)
+
+        store.setMyAppLLM(provider: "anthropic", model: "claude-sonnet-4-6", for: myApp.id)
+        store.setMyAppThinking("auto", for: myApp.id)
+        #expect(ChatViewModel.forwardedPropsJSON(scope: scope, threadId: tid, store: store, settings: settings)
+            == .object(["llm": .object([
+                "provider": .string("anthropic"),
+                "model": .string("claude-sonnet-4-6"),
+                "thinking": .string("auto"),
+            ])]))
+    }
+
+    @Test("thinking ships even with no model override (llm carries just thinking)")
+    func forwardedPropsThinkingOnly() {
+        let (store, myApp) = freshStore()
+        let settings = SettingsStore(backendURL: URL(string: "http://localhost:65535/")!)
+        let scope: ChatScope = .myApp(myApp.id)
+        let tid = store.addThread(for: scope)
+
+        store.setMyAppThinking("off", for: myApp.id)
+        #expect(ChatViewModel.forwardedPropsJSON(scope: scope, threadId: tid, store: store, settings: settings)
+            == .object(["llm": .object(["thinking": .string("off")])]))
+    }
+
+    @Test("clearThinkingLevels drops stale overrides but never wipes on an empty set")
+    func clearStaleThinking() {
+        let (store, myApp) = freshStore()
+        store.setMyAppThinking("high", for: myApp.id)
+
+        // Empty set (harness has no thinking / unreachable) → no-op, keeps value.
+        #expect(store.clearThinkingLevels(notIn: []) == false)
+        #expect(store.myAppThinking(for: myApp.id) == "high")
+
+        // Non-empty set that still contains the level → kept.
+        #expect(store.clearThinkingLevels(notIn: ["auto", "high"]) == false)
+        #expect(store.myAppThinking(for: myApp.id) == "high")
+
+        // Non-empty set missing the level → cleared.
+        #expect(store.clearThinkingLevels(notIn: ["auto", "off"]) == true)
+        #expect(store.myAppThinking(for: myApp.id) == nil)
+    }
+
+    @Test("No thinking row when the active harness advertises no levels")
+    @MainActor
+    func thinkingHiddenWhenHarnessHasNoLevels() {
+        let (store, myApp) = freshStore()
+        let settings = SettingsStore(backendURL: URL(string: "http://localhost:65535/")!)
+        // Fresh catalog: no successful refresh → thinkingLevels empty.
+        let catalog = ModelCatalogStore()
+        #expect(catalog.thinkingLevels.isEmpty)
+
+        let agents = AgentRegistry.enumerateAgents(myApp: myApp, store: store, settings: settings, catalog: catalog)
+        let main = agents.first { $0.kind == .myApp }
+        // Building the page must not crash and must omit the thinking picker.
+        #expect(main != nil)
+        #expect(main?.properties.contains { $0.id == "thinking" } == false)
+    }
+
+    @Test("Orchestrator thinking round-trips and rides memory-scope forwardedProps")
+    func orchestratorThinking() {
+        let (store, _) = freshStore()
+        let settings = SettingsStore(backendURL: URL(string: "http://localhost:65535/")!)
+        #expect(settings.orchestratorThinking == nil)
+
+        settings.setOrchestratorThinking("medium")
+        #expect(settings.orchestratorThinking == "medium")
+
+        let scope: ChatScope = .memory
+        let tid = store.memoryCurrentThreadId
+        #expect(ChatViewModel.forwardedPropsJSON(scope: scope, threadId: tid, store: store, settings: settings)
+            == .object(["llm": .object(["thinking": .string("medium")])]))
+
+        settings.setOrchestratorThinking(nil)
+        #expect(settings.orchestratorThinking == nil)
+    }
+
     @Test("ChatThread without llm fields decodes to nil (back-compat); with fields round-trips")
     func chatThreadCodable() throws {
         let legacy = #"{"id":"t1","title":"Old","createdAt":0}"#.data(using: .utf8)!

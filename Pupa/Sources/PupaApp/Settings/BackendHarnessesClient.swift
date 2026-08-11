@@ -90,6 +90,21 @@ public struct HarnessPermissionControl: Codable, Hashable, Sendable {
     }
 }
 
+/// One extended-thinking level a harness advertises via `GET /harnesses`
+/// (`{level, label}`). `level` is the exact string forwarded back in
+/// `forwardedProps.llm.thinking` (e.g. `auto`/`off`/`low`/`medium`/`high`).
+/// A harness without the capability advertises an empty list.
+public struct ThinkingLevel: Identifiable, Hashable, Sendable {
+    public let level: String
+    public let label: String
+    public var id: String { level }
+
+    public init(level: String, label: String) {
+        self.level = level
+        self.label = label
+    }
+}
+
 /// One agent harness the backend serves, as advertised by `GET /harnesses`.
 /// Drives both the endpoint the app talks to (`/harnesses/{id}`) and the model
 /// / tool / permission UI for the active backend connection.
@@ -98,18 +113,23 @@ public struct HarnessDescriptor: Identifiable, Hashable, Sendable {
     public let label: String
     public let isDefault: Bool
     public let models: [KnownLLMModel]
+    /// Extended-thinking levels this harness supports (`[]` = not supported;
+    /// the thinking picker is then hidden for its agents).
+    public let thinking: [ThinkingLevel]
     public let tools: [BackendToolDescriptor]
     public let permissions: [HarnessPermissionControl]
 
     public init(
         id: String, label: String, isDefault: Bool,
-        models: [KnownLLMModel], tools: [BackendToolDescriptor],
+        models: [KnownLLMModel], thinking: [ThinkingLevel] = [],
+        tools: [BackendToolDescriptor],
         permissions: [HarnessPermissionControl]
     ) {
         self.id = id
         self.label = label
         self.isDefault = isDefault
         self.models = models
+        self.thinking = thinking
         self.tools = tools
         self.permissions = permissions
     }
@@ -157,6 +177,8 @@ public struct BackendHarnessesClient: Sendable {
         let label: String
         let isDefault: Bool
         let models: [ModelEntry]
+        // Optional so a backend without the field (older builds) decodes to [].
+        let thinking: [ThinkingEntry]?
         let tools: [BackendToolDescriptor]
         let permissions: [HarnessPermissionControl]
 
@@ -173,6 +195,7 @@ public struct BackendHarnessesClient: Sendable {
                         label: $0.label
                     )
                 },
+                thinking: (thinking ?? []).map { ThinkingLevel(level: $0.level, label: $0.label) },
                 tools: tools,
                 permissions: permissions
             )
@@ -182,6 +205,11 @@ public struct BackendHarnessesClient: Sendable {
     private struct ModelEntry: Decodable {
         let provider: String
         let modelId: String
+        let label: String
+    }
+
+    private struct ThinkingEntry: Decodable {
+        let level: String
         let label: String
     }
 }

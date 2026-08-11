@@ -124,6 +124,10 @@ public final class SettingsStore {
     /// `.memory` scopes from this pair.
     public private(set) var orchestratorLLMProvider: String?
     public private(set) var orchestratorLLMModel: String?
+    /// Per-orchestrator extended-thinking level (e.g. "auto"/"off"/"low"), or
+    /// nil for the backend default. Shipped in `forwardedProps.llm.thinking` for
+    /// `.memory`-scope turns. Independent of the model pair.
+    public private(set) var orchestratorThinking: String?
     /// Per-orchestrator disabled tool names. Like the per-MyApp / per-Slack
     /// override, this is unioned with the global `disabledBackendTools` set on
     /// every `.memory`-scope turn — never an override. Stored globally (the
@@ -228,6 +232,7 @@ public final class SettingsStore {
         self.shellApprovalDisabled = shellApprovalDisabled ?? snapshot.shellApprovalDisabled
         self.orchestratorLLMProvider = snapshot.orchestratorLLMProvider
         self.orchestratorLLMModel = snapshot.orchestratorLLMModel
+        self.orchestratorThinking = snapshot.orchestratorThinking
         self.orchestratorDisabledTools = snapshot.orchestratorDisabledTools
         self.a2aMaxChainDepth = snapshot.a2aMaxChainDepth
         self.a2aMaxTurnsPerPair = snapshot.a2aMaxTurnsPerPair
@@ -443,6 +448,14 @@ public final class SettingsStore {
         return (provider, model)
     }
 
+    /// Write (or clear) the orchestrator's thinking level. `nil`/empty clears.
+    public func setOrchestratorThinking(_ level: String?) {
+        let next = (level?.isEmpty == false) ? level : nil
+        guard orchestratorThinking != next else { return }
+        orchestratorThinking = next
+        persist()
+    }
+
     /// Write (or clear) the orchestrator's disabled tool set. Empty clears it.
     public func setOrchestratorDisabledTools(_ names: Set<String>) {
         guard orchestratorDisabledTools != names else { return }
@@ -509,6 +522,7 @@ public final class SettingsStore {
             shellApprovalDisabled: shellApprovalDisabled,
             orchestratorLLMProvider: orchestratorLLMProvider,
             orchestratorLLMModel: orchestratorLLMModel,
+            orchestratorThinking: orchestratorThinking,
             orchestratorDisabledTools: Array(orchestratorDisabledTools).sorted(),
             a2aMaxChainDepth: a2aMaxChainDepth,
             a2aMaxTurnsPerPair: a2aMaxTurnsPerPair,
@@ -545,6 +559,8 @@ public final class SettingsStore {
         var shellApprovalDisabled: Bool?
         var orchestratorLLMProvider: String?
         var orchestratorLLMModel: String?
+        // Optional so pre-thinking blobs decode; nil = backend default.
+        var orchestratorThinking: String?
         // Optional so pre-existing blobs decode; `load()` substitutes [].
         var orchestratorDisabledTools: [String]?
         // Optional so pre-A2A blobs decode; `load()` substitutes the defaults.
@@ -568,6 +584,7 @@ public final class SettingsStore {
         let shellApprovalDisabled: Bool
         let orchestratorLLMProvider: String?
         let orchestratorLLMModel: String?
+        let orchestratorThinking: String?
         let orchestratorDisabledTools: Set<String>
         let a2aMaxChainDepth: Int
         let a2aMaxTurnsPerPair: Int
@@ -590,6 +607,7 @@ public final class SettingsStore {
                 shellApprovalDisabled: false,
                 orchestratorLLMProvider: nil,
                 orchestratorLLMModel: nil,
+                orchestratorThinking: nil,
                 orchestratorDisabledTools: [],
                 a2aMaxChainDepth: defaultA2AMaxChainDepth,
                 a2aMaxTurnsPerPair: defaultA2AMaxTurnsPerPair,
@@ -608,6 +626,7 @@ public final class SettingsStore {
             shellApprovalDisabled: snap.shellApprovalDisabled ?? false,
             orchestratorLLMProvider: snap.orchestratorLLMProvider,
             orchestratorLLMModel: snap.orchestratorLLMModel,
+            orchestratorThinking: snap.orchestratorThinking,
             orchestratorDisabledTools: Set(snap.orchestratorDisabledTools ?? []),
             a2aMaxChainDepth: snap.a2aMaxChainDepth ?? defaultA2AMaxChainDepth,
             a2aMaxTurnsPerPair: snap.a2aMaxTurnsPerPair ?? defaultA2AMaxTurnsPerPair,
@@ -648,6 +667,7 @@ public final class SettingsStore {
         shellApprovalDisabled = loaded.shellApprovalDisabled
         orchestratorLLMProvider = loaded.orchestratorLLMProvider
         orchestratorLLMModel = loaded.orchestratorLLMModel
+        orchestratorThinking = loaded.orchestratorThinking
         orchestratorDisabledTools = loaded.orchestratorDisabledTools
         a2aMaxChainDepth = loaded.a2aMaxChainDepth
         a2aMaxTurnsPerPair = loaded.a2aMaxTurnsPerPair

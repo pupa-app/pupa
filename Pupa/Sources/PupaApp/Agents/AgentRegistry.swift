@@ -74,6 +74,9 @@ public enum AgentRegistry {
 
         var properties: [AgentProperty] = []
         properties.append(modelProperty(currentSelection: currentSelection, catalog: catalog))
+        if let thinking = thinkingProperty(currentLevel: store.myAppThinking(for: myApp.id), catalog: catalog) {
+            properties.append(thinking)
+        }
         properties.append(permissionsProperty(settings: settings))
         properties.append(AgentProperty(
             id: "prompt",
@@ -143,6 +146,9 @@ public enum AgentRegistry {
 
         var properties: [AgentProperty] = []
         properties.append(modelProperty(currentSelection: currentSelection, catalog: catalog))
+        if let thinking = thinkingProperty(currentLevel: settings.orchestratorThinking, catalog: catalog) {
+            properties.append(thinking)
+        }
         properties.append(permissionsProperty(settings: settings))
         properties.append(AgentProperty(
             id: "prompt",
@@ -337,6 +343,32 @@ public enum AgentRegistry {
             value: .modelPicker(selectedId: selectedId, options: catalog.models),
             note: selectedId == KnownLLMModelCatalog.backendDefaultId
                 ? "Inherits the model the backend was started with (LLM_PROVIDER env var)."
+                : nil
+        )
+    }
+
+    /// Build the extended-thinking picker row, or `nil` when the active harness
+    /// advertises no thinking levels (`catalog.thinkingLevels` empty) — the row
+    /// is hidden for harnesses without the capability (e.g. deepagents). An
+    /// override not in the catalog falls back to the "Default" sentinel.
+    @MainActor
+    private static func thinkingProperty(
+        currentLevel: String?,
+        catalog: ModelCatalogStore
+    ) -> AgentProperty? {
+        guard !catalog.thinkingLevels.isEmpty else { return nil }
+        let selected: String
+        if let currentLevel, catalog.thinkingLevels.contains(where: { $0.level == currentLevel }) {
+            selected = currentLevel
+        } else {
+            selected = KnownLLMModelCatalog.thinkingDefaultId
+        }
+        return AgentProperty(
+            id: "thinking",
+            label: "Thinking",
+            value: .thinkingPicker(selectedLevel: selected, options: catalog.thinkingLevels),
+            note: selected == KnownLLMModelCatalog.thinkingDefaultId
+                ? "Inherits the backend's default extended-thinking setting."
                 : nil
         )
     }

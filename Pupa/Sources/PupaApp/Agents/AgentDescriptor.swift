@@ -115,6 +115,12 @@ public enum AgentPropertyValue: Sendable, Hashable {
     /// callback is passed separately to `AgentPropertyRow` so this case
     /// stays Hashable — the row resolves it from the parent view.
     case modelPicker(selectedId: String, options: [KnownLLMModel])
+    /// Editable extended-thinking selector. `selectedLevel` is the chosen level
+    /// string (e.g. "auto"), or `KnownLLMModelCatalog.thinkingDefaultId` when no
+    /// per-agent override is set. `options` are the harness-advertised levels.
+    /// The mutation callback is passed separately to `AgentPropertyRow` (keeps
+    /// this case Hashable), same pattern as `.modelPicker`.
+    case thinkingPicker(selectedLevel: String, options: [ThinkingLevel])
 }
 
 /// One labelled bucket inside a `.sections` value (e.g. "Canvas", "Memory",
