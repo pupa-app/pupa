@@ -88,6 +88,11 @@ public struct ChatPanel: View {
     /// Presents the in-app camera capture sheet (paperclip menu → Take Photo).
     @State private var showCameraSheet: Bool = false
     #endif
+    /// Whether the newest message is currently on screen. Driven by the bottom
+    /// marker vs the viewport (see the jump-button overlay). Gates the
+    /// re-anchor triggers so height changes only stick the view to the bottom
+    /// when the user is already there — never yanks someone reading history.
+    @State private var isAtBottom: Bool = true
     /// Coordinate space + id for the message list's bottom marker, used to
     /// decide whether the newest message is on screen (see the jump button).
     private static let scrollSpaceName = "chatScroll"
@@ -221,12 +226,47 @@ public struct ChatPanel: View {
                 // floating composer. Mask (not a solid overlay) because the
                 // card background is translucent `.regularMaterial`.
                 .mask(scrollFadeMask)
+                // A new message always pulls the view to the true content
+                // bottom (the marker, past the clearance padding) — same anchor
+                // the jump button uses, so the two paths agree.
                 .onChange(of: viewModel.bubbles.count) { _, _ in
-                    if let last = viewModel.bubbles.last {
-                        withAnimation(.easeOut(duration: 0.15)) {
-                            proxy.scrollTo(last.id, anchor: .bottom)
-                        }
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        proxy.scrollTo(Self.bottomMarkerID, anchor: .bottom)
                     }
+                }
+                // Content height also changes WITHOUT a bubble-count change:
+                // streaming text growing in the last bubble, and the
+                // isModelWorking / connectionIssue status rows appearing or
+                // disappearing (they live in the LazyVStack but aren't bubbles).
+                // `defaultScrollAnchor(.bottom)` doesn't reliably re-pin a
+                // LazyVStack on those, so without these triggers the offset
+                // drifts into the trailing clearance and the viewport goes
+                // blank. Re-anchor on each, gated on isAtBottom so we never
+                // yank a user who scrolled up to read history.
+                .onChange(of: viewModel.bubbles.last?.text.count ?? 0) { _, _ in
+                    reanchorIfAtBottom(proxy)
+                }
+                .onChange(of: viewModel.isModelWorking) { _, _ in
+                    reanchorIfAtBottom(proxy)
+                }
+                .onChange(of: viewModel.isStreaming) { _, _ in
+                    reanchorIfAtBottom(proxy)
+                }
+                .onChange(of: viewModel.connectionIssue) { _, _ in
+                    reanchorIfAtBottom(proxy)
+                }
+                // Opening a chat / switching threads: defaultScrollAnchor(.bottom)
+                // positions once at first layout, but bubbles (Markdown, images,
+                // code) measure asynchronously and grow AFTER that, leaving the
+                // view stranded above the true bottom — the "open a chat, see
+                // blank, scroll up" case. No streaming/count change fires here,
+                // so force the pin explicitly. Deferred to the next runloop so
+                // the marker exists and initial content has laid out; retried
+                // once more to catch late async bubble sizing.
+                .onAppear { pinToBottomAfterLayout(proxy) }
+                .onChange(of: currentThreadId) { _, _ in
+                    isAtBottom = true
+                    pinToBottomAfterLayout(proxy)
                 }
                 // Floating "jump to latest" button — only while scrolled up.
                 // Sits above the composer pill, trailing edge. Driven purely by
@@ -235,6 +275,9 @@ public struct ChatPanel: View {
                 .overlayPreferenceValue(ChatBottomMarkerKey.self) { markerY in
                     GeometryReader { geo in
                         let atBottom = markerY <= geo.size.height + Self.atBottomSlack
+                        Color.clear
+                            .onAppear { isAtBottom = atBottom }
+                            .onChange(of: atBottom) { _, v in isAtBottom = v }
                         if !atBottom {
                             scrollToBottomButton(proxy)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity,
@@ -337,6 +380,34 @@ public struct ChatPanel: View {
                 viewModel.streamedDraft = typed
                 try? await Task.sleep(for: .milliseconds(24))
             }
+        }
+    }
+
+    /// Force the view to the true content bottom after layout settles. Used on
+    /// chat open / thread switch, where content grows asynchronously after the
+    /// initial anchor. Two passes: one on the next runloop (marker exists,
+    /// first pass of content laid out) and one slightly later to catch late
+    /// async bubble sizing (Markdown / image measurement). Not gated on
+    /// isAtBottom — opening a chat should always land at the newest message.
+    private func pinToBottomAfterLayout(_ proxy: ScrollViewProxy) {
+        DispatchQueue.main.async {
+            proxy.scrollTo(Self.bottomMarkerID, anchor: .bottom)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            withAnimation(.easeOut(duration: 0.15)) {
+                proxy.scrollTo(Self.bottomMarkerID, anchor: .bottom)
+            }
+        }
+    }
+
+    /// Re-pin the view to the true content bottom, but only when the user is
+    /// already at the bottom. Called from the height-change triggers (streaming
+    /// growth, status rows) so those never strand the viewport in the trailing
+    /// clearance, while leaving a scrolled-up reader undisturbed.
+    private func reanchorIfAtBottom(_ proxy: ScrollViewProxy) {
+        guard isAtBottom else { return }
+        withAnimation(.easeOut(duration: 0.15)) {
+            proxy.scrollTo(Self.bottomMarkerID, anchor: .bottom)
         }
     }
 
