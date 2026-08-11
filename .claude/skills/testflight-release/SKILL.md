@@ -20,10 +20,9 @@ User wants `.xcarchive`s ready for TestFlight upload. Typical phrasings: "ship t
    - Working tree should be clean (no uncommitted changes) so the archive matches a known git SHA. If dirty, ask whether to commit/stash first.
 
 2. **Confirm what changed since the last successful TestFlight upload.** Specifically:
-   - Has `PupaAppVersion` in `Pupa/Sources/PupaApp/Version.swift` changed? If yes, this is a new MARKETING_VERSION and the build number can reset to `1`. If no, it's a re-upload of the same version and the build number must be unique (current+1).
-   - The script will read `PupaAppVersion` and sync `MARKETING_VERSION` automatically.
+   - Has `PupaAppVersion` in `Pupa/Sources/PupaApp/Version.swift` changed? The script reads it and syncs `MARKETING_VERSION` automatically. It does **not** affect the build number — see below.
 
-3. **Decide build number behavior**: by default, the script bumps `CURRENT_PROJECT_VERSION` by `1`. Pass `--build N` to set an explicit value (e.g. reset to `1` after a marketing-version bump).
+3. **Build number is automatic and monotonic.** `CURRENT_PROJECT_VERSION` defaults to the branch's commit count and **never resets**, not even on a marketing-version bump. Sparkle (the direct-download DMG channel) orders updates by `CFBundleVersion` alone and ignores the marketing string, so a reset reads as a downgrade and silently strands DMG users on the old build. App Store Connect only needs uniqueness within a marketing version, so monotonic satisfies both channels. `--build N` is for manual correction only and is rejected unless `N` exceeds the current build. See pupa#246.
 
 ## Invocation
 
@@ -33,7 +32,7 @@ User wants `.xcarchive`s ready for TestFlight upload. Typical phrasings: "ship t
 
 | Flag | Meaning |
 |---|---|
-| `--build N` | Set `CURRENT_PROJECT_VERSION` explicitly (default: current + 1) |
+| `--build N` | Set `CURRENT_PROJECT_VERSION` explicitly; must exceed the current build (default: commit count) |
 | `--no-bump` | Don't change the build number at all (rare — only for local validation builds) |
 | `--skip-icon-check` | Skip the `icon_1024.png` / `AppIcon.icon` integrity checks (don't use unless you know why) |
 | `--no-flow` | Bump + archive the current branch in place; skip the `dev`→`main` fast-forward (local validation builds) |
@@ -45,7 +44,7 @@ Branch names default to `dev`/`main`; override with `DEV_BRANCH=` / `MAIN_BRANCH
 1. Switches to `dev` (unless `--no-flow`) so the bump lands there first.
 2. Checks the icons: `icon_1024.png` has no alpha (App Store Connect silently shows the wireframe placeholder for icons with transparency), and `AppIcon.icon` still has its alpha-backed `mark.png` and `"glass": false`.
 3. Reads `PupaAppVersion` from `Version.swift`, syncs `MARKETING_VERSION` in `project.pbxproj` if they differ.
-4. Bumps `CURRENT_PROJECT_VERSION` for the app target's buildSettings blocks only (matched by the app `MARKETING_VERSION`; test targets stay at `1`).
+4. Sets `CURRENT_PROJECT_VERSION` to the commit count (floored at current+1, so it can only ever rise) for the app target's buildSettings blocks only (matched by the app `MARKETING_VERSION`; test targets stay at `1`).
 5. If pbxproj changed, commits the bump on `dev` with a generic `chore(ios): bump build to N` message. Stops if working tree is otherwise dirty.
 6. Fast-forwards `main` from `dev` (`--ff-only`; aborts if diverged), then archives `main`.
 7. Runs `xcodebuild archive` twice: `-destination generic/platform=iOS` into `build/Pupa.xcarchive`, then `-destination generic/platform=macOS` into `build/Pupa-macOS.xcarchive`.

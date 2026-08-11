@@ -31,7 +31,8 @@ NO_FLOW=0
 usage() {
   cat <<EOF
 usage: $0 [--build N] [--no-bump] [--skip-icon-check] [--no-flow]
-  --build N            Set CURRENT_PROJECT_VERSION to N (default: current + 1)
+  --build N            Set CURRENT_PROJECT_VERSION to N (must exceed the current
+                       build; default: commit count, see below)
   --no-bump            Don't change the build number
   --skip-icon-check    Skip the icon_1024.png / AppIcon.icon integrity checks
   --no-flow            Bump + archive the current branch in place; skip the
@@ -115,21 +116,38 @@ CURRENT_MV=$(grep -E 'MARKETING_VERSION = [^;]+;' "$PBXPROJ" | grep -v '= 1\.0;'
 # Current CURRENT_PROJECT_VERSION for the app target. Identify the app target's
 # build-config block by the MARKETING_VERSION we just read (CURRENT_MV); the
 # CURRENT_PROJECT_VERSION line precedes MARKETING_VERSION within the same block.
-# (Can't just skip "= 1;" — the app build legitimately resets to 1 on a new
-# marketing version, which is indistinguishable from the test-target default.)
+# (Can't just skip "= 1;" — the test targets sit at the default 1 and the app
+# build could legitimately pass through it too.)
 CURRENT_BUILD=$(awk -v mv="$CURRENT_MV" '
   /CURRENT_PROJECT_VERSION = [0-9]+;/ { b=$3; gsub(";","",b) }
   $0 ~ "MARKETING_VERSION = " mv ";" { print b; exit }
 ' "$PBXPROJ")
 [[ -n "$CURRENT_BUILD" ]] || die "Could not read app target's CURRENT_PROJECT_VERSION from $PBXPROJ."
 
-# Compute new build number
+# Compute new build number.
+#
+# CURRENT_PROJECT_VERSION (CFBundleVersion) must increase MONOTONICALLY across
+# the whole product, and must NEVER reset on a marketing-version bump. Sparkle
+# — which will drive the direct-download DMG channel — orders updates by
+# CFBundleVersion alone and ignores the marketing string, so a reset (0.0.236
+# build 3 → 0.0.237 build 1) reads as a downgrade and strands DMG users on the
+# old build forever, silently. App Store Connect only requires uniqueness within
+# a marketing version, so monotonic satisfies TestFlight too. See pupa#246.
+#
+# The default is the commit count on the current branch: monotonic by
+# construction (the release branch only ever gains commits), automatic, and
+# nothing to track by hand. The max() floor keeps the invariant even if the
+# count comes back low — a shallow clone, or history rewritten under us.
 if [[ $NO_BUMP -eq 1 ]]; then
   NEW_BUILD="$CURRENT_BUILD"
 elif [[ -n "$BUILD_OVERRIDE" ]]; then
+  [[ "$BUILD_OVERRIDE" =~ ^[0-9]+$ ]] || die "--build must be a positive integer, got '$BUILD_OVERRIDE'."
+  [[ "$BUILD_OVERRIDE" -gt "$CURRENT_BUILD" ]] \
+    || die "--build $BUILD_OVERRIDE does not exceed the current build $CURRENT_BUILD. CFBundleVersion must increase monotonically — a lower or equal value is rejected by App Store Connect and reads as a downgrade to Sparkle."
   NEW_BUILD="$BUILD_OVERRIDE"
 else
-  NEW_BUILD=$((CURRENT_BUILD + 1))
+  COMMIT_COUNT=$(git rev-list --count HEAD)
+  NEW_BUILD=$(( COMMIT_COUNT > CURRENT_BUILD ? COMMIT_COUNT : CURRENT_BUILD + 1 ))
 fi
 
 # --- apply pbxproj edits --------------------------------------------------
