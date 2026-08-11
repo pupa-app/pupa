@@ -36,6 +36,13 @@ public enum KnownLLMModelCatalog {
     /// observable to the user.
     public static let backendDefaultId = "__backend_default__"
 
+    /// Sentinel `thinking` level for "no override" — clears the per-agent
+    /// thinking key so the backend applies its own default (adaptive). Distinct
+    /// from the concrete levels the harness advertises (`auto`/`off`/…). Sending
+    /// no `thinking` in the request is equivalent; the sentinel just makes the
+    /// default observable/selectable in the picker.
+    public static let thinkingDefaultId = "__thinking_default__"
+
     // No static model catalog: the live list comes from the backend's
     // `GET /harnesses` discovery (`ModelCatalogStore`). When the backend is
     // unreachable the picker shows an explicit empty/error state rather than a

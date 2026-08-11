@@ -728,6 +728,22 @@ with no override rests on the catalog's first model (the registry's primary, i.e
 the effective backend default), so the row always names a concrete model rather
 than an abstract sentinel; the "inherits the backend's model" note still flags
 that it isn't an explicit override.
+**Per-agent thinking.** Claude-loop harnesses advertise a `thinking` level menu
+(`auto`/`off`/`low`/`medium`/`high`) in `GET /harnesses`
+([BackendHarnessesClient](../Pupa/Sources/PupaApp/Settings/BackendHarnessesClient.swift),
+surfaced by `ModelCatalogStore.thinkingLevels`). When non-empty, the main-agent
+and orchestrator detail pages show a **Thinking** picker under the model row
+(`AgentRegistry.thinkingProperty` → `.thinkingPicker` → `ThinkingPickerRow`); a
+"Default" sentinel clears the override. The level is stored per-MyApp under
+`MyApp.settings["llm.thinking"]` (`MyAppStore.setMyAppThinking`) and for the
+orchestrator on `SettingsStore.orchestratorThinking`, and folded into the same
+`forwardedProps["llm"]` object as `thinking` (`ChatViewModel.effectiveThinking`
++ `forwardedPropsJSON`) — so it ships even when no model is pinned. Harnesses
+without the capability advertise `[]` and the picker is hidden. After a
+successful catalog refresh `ModelCatalogStore.reconcileThinking` drops any stored
+level the current harness no longer advertises (guarded on a non-empty set, so an
+unreachable backend never wipes a valid override).
+
 Storage parallels the existing per-agent LLM storage: the main agent uses
 `MyApp.settings` (`llm.*`, `tools.disabled` as a `SettingValue.stringArray`),
 subagents keep their overrides in `pupa/agents/<slug>/AGENTS.md` frontmatter

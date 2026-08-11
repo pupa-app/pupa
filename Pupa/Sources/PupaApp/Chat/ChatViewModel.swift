@@ -1561,10 +1561,29 @@ public final class ChatViewModel {
         }
     }
 
+    /// Resolve the extended-thinking level for a turn. Precedence mirrors
+    /// `effectiveLLM` minus the thread pin (threads don't pin thinking):
+    /// per-agent default for the scope (`MyAppStore.myAppThinking` for `.myApp`,
+    /// `SettingsStore.orchestratorThinking` for `.memory`), else `nil` → the
+    /// backend's default thinking config applies.
+    @MainActor
+    static func effectiveThinking(
+        scope: ChatScope,
+        store: MyAppStore,
+        settings: SettingsStore
+    ) -> String? {
+        switch scope {
+        case .myApp(let id): return store.myAppThinking(for: id)
+        case .memory:        return settings.orchestratorThinking
+        }
+    }
+
     /// Build the `RunAgentInput.forwardedProps` payload sent at the start of
     /// every turn (and merged into resume rounds by `AgentSession`). Wraps
-    /// `effectiveLLM` as `{"llm": {provider, model}}`, or an empty object when
-    /// unresolved → backend uses its env-configured default model.
+    /// `effectiveLLM` + `effectiveThinking` as `{"llm": {provider, model,
+    /// thinking}}`. Each key is included only when resolved, so an unset model
+    /// with a set thinking level still ships `{"llm": {"thinking": …}}`; a fully
+    /// unresolved turn ships `{}` → backend uses its env-configured defaults.
     @MainActor
     static func forwardedPropsJSON(
         scope: ChatScope,
@@ -1572,15 +1591,15 @@ public final class ChatViewModel {
         store: MyAppStore,
         settings: SettingsStore
     ) -> AnyJSON {
-        guard let (provider, model) = effectiveLLM(scope: scope, threadId: threadId, store: store, settings: settings) else {
-            return .object([:])
+        var llm: [String: AnyJSON] = [:]
+        if let (provider, model) = effectiveLLM(scope: scope, threadId: threadId, store: store, settings: settings) {
+            llm["provider"] = .string(provider)
+            llm["model"] = .string(model)
         }
-        return .object([
-            "llm": .object([
-                "provider": .string(provider),
-                "model": .string(model),
-            ])
-        ])
+        if let thinking = effectiveThinking(scope: scope, store: store, settings: settings) {
+            llm["thinking"] = .string(thinking)
+        }
+        return llm.isEmpty ? .object([:]) : .object(["llm": .object(llm)])
     }
 
     /// Build the `RunAgentInput.state` payload pushed every turn. Lands in

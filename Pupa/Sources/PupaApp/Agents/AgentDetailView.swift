@@ -109,6 +109,7 @@ public struct AgentDetailView: View {
                     property: property,
                     onNavigate: onNavigate,
                     onSelectModel: { newId in selectModel(newId, for: descriptor) },
+                    onSelectThinking: { level in selectThinking(level, for: descriptor) },
                     onToggleTool: { name, enabled in toggleTool(name, enabled: enabled, for: descriptor) },
                     onReloadModels: { Task { await modelCatalog.refresh(settings: settings) } },
                     modelsRefreshing: modelCatalog.isRefreshing,
@@ -154,6 +155,23 @@ public struct AgentDetailView: View {
             _ = try? AgentStore(memory: appMemory).setModel(slug: slug, provider: provider, model: modelId)
         case .orchestrator:
             settings.setOrchestratorLLM(provider: provider, model: modelId)
+        }
+    }
+
+    /// Persist a new extended-thinking level for whichever agent this view
+    /// shows. `thinkingDefaultId` clears the override. Only the main MyApp agent
+    /// and the orchestrator surface a thinking picker (see `AgentRegistry`), so
+    /// subagents are a no-op here.
+    private func selectThinking(_ newLevel: String, for descriptor: AgentDescriptor) {
+        let level: String? = newLevel == KnownLLMModelCatalog.thinkingDefaultId ? nil : newLevel
+        switch descriptor.kind {
+        case .myApp:
+            guard let myAppId = descriptor.myAppId else { return }
+            store.setMyAppThinking(level, for: myAppId)
+        case .orchestrator:
+            settings.setOrchestratorThinking(level)
+        case .subagent:
+            break
         }
     }
 
@@ -209,6 +227,10 @@ private struct AgentPropertyRow: View {
     /// `KnownLLMModelCatalog.backendDefaultId` to clear the override).
     /// Ignored for non-picker rows.
     var onSelectModel: (String) -> Void
+    /// Called when the user picks a level from a `.thinkingPicker` row. Receives
+    /// the level string (or `KnownLLMModelCatalog.thinkingDefaultId` to clear).
+    /// Ignored for non-picker rows.
+    var onSelectThinking: (String) -> Void
     /// Called when the user flips a tool toggle in a `.toolToggles` row.
     /// Receives the tool name and its new enabled state. Ignored for other rows.
     var onToggleTool: (String, Bool) -> Void
@@ -300,6 +322,12 @@ private struct AgentPropertyRow: View {
                     onReload: onReloadModels,
                     isRefreshing: modelsRefreshing,
                     loadFailed: modelsLoadFailed
+                )
+            case .thinkingPicker(let selectedLevel, let options):
+                ThinkingPickerRow(
+                    selectedLevel: selectedLevel,
+                    options: options,
+                    onSelect: onSelectThinking
                 )
             }
 

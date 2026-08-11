@@ -334,6 +334,10 @@ public struct AppView: View {
             // stale/fallback list until a cold relaunch.
             .task(id: settings.activeBackend) {
                 await modelCatalog.refresh(settings: settings)
+                // Drop any per-agent thinking override the (now-current) harness
+                // no longer advertises. No-op on an empty set, so an unreachable
+                // backend never wipes a valid override.
+                modelCatalog.reconcileThinking(store: store, settings: settings)
             }
             // One-time guided tour: evaluate on appear (covers a relaunch where
             // a previous run was abandoned mid-tour) and whenever onboarding

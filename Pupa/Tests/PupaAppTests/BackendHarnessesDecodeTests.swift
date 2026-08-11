@@ -35,6 +35,11 @@ struct BackendHarnessesDecodeTests {
         "models": [
           {"provider": "claude_code", "modelId": "opus", "label": "Opus (latest)"}
         ],
+        "thinking": [
+          {"level": "auto", "label": "Auto"},
+          {"level": "off", "label": "Off"},
+          {"level": "high", "label": "High"}
+        ],
         "tools": [],
         "permissions": [
           {"key": "claude_loop_native", "type": "choice", "label": "Host tools", "options": ["off","read","edit","full"], "default": "full"},
@@ -54,6 +59,9 @@ struct BackendHarnessesDecodeTests {
         #expect(lg.isDefault)
         // Model id is composed as "provider/modelId".
         #expect(lg.models.first?.id == "anthropic/claude-opus-4-8")
+        // Harness that omits `thinking` decodes to [] (no error) — the picker is
+        // then hidden for its agents.
+        #expect(lg.thinking.isEmpty)
         #expect(lg.tools.first?.name == "tavily_search")
         #expect(lg.tools.first?.enabledByEnv == false)
         let shell = lg.permissions.first { $0.key == "shell_approval_disabled" }
@@ -68,5 +76,8 @@ struct BackendHarnessesDecodeTests {
         #expect(native?.type == .choice)
         #expect(native?.options == ["off", "read", "edit", "full"])
         #expect(native?.defaultString == "full")
+        // Advertised thinking levels decode in order.
+        #expect(cc.thinking.map(\.level) == ["auto", "off", "high"])
+        #expect(cc.thinking.first?.label == "Auto")
     }
 }

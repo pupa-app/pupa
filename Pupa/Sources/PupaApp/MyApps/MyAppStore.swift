@@ -223,6 +223,51 @@ public final class MyAppStore {
         return (provider, model)
     }
 
+    /// Storage key for the per-MyApp extended-thinking level (e.g. "auto"/"off"/
+    /// "low"). Independent of the model pair — thinking can be set without an
+    /// explicit model override. Stored under `MyApp.settings`.
+    public static let llmThinkingSettingsKey = "llm.thinking"
+
+    /// Write (or clear) the per-MyApp thinking level. Pass `nil`/empty to clear.
+    public func setMyAppThinking(_ level: String?, for myAppId: UUID) {
+        guard let idx = myApps.firstIndex(where: { $0.id == myAppId }) else { return }
+        if let level, !level.isEmpty {
+            myApps[idx].settings[Self.llmThinkingSettingsKey] = .string(level)
+        } else {
+            myApps[idx].settings.removeValue(forKey: Self.llmThinkingSettingsKey)
+        }
+        persist()
+    }
+
+    /// Read the per-MyApp thinking level, or `nil` when unset (backend default).
+    public func myAppThinking(for myAppId: UUID) -> String? {
+        guard let myApp = myApps.first(where: { $0.id == myAppId }),
+              case .string(let level) = myApp.settings[Self.llmThinkingSettingsKey] else { return nil }
+        return level
+    }
+
+    /// Clear any per-MyApp thinking override whose level is not in `validLevels`
+    /// — used to drop a stale level after the active harness's advertised set
+    /// changes (e.g. it dropped "high"), so the send path stops shipping a value
+    /// the picker already renders as "Default". Callers must pass a NON-EMPTY set
+    /// (an empty set means the harness advertises nothing / is unreachable, where
+    /// clearing would wrongly wipe a still-valid override). Returns true if any
+    /// key was removed (so the caller can avoid a needless persist).
+    @discardableResult
+    public func clearThinkingLevels(notIn validLevels: Set<String>) -> Bool {
+        guard !validLevels.isEmpty else { return false }
+        var changed = false
+        for idx in myApps.indices {
+            if case .string(let level) = myApps[idx].settings[Self.llmThinkingSettingsKey],
+               !validLevels.contains(level) {
+                myApps[idx].settings.removeValue(forKey: Self.llmThinkingSettingsKey)
+                changed = true
+            }
+        }
+        if changed { persist() }
+        return changed
+    }
+
     // MARK: - Per-agent disabled tools
 
     /// Storage key for the main agent's per-MyApp disabled tool names. Stored
