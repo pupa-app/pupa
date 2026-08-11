@@ -255,6 +255,19 @@ public struct ChatPanel: View {
                 .onChange(of: viewModel.connectionIssue) { _, _ in
                     reanchorIfAtBottom(proxy)
                 }
+                // Opening a chat / switching threads: defaultScrollAnchor(.bottom)
+                // positions once at first layout, but bubbles (Markdown, images,
+                // code) measure asynchronously and grow AFTER that, leaving the
+                // view stranded above the true bottom — the "open a chat, see
+                // blank, scroll up" case. No streaming/count change fires here,
+                // so force the pin explicitly. Deferred to the next runloop so
+                // the marker exists and initial content has laid out; retried
+                // once more to catch late async bubble sizing.
+                .onAppear { pinToBottomAfterLayout(proxy) }
+                .onChange(of: currentThreadId) { _, _ in
+                    isAtBottom = true
+                    pinToBottomAfterLayout(proxy)
+                }
                 // Floating "jump to latest" button — only while scrolled up.
                 // Sits above the composer pill, trailing edge. Driven purely by
                 // the bottom marker's position vs the viewport (declarative, no
@@ -366,6 +379,23 @@ public struct ChatPanel: View {
                 viewModel.draft = typed
                 viewModel.streamedDraft = typed
                 try? await Task.sleep(for: .milliseconds(24))
+            }
+        }
+    }
+
+    /// Force the view to the true content bottom after layout settles. Used on
+    /// chat open / thread switch, where content grows asynchronously after the
+    /// initial anchor. Two passes: one on the next runloop (marker exists,
+    /// first pass of content laid out) and one slightly later to catch late
+    /// async bubble sizing (Markdown / image measurement). Not gated on
+    /// isAtBottom — opening a chat should always land at the newest message.
+    private func pinToBottomAfterLayout(_ proxy: ScrollViewProxy) {
+        DispatchQueue.main.async {
+            proxy.scrollTo(Self.bottomMarkerID, anchor: .bottom)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            withAnimation(.easeOut(duration: 0.15)) {
+                proxy.scrollTo(Self.bottomMarkerID, anchor: .bottom)
             }
         }
     }
