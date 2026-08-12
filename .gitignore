@@ -31,3 +31,5 @@ PupaHost/Local.xcconfig
 skills-lock.json
 .agents
 .claude/skills/app-store-review
+
+docs/superpowers
