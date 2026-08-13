@@ -95,16 +95,14 @@ public struct SettingsSheet: View {
         case profile, backend, tools, agents, agentsOverview, notifications, examples, sharing, pinned, archive, recentlyDeleted
     }
 
-    /// Whether to offer the Recently deleted row. Loaded on appear, not
-    /// computed in `body`: it reads the filesystem, which must not run on every
-    /// view update.
+    /// Whether to offer the Recently deleted row. Loaded on appear, never in
+    /// `body`: it reads the filesystem.
     @State private var hasDeletedApps = false
 
     /// Off-main tombstone scan feeding `hasDeletedApps`. `hasTombstones()`, not
-    /// `deletedMyApps()`: the row only needs "any?", while the full listing
-    /// resolves a restore source per entry (a snapshot-chain walk and a whole
-    /// `MyApp` decode each). That belongs on the screen itself, not on a gate
-    /// re-run on every settings navigation.
+    /// `deletedMyApps()` — the row needs only "any?", and the full listing's
+    /// per-entry resolve belongs on the screen itself, not on a gate re-run on
+    /// every settings navigation.
     private func refreshHasDeletedApps() async {
         hasDeletedApps = await Task.detached(priority: .userInitiated) {
             MyAppStore.hasTombstones()
@@ -198,9 +196,8 @@ public struct SettingsSheet: View {
                 categoryDetail(category)
             }
             .task { await refreshHasDeletedApps() }
-            // Re-check on the way back, so restoring the last deleted app drops
-            // the row. A navigation event, never a body eval — and only on the
-            // pop, since a push can't have changed what's on disk.
+            // Re-check on the pop, so restoring the last deleted app drops the
+            // row. A push can't have changed what's on disk.
             .onChange(of: path) { _, new in
                 guard new.isEmpty else { return }
                 Task { await refreshHasDeletedApps() }

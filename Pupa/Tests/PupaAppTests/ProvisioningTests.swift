@@ -96,13 +96,10 @@ struct ProvisioningTests {
 
     // MARK: - Awaiting a roster that didn't arrive in the window
 
-    /// The window can expire with a roster still up there. That branch must NOT
-    /// disarm the seed-race guard: we know the cloud holds a roster, so until
-    /// it's adopted one edit to the in-memory placeholder must not be able to
-    /// persist and push a one-app index over the real one.
-    ///
-    /// The cloud index here is deliberately undecodable, so the retry never
-    /// adopts and the awaiting state stays observable.
+    /// The window can expire with a roster still up there, and that branch must
+    /// NOT disarm the seed-race guard: until the roster is adopted, one edit to
+    /// the placeholder must not push a one-app index over the real one. The
+    /// cloud index is deliberately undecodable so the retry never adopts.
     @Test("a roster still inbound keeps the seed-race guard armed")
     func awaitingRosterKeepsGuardArmed() async throws {
         await MyAppStore.clearStorage()
@@ -180,9 +177,8 @@ struct ProvisioningTests {
     }
 
     /// The watcher's reload can land the roster before the retry's next tick.
-    /// When it does, the retry has nothing left to find: it must stop, and both
-    /// guards must come down with it — otherwise `persist()` stays a no-op and
-    /// `state/index.json` stays pinned to the cloud side for a roster we have.
+    /// The retry then has nothing left to find and must stop, taking both
+    /// guards with it — else `persist()` stays a no-op for a roster we have.
     @Test("a reload that lands the roster first stops the retry and disarms")
     func reloadDuringWaitStopsRetry() async throws {
         await MyAppStore.clearStorage()
@@ -227,11 +223,9 @@ struct ProvisioningTests {
             .appendingPathComponent("\(id.uuidString).json")
     }
 
-    /// Giving up unblocks local writes so the user isn't frozen — but the
-    /// roster on screen is still the stand-in for a roster we never pulled, and
-    /// it carries a launch-fresh UUID. Persisting it makes it a real app to
-    /// union-load, which then lists it *beside* the real roster on arrival: a
-    /// duplicate "Daily Briefing" pushed to every device.
+    /// Giving up unblocks local writes, but the stand-in carries a launch-fresh
+    /// UUID: persisting it makes it real to union-load, which then lists it
+    /// *beside* the real roster on arrival — a duplicate on every device.
     @Test("the placeholder stays off disk after the retry gives up")
     func givenUpPlaceholderNeverPersists() async throws {
         await MyAppStore.clearStorage()
@@ -303,8 +297,8 @@ struct ProvisioningTests {
     }
 
     /// Holding the stand-in off disk is right, but silent: the user is looking
-    /// at an app whose every edit is dropped. `isRosterUnsaved` is what the
-    /// banner reads so the work doesn't just vanish on relaunch.
+    /// at an app whose every edit is dropped. `isRosterUnsaved` is what tells
+    /// them, so it must hold for the whole wait — give-up included.
     @Test("the unsaveable stand-in roster is flagged for the whole wait")
     func standInRosterIsFlagged() async throws {
         await MyAppStore.clearStorage()

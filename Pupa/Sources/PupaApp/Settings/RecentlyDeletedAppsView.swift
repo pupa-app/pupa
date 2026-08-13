@@ -1,24 +1,18 @@
 import SwiftUI
 
-/// Settings → Recently deleted. Lists MyApps whose tombstone is still on disk
-/// (180 days, then `gcTombstones` reaps it) and restores one from whatever
-/// survives it — see `MyAppStore.restorableApp`.
-///
-/// Deleting used to be silent and final: the body file goes, the tombstone
-/// suppresses the id on every device, and nothing surfaced either. This screen
-/// is the undo — including for a delete made on another device, which is how a
-/// missing app usually gets noticed.
+/// Settings ▸ Recently deleted: MyApps whose tombstone is still on disk (180
+/// days, then `gcTombstones` reaps it), restorable from whatever survives them
+/// — see `MyAppStore.restorableApp`. The undo for a delete that is otherwise
+/// silent and final, including one made on another device.
 struct RecentlyDeletedAppsView: View {
     let store: MyAppStore
 
-    /// Snapshot of the tombstone list. Held in state (not recomputed per body)
-    /// because building it reads every tombstone and resolves a restore source
-    /// for each.
+    /// Held in state, not recomputed per `body`: building it reads every
+    /// tombstone and probes a restore source for each.
     @State private var deleted: [MyAppStore.DeletedMyApp] = []
     @State private var loaded = false
-    /// Set when a Restore we offered didn't take — the restore source can go
-    /// away between the scan and the tap (a sweep, or a sync landing a newer
-    /// state). Silently doing nothing reads as a broken button.
+    /// Set when a Restore we offered didn't take — the source can go away
+    /// between the scan and the tap. Doing nothing reads as a broken button.
     @State private var failedToRestore: String?
 
     var body: some View {
@@ -44,8 +38,7 @@ struct RecentlyDeletedAppsView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        // Off-main: the scan reads every tombstone and resolves a restore
-        // source for each.
+        // Off-main: the scan touches the filesystem once per tombstone.
         .task {
             deleted = await Task.detached(priority: .userInitiated) {
                 MyAppStore.deletedMyApps()

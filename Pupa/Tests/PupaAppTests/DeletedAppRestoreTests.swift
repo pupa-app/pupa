@@ -3,9 +3,8 @@ import Testing
 @testable import PupaApp
 
 /// Deleting a MyApp must leave a restore point and a labelled tombstone, so
-/// Settings → Recently deleted can list it and bring it back. Before this, a
-/// deliberate delete dropped the body file with nothing capturing it — the
-/// delete was silent and final on every device.
+/// Settings ▸ Recently deleted can list it and bring it back. A delete used to
+/// drop the body with nothing capturing it: silent and final on every device.
 @MainActor
 @Suite("Deleted MyApp restore", .serialized)
 struct DeletedAppRestoreTests {
@@ -109,9 +108,9 @@ struct DeletedAppRestoreTests {
         #expect(listed?.name == "Dating help")
     }
 
-    /// The sweep reaps a tombstoned body unconditionally. It must hand the body
-    /// to the snapshot store on the way out, or a remote delete is unrecoverable
-    /// on this device the moment the sweep runs.
+    /// The sweep reaps a tombstoned body unconditionally, so it must hand that
+    /// body to the snapshot store on the way out — otherwise a remote delete
+    /// becomes unrecoverable here the moment the sweep runs.
     @Test("the orphan sweep captures a restore point before reaping a tombstoned body")
     func sweepCapturesRestorePointBeforeReaping() async {
         let (store, a, _) = await twoAppStore()
@@ -235,8 +234,7 @@ struct DeletedAppRestoreTests {
 
     /// `.deleted` records are exempt from TTL *and* cap, and `gcTombstones` —
     /// their only collector — works off the tombstone a restore just cleared.
-    /// Without an explicit drop, every cycle strands one full base forever, in
-    /// iCloud too.
+    /// Without an explicit drop, every cycle strands a full base forever.
     @Test("delete/restore cycles don't accumulate permanent restore points")
     func restoreDropsItsRestorePoint() async {
         let (store, a, _) = await twoAppStore()
@@ -284,10 +282,9 @@ struct DeletedAppRestoreTests {
         #expect(SnapshotStore.restoredApp(a, id: pins[0].id) != nil)
     }
 
-    /// `restoreDeletedMyApp` is not the only un-delete. Every path that clears a
-    /// tombstone retires the one thing that can ever collect that app's
-    /// `.deleted` record, so each must drop it in the same breath — else the
-    /// full base is stranded permanently, mirrored to iCloud.
+    /// `restoreDeletedMyApp` is not the only un-delete. Clearing a tombstone
+    /// retires the one thing that can ever collect that app's `.deleted`
+    /// record, so every path must drop it in the same breath.
     @Test("reviving a deleted app from a pin drops its stranded restore point")
     func revivingFromPinDropsRestorePoint() async {
         let (store, a, _) = await twoAppStore()

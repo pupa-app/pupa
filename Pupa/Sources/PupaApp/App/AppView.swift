@@ -643,11 +643,10 @@ public struct AppView: View {
         .overlay(alignment: .bottom) { Divider() }
     }
 
-    /// The roster on screen is the seeded stand-in for a cloud roster this
-    /// device hasn't pulled, and it is deliberately never written to disk (see
-    /// `MyAppStore.rosterWarning`). Without this the user works in an app whose
-    /// every edit is silently dropped on relaunch — and after the retry gives
-    /// up, nothing else in the UI says so at all.
+    /// The roster on screen is a stand-in that is deliberately never written to
+    /// disk (see `MyAppStore.rosterWarning`). Without this the user works in an
+    /// app whose every edit is dropped on relaunch — and once the retry gives
+    /// up, nothing else in the UI says so.
     private func unsavedRosterBanner(_ warning: MyAppStore.RosterWarning) -> some View {
         HStack(spacing: 10) {
             Image(systemName: warning == .restoring

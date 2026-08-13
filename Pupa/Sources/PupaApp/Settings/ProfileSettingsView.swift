@@ -29,11 +29,10 @@ struct ProfileSettingsView: View {
     private var statusText: String {
         guard iCloudActive else { return "Inactive" }
         let s = SyncStatus.shared
-        // Before the generic count: while the roster itself is still inbound,
-        // `pendingDownloads` is non-zero by definition — that is what we are
-        // waiting on — so checking it first made this branch unreachable in the
-        // one case it exists for, leaving a bare "Syncing 43…" that says
-        // nothing about the roster on screen being incomplete.
+        // Before the generic count, which is non-zero by definition while the
+        // roster is inbound — that's what we're waiting on. Checked second,
+        // this branch was unreachable in the one case it exists for, leaving a
+        // bare "Syncing 43…" that said nothing about the roster being partial.
         if store?.awaitingCloudRoster == true {
             let pending = max(store?.pendingCloudDownloads ?? 0, s.pendingDownloads)
             return pending > 0 ? "Restoring your apps · \(pending) left" : "Restoring your apps…"
@@ -56,15 +55,13 @@ struct ProfileSettingsView: View {
         guard !isSyncing else { return }
         isSyncing = true
         defer { isSyncing = false }
-        // Kick downloads first. `reconcile()` only copies files that are
-        // already materialized, so on a device whose cloud items are still
-        // dataless placeholders a bare reconcile is a no-op — "Sync now" looked
-        // like it did nothing while the roster stayed stuck.
+        // Kick downloads first: `reconcile()` only copies already-materialized
+        // files, so against dataless cloud placeholders — exactly the state
+        // this button is meant to unstick — a bare reconcile did nothing.
         //
-        // Concurrently, and on a short deadline: the button is disabled for the
-        // duration, and two sequential default (60s) waits could park it for
-        // two minutes. Whatever hasn't landed by then keeps downloading in the
-        // background anyway — the kick is what matters, not the wait.
+        // Concurrent and on a short deadline, since the button is disabled
+        // throughout and two sequential 60s defaults would park it for two
+        // minutes. The kick is what matters; downloads continue regardless.
         async let state: Bool = PupaStorage.downloadSubtreeUntilSettled("state", timeout: .seconds(15))
         async let memories: Bool = PupaStorage.downloadSubtreeUntilSettled("memories", timeout: .seconds(15))
         _ = await (state, memories)

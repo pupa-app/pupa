@@ -233,14 +233,12 @@ public enum SnapshotStore {
 
     /// Drop the automatic history for `appId`, keeping the reasons in `keeping`
     /// — by default everything that must survive deleting the MyApp. Removes
-    /// the whole dir when nothing survives.
+    /// the whole dir when nothing survives. Every kept kind is a self-contained
+    /// full base (see `record`), so dropping siblings never dangles a chain.
     ///
     /// `gcTombstones` passes `[.pinned]`: once the tombstone ages out the app
-    /// can never be listed under Recently deleted again, so its `.deleted`
-    /// restore point is dead weight and would otherwise be orphaned forever.
-    ///
-    /// Every kept kind is written as a self-contained full base (see `record`),
-    /// so dropping their siblings never dangles a chain.
+    /// can never be listed under Recently deleted again, so keeping its
+    /// `.deleted` restore point would orphan it forever.
     public static func deleteNonPinned(
         _ appId: UUID,
         keeping: Set<SnapshotReason> = survivesDeletion
@@ -262,16 +260,13 @@ public enum SnapshotStore {
     }
 
     /// Delete every `appId` record whose reason is in `reasons`, re-basing any
-    /// survivor that diffed off one of them first so no chain dangles.
+    /// survivor that diffed off one first so no chain dangles. Unlike `prune`'s
+    /// single oldest-survivor re-base, losers here can sit anywhere in the
+    /// chain, so each break is repaired at its own link.
     ///
-    /// `restoreDeletedMyApp` drops `.deleted` this way. Those records are
-    /// permanent (`survivesDeletion`) and `gcTombstones` is the only thing that
-    /// collects them — via the tombstone a restore has just cleared. Without
-    /// this, every delete/restore cycle strands one full base forever, mirrored
-    /// to iCloud.
-    ///
-    /// Unlike `prune`'s single oldest-survivor re-base, losers here can sit
-    /// anywhere in the chain, so each break is repaired at its own link.
+    /// This is how the un-delete paths retire `.deleted`; without it every
+    /// delete/restore cycle strands one full base forever, mirrored to iCloud
+    /// (see `MyAppStore.clearDeleteMarkers`).
     public static func dropRecords(_ appId: UUID, reasons: Set<SnapshotReason>) {
         let all = metas(appId)
         let losers = all.filter { reasons.contains($0.reason) }
@@ -347,13 +342,11 @@ public enum SnapshotStore {
     /// surviving snapshot to a full base so no survivor's diff chain dangles.
     /// The `survivesDeletion` reasons are permanent: never aged out, never
     /// counted toward the cap, always kept. (They are stored as full bases, so
-    /// keeping them while evicting neighbours never dangles a chain.) The
-    /// `.deleted` restore point is in that set for the same reason
-    /// `deleteNonPinned` keeps it — its app's tombstone outlives the snapshot
-    /// TTL, so a Recently deleted row must not go stale under it. Being exempt
-    /// from TTL + cap, a `.deleted` record is collected only by whatever
-    /// retires its tombstone: `gcTombstones` at 180 days, or `dropRecords` on
-    /// restore.
+    /// keeping them while evicting neighbours never dangles a chain.)
+    /// `.deleted` is in that set because a tombstone outlives the snapshot TTL
+    /// and a Recently deleted row must not go stale under it — which leaves
+    /// whatever retires the tombstone as its only collector: `gcTombstones` at
+    /// 180 days, or `dropRecords` on restore.
     public static func prune(
         _ appId: UUID, now: Date = Date(),
         ttl: TimeInterval = defaultTTL, cap: Int = defaultCap
