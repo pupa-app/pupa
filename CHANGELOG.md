@@ -3,6 +3,29 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.237] — 2026-08-13
+
+### Fixed
+
+- **Deleting a MyApp is undoable.** A delete dropped the body file and wrote a
+  tombstone that suppresses the id on every device, with nothing capturing the
+  app on the way out — silent and final, including when the delete happened on
+  another device. `removeMyApp` now records a `.deleted` restore point (kept by
+  the post-delete sweep alongside pins), tombstones carry the app name, and
+  **Settings → Recently deleted** lists them for the tombstone's 180-day life
+  with a Restore button. Restore writes the body back *before* clearing the
+  tombstone, so a device syncing mid-restore can't re-suppress the app.
+- **A slow first iCloud pull no longer strands the roster.** With an empty
+  local store and iCloud active, `finishProvisioning` polled for 7s and then
+  parked on the seeded placeholder — on a slow link that showed one app
+  ("Daily Briefing") indefinitely. It now keeps pulling in the background and
+  adopts the real roster the moment it lands, and Account reports
+  "Restoring your apps · N left" instead of a bare "Waiting for iCloud".
+- **"Sync now" actually starts downloads.** It only ran `reconcile()`, which
+  copies already-materialized files — on a device whose cloud items are still
+  dataless placeholders that was a no-op. It now force-downloads `state/` and
+  `memories/` first.
+
 ## [0.0.236] — 2026-08-10
 
 ### Fixed

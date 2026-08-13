@@ -15,6 +15,9 @@ public enum SnapshotReason: String, Codable, Sendable {
     /// A user restore — the new head produced by reverting to an earlier
     /// snapshot (restore is append-only; see `MyAppStore.restore`).
     case restored
+    /// The state just before the user deleted the MyApp — the restore point
+    /// behind Settings → Recently deleted.
+    case deleted
     /// A user-pinned permanent snapshot: labelled, always stored as a full
     /// base, and never evicted by `prune`. The "keep this state forever"
     /// milestone.
@@ -193,7 +196,7 @@ public enum SnapshotStore {
         let sid = UUID()
         let parentId = headMeta?.id
         let record: Snapshot
-        if reason != .pinned,
+        if !survivesDeletion.contains(reason),
            let parentId,
            chainDepth(app.id, id: parentId) + 1 < baseInterval,
            let parentState = resolve(app.id, id: parentId),
@@ -224,16 +227,22 @@ public enum SnapshotStore {
         try? FileManager.default.removeItem(at: dir(appId))
     }
 
-    /// Drop only the automatic (non-pinned) history for `appId`, keeping the
-    /// user's permanent pins so they survive deleting the MyApp. Removes the
-    /// whole dir when no pins remain. Pins are self-contained full bases, so
-    /// deleting their non-pinned siblings never dangles a chain.
+    /// Reasons whose records outlive the MyApp: the user's permanent pins, and
+    /// the `.deleted` restore point that backs Settings → Recently deleted.
+    private static let survivesDeletion: Set<SnapshotReason> = [.pinned, .deleted]
+
+    /// Drop only the automatic history for `appId`, keeping what must survive
+    /// deleting the MyApp (see `survivesDeletion`). Removes the whole dir when
+    /// nothing survives. Both kept kinds are written as self-contained full
+    /// bases, so dropping their siblings never dangles a chain.
     public static func deleteNonPinned(_ appId: UUID) {
         let all = metas(appId)
-        guard all.contains(where: { $0.reason == .pinned }) else {
+        guard all.contains(where: { survivesDeletion.contains($0.reason) }) else {
             deleteAll(appId); return
         }
-        for m in all where m.reason != .pinned { CloudDocument.delete(url(appId, m.id)) }
+        for m in all where !survivesDeletion.contains(m.reason) {
+            CloudDocument.delete(url(appId, m.id))
+        }
     }
 
     /// Every app id that currently has a snapshot directory on disk — including

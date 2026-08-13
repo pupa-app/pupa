@@ -92,8 +92,12 @@ public struct SettingsSheet: View {
     /// category's real controls (the existing section builders, re-hosted in
     /// their own `Form`).
     private enum SettingsCategory: Hashable {
-        case profile, backend, tools, agents, agentsOverview, notifications, examples, sharing, pinned, archive
+        case profile, backend, tools, agents, agentsOverview, notifications, examples, sharing, pinned, archive, recentlyDeleted
     }
+
+    /// Deleted apps still inside the tombstone TTL. Read once per body eval —
+    /// it touches the filesystem, so it must not be called per row.
+    private var deletedApps: [MyAppStore.DeletedMyApp] { MyAppStore.deletedMyApps() }
 
     /// True when the Import & Export screen can be shown (stores wired in).
     private var canShare: Bool { store != nil && memory != nil && onImported != nil }
@@ -154,6 +158,12 @@ public struct SettingsSheet: View {
                     NavigationLink(value: SettingsCategory.archive) {
                         categoryRow(icon: "archivebox", title: "Archive",
                                     caption: "Hidden apps")
+                    }
+                }
+                if store != nil, !deletedApps.isEmpty {
+                    NavigationLink(value: SettingsCategory.recentlyDeleted) {
+                        categoryRow(icon: "trash.arrow.circlepath", title: "Recently deleted",
+                                    caption: "Restore a deleted app")
                     }
                 }
                 if let onStartTour {
@@ -313,6 +323,10 @@ public struct SettingsSheet: View {
             case .archive:
                 if let store {
                     ArchivedAppsView(store: store)
+                }
+            case .recentlyDeleted:
+                if let store {
+                    RecentlyDeletedAppsView(store: store)
                 }
             }
         }

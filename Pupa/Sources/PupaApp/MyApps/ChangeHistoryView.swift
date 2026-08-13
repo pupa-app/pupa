@@ -152,6 +152,7 @@ public struct ChangeHistoryView: View {
         case .conflict: return "Recovered from a sync conflict"
         case .preReload: return "Before syncing another device"
         case .restored: return "Restored an earlier version"
+        case .deleted: return "Before the app was deleted"
         case .edit:
             if let e = events.filter({ $0.timestamp <= snap.timestamp })
                 .max(by: { $0.timestamp < $1.timestamp }) {
@@ -288,6 +289,9 @@ private struct SnapshotRow: View {
         case .restored:
             Image(systemName: "arrow.uturn.backward.circle.fill")
                 .foregroundStyle(Color.orchestratorColor)
+        case .deleted:
+            Image(systemName: "trash.fill")
+                .foregroundStyle(.secondary)
         case .preReload:
             Image(systemName: "arrow.triangle.2.circlepath")
                 .foregroundStyle(.secondary)

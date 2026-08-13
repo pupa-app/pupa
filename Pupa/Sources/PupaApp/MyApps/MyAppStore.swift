@@ -79,6 +79,17 @@ public final class MyAppStore {
     /// other devices — the reported data-loss bug). Gates `persist()`; drives a
     /// "Restoring from iCloud…" affordance. Cleared by `finishProvisioning()`.
     public private(set) var isProvisioning = false
+    /// Items under `state/` iCloud hasn't materialized yet. Non-zero means the
+    /// roster on screen is still incomplete — an app whose body hasn't landed
+    /// is simply skipped by `load()`, with nothing else to show for it.
+    public private(set) var pendingCloudDownloads = 0
+    /// The cloud holds a roster this device couldn't pull inside the
+    /// provisioning window. `retryAdoptingCloudRoster` keeps trying in the
+    /// background; the UI says so instead of an open-ended "waiting".
+    public private(set) var awaitingCloudRoster = false
+    /// The background adoption retry, so it's never started twice.
+    @ObservationIgnored private var cloudRosterRetry: Task<Void, Never>?
+
     /// App ids this user deleted on THIS device. Lets `reloadFromDisk` tell an
     /// intentional local delete from an app that vanished via a bad sync merge
     /// (the latter raises the restore banner). Consumed as removals are handled.
@@ -403,13 +414,19 @@ public final class MyAppStore {
         // Reap the deleted app's per-thread transcript caches before it leaves
         // the roster — `persist()` no longer has the body to enumerate.
         TranscriptCache.delete(myApps[idx].threads.map(\.id))
+        // Restore point BEFORE the body file goes: a deliberate delete used to
+        // be unrecoverable, since `persist()` drops the file and nothing else
+        // captured it. Snapshot history outlives the app, so this is what
+        // Settings → Recently deleted restores from.
+        SnapshotStore.record(myApps[idx], reason: .deleted)
+        let deletedName = myApps[idx].name
         myApps.remove(at: idx)
         // Remember this was a deliberate local delete so a later `reloadFromDisk`
         // doesn't mistake the resulting roster shrink for a bad sync merge.
         userInitiatedRemovals.insert(id)
         // Durable, mirrored delete marker — survives relaunch and suppresses the
         // body on every device, so a not-yet-synced copy can't resurrect it.
-        Self.writeTombstone(id)
+        Self.writeTombstone(id, name: deletedName)
         if activeMyAppId == id {
             activeMyAppId = myApps[0].id
         }
@@ -3256,6 +3273,10 @@ public final class MyAppStore {
     private struct Tombstone: Codable {
         var id: UUID
         var deletedAt: Date
+        /// Display name, so Settings → Recently deleted can label the row
+        /// without reconstructing the whole app from its snapshot chain.
+        /// Optional: tombstones written before this existed still decode.
+        var name: String?
     }
 
     private nonisolated static var tombstonesDir: URL {
@@ -3267,9 +3288,67 @@ public final class MyAppStore {
 
     /// Record `id` as deleted. Durable + mirrored, so the delete survives a
     /// relaunch and reaches every device. Re-deleting just refreshes `deletedAt`.
-    nonisolated static func writeTombstone(_ id: UUID, at now: Date = Date()) {
-        guard let data = try? stateEncoder().encode(Tombstone(id: id, deletedAt: now)) else { return }
+    nonisolated static func writeTombstone(_ id: UUID, name: String? = nil, at now: Date = Date()) {
+        let tombstone = Tombstone(id: id, deletedAt: now, name: name)
+        guard let data = try? stateEncoder().encode(tombstone) else { return }
         try? CloudDocument.write(data, to: tombstoneURL(id))
+    }
+
+    /// A MyApp this user deleted, still listed while its tombstone lives.
+    public struct DeletedMyApp: Identifiable, Sendable, Equatable {
+        public let id: UUID
+        public let name: String
+        public let deletedAt: Date
+        /// False when no snapshot survives — the row shows why instead of
+        /// offering a Restore that can't work.
+        public let isRestorable: Bool
+    }
+
+    /// Deleted MyApps still inside the tombstone TTL, newest first. Backs
+    /// Settings → Recently deleted, so a mistaken delete (or one made on
+    /// another device) is visible and undoable rather than silent.
+    public nonisolated static func deletedMyApps() -> [DeletedMyApp] {
+        let dec = JSONDecoder()
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: tombstonesDir.path)
+        else { return [] }
+        var out: [DeletedMyApp] = []
+        for name in names where name.hasSuffix(".json") {
+            guard let id = UUID(uuidString: String(name.dropLast(".json".count))) else { continue }
+            let stone = CloudDocument.read(tombstoneURL(id)).flatMap { try? dec.decode(Tombstone.self, from: $0) }
+            let head = SnapshotStore.head(id)
+            // Legacy tombstones carry no name — recover it from the restore
+            // point when there is one.
+            let label = stone?.name
+                ?? head.flatMap { SnapshotStore.restoredApp(id, id: $0.id)?.name }
+                ?? "Deleted app"
+            out.append(DeletedMyApp(
+                id: id,
+                name: label,
+                deletedAt: stone?.deletedAt ?? .distantPast,
+                isRestorable: head != nil
+            ))
+        }
+        return out.sorted { $0.deletedAt > $1.deletedAt }
+    }
+
+    /// Bring a deleted MyApp back from its newest snapshot. Returns false when
+    /// it's already in the roster or has no restore point.
+    ///
+    /// Order matters: the body is persisted **before** the tombstone goes, so a
+    /// device that syncs mid-restore can't see a tombstone-free id with no body
+    /// (and union-load re-suppress it on the next pass).
+    @discardableResult
+    public func restoreDeletedMyApp(_ id: UUID) -> Bool {
+        guard !myApps.contains(where: { $0.id == id }),
+              let head = SnapshotStore.head(id),
+              let app = SnapshotStore.restoredApp(id, id: head.id)
+        else { return false }
+        myApps.append(app)
+        backfillColorIndices()
+        persist()
+        Self.clearTombstone(id)
+        SnapshotStore.record(app, reason: .restored)
+        return true
     }
 
     /// Drop `id`'s tombstone. Call whenever an app with that id legitimately
@@ -3420,6 +3499,12 @@ public final class MyAppStore {
                 ?? (try? fm.attributesOfItem(atPath: url.path)[.modificationDate]) as? Date
             guard let deletedAt, now.timeIntervalSince(deletedAt) > ttl else { continue }
             CloudDocument.delete(url)
+            // The tombstone is gone, so the app can never be listed under
+            // Recently deleted again — drop the restore point it was holding
+            // (pins still survive).
+            if let id = UUID(uuidString: String(name.dropLast(".json".count))) {
+                SnapshotStore.deleteNonPinned(id)
+            }
             gcd += 1
         }
         return gcd
@@ -3574,7 +3659,7 @@ public final class MyAppStore {
         let deadline = ContinuousClock.now.advanced(by: Self.provisioningTimeout)
         var loaded = Self.load()
         while !loaded.fromDisk && ContinuousClock.now < deadline {
-            PupaStorage.startDownloadingState()
+            pendingCloudDownloads = PupaStorage.startDownloadingState()
             _ = await StorageMirror.shared.reconcile()
             loaded = Self.load()
             if loaded.fromDisk { break }
@@ -3593,10 +3678,44 @@ public final class MyAppStore {
             for app in myApps { seedBirthFiles(forAppNamed: app.name) }
             persist()
             PupaStorage.markRosterEstablished()
+        } else {
+            // The cloud has (or had) a roster we couldn't pull in the window.
+            // Keep the in-memory placeholder unpersisted rather than
+            // seed-and-push a default that might clobber it — and keep pulling
+            // instead of waiting for a CloudWatcher pass that may never come on
+            // a slow link (the "stuck on Daily Briefing" report).
+            awaitingCloudRoster = true
+            retryAdoptingCloudRoster()
         }
-        // else: the cloud has (or had) a roster we couldn't pull in the window —
-        // keep the in-memory placeholder unpersisted rather than seed-and-push a
-        // default that might clobber it; a later CloudWatcher pass adopts it.
+    }
+
+    /// Keep downloading `state/` and adopt the roster the moment it lands.
+    /// Runs until it succeeds, the deadline passes, or the task is cancelled.
+    private func retryAdoptingCloudRoster(
+        timeout: Duration = .seconds(600),
+        interval: Duration = .seconds(3)
+    ) {
+        guard cloudRosterRetry == nil else { return }
+        cloudRosterRetry = Task { [weak self] in
+            let deadline = ContinuousClock.now.advanced(by: timeout)
+            while !Task.isCancelled && ContinuousClock.now < deadline {
+                let pending = PupaStorage.startDownloadingState()
+                _ = await StorageMirror.shared.reconcile()
+                let loaded = Self.load()
+                guard let self else { return }
+                await MainActor.run {
+                    self.pendingCloudDownloads = pending
+                    guard loaded.fromDisk else { return }
+                    self.adopt(loaded)
+                    PupaStorage.markRosterEstablished()
+                    self.awaitingCloudRoster = false
+                    self.cloudRosterRetry = nil
+                }
+                if loaded.fromDisk { return }
+                try? await Task.sleep(for: interval)
+            }
+            await MainActor.run { self?.cloudRosterRetry = nil }
+        }
     }
 
     /// Whether the iCloud mirror holds a `state/index.json` in any form

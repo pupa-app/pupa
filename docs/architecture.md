@@ -952,7 +952,12 @@ the real apps on every device (the reported "everything replaced by Daily
 Briefing" wipe). Instead `MyAppStore` enters `isProvisioning` (holds an
 in-memory placeholder, persists nothing) and `finishProvisioning()` forces the
 `state/` subtree to download, converges, and either **adopts** the pulled roster
-or seeds the default only if the cloud is genuinely empty. A durable local
+or seeds the default only if the cloud is genuinely empty. If the window
+expires with a roster in the cloud it couldn't pull, it sets
+`awaitingCloudRoster` and keeps retrying in the background (up to 10 min) rather
+than parking on the placeholder — a slow link otherwise showed only the seeded
+app indefinitely. `pendingCloudDownloads` carries the still-downloading count so
+Account can say "Restoring your apps · N left". A durable local
 `.roster-established` marker plus a `StorageMirror.provisioning` flag — which
 makes `plan()` refuse to push or win a conflict on `state/index.json` — ensure a
 placeholder can never overwrite a populated cloud index. Separately, when a
@@ -991,7 +996,13 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
 - **Deletion tombstones.** Because union-load treats any on-disk body as a live
   app, a delete needs a durable record or a not-yet-synced copy on another device
   would resurrect it. So deleting a MyApp writes a mirrored marker
-  `state/tombstones/<uuid>.json` (`{id, deletedAt}`) alongside removing the body.
+  `state/tombstones/<uuid>.json` (`{id, deletedAt, name?}`) alongside removing the
+  body, and records a `.deleted` snapshot first — the restore point behind
+  **Settings → Recently deleted**, which lists tombstoned apps for the marker's
+  180-day life. `deleteNonPinned` (run when an app leaves the roster) keeps
+  `.deleted` records alongside pins, and `gcTombstones` drops them when it reaps
+  the tombstone. Restoring writes the body back *before* clearing the tombstone,
+  so a device syncing mid-restore never sees a tombstone-free id with no body.
   Union-load subtracts tombstoned ids (a tombstone suppresses a body even while
   it's still on disk), and the orphan sweep reaps a tombstoned body regardless of
   decodability or age — that's how an arriving tombstone reaps the second device's
