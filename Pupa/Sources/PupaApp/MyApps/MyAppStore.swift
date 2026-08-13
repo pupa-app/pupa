@@ -77,7 +77,11 @@ public final class MyAppStore {
     /// launch but iCloud is active, so we await the first pull instead of
     /// seeding-and-pushing a default roster (which would clobber real apps on
     /// other devices — the reported data-loss bug). Gates `persist()`; drives a
-    /// "Restoring from iCloud…" affordance. Cleared by `finishProvisioning()`.
+    /// "Restoring from iCloud…" affordance. Cleared by `finishProvisioning()`
+    /// — or, when that ends still waiting on a roster it knows is up there, by
+    /// whichever of `adoptCloudRoster` / `finishAwaitingCloudRoster` ends the
+    /// retry. It stays set for the whole wait on purpose: the placeholder must
+    /// not reach disk while a real roster is still inbound.
     public private(set) var isProvisioning = false
     /// Items under `state/` iCloud hasn't materialized yet. Non-zero means the
     /// roster on screen is still incomplete — an app whose body hasn't landed
@@ -88,7 +92,18 @@ public final class MyAppStore {
     /// background; the UI says so instead of an open-ended "waiting".
     public private(set) var awaitingCloudRoster = false
     /// The background adoption retry, so it's never started twice.
-    @ObservationIgnored private var cloudRosterRetry: Task<Void, Never>?
+    @ObservationIgnored private(set) var cloudRosterRetry: Task<Void, Never>?
+    /// The seeded roster held in memory during provisioning, still standing in
+    /// for a cloud roster we never pulled. Empty once one is adopted (or once
+    /// the seed is committed as this install's own).
+    ///
+    /// Survives `isProvisioning` going false on the give-up path: that resumes
+    /// local writes so the user isn't frozen, but the placeholder itself must
+    /// still not reach disk. `load()` takes EXISTENCE from app bodies, so
+    /// persisting it makes it a real app that unions in *beside* the real
+    /// roster when it finally lands — a duplicate "Daily Briefing" on every
+    /// device, with a fresh UUID each launch. See `persist()`.
+    @ObservationIgnored private var unadoptedPlaceholderIds: Set<UUID> = []
 
     /// App ids this user deleted on THIS device. Lets `reloadFromDisk` tell an
     /// intentional local delete from an app that vanished via a bad sync merge
@@ -149,6 +164,10 @@ public final class MyAppStore {
                 // only if the cloud is genuinely empty.
                 isProvisioning = true
                 StorageMirror.provisioning = true
+                // Remember exactly which apps are the stand-in, so a later
+                // give-up can keep them off disk while still letting anything
+                // the user creates from here persist normally.
+                unadoptedPlaceholderIds = Set(myApps.map(\.id))
             } else {
                 // Genuinely fresh: iCloud off, or already established with no
                 // cloud data. Seed the default roster now and mark this install.
@@ -418,6 +437,12 @@ public final class MyAppStore {
         // be unrecoverable, since `persist()` drops the file and nothing else
         // captured it. Snapshot history outlives the app, so this is what
         // Settings → Recently deleted restores from.
+        //
+        // Synchronous, unlike every other snapshot here (which go through the
+        // debounced `scheduleSnapshot`): a full-base write on the main actor,
+        // so a chat-heavy app makes the delete tap hitch. Deliberate — the
+        // capture has to be durable before the body and the tombstone go, and
+        // deferring it is what left the delete unrecoverable.
         SnapshotStore.record(myApps[idx], reason: .deleted)
         let deletedName = myApps[idx].name
         myApps.remove(at: idx)
@@ -3298,55 +3323,121 @@ public final class MyAppStore {
     public struct DeletedMyApp: Identifiable, Sendable, Equatable {
         public let id: UUID
         public let name: String
-        public let deletedAt: Date
-        /// False when no snapshot survives — the row shows why instead of
-        /// offering a Restore that can't work.
+        /// Nil when the tombstone didn't decode (corrupt / half-written). The
+        /// row then omits the date rather than rendering a fabricated one.
+        public let deletedAt: Date?
+        /// False when nothing is left to restore from — a pre-0.0.240 delete,
+        /// which captured nothing. The row says so instead of offering a
+        /// Restore that can't work.
         public let isRestorable: Bool
     }
 
-    /// Deleted MyApps still inside the tombstone TTL, newest first. Backs
-    /// Settings → Recently deleted, so a mistaken delete (or one made on
-    /// another device) is visible and undoable rather than silent.
+    /// Everything that could bring tombstoned `id` back, best first: the newest
+    /// snapshot that still resolves, then the body file itself.
+    ///
+    /// The body matters. A tombstone arriving from another device suppresses
+    /// the local body immediately, but the deleting device's `.deleted`
+    /// snapshot syncs separately and may not have landed — until the sweep
+    /// reaps it (capturing it first), that body is the restore material.
+    ///
+    /// `metas` skips records whose header won't decode, so a corrupt newest
+    /// snapshot falls through to an older one rather than failing the restore.
+    nonisolated static func restorableApp(_ id: UUID) -> MyApp? {
+        for meta in SnapshotStore.metas(id) {
+            if let app = SnapshotStore.restoredApp(id, id: meta.id) { return app }
+        }
+        guard let data = CloudDocument.read(appURL(id)) else { return nil }
+        return try? JSONDecoder().decode(MyApp.self, from: data)
+    }
+
+    /// Whether anything survives to restore tombstoned `id` from, without
+    /// reconstructing it. Mirrors `restorableApp`'s two sources — a snapshot,
+    /// else the body file — at one directory `stat` each.
+    ///
+    /// A row needs only this Bool, and resolving each app in full to answer it
+    /// made the listing cost scale with app *size* rather than app count. The
+    /// gap: a record whose header lists but whose chain won't resolve reads as
+    /// restorable here. That surfaces as the view's "Couldn't restore" alert,
+    /// which already covers the same race (a sweep landing between scan and
+    /// tap).
+    nonisolated static func hasRestoreSource(_ id: UUID) -> Bool {
+        SnapshotStore.hasHistory(id)
+            || FileManager.default.fileExists(atPath: appURL(id).path)
+    }
+
+    /// Whether any tombstone exists — the cheap check behind showing the
+    /// Settings ▸ Recently deleted row at all. A filename scan only: unlike
+    /// `deletedMyApps` it decodes nothing and resolves no restore sources, so
+    /// it is safe to re-run on navigation.
+    public nonisolated static func hasTombstones() -> Bool {
+        !diskTombstoneIds().isEmpty
+    }
+
+    /// Tombstoned MyApps, newest first — everything Settings → Recently deleted
+    /// lists, so a mistaken delete (or one made on another device) is visible
+    /// and undoable rather than silent. Entries live until `gcTombstones` reaps
+    /// the marker at 180 days.
+    ///
+    /// Reads each tombstone and probes for its restore source — call it on
+    /// appear, never from a view's `body`. Use `hasTombstones()` when only the
+    /// presence of entries matters.
     public nonisolated static func deletedMyApps() -> [DeletedMyApp] {
         let dec = JSONDecoder()
-        guard let names = try? FileManager.default.contentsOfDirectory(atPath: tombstonesDir.path)
-        else { return [] }
         var out: [DeletedMyApp] = []
-        for name in names where name.hasSuffix(".json") {
-            guard let id = UUID(uuidString: String(name.dropLast(".json".count))) else { continue }
+        for id in diskTombstoneIds() {
             let stone = CloudDocument.read(tombstoneURL(id)).flatMap { try? dec.decode(Tombstone.self, from: $0) }
-            let head = SnapshotStore.head(id)
-            // Legacy tombstones carry no name — recover it from the restore
-            // point when there is one.
+            let isRestorable = hasRestoreSource(id)
+            // Legacy tombstones carry no name — recover it from whatever we can
+            // still restore from. The one case worth a full resolve, and the
+            // only reason this listing ever pays for one.
             let label = stone?.name
-                ?? head.flatMap { SnapshotStore.restoredApp(id, id: $0.id)?.name }
+                ?? (isRestorable ? restorableApp(id)?.name : nil)
                 ?? "Deleted app"
             out.append(DeletedMyApp(
                 id: id,
                 name: label,
-                deletedAt: stone?.deletedAt ?? .distantPast,
-                isRestorable: head != nil
+                deletedAt: stone?.deletedAt,
+                isRestorable: isRestorable
             ))
         }
-        return out.sorted { $0.deletedAt > $1.deletedAt }
+        // Undated (corrupt tombstone) sorts last rather than jumping to the top.
+        return out.sorted { ($0.deletedAt ?? .distantPast) > ($1.deletedAt ?? .distantPast) }
     }
 
-    /// Bring a deleted MyApp back from its newest snapshot. Returns false when
-    /// it's already in the roster or has no restore point.
+    /// Bring a deleted MyApp back. Returns false when it's already in the roster
+    /// or nothing survives to restore from (see `restorableApp`).
     ///
     /// Order matters: the body is persisted **before** the tombstone goes, so a
     /// device that syncs mid-restore can't see a tombstone-free id with no body
     /// (and union-load re-suppress it on the next pass).
+    ///
+    /// Refuses while provisioning: `persist()` is a no-op then, so the body
+    /// would never be written while `clearTombstone` still ran — losing the app
+    /// from both the roster and this list.
     @discardableResult
     public func restoreDeletedMyApp(_ id: UUID) -> Bool {
-        guard !myApps.contains(where: { $0.id == id }),
-              let head = SnapshotStore.head(id),
-              let app = SnapshotStore.restoredApp(id, id: head.id)
+        guard !isProvisioning,
+              !myApps.contains(where: { $0.id == id }),
+              var app = Self.restorableApp(id)
         else { return false }
+        // Un-hide it. A restore of an app that was archived when it was deleted
+        // would otherwise land straight in Settings ▸ Archive: the row vanishes
+        // from this list and the app appears nowhere the user was looking.
+        app.isArchived = false
         myApps.append(app)
         backfillColorIndices()
         persist()
         Self.clearTombstone(id)
+        // The id is live again, so it is no longer a delete this user made: a
+        // later sync that drops it is a surprise and must raise the notice.
+        userInitiatedRemovals.remove(id)
+        // The `.deleted` restore points just did their job, and clearing the
+        // tombstone above removed the only thing that ever collects them
+        // (`gcTombstones`) — they are exempt from TTL and cap. Drop them here or
+        // each delete/restore cycle strands one full base forever, in iCloud
+        // too. Before `record` below, so the new `.restored` never diffs off a
+        // record that's about to go.
+        SnapshotStore.dropRecords(id, reasons: [.deleted])
         SnapshotStore.record(app, reason: .restored)
         return true
     }
@@ -3399,10 +3490,19 @@ public final class MyAppStore {
         // pull and can clobber the real apps. `finishProvisioning()` clears the
         // flag before its own definitive write.
         guard !isProvisioning else { return }
+        // The give-up path (see `finishAwaitingCloudRoster`) resumes writes with
+        // the seeded placeholder still on screen, standing in for a roster we
+        // know is in iCloud but never pulled. That one must stay off disk — a
+        // persisted body is a real app to `load()`, which would list it beside
+        // the real roster on arrival. Apps the user made since are real intent
+        // and persist normally, and the index below is written without the
+        // stand-in — so a relaunch reads back their roster, not a stale seed.
+        let unadopted = unadoptedPlaceholderIds
         let enc = Self.stateEncoder()
         var live = Set<UUID>()
         for app in myApps {
             live.insert(app.id)
+            guard !unadopted.contains(app.id) else { continue }
             guard let data = try? enc.encode(app) else { continue }
             let h = data.hashValue
             if lastAppHash[app.id] == h { continue }
@@ -3420,8 +3520,14 @@ public final class MyAppStore {
             pendingSnapshotTasks[gone] = nil
             lastAppHash[gone] = nil
         }
+        // The index still gets written, minus the stand-in. It has to be:
+        // `load()` only reaches its union-of-disk-bodies recovery *inside* the
+        // "index decoded" branch, so skipping the write would hide apps the
+        // user made here until a roster arrives. With the stand-in filtered out
+        // the roster reads back as exactly those apps — and as empty (→ fresh
+        // seed, `fromDisk: false`, provision again) when there are none.
         let index = IndexFile(
-            order: myApps.map(\.id),
+            order: myApps.map(\.id).filter { !unadopted.contains($0) },
             activeId: activeMyAppId,
             memoryThreads: memoryThreads,
             memoryCurrentThreadId: memoryCurrentThreadId,
@@ -3454,10 +3560,23 @@ public final class MyAppStore {
                   let id = UUID(uuidString: String(name.dropLast(".json".count))),
                   !live.contains(id) else { continue }
             let url = appsDir.appendingPathComponent(name)
-            // A tombstoned body is a confirmed delete, not recovery material —
+            // A tombstoned body is a confirmed delete, not roster material —
             // reap it regardless of decodability or age so the delete propagates
             // (this is how an arriving tombstone reaps the second device's copy).
             if tombstoned.contains(id) {
+                // Capture it on the way out when nothing else holds this app.
+                // On the device that made the delete `removeMyApp` already
+                // recorded one; on a device that only received the tombstone
+                // this body is the sole restore material, and the deleting
+                // device's snapshot may not have synced yet.
+                // `hasHistory` first: this runs on the launch path, and the
+                // common answer ("no snapshot dir") costs a `stat` instead of a
+                // directory listing plus a header decode per record.
+                if !SnapshotStore.hasHistory(id) || SnapshotStore.head(id) == nil,
+                   let data = CloudDocument.read(url),
+                   let app = try? JSONDecoder().decode(MyApp.self, from: data) {
+                    SnapshotStore.record(app, reason: .deleted)
+                }
                 CloudDocument.delete(url)
                 deleted += 1
                 continue
@@ -3500,10 +3619,11 @@ public final class MyAppStore {
             guard let deletedAt, now.timeIntervalSince(deletedAt) > ttl else { continue }
             CloudDocument.delete(url)
             // The tombstone is gone, so the app can never be listed under
-            // Recently deleted again — drop the restore point it was holding
-            // (pins still survive).
+            // Recently deleted again — drop the restore point it was holding.
+            // `keeping: [.pinned]` is the point: the default set preserves
+            // `.deleted` too, which would orphan it here forever.
             if let id = UUID(uuidString: String(name.dropLast(".json".count))) {
-                SnapshotStore.deleteNonPinned(id)
+                SnapshotStore.deleteNonPinned(id, keeping: [.pinned])
             }
             gcd += 1
         }
@@ -3621,8 +3741,14 @@ public final class MyAppStore {
     /// returns, so reloads can't overlap.
     public func reloadFromDisk() async {
         let enc = Self.stateEncoder()
-        for app in myApps where (try? enc.encode(app))?.hashValue != lastAppHash[app.id] {
-            SnapshotStore.record(app, reason: .preReload)
+        // Not while provisioning: the roster is then an in-memory placeholder
+        // that must never reach disk, and checkpointing it writes exactly what
+        // the guard exists to prevent. A watcher pass can land here mid-wait,
+        // since the guard now stays armed for the whole retry window.
+        if !isProvisioning {
+            for app in myApps where (try? enc.encode(app))?.hashValue != lastAppHash[app.id] {
+                SnapshotStore.record(app, reason: .preReload)
+            }
         }
         let loaded = await Task.detached(priority: .utility) { [self] in
             resolveConflictsCapturingSnapshots()
@@ -3636,6 +3762,9 @@ public final class MyAppStore {
     /// Republish loaded state onto the main-actor store and re-prime the
     /// dirty-hash caches. Shared by `reloadFromDisk` and `finishProvisioning`.
     private func adopt(_ loaded: Loaded) {
+        // A real roster replaces the stand-in wholesale, so nothing is being
+        // held back any more — `persist()` may write the index again.
+        unadoptedPlaceholderIds = []
         myApps = loaded.myApps
         activeMyAppId = loaded.activeId
         memoryThreads = loaded.memoryThreads
@@ -3644,6 +3773,23 @@ public final class MyAppStore {
         componentFolders = loaded.componentFolders
         lastAppHash.removeAll()
         primeHashes()
+        // A real roster is in memory now, however it got here — the background
+        // retry, or a CloudWatcher `reloadFromDisk` that beat it. Stop the retry
+        // and drop the guards together: leaving them armed keeps `persist()` a
+        // no-op and pins `state/index.json` to the cloud side for nothing, and
+        // leaving the retry running means more converges with nothing to find.
+        if awaitingCloudRoster {
+            cancelCloudRosterRetry()
+            leaveProvisioning()
+        }
+    }
+
+    /// Stop the background retry and clear the state the UI reads from it.
+    private func cancelCloudRosterRetry() {
+        cloudRosterRetry?.cancel()
+        cloudRosterRetry = nil
+        awaitingCloudRoster = false
+        pendingCloudDownloads = 0
     }
 
     // MARK: - Provisional restore (seed-race fix)
@@ -3665,15 +3811,17 @@ public final class MyAppStore {
             if loaded.fromDisk { break }
             try? await Task.sleep(for: .milliseconds(250))
         }
-        // Leave provisioning BEFORE any write so `persist()` is allowed again.
-        isProvisioning = false
-        StorageMirror.provisioning = false
         if loaded.fromDisk {
+            leaveProvisioning()                  // BEFORE any write, so `persist()` works
             adopt(loaded)                        // real roster pulled from iCloud
             PupaStorage.markRosterEstablished()
         } else if !Self.cloudHasRosterIndex() && !PupaStorage.rosterEstablished {
             // Cloud holds no roster AND this install has never committed one → a
             // genuine fresh start. Seed the default and mark it.
+            leaveProvisioning()
+            // No longer a stand-in: the cloud is empty, so this seed IS this
+            // install's roster and must persist.
+            unadoptedPlaceholderIds = []
             backfillColorIndices()
             for app in myApps { seedBirthFiles(forAppNamed: app.name) }
             persist()
@@ -3684,38 +3832,102 @@ public final class MyAppStore {
             // seed-and-push a default that might clobber it — and keep pulling
             // instead of waiting for a CloudWatcher pass that may never come on
             // a slow link (the "stuck on Daily Briefing" report).
-            awaitingCloudRoster = true
-            retryAdoptingCloudRoster()
+            //
+            // Deliberately STAYS provisioning: we know a roster is up there, so
+            // until we've adopted it the placeholder must neither reach disk
+            // nor win `state/index.json` in the mirror. Clearing the guard here
+            // is what would let one edit to the placeholder push a one-app
+            // roster over the real one.
+            beginAwaitingCloudRoster()
         }
+    }
+
+    /// Drop the seed-race guards. Both must fall together: `isProvisioning`
+    /// gates local writes, `StorageMirror.provisioning` gates pushing (or
+    /// winning a conflict on) `state/index.json`.
+    private func leaveProvisioning() {
+        isProvisioning = false
+        StorageMirror.provisioning = false
     }
 
     /// Keep downloading `state/` and adopt the roster the moment it lands.
     /// Runs until it succeeds, the deadline passes, or the task is cancelled.
-    private func retryAdoptingCloudRoster(
+    ///
+    /// `Task.detached` on purpose: this type is `@MainActor`, so a plain `Task`
+    /// would inherit that isolation and run the whole poll — a recursive
+    /// enumeration of `state/` plus a full `load()` decode of every app body —
+    /// on the main thread, every `interval`, for the length of the timeout.
+    /// Detached keeps the I/O off-main and hops back only to publish.
+    ///
+    /// One poll is expensive: `startDownloadingState()` walks the whole cloud
+    /// `state/` subtree, `reconcile()` scans and hashes both trees for every
+    /// mirrored subtree, and `load()` decodes the index plus every app body.
+    /// At a flat interval across the full timeout that is hundreds of passes,
+    /// on a device already saturated by the download we're waiting for. So:
+    /// back off up to `maxInterval`, and skip the decode when the converge
+    /// moved nothing (nothing new can have landed).
+    func beginAwaitingCloudRoster(
         timeout: Duration = .seconds(600),
-        interval: Duration = .seconds(3)
+        interval: Duration = .seconds(3),
+        maxInterval: Duration = .seconds(30)
     ) {
         guard cloudRosterRetry == nil else { return }
-        cloudRosterRetry = Task { [weak self] in
+        awaitingCloudRoster = true
+        cloudRosterRetry = Task.detached(priority: .utility) { [weak self] in
             let deadline = ContinuousClock.now.advanced(by: timeout)
+            var wait = interval
+            var first = true
             while !Task.isCancelled && ContinuousClock.now < deadline {
                 let pending = PupaStorage.startDownloadingState()
-                _ = await StorageMirror.shared.reconcile()
-                let loaded = Self.load()
+                let changed = await StorageMirror.shared.reconcile()
+                // Decode when this pass moved something, when nothing is left to
+                // download (the roster is most likely sitting there), or on the
+                // first pass — a roster already in the local tree, or one pulled
+                // by someone else's converge, is invisible to `changed` alone.
+                let loaded = (changed || pending == 0 || first) ? Self.load() : nil
+                first = false
                 guard let self else { return }
-                await MainActor.run {
-                    self.pendingCloudDownloads = pending
-                    guard loaded.fromDisk else { return }
-                    self.adopt(loaded)
-                    PupaStorage.markRosterEstablished()
-                    self.awaitingCloudRoster = false
-                    self.cloudRosterRetry = nil
-                }
-                if loaded.fromDisk { return }
-                try? await Task.sleep(for: interval)
+                if await self.adoptCloudRoster(loaded, pending: pending) { return }
+                try? await Task.sleep(for: wait)
+                wait = min(wait * 2, maxInterval)
             }
-            await MainActor.run { self?.cloudRosterRetry = nil }
+            // Gave up (or was cancelled). Clear the flag: leaving it set leaves
+            // Account promising "Restoring your apps…" forever with nothing
+            // running behind it.
+            await self?.finishAwaitingCloudRoster()
         }
+    }
+
+    /// Publish one poll's result (`nil` when the poll skipped the decode).
+    /// Returns true once the real roster is adopted and the retry can stop.
+    private func adoptCloudRoster(_ loaded: Loaded?, pending: Int) -> Bool {
+        // Only on a change: `@Observable` publishes on write, not on write of a
+        // different value, so assigning unconditionally re-renders every
+        // observer of this store once per poll for the whole window.
+        if pending != pendingCloudDownloads { pendingCloudDownloads = pending }
+        guard let loaded, loaded.fromDisk else { return false }
+        leaveProvisioning()                      // the roster is here: writes are safe again
+        adopt(loaded)                            // clears the awaiting state
+        PupaStorage.markRosterEstablished()
+        return true
+    }
+
+    /// The retry stopped without a roster — drop the waiting state so the UI
+    /// can fall back to its normal sync status.
+    ///
+    /// Unblocks local writes, but deliberately leaves
+    /// `StorageMirror.provisioning` alone: we never pulled the roster we know
+    /// is up there, so the placeholder index still must not win against it.
+    /// Bodies push normally — the guard only covers `state/index.json`.
+    ///
+    /// `unadoptedPlaceholderIds` also stays set, so unblocking writes doesn't
+    /// let the stand-in roster itself onto disk. Without that the user's next
+    /// edit persists a body with a launch-fresh UUID, and union-load lists it
+    /// beside the real roster once that lands — a duplicate "Daily Briefing"
+    /// pushed to every device.
+    private func finishAwaitingCloudRoster() {
+        isProvisioning = false
+        cancelCloudRosterRetry()
     }
 
     /// Whether the iCloud mirror holds a `state/index.json` in any form

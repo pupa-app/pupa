@@ -229,20 +229,68 @@ public enum SnapshotStore {
 
     /// Reasons whose records outlive the MyApp: the user's permanent pins, and
     /// the `.deleted` restore point that backs Settings → Recently deleted.
-    private static let survivesDeletion: Set<SnapshotReason> = [.pinned, .deleted]
+    public static let survivesDeletion: Set<SnapshotReason> = [.pinned, .deleted]
 
-    /// Drop only the automatic history for `appId`, keeping what must survive
-    /// deleting the MyApp (see `survivesDeletion`). Removes the whole dir when
-    /// nothing survives. Both kept kinds are written as self-contained full
-    /// bases, so dropping their siblings never dangles a chain.
-    public static func deleteNonPinned(_ appId: UUID) {
+    /// Drop the automatic history for `appId`, keeping the reasons in `keeping`
+    /// — by default everything that must survive deleting the MyApp. Removes
+    /// the whole dir when nothing survives.
+    ///
+    /// `gcTombstones` passes `[.pinned]`: once the tombstone ages out the app
+    /// can never be listed under Recently deleted again, so its `.deleted`
+    /// restore point is dead weight and would otherwise be orphaned forever.
+    ///
+    /// Every kept kind is written as a self-contained full base (see `record`),
+    /// so dropping their siblings never dangles a chain.
+    public static func deleteNonPinned(
+        _ appId: UUID,
+        keeping: Set<SnapshotReason> = survivesDeletion
+    ) {
         let all = metas(appId)
-        guard all.contains(where: { survivesDeletion.contains($0.reason) }) else {
+        guard all.contains(where: { keeping.contains($0.reason) }) else {
             deleteAll(appId); return
         }
-        for m in all where !survivesDeletion.contains(m.reason) {
+        for m in all where !keeping.contains(m.reason) {
             CloudDocument.delete(url(appId, m.id))
         }
+    }
+
+    /// Whether `appId` has a snapshot directory at all. One `stat` — the cheap
+    /// gate to put in front of `head`, which lists the directory and decodes
+    /// every header in it.
+    public static func hasHistory(_ appId: UUID) -> Bool {
+        FileManager.default.fileExists(atPath: dir(appId).path)
+    }
+
+    /// Delete every `appId` record whose reason is in `reasons`, re-basing any
+    /// survivor that diffed off one of them first so no chain dangles.
+    ///
+    /// `restoreDeletedMyApp` drops `.deleted` this way. Those records are
+    /// permanent (`survivesDeletion`) and `gcTombstones` is the only thing that
+    /// collects them — via the tombstone a restore has just cleared. Without
+    /// this, every delete/restore cycle strands one full base forever, mirrored
+    /// to iCloud.
+    ///
+    /// Unlike `prune`'s single oldest-survivor re-base, losers here can sit
+    /// anywhere in the chain, so each break is repaired at its own link.
+    public static func dropRecords(_ appId: UUID, reasons: Set<SnapshotReason>) {
+        let all = metas(appId)
+        let losers = all.filter { reasons.contains($0.reason) }
+        guard !losers.isEmpty else { return }
+        let loserIds = Set(losers.map(\.id))
+        let survivors = all.filter { !loserIds.contains($0.id) }
+
+        // Resolve while the losers are still readable — this must precede the
+        // deletes below.
+        for s in survivors where !s.isBase && s.parentId.map(loserIds.contains) == true {
+            guard let state = resolve(appId, id: s.id) else { continue }
+            try? writeRecord(Snapshot(
+                id: s.id, contentHash: s.contentHash, appId: appId,
+                timestamp: s.timestamp, device: s.device, parentId: nil,
+                reason: s.reason, base: state, diff: nil, label: s.label),
+                to: url(appId, s.id))
+        }
+        for loser in losers { CloudDocument.delete(url(appId, loser.id)) }
+        if survivors.isEmpty { deleteAll(appId) }   // don't leave an empty dir
     }
 
     /// Every app id that currently has a snapshot directory on disk — including
@@ -297,9 +345,15 @@ public enum SnapshotStore {
 
     /// TTL + cap eviction. Before deleting old links, re-base the oldest
     /// surviving snapshot to a full base so no survivor's diff chain dangles.
-    /// `.pinned` snapshots are permanent: never aged out, never counted toward
-    /// the cap, always kept. (They are stored as full bases, so keeping them
-    /// while evicting neighbours never dangles a chain.)
+    /// The `survivesDeletion` reasons are permanent: never aged out, never
+    /// counted toward the cap, always kept. (They are stored as full bases, so
+    /// keeping them while evicting neighbours never dangles a chain.) The
+    /// `.deleted` restore point is in that set for the same reason
+    /// `deleteNonPinned` keeps it — its app's tombstone outlives the snapshot
+    /// TTL, so a Recently deleted row must not go stale under it. Being exempt
+    /// from TTL + cap, a `.deleted` record is collected only by whatever
+    /// retires its tombstone: `gcTombstones` at 180 days, or `dropRecords` on
+    /// restore.
     public static func prune(
         _ appId: UUID, now: Date = Date(),
         ttl: TimeInterval = defaultTTL, cap: Int = defaultCap
@@ -308,19 +362,20 @@ public enum SnapshotStore {
         guard !all.isEmpty else { return }
 
         let cutoff = now.addingTimeInterval(-ttl)
-        // Pins always survive and don't consume the cap; only the automatic
-        // (non-pinned) snapshots are subject to TTL + cap eviction.
-        let evictable = all.filter { $0.reason != .pinned }
+        // Permanent reasons always survive and don't consume the cap; only the
+        // automatic snapshots are subject to TTL + cap eviction.
+        let evictable = all.filter { !survivesDeletion.contains($0.reason) }
         var keptEvictable = evictable.filter { $0.timestamp >= cutoff }
         if keptEvictable.count > cap { keptEvictable = Array(keptEvictable.prefix(cap)) }
         // Never evict the whole automatic history — keep the newest snapshot
-        // if it isn't already a permanent pin.
-        if keptEvictable.isEmpty, let newest = all.first, newest.reason != .pinned {
+        // if it isn't already permanent.
+        if keptEvictable.isEmpty, let newest = all.first,
+           !survivesDeletion.contains(newest.reason) {
             keptEvictable = [newest]
         }
 
         var survivorIds = Set(keptEvictable.map(\.id))
-        survivorIds.formUnion(all.filter { $0.reason == .pinned }.map(\.id))
+        survivorIds.formUnion(all.filter { survivesDeletion.contains($0.reason) }.map(\.id))
         let losers = all.filter { !survivorIds.contains($0.id) }
         guard !losers.isEmpty else { return }
 

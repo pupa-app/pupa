@@ -95,9 +95,21 @@ public struct SettingsSheet: View {
         case profile, backend, tools, agents, agentsOverview, notifications, examples, sharing, pinned, archive, recentlyDeleted
     }
 
-    /// Deleted apps still inside the tombstone TTL. Read once per body eval —
-    /// it touches the filesystem, so it must not be called per row.
-    private var deletedApps: [MyAppStore.DeletedMyApp] { MyAppStore.deletedMyApps() }
+    /// Whether to offer the Recently deleted row. Loaded on appear, not
+    /// computed in `body`: it reads the filesystem, which must not run on every
+    /// view update.
+    @State private var hasDeletedApps = false
+
+    /// Off-main tombstone scan feeding `hasDeletedApps`. `hasTombstones()`, not
+    /// `deletedMyApps()`: the row only needs "any?", while the full listing
+    /// resolves a restore source per entry (a snapshot-chain walk and a whole
+    /// `MyApp` decode each). That belongs on the screen itself, not on a gate
+    /// re-run on every settings navigation.
+    private func refreshHasDeletedApps() async {
+        hasDeletedApps = await Task.detached(priority: .userInitiated) {
+            MyAppStore.hasTombstones()
+        }.value
+    }
 
     /// True when the Import & Export screen can be shown (stores wired in).
     private var canShare: Bool { store != nil && memory != nil && onImported != nil }
@@ -160,7 +172,7 @@ public struct SettingsSheet: View {
                                     caption: "Hidden apps")
                     }
                 }
-                if store != nil, !deletedApps.isEmpty {
+                if store != nil, hasDeletedApps {
                     NavigationLink(value: SettingsCategory.recentlyDeleted) {
                         categoryRow(icon: "trash.arrow.circlepath", title: "Recently deleted",
                                     caption: "Restore a deleted app")
@@ -184,6 +196,14 @@ public struct SettingsSheet: View {
             #endif
             .navigationDestination(for: SettingsCategory.self) { category in
                 categoryDetail(category)
+            }
+            .task { await refreshHasDeletedApps() }
+            // Re-check on the way back, so restoring the last deleted app drops
+            // the row. A navigation event, never a body eval — and only on the
+            // pop, since a push can't have changed what's on disk.
+            .onChange(of: path) { _, new in
+                guard new.isEmpty else { return }
+                Task { await refreshHasDeletedApps() }
             }
             .toolbar {
                 // Dismiss control sits leading (left) on both platforms, so

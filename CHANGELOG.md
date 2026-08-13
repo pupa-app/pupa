@@ -3,28 +3,60 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
-## [0.0.237] — 2026-08-13
+## [0.0.240] — 2026-08-13
 
 ### Fixed
 
 - **Deleting a MyApp is undoable.** A delete dropped the body file and wrote a
   tombstone that suppresses the id on every device, with nothing capturing the
   app on the way out — silent and final, including when the delete happened on
-  another device. `removeMyApp` now records a `.deleted` restore point (kept by
-  the post-delete sweep alongside pins), tombstones carry the app name, and
-  **Settings → Recently deleted** lists them for the tombstone's 180-day life
-  with a Restore button. Restore writes the body back *before* clearing the
-  tombstone, so a device syncing mid-restore can't re-suppress the app.
-- **A slow first iCloud pull no longer strands the roster.** With an empty
-  local store and iCloud active, `finishProvisioning` polled for 7s and then
-  parked on the seeded placeholder — on a slow link that showed one app
-  ("Daily Briefing") indefinitely. It now keeps pulling in the background and
-  adopts the real roster the moment it lands, and Account reports
+  another device. `removeMyApp` now records a `.deleted` restore point,
+  tombstones carry the app name, and **Settings → Recently deleted** lists them
+  for the tombstone's 180-day life with a Restore button. Restore writes the
+  body back *before* clearing the tombstone, so a device syncing mid-restore
+  can't re-suppress the app; it un-hides an app that was archived when deleted,
+  re-arms the sync-removal notice for its id, and is refused while provisioning
+  (`persist()` is a no-op then, so clearing the tombstone would lose the app
+  from both the roster and the list).
+- **Every tombstoned app is actually restorable.** Restore falls back from the
+  newest snapshot that resolves to the app's own body file, and the orphan sweep
+  captures a tombstoned body before reaping it — a delete made on another device
+  was otherwise restorable only if that device's snapshot happened to sync
+  first. Only a pre-0.0.240 delete lists as non-restorable.
+- **A deleted app's restore point never outlives its use.** `.deleted` records
+  are exempt from the history TTL *and* the per-app cap, so the only things that
+  can collect them work off the tombstone: `gcTombstones` at 180 days, and the
+  restore itself. Both now do — otherwise every delete (and every delete/restore
+  cycle) stranded one full copy of the app permanently, mirrored to iCloud.
+- **A slow first iCloud pull no longer strands the roster.** With an empty local
+  store and iCloud active, `finishProvisioning` polled for 7s and then parked on
+  the seeded placeholder — on a slow link that showed one app ("Daily Briefing")
+  indefinitely. It now keeps pulling in the background (backing off 3s → 30s,
+  off the main thread, up to 10 min) and adopts the real roster the moment it
+  lands by any route, clearing the waiting state if it gives up. Account reports
   "Restoring your apps · N left" instead of a bare "Waiting for iCloud".
+- **The seed-race guard holds for the whole wait.** Both write guards used to
+  drop before the background retry started, so for up to 10 minutes a single
+  edit to the placeholder could persist and push a one-app `state/index.json`
+  over the real roster — the "everything replaced by Daily Briefing" wipe,
+  re-opened by the retry window. They now fall together only once the roster is
+  adopted. And if the retry gives up, resuming writes no longer releases the
+  seeded roster itself — persisting it would make it a real app that lists
+  *beside* the real roster when that finally arrives, leaving a duplicate
+  "Daily Briefing" on every device. Apps created after the give-up persist as
+  normal.
 - **"Sync now" actually starts downloads.** It only ran `reconcile()`, which
   copies already-materialized files — on a device whose cloud items are still
   dataless placeholders that was a no-op. It now force-downloads `state/` and
-  `memories/` first.
+  `memories/` first, concurrently and on a 15s deadline so the button can't park
+  for two minutes.
+- Recently deleted opens without rebuilding every deleted app (restorability is
+  a file check; the reconstruction happens on the tap), shows no date for a
+  tombstone that didn't decode rather than a fabricated one, and reports a
+  Restore that couldn't run instead of doing nothing. Settings no longer scans
+  the tombstone directory on every view update, launch no longer decodes an
+  app's whole snapshot history to learn it has none, and a sync reload arriving
+  mid-restore no longer checkpoints the provisioning placeholder into history.
 
 ## [0.0.236] — 2026-08-10
 

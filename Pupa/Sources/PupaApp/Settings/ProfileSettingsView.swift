@@ -29,14 +29,16 @@ struct ProfileSettingsView: View {
     private var statusText: String {
         guard iCloudActive else { return "Inactive" }
         let s = SyncStatus.shared
-        if s.pendingDownloads > 0 { return "Syncing \(s.pendingDownloads)…" }
-        // Distinguish "nothing has arrived yet" from "your apps are still
-        // coming" — the latter used to sit on a bare "Waiting for iCloud" with
-        // only the seeded app on screen.
+        // Before the generic count: while the roster itself is still inbound,
+        // `pendingDownloads` is non-zero by definition — that is what we are
+        // waiting on — so checking it first made this branch unreachable in the
+        // one case it exists for, leaving a bare "Syncing 43…" that says
+        // nothing about the roster on screen being incomplete.
         if store?.awaitingCloudRoster == true {
-            let pending = store?.pendingCloudDownloads ?? 0
+            let pending = max(store?.pendingCloudDownloads ?? 0, s.pendingDownloads)
             return pending > 0 ? "Restoring your apps · \(pending) left" : "Restoring your apps…"
         }
+        if s.pendingDownloads > 0 { return "Syncing \(s.pendingDownloads)…" }
         guard let at = s.lastConvergedAt else { return "Waiting for iCloud" }
         return "Up to date · \(Self.relativeFmt.localizedString(for: at, relativeTo: Date()))"
     }
@@ -58,8 +60,14 @@ struct ProfileSettingsView: View {
         // already materialized, so on a device whose cloud items are still
         // dataless placeholders a bare reconcile is a no-op — "Sync now" looked
         // like it did nothing while the roster stayed stuck.
-        await PupaStorage.downloadSubtreeUntilSettled("state")
-        await PupaStorage.downloadSubtreeUntilSettled("memories")
+        //
+        // Concurrently, and on a short deadline: the button is disabled for the
+        // duration, and two sequential default (60s) waits could park it for
+        // two minutes. Whatever hasn't landed by then keeps downloading in the
+        // background anyway — the kick is what matters, not the wait.
+        async let state: Bool = PupaStorage.downloadSubtreeUntilSettled("state", timeout: .seconds(15))
+        async let memories: Bool = PupaStorage.downloadSubtreeUntilSettled("memories", timeout: .seconds(15))
+        _ = await (state, memories)
         let changed = await StorageMirror.shared.reconcile()
         guard changed else { return }
         await store?.reloadFromDisk()

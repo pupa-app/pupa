@@ -956,11 +956,37 @@ or seeds the default only if the cloud is genuinely empty. If the window
 expires with a roster in the cloud it couldn't pull, it sets
 `awaitingCloudRoster` and keeps retrying in the background (up to 10 min) rather
 than parking on the placeholder — a slow link otherwise showed only the seeded
-app indefinitely. `pendingCloudDownloads` carries the still-downloading count so
-Account can say "Restoring your apps · N left". A durable local
+app indefinitely. The retry is `Task.detached` (the store is `@MainActor`, so an
+inherited-isolation `Task` would poll the filesystem on the main thread) and
+clears `awaitingCloudRoster` when it gives up, so the UI never promises a
+restore that stopped. One poll is expensive — a walk of the cloud `state/`
+subtree, a full converge, and a decode of the index plus every app body — so it
+backs off 3s → 30s and skips the decode when the converge moved nothing; a
+device on a link slow enough to need the retry is the last one that should be
+polled flat out. `adopt` stops the retry whenever a roster lands by any route
+(a watcher `reloadFromDisk` can beat it), dropping both guards with it.
+`pendingCloudDownloads` carries the still-downloading count so Account can say
+"Restoring your apps · N left". A durable local
 `.roster-established` marker plus a `StorageMirror.provisioning` flag — which
 makes `plan()` refuse to push or win a conflict on `state/index.json` — ensure a
-placeholder can never overwrite a populated cloud index. Separately, when a
+placeholder can never overwrite a populated cloud index.
+
+**Both guards stay armed for the whole wait.** `isProvisioning` (gates local
+writes) and `StorageMirror.provisioning` (gates the index push) fall together,
+in `leaveProvisioning()`, and only when the roster is actually adopted — never
+on entering the retry window. Dropping them there is precisely the wipe: we
+know a roster is up there, and one edit to the placeholder would persist and
+push a one-app index over it. If the retry gives up, local writes resume but
+the mirror guard stays on for the session — bodies push normally, only
+`state/index.json` stays pinned to the cloud side. Resuming writes does **not**
+release the seeded roster itself: `unadoptedPlaceholderIds` keeps it out of
+`persist()` (no body, and filtered out of the index `order`) until a real
+roster is adopted, or until the cloud proves empty and the seed becomes this
+install's own. Otherwise the user's next edit persists a body carrying a
+launch-fresh UUID, and union-load — which takes existence from bodies — lists
+it *beside* the real roster on arrival: a duplicate "Daily Briefing" pushed to
+every device. Apps the user creates after the give-up are real intent and
+persist normally. Separately, when a
 remote reload removes MyApps this user did **not** delete, `reloadFromDisk`
 snapshots them and raises a dismissible **restore banner**: the merge still
 applies (losers are in History), but the user is advised and can restore in one
@@ -1000,9 +1026,30 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
   body, and records a `.deleted` snapshot first — the restore point behind
   **Settings → Recently deleted**, which lists tombstoned apps for the marker's
   180-day life. `deleteNonPinned` (run when an app leaves the roster) keeps
-  `.deleted` records alongside pins, and `gcTombstones` drops them when it reaps
-  the tombstone. Restoring writes the body back *before* clearing the tombstone,
-  so a device syncing mid-restore never sees a tombstone-free id with no body.
+  `.deleted` records alongside pins; `gcTombstones` passes `keeping: [.pinned]`
+  so the restore point goes with the tombstone instead of being orphaned.
+  Restoring writes the body back *before* clearing the tombstone, so a device
+  syncing mid-restore never sees a tombstone-free id with no body; it un-hides
+  an archived app, and refuses outright while provisioning (`persist()` is a
+  no-op then, so clearing the tombstone would lose the app from both the roster
+  and the list).
+- **A restore point is never left behind.** `.deleted` records are exempt from
+  the snapshot TTL *and* the per-app cap, so `prune` can never collect one — the
+  thing that retires it is whatever retires its tombstone. Both exits are
+  covered: `gcTombstones` at 180 days, and `SnapshotStore.dropRecords` on
+  restore, since clearing the tombstone otherwise strands a full base per
+  delete/restore cycle, mirrored to iCloud. `dropRecords` re-bases any survivor
+  that diffed off a dropped record, so history still resolves.
+- **Every tombstoned app stays restorable.** `MyAppStore.restorableApp` takes
+  the newest snapshot that resolves, else the body file itself — a tombstone
+  arriving from another device suppresses the local body before that device's
+  `.deleted` snapshot has necessarily synced. The orphan sweep captures a
+  tombstoned body as a `.deleted` snapshot before reaping it, so the handoff is
+  lossless. Only a pre-0.0.240 delete (which captured nothing) lists as
+  non-restorable. The Recently deleted *listing* answers restorability with
+  `hasRestoreSource` — a `stat` per source rather than a chain walk and a whole
+  `MyApp` decode per row, which made the screen's cost scale with app size
+  rather than app count; the full resolve happens on the tap.
   Union-load subtracts tombstoned ids (a tombstone suppresses a body even while
   it's still on disk), and the orphan sweep reaps a tombstoned body regardless of
   decodability or age — that's how an arriving tombstone reaps the second device's
