@@ -1054,6 +1054,16 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
   an archived app, and refuses outright while provisioning (`persist()` is a
   no-op then, so clearing the tombstone would lose the app from both the roster
   and the list).
+- **Permanent delete.** A Recently deleted row also offers "delete permanently"
+  (`purgeDeletedMyApp`, behind a confirmation): `SnapshotStore.deleteAll` — pins
+  included, since the label promises it — plus the body, then the tombstone is
+  re-written with `purged: true`, keeping its `deletedAt` so GC's age check is
+  unchanged. The marker stays until the TTL because it's the only thing stopping
+  an un-synced device from re-pushing the body; the sweep skips its
+  capture-before-reap for a purged id, so that body can't resurrect a restore
+  point. `deletedMyApps` / `hasTombstones` list `listableTombstoneIds` (every
+  marker minus the purged), so the row and — once nothing is left — the whole
+  Settings entry disappear.
 - **A restore point is never left behind.** `.deleted` records are exempt from
   the snapshot TTL *and* the per-app cap, so `prune` can never collect one — the
   thing that retires it is whatever retires its tombstone. So every exit is

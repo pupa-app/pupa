@@ -3,6 +3,23 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.242] — 2026-08-13
+
+### Added
+
+- **Delete an app permanently from Recently deleted.** Each row now has a
+  destructive button beside Restore: after a confirmation it erases every
+  restore source — history, the body, and the app's pinned snapshots — and the
+  row leaves the list. The deletion marker stays until its 180-day TTL so the
+  delete still propagates to a device that hasn't synced it, and that device's
+  copy can no longer resurrect a restore point.
+
+### Fixed
+
+- **Settings ▸ Recently deleted shows its icon.** The row asked for
+  `trash.arrow.circlepath`, which isn't an SF Symbol, so it rendered as a blank
+  gap with the title flush against the edge — every other row is indented.
+
 ## [0.0.241] — 2026-08-13
 
 ### Fixed

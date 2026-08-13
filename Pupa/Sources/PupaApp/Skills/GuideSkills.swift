@@ -15,7 +15,7 @@ import Foundation
 /// component-kind list is generated from `MyAppType.kinds` so it can't drift.
 enum GuideSkills {
     /// Bump when any guide body changes so existing installs re-seed.
-    static let version = "13"
+    static let version = "14"
 
     /// The plugin folder holding this guide's skills.
     static let pluginDir = "\(MemoryStore.pupaPluginsDir)/pupa-guide"
@@ -202,6 +202,8 @@ enum GuideSkills {
     - **Recently deleted** — deleting a myapp is undoable for 180 days.
       Settings ▸ Recently deleted lists them (including ones deleted on another
       device) and restores the last saved state, chats and components included.
+      Each row can also be **deleted permanently** — that erases its saved
+      state, pinned snapshots included, on every device.
     """
 
     private static let agentsBody = """
