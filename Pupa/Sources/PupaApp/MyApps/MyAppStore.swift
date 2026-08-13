@@ -119,6 +119,27 @@ public final class MyAppStore {
     /// when nothing else in the UI says so.
     public var isRosterUnsaved: Bool { !unadoptedPlaceholderIds.isEmpty }
 
+    /// What the roster banner should say, or nil for no banner.
+    public enum RosterWarning: Sendable, Equatable {
+        /// A roster is known to be in iCloud and still being pulled.
+        case restoring
+        /// The pull gave up. Offers a retry.
+        case unreachable
+    }
+
+    /// The banner state, so the view doesn't re-derive it from three flags.
+    ///
+    /// Nil during the initial `finishProvisioning` window even though the
+    /// stand-in is unsaved: nothing has failed yet, and that window ends in an
+    /// adopted roster on the common path (fresh install, reinstall). Warning
+    /// there meant every successful cold restore opened on "Couldn't reach your
+    /// apps in iCloud" for the length of the wait.
+    public var rosterWarning: RosterWarning? {
+        guard isRosterUnsaved else { return nil }
+        if awaitingCloudRoster { return .restoring }
+        return isProvisioning ? nil : .unreachable
+    }
+
     /// App ids this user deleted on THIS device. Lets `reloadFromDisk` tell an
     /// intentional local delete from an app that vanished via a bad sync merge
     /// (the latter raises the restore banner). Consumed as removals are handled.
@@ -3448,6 +3469,11 @@ public final class MyAppStore {
         // The id is live again, so it is no longer a delete this user made: a
         // later sync that drops it is a surprise and must raise the notice.
         userInitiatedRemovals.remove(id)
+        // `persist()` above queued a debounced `.edit` for the body it just
+        // wrote. Drop it: the `.restored` record below covers the same state,
+        // and letting it fire adds a duplicate entry to History.
+        pendingSnapshotTasks[id]?.cancel()
+        pendingSnapshotTasks[id] = nil
         SnapshotStore.record(app, reason: .restored)
         return true
     }
@@ -3520,13 +3546,9 @@ public final class MyAppStore {
         // pull and can clobber the real apps. `finishProvisioning()` clears the
         // flag before its own definitive write.
         guard !isProvisioning else { return }
-        // The give-up path (see `finishAwaitingCloudRoster`) resumes writes with
-        // the seeded placeholder still on screen, standing in for a roster we
-        // know is in iCloud but never pulled. That one must stay off disk — a
-        // persisted body is a real app to `load()`, which would list it beside
-        // the real roster on arrival. Apps the user made since are real intent
-        // and persist normally, and the index below is written without the
-        // stand-in — so a relaunch reads back their roster, not a stale seed.
+        // After a give-up, writes resume with the stand-in roster still on
+        // screen. It stays off disk (see `unadoptedPlaceholderIds`); apps the
+        // user made since are real intent and persist normally.
         let unadopted = unadoptedPlaceholderIds
         let enc = Self.stateEncoder()
         var live = Set<UUID>()
@@ -3553,9 +3575,7 @@ public final class MyAppStore {
         // The index still gets written, minus the stand-in. It has to be:
         // `load()` only reaches its union-of-disk-bodies recovery *inside* the
         // "index decoded" branch, so skipping the write would hide apps the
-        // user made here until a roster arrives. With the stand-in filtered out
-        // the roster reads back as exactly those apps — and as empty (→ fresh
-        // seed, `fromDisk: false`, provision again) when there are none.
+        // user made here until a roster arrives.
         let index = IndexFile(
             order: myApps.map(\.id).filter { !unadopted.contains($0) },
             activeId: activeMyAppId,
@@ -3878,6 +3898,10 @@ public final class MyAppStore {
     private func leaveProvisioning() {
         isProvisioning = false
         StorageMirror.provisioning = false
+        // The count only describes a wait that is now over. Left set, an
+        // in-window adopt (which never touches the retry state) publishes a
+        // stale "N left" for the rest of the session.
+        pendingCloudDownloads = 0
     }
 
     /// Re-arm the roster retry after it gave up — the banner's "Try again".
@@ -3952,19 +3976,15 @@ public final class MyAppStore {
         return true
     }
 
-    /// The retry stopped without a roster — drop the waiting state so the UI
-    /// can fall back to its normal sync status.
+    /// The retry stopped without a roster — unblock local writes so the user
+    /// isn't frozen, and drop the waiting state so the UI stops promising a
+    /// restore that isn't running.
     ///
-    /// Unblocks local writes, but deliberately leaves
-    /// `StorageMirror.provisioning` alone: we never pulled the roster we know
-    /// is up there, so the placeholder index still must not win against it.
-    /// Bodies push normally — the guard only covers `state/index.json`.
-    ///
-    /// `unadoptedPlaceholderIds` also stays set, so unblocking writes doesn't
-    /// let the stand-in roster itself onto disk. Without that the user's next
-    /// edit persists a body with a launch-fresh UUID, and union-load lists it
-    /// beside the real roster once that lands — a duplicate "Daily Briefing"
-    /// pushed to every device.
+    /// Deliberately leaves `StorageMirror.provisioning` set: we never pulled
+    /// the roster we know is up there, so the placeholder index still must not
+    /// win against it. Bodies push normally — the guard covers only
+    /// `state/index.json`. `unadoptedPlaceholderIds` stays set for the matching
+    /// reason on the local side.
     private func finishAwaitingCloudRoster() {
         isProvisioning = false
         cancelCloudRosterRetry()

@@ -366,6 +366,41 @@ struct ProvisioningTests {
         }
     }
 
+    /// The banner must not cry failure during the ordinary opening wait — that
+    /// window ends in an adopted roster on the common path, so warning there
+    /// put "Couldn't reach your apps in iCloud" on every successful restore.
+    @Test("the roster banner stays silent until the opening wait has actually failed")
+    func rosterWarningSkipsTheOpeningWait() async throws {
+        await MyAppStore.clearStorage()
+        let saved = MyAppStore.provisioningTimeout
+        MyAppStore.provisioningTimeout = .zero
+        defer { MyAppStore.provisioningTimeout = saved }
+
+        let cloud = TestStorage.root.appendingPathComponent("cloud-\(UUID().uuidString)", isDirectory: true)
+        let cloudIndex = cloud.appendingPathComponent("state/index.json")
+        try FileManager.default.createDirectory(
+            at: cloudIndex.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("{ not json".utf8).write(to: cloudIndex)
+
+        try await TestStorage.withCloudMirror(cloud) {
+            let store = MyAppStore()
+            #expect(store.isRosterUnsaved, "the stand-in is unsaveable from the start")
+            #expect(store.rosterWarning == nil, "but nothing has failed yet")
+
+            await store.finishProvisioning()
+            #expect(store.rosterWarning == .restoring, "the retry is running — say so")
+
+            store.cloudRosterRetry?.cancel()
+            await store.cloudRosterRetry?.value
+            #expect(store.rosterWarning == .unreachable, "gave up — offer the retry")
+
+            store.retryCloudRoster()
+            #expect(store.rosterWarning == .restoring)
+            store.cloudRosterRetry?.cancel()
+            await store.cloudRosterRetry?.value
+        }
+    }
+
     /// Two `finishProvisioning`/CloudWatcher passes must not stack two pollers
     /// on the same store.
     @Test("the roster retry never starts twice")

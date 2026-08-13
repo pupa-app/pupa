@@ -21,6 +21,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   the app looked completely normal. A banner now reports "Restoring your apps
   from iCloud…" while the retry runs and "Couldn't reach your apps in iCloud"
   with a **Try again** once it stops, both under "Changes here won't be saved."
+  It stays silent for the opening 7s wait, which ends in an adopted roster on
+  the common path — warning there would flag every successful cold restore as a
+  failure.
 
 ## [0.0.240] — 2026-08-13
 

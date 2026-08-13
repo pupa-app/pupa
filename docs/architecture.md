@@ -988,15 +988,18 @@ it *beside* the real roster on arrival: a duplicate "Daily Briefing" pushed to
 every device. Apps the user creates after the give-up are real intent and
 persist normally.
 
-Holding the stand-in back is silent on its own, so `isRosterUnsaved`
-(`unadoptedPlaceholderIds` non-empty) drives a top **banner**: "Restoring your
-apps from iCloud…" while the retry runs, "Couldn't reach your apps in iCloud"
-with a **Try again** (`retryCloudRoster()`, re-arms the poller) once it gave up
-— both under "Changes here won't be saved." Without it the user works in an app
-whose every edit is dropped on relaunch, and after the give-up nothing else in
-the UI says so: `awaitingCloudRoster` is false, so Account has reverted to its
-ordinary sync status. The banner has no dismiss — it clears itself when a real
-roster is adopted, or when the cloud proves empty and the seed is committed.
+Holding the stand-in back is silent on its own, so `rosterWarning` drives a top
+**banner**: `.restoring` ("Restoring your apps from iCloud…") while the retry
+runs, `.unreachable` ("Couldn't reach your apps in iCloud", with a **Try again**
+that re-arms the poller) once it gave up — both under "Changes here won't be
+saved." Without it the user works in an app whose every edit is dropped on
+relaunch, and after the give-up nothing else in the UI says so:
+`awaitingCloudRoster` is false, so Account has reverted to its ordinary sync
+status. `rosterWarning` is nil for the initial `finishProvisioning` window even
+though the stand-in is unsaved there too — that wait ends in an adopted roster
+on the common path, so warning would put a failure banner on every successful
+cold restore. The banner has no dismiss: it clears when a real roster is
+adopted, or when the cloud proves empty and the seed is committed.
 
 Note the mirror guard's reach while it stays on: `IndexFile` also carries
 `memoryThreads`, `memoryCurrentThreadId`, `itemEventLog`, `componentFolders`

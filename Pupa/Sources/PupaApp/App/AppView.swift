@@ -270,7 +270,7 @@ public struct AppView: View {
         platformBody
             .safeAreaInset(edge: .top) {
                 VStack(spacing: 0) {
-                    if store.isRosterUnsaved { unsavedRosterBanner }
+                    if let warning = store.rosterWarning { unsavedRosterBanner(warning) }
                     if store.pendingSyncRemoval != nil { syncRemovalBanner }
                     if showBackendReminder { backendReminderBanner }
                 }
@@ -645,17 +645,17 @@ public struct AppView: View {
 
     /// The roster on screen is the seeded stand-in for a cloud roster this
     /// device hasn't pulled, and it is deliberately never written to disk (see
-    /// `MyAppStore.isRosterUnsaved`). Without this the user works in an app
-    /// whose every edit is silently dropped on relaunch — and after the retry
-    /// gives up, nothing else in the UI says so at all.
-    private var unsavedRosterBanner: some View {
+    /// `MyAppStore.rosterWarning`). Without this the user works in an app whose
+    /// every edit is silently dropped on relaunch — and after the retry gives
+    /// up, nothing else in the UI says so at all.
+    private func unsavedRosterBanner(_ warning: MyAppStore.RosterWarning) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: store.awaitingCloudRoster
+            Image(systemName: warning == .restoring
                   ? "icloud.and.arrow.down"
                   : "exclamationmark.icloud")
                 .foregroundStyle(.orange)
             VStack(alignment: .leading, spacing: 1) {
-                Text(store.awaitingCloudRoster
+                Text(warning == .restoring
                      ? "Restoring your apps from iCloud…"
                      : "Couldn’t reach your apps in iCloud")
                     .font(.subheadline)
@@ -666,7 +666,7 @@ public struct AppView: View {
             .lineLimit(2)
             .minimumScaleFactor(0.85)
             Spacer(minLength: 8)
-            if !store.awaitingCloudRoster {
+            if warning == .unreachable {
                 Button("Try again") { store.retryCloudRoster() }
                     .font(.subheadline.weight(.semibold))
                     .buttonStyle(.plain)
