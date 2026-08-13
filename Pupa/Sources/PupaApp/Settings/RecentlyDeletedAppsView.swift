@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// Settings ▸ Recently deleted: MyApps whose tombstone is still on disk (180
-/// days, then `gcTombstones` reaps it), restorable from whatever survives them
-/// — see `MyAppStore.restorableApp`. The undo for a delete that is otherwise
-/// silent and final, including one made on another device.
+/// Settings ▸ Recently deleted: MyApps whose delete marker is still on disk
+/// (180 days, then `gcTombstones` reaps it), restorable from whatever survives
+/// them — see `MyAppStore.restorableApp`. The undo for a removal that is
+/// otherwise silent and final: a delete made here or on another device, and an
+/// app a sync took away without asking (the dismissible restore banner).
 struct RecentlyDeletedAppsView: View {
     let store: MyAppStore
 
@@ -31,7 +32,7 @@ struct RecentlyDeletedAppsView: View {
                     }
                 }
             } footer: {
-                Text("Deleted apps are listed here for 180 days. Restoring brings back the last saved state — chats and components included — and clears the delete on your other devices. Deleting permanently erases that saved state everywhere.")
+                Text("Deleted apps — and apps a sync removed on its own — are listed here for 180 days. Restoring brings back the last saved state, chats and components included, and clears the delete on your other devices. Deleting permanently erases that saved state everywhere.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -99,9 +100,9 @@ struct RecentlyDeletedAppsView: View {
     }
 
     /// "Deleted 3 days ago · no restore point". The date is dropped entirely
-    /// when the tombstone didn't decode — better blank than invented.
+    /// when the marker didn't decode — better blank than invented.
     private func caption(_ app: MyAppStore.DeletedMyApp) -> String {
-        var parts = ["Deleted"]
+        var parts = [app.wasSyncRemoved ? "Removed by sync" : "Deleted"]
         if let at = app.deletedAt {
             parts.append(at.formatted(.relative(presentation: .named)))
         }

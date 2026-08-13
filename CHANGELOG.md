@@ -3,6 +3,18 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.244] — 2026-08-14
+
+### Fixed
+
+- **A sync-removed app no longer disappears when you dismiss the banner.**
+  "Sync removed …" offers a one-tap restore, but the banner was the only way
+  back: dismissing it — or relaunching without answering — left the app
+  unreachable from every screen. Apps a sync takes away now wait in
+  Settings ▸ Recently deleted alongside deleted ones, captioned "Removed by
+  sync", restorable for the same 180 days. The marker stays on this device
+  only, so the app can still come back from a device that kept it.
+
 ## [0.0.243] — 2026-08-13
 
 ### Added
