@@ -25,7 +25,7 @@ struct SharingSettingsView: View {
                 } label: {
                     hubRow(icon: "square.and.arrow.down",
                            title: "Import an app",
-                           caption: "Load a .\(MyAppBundle.fileExtension) someone shared")
+                           caption: "Load a .\(MyAppBundle.fileExtension) someone shared, or browse the marketplace")
                 }
             } footer: {
                 Text("Apps travel as inert .\(MyAppBundle.fileExtension) bundles. Sharing publishes whatever you include — review the agent prompts on the Share screen before sending.")
@@ -358,6 +358,19 @@ private struct ImportAppScreen: View {
                 }
             } footer: {
                 Text("Pick a .\(MyAppBundle.fileExtension) bundle from Files. You can also open one straight from Mail, Messages, or AirDrop — Pupa imports it after a confirm step. Imported apps are sandboxed: untrusted bundles can't change your settings.")
+            }
+            Section {
+                Link(destination: MarketplaceInstallLink.browseURL) {
+                    HStack {
+                        Label("Browse the marketplace", systemImage: "bag")
+                        Spacer()
+                        Image(systemName: "arrow.up.right")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } footer: {
+                Text("Opens pupa-app.com in your browser. Installing an app from there hands it back to Pupa, with the same confirm step.")
             }
         }
         .navigationTitle("Import an app")

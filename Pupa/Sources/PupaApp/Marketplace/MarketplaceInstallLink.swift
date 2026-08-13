@@ -18,6 +18,10 @@ enum MarketplaceInstallLink {
     /// The only action understood, so a future one can't be mistaken for it.
     static let installHost = "import"
 
+    /// The catalog page the Import screen sends users to. Tapping an app there
+    /// comes back as an install link; nothing in the app reads the catalog.
+    static let browseURL = URL(string: "https://pupa-app.com/marketplace")!
+
     static let allowedHost = "raw.githubusercontent.com"
     /// Pinned to `main/apps/`, not the repo root: raw.githubusercontent serves
     /// **any** commit in a repo's network under the base repo's path, including

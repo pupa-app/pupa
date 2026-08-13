@@ -15,7 +15,7 @@ import Foundation
 /// component-kind list is generated from `MyAppType.kinds` so it can't drift.
 enum GuideSkills {
     /// Bump when any guide body changes so existing installs re-seed.
-    static let version = "14"
+    static let version = "15"
 
     /// The plugin folder holding this guide's skills.
     static let pluginDir = "\(MemoryStore.pupaPluginsDir)/pupa-guide"
@@ -175,6 +175,10 @@ enum GuideSkills {
     sheet shows what's inside before anything is added. Imported agent
     instructions run with your tools once installed — only install bundles
     you trust.
+
+    **Marketplace.** Settings ▸ Import & Export ▸ Import an app links out to
+    pupa-app.com/marketplace. Installing from there sends the app back to Pupa
+    through the same confirmation sheet.
     """
 
     private static let memoryBody = """

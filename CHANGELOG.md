@@ -3,6 +3,16 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.243] — 2026-08-13
+
+### Added
+
+- **Marketplace link on the Import screen.** Settings ▸ Import & Export ▸
+  Import an app now offers "Browse the marketplace" beside the file picker,
+  opening pupa-app.com/marketplace in the browser. Installing from there
+  already returned to Pupa via an install link; nothing pointed users at the
+  catalog in the first place.
+
 ## [0.0.242] — 2026-08-13
 
 ### Added

@@ -90,7 +90,9 @@ share that one validation authority.
 website's `.pupa` to Pupa — it lands in Downloads and needs a manual "Open in" —
 so the marketplace page sends a link and Pupa fetches the bytes itself. The
 website already holds the catalog entry, so the link carries what Pupa needs and
-the app learns nothing about catalogs. Universal Links can't serve this: iOS
+the app learns nothing about catalogs. The Import screen's "Browse the
+marketplace" row is the outbound half of the same round trip — one hard-coded
+page URL (`browseURL`), no catalog fetch in the client. Universal Links can't serve this: iOS
 suppresses them when link and page share a domain.
 
 `MarketplaceInstallLink` owns the untrusted edge. It allow-lists the bundle URL
