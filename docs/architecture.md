@@ -986,7 +986,25 @@ install's own. Otherwise the user's next edit persists a body carrying a
 launch-fresh UUID, and union-load — which takes existence from bodies — lists
 it *beside* the real roster on arrival: a duplicate "Daily Briefing" pushed to
 every device. Apps the user creates after the give-up are real intent and
-persist normally. Separately, when a
+persist normally.
+
+Holding the stand-in back is silent on its own, so `isRosterUnsaved`
+(`unadoptedPlaceholderIds` non-empty) drives a top **banner**: "Restoring your
+apps from iCloud…" while the retry runs, "Couldn't reach your apps in iCloud"
+with a **Try again** (`retryCloudRoster()`, re-arms the poller) once it gave up
+— both under "Changes here won't be saved." Without it the user works in an app
+whose every edit is dropped on relaunch, and after the give-up nothing else in
+the UI says so: `awaitingCloudRoster` is false, so Account has reverted to its
+ordinary sync status. The banner has no dismiss — it clears itself when a real
+roster is adopted, or when the cloud proves empty and the seed is committed.
+
+Note the mirror guard's reach while it stays on: `IndexFile` also carries
+`memoryThreads`, `memoryCurrentThreadId`, `itemEventLog`, `componentFolders`
+and `activeId`, so after a give-up none of those sync from this device for the
+rest of the session (bodies still do, and union-load recovers roster membership
+from them on the other side). A relaunch that adopts a roster clears it.
+
+Separately, when a
 remote reload removes MyApps this user did **not** delete, `reloadFromDisk`
 snapshots them and raises a dismissible **restore banner**: the merge still
 applies (losers are in History), but the user is advised and can restore in one
@@ -1035,11 +1053,18 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
   and the list).
 - **A restore point is never left behind.** `.deleted` records are exempt from
   the snapshot TTL *and* the per-app cap, so `prune` can never collect one — the
-  thing that retires it is whatever retires its tombstone. Both exits are
-  covered: `gcTombstones` at 180 days, and `SnapshotStore.dropRecords` on
-  restore, since clearing the tombstone otherwise strands a full base per
-  delete/restore cycle, mirrored to iCloud. `dropRecords` re-bases any survivor
-  that diffed off a dropped record, so history still resolves.
+  thing that retires it is whatever retires its tombstone. So every exit is
+  covered: `gcTombstones` at 180 days, and `MyAppStore.clearDeleteMarkers`
+  (`clearTombstone` + `SnapshotStore.dropRecords(reasons: [.deleted])`) on
+  **every** un-delete path — `restoreDeletedMyApp`, `restorePinnedSnapshot`,
+  `restoreSyncRemovedApps`, `importMyApp`. Clearing a tombstone alone retires
+  the record's only collector and strands a full base (the whole serialized
+  MyApp, chats included) permanently, mirrored to iCloud — so the pair always
+  goes together, which is why the un-delete paths call the helper and not
+  `clearTombstone`. Callers resolve what they're restoring *before* the call and
+  record any new snapshot *after*, so nothing reads a record on its way out or
+  diffs off one. `dropRecords` re-bases any survivor that diffed off a dropped
+  record, so history still resolves.
 - **Every tombstoned app stays restorable.** `MyAppStore.restorableApp` takes
   the newest snapshot that resolves, else the body file itself — a tombstone
   arriving from another device suppresses the local body before that device's
@@ -1056,8 +1081,8 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
   copy. A tombstone beats a concurrent body edit (a delete is sticky, and lets the
   user prune duplicate apps for good). An explicit un-delete — restoring a pinned
   snapshot, re-importing a bundle, or restoring a sync-removed app — clears the
-  tombstone (`clearTombstone`), or union-load would re-suppress the revived app and
-  the sweep reap its body on the next relaunch. Tombstones GC after 180 days —
+  markers (`clearDeleteMarkers`), or union-load would re-suppress the revived app
+  and the sweep reap its body on the next relaunch. Tombstones GC after 180 days —
   generous so one always outlives an un-synced stale body (which sweeps at 7 days);
   a corrupt tombstone ages out via file mtime so it can't suppress forever.
 - **Component folders (UI-only)** → the home-page grid

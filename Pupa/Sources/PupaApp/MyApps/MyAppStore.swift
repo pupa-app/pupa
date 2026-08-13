@@ -103,7 +103,21 @@ public final class MyAppStore {
     /// persisting it makes it a real app that unions in *beside* the real
     /// roster when it finally lands — a duplicate "Daily Briefing" on every
     /// device, with a fresh UUID each launch. See `persist()`.
-    @ObservationIgnored private var unadoptedPlaceholderIds: Set<UUID> = []
+    ///
+    /// Observed, not `@ObservationIgnored`: `isRosterUnsaved` reads it, and the
+    /// banner has to drop when it clears.
+    private var unadoptedPlaceholderIds: Set<UUID> = []
+
+    /// The roster on screen is the seeded stand-in for a cloud roster this
+    /// device hasn't pulled, so nothing the user does in it can be saved:
+    /// `persist()` skips those bodies (and skips everything while
+    /// `isProvisioning`). Drives the banner that says so.
+    ///
+    /// Distinct from `awaitingCloudRoster`, which is true only while the retry
+    /// runs. This stays true after a give-up — that resumes writes so the user
+    /// isn't frozen, but the stand-in is still a black hole, and that is exactly
+    /// when nothing else in the UI says so.
+    public var isRosterUnsaved: Bool { !unadoptedPlaceholderIds.isEmpty }
 
     /// App ids this user deleted on THIS device. Lets `reloadFromDisk` tell an
     /// intentional local delete from an app that vanished via a bad sync merge
@@ -523,8 +537,8 @@ public final class MyAppStore {
         var myApp = myApp
         if myApp.colorIndex == nil { myApp.colorIndex = nextColorIndex() }
         // Re-importing a previously-deleted id is a deliberate un-delete — clear
-        // any tombstone or union-load would suppress it again on relaunch.
-        Self.clearTombstone(myApp.id)
+        // its markers or union-load would suppress it again on relaunch.
+        Self.clearDeleteMarkers(myApp.id)
         myApps.append(myApp)
         activeMyAppId = myApp.id
         persist()
@@ -3412,8 +3426,8 @@ public final class MyAppStore {
     /// (and union-load re-suppress it on the next pass).
     ///
     /// Refuses while provisioning: `persist()` is a no-op then, so the body
-    /// would never be written while `clearTombstone` still ran — losing the app
-    /// from both the roster and this list.
+    /// would never be written while `clearDeleteMarkers` still ran — losing the
+    /// app from both the roster and this list.
     @discardableResult
     public func restoreDeletedMyApp(_ id: UUID) -> Bool {
         guard !isProvisioning,
@@ -3427,17 +3441,13 @@ public final class MyAppStore {
         myApps.append(app)
         backfillColorIndices()
         persist()
-        Self.clearTombstone(id)
+        // Tombstone + the `.deleted` restore points that just did their job.
+        // Before `record` below, so the new `.restored` never diffs off a record
+        // that's about to go.
+        Self.clearDeleteMarkers(id)
         // The id is live again, so it is no longer a delete this user made: a
         // later sync that drops it is a surprise and must raise the notice.
         userInitiatedRemovals.remove(id)
-        // The `.deleted` restore points just did their job, and clearing the
-        // tombstone above removed the only thing that ever collects them
-        // (`gcTombstones`) — they are exempt from TTL and cap. Drop them here or
-        // each delete/restore cycle strands one full base forever, in iCloud
-        // too. Before `record` below, so the new `.restored` never diffs off a
-        // record that's about to go.
-        SnapshotStore.dropRecords(id, reasons: [.deleted])
         SnapshotStore.record(app, reason: .restored)
         return true
     }
@@ -3446,8 +3456,28 @@ public final class MyAppStore {
     /// comes back (restore a pinned snapshot, re-import a bundle) — an un-delete
     /// must clear the marker, else union-load re-suppresses it and the sweep
     /// reaps its body on the next relaunch.
+    ///
+    /// Prefer `clearDeleteMarkers` on an un-delete path: clearing the tombstone
+    /// alone strands the `.deleted` restore point it was holding.
     nonisolated static func clearTombstone(_ id: UUID) {
         CloudDocument.delete(tombstoneURL(id))
+    }
+
+    /// Un-delete `id`'s durable markers: clear the tombstone AND drop the
+    /// `.deleted` restore point it was holding. Every un-delete path uses this.
+    ///
+    /// The two must go together. `.deleted` records are exempt from the snapshot
+    /// TTL *and* the per-app cap (`SnapshotStore.survivesDeletion`), so the only
+    /// thing that ever collects one is `gcTombstones` — reached via the very
+    /// tombstone this clears. Clearing alone therefore strands a full base (the
+    /// whole serialized MyApp, chats included) permanently, mirrored to iCloud.
+    ///
+    /// Callers must resolve whatever they're restoring BEFORE calling this, and
+    /// record any new snapshot AFTER — so nothing reads a record on its way out
+    /// or diffs off one.
+    nonisolated static func clearDeleteMarkers(_ id: UUID) {
+        clearTombstone(id)
+        SnapshotStore.dropRecords(id, reasons: [.deleted])
     }
 
     /// UUIDs of every `tombstones/<uuid>.json` on disk. Ids come from filenames
@@ -3850,6 +3880,16 @@ public final class MyAppStore {
         StorageMirror.provisioning = false
     }
 
+    /// Re-arm the roster retry after it gave up — the banner's "Try again".
+    /// No-op while one is already running.
+    ///
+    /// Doesn't re-enter provisioning: local writes stay unblocked so apps the
+    /// user made since keep persisting, and the stand-in stays held back by
+    /// `unadoptedPlaceholderIds` either way.
+    public func retryCloudRoster() {
+        beginAwaitingCloudRoster()
+    }
+
     /// Keep downloading `state/` and adopt the roster the moment it lands.
     /// Runs until it succeeds, the deadline passes, or the task is cancelled.
     ///
@@ -3969,9 +4009,11 @@ public final class MyAppStore {
         for id in notice.ids where !myApps.contains(where: { $0.id == id }) {
             if let head = SnapshotStore.head(id),
                let app = SnapshotStore.restoredApp(id, id: head.id) {
-                // User explicitly restored — clear any tombstone (e.g. a remote
-                // delete) so it isn't re-suppressed on relaunch.
-                Self.clearTombstone(id)
+                // User explicitly restored — clear the delete markers (e.g. from
+                // a remote delete) so it isn't re-suppressed on relaunch. After
+                // `restoredApp` above: that may have resolved off the very
+                // `.deleted` record this drops.
+                Self.clearDeleteMarkers(id)
                 myApps.append(app)
             }
         }
@@ -4100,9 +4142,10 @@ public final class MyAppStore {
         }
         guard let revived = SnapshotStore.restoredApp(appId, id: snapshotId) else { return nil }
         // Restoring a pinned snapshot of a deleted app is an un-delete — clear
-        // its tombstone or union-load re-suppresses it and the sweep reaps the
-        // restored body on the next relaunch.
-        Self.clearTombstone(revived.id)
+        // its markers or union-load re-suppresses it and the sweep reaps the
+        // restored body on the next relaunch. After `restoredApp` above; the pin
+        // itself survives, only `.deleted` is dropped.
+        Self.clearDeleteMarkers(revived.id)
         myApps.append(revived)
         activeMyAppId = revived.id
         historyRevision += 1

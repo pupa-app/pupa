@@ -3,6 +3,25 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.241] — 2026-08-13
+
+### Fixed
+
+- **Every un-delete path retires the restore point it consumed.** Reviving an
+  app from a pin, restoring a sync-removed app, and re-importing a deleted id
+  all cleared the tombstone without dropping the `.deleted` record it was
+  holding. Since 0.0.240 those records are exempt from the history TTL *and*
+  cap, so the tombstone was their only collector — clearing it stranded a full
+  copy of the app (chats included) permanently, mirrored to iCloud. All four
+  paths now go through one `clearDeleteMarkers` helper.
+- **A roster this device can't pull no longer fails silently.** While the
+  seeded stand-in roster is on screen it is deliberately never written to disk,
+  so every edit in it was dropped on relaunch with nothing saying so — and once
+  the background retry gave up, Account reverted to its ordinary sync status, so
+  the app looked completely normal. A banner now reports "Restoring your apps
+  from iCloud…" while the retry runs and "Couldn't reach your apps in iCloud"
+  with a **Try again** once it stops, both under "Changes here won't be saved."
+
 ## [0.0.240] — 2026-08-13
 
 ### Fixed

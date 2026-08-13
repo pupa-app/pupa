@@ -284,6 +284,62 @@ struct DeletedAppRestoreTests {
         #expect(SnapshotStore.restoredApp(a, id: pins[0].id) != nil)
     }
 
+    /// `restoreDeletedMyApp` is not the only un-delete. Every path that clears a
+    /// tombstone retires the one thing that can ever collect that app's
+    /// `.deleted` record, so each must drop it in the same breath — else the
+    /// full base is stranded permanently, mirrored to iCloud.
+    @Test("reviving a deleted app from a pin drops its stranded restore point")
+    func revivingFromPinDropsRestorePoint() async {
+        let (store, a, _) = await twoAppStore()
+        guard let app = store.myApp(withId: a) else { Issue.record("missing app"); return }
+        guard let pin = SnapshotStore.record(app, reason: .pinned, label: "keep") else {
+            Issue.record("no pin"); return
+        }
+        store.removeMyApp(a)
+        #expect(SnapshotStore.metas(a).contains { $0.reason == .deleted })
+
+        #expect(store.restorePinnedSnapshot(appId: a, snapshotId: pin) == a)
+
+        let reasons = SnapshotStore.metas(a).map(\.reason)
+        #expect(!reasons.contains(.deleted), "the tombstone is gone — nothing can collect it: \(reasons)")
+        #expect(reasons.contains(.pinned), "the drop is scoped to .deleted")
+        for m in SnapshotStore.metas(a) {
+            #expect(SnapshotStore.restoredApp(a, id: m.id) != nil, "\(m.reason) no longer resolves")
+        }
+    }
+
+    @Test("restoring a sync-removed app drops its stranded restore point")
+    func syncRemovalRestoreDropsRestorePoint() async {
+        let (store, a, _) = await twoAppStore()
+        // Another device deletes it; this one only receives the tombstone.
+        let other = MyAppStore()
+        other.removeMyApp(a)
+        await store.reloadFromDisk()
+        #expect(store.pendingSyncRemoval?.ids == [a])
+        #expect(SnapshotStore.metas(a).contains { $0.reason == .deleted })
+
+        store.restoreSyncRemovedApps()
+
+        #expect(store.myApps.contains { $0.id == a })
+        let reasons = SnapshotStore.metas(a).map(\.reason)
+        #expect(!reasons.contains(.deleted), "\(reasons)")
+        for m in SnapshotStore.metas(a) {
+            #expect(SnapshotStore.restoredApp(a, id: m.id) != nil, "\(m.reason) no longer resolves")
+        }
+    }
+
+    @Test("re-importing a deleted id drops its stranded restore point")
+    func importDropsRestorePoint() async {
+        let (store, a, _) = await twoAppStore()
+        guard let app = store.myApp(withId: a) else { Issue.record("missing app"); return }
+        store.removeMyApp(a)
+        #expect(SnapshotStore.metas(a).contains { $0.reason == .deleted })
+
+        store.importMyApp(app)
+
+        #expect(!SnapshotStore.metas(a).map(\.reason).contains(.deleted))
+    }
+
     @Test("hasRestoreSource agrees with a real restore for both sources")
     func restoreSourceProbeMatchesReality() async {
         let (store, a, b) = await twoAppStore()

@@ -270,6 +270,7 @@ public struct AppView: View {
         platformBody
             .safeAreaInset(edge: .top) {
                 VStack(spacing: 0) {
+                    if store.isRosterUnsaved { unsavedRosterBanner }
                     if store.pendingSyncRemoval != nil { syncRemovalBanner }
                     if showBackendReminder { backendReminderBanner }
                 }
@@ -635,6 +636,42 @@ public struct AppView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Dismiss")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.regularMaterial)
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    /// The roster on screen is the seeded stand-in for a cloud roster this
+    /// device hasn't pulled, and it is deliberately never written to disk (see
+    /// `MyAppStore.isRosterUnsaved`). Without this the user works in an app
+    /// whose every edit is silently dropped on relaunch — and after the retry
+    /// gives up, nothing else in the UI says so at all.
+    private var unsavedRosterBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: store.awaitingCloudRoster
+                  ? "icloud.and.arrow.down"
+                  : "exclamationmark.icloud")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(store.awaitingCloudRoster
+                     ? "Restoring your apps from iCloud…"
+                     : "Couldn’t reach your apps in iCloud")
+                    .font(.subheadline)
+                Text("Changes here won’t be saved.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .lineLimit(2)
+            .minimumScaleFactor(0.85)
+            Spacer(minLength: 8)
+            if !store.awaitingCloudRoster {
+                Button("Try again") { store.retryCloudRoster() }
+                    .font(.subheadline.weight(.semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.tint)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)

@@ -302,6 +302,70 @@ struct ProvisioningTests {
         }
     }
 
+    /// Holding the stand-in off disk is right, but silent: the user is looking
+    /// at an app whose every edit is dropped. `isRosterUnsaved` is what the
+    /// banner reads so the work doesn't just vanish on relaunch.
+    @Test("the unsaveable stand-in roster is flagged for the whole wait")
+    func standInRosterIsFlagged() async throws {
+        await MyAppStore.clearStorage()
+        let saved = MyAppStore.provisioningTimeout
+        MyAppStore.provisioningTimeout = .zero
+        defer { MyAppStore.provisioningTimeout = saved }
+
+        let cloud = TestStorage.root.appendingPathComponent("cloud-\(UUID().uuidString)", isDirectory: true)
+        let cloudIndex = cloud.appendingPathComponent("state/index.json")
+        try FileManager.default.createDirectory(
+            at: cloudIndex.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("{ not json".utf8).write(to: cloudIndex)
+
+        try await TestStorage.withCloudMirror(cloud) {
+            let store = MyAppStore()
+            #expect(store.isRosterUnsaved, "the seeded placeholder is already unsaveable")
+            await store.finishProvisioning()
+            #expect(store.isRosterUnsaved, "still a stand-in while the retry runs")
+
+            store.cloudRosterRetry?.cancel()
+            await store.cloudRosterRetry?.value
+            // The give-up is exactly where the old code went quiet: writes
+            // resume, the "restoring" status clears, and the placeholder is
+            // still a black hole.
+            #expect(!store.awaitingCloudRoster)
+            #expect(store.isRosterUnsaved, "giving up doesn't make the stand-in saveable")
+
+            // Retry re-arms the poller so the banner's button has something to do.
+            store.retryCloudRoster()
+            #expect(store.awaitingCloudRoster)
+            store.cloudRosterRetry?.cancel()
+            await store.cloudRosterRetry?.value
+        }
+    }
+
+    @Test("adopting a real roster clears the unsaved flag")
+    func adoptingRosterClearsUnsavedFlag() async throws {
+        await MyAppStore.clearStorage()
+        let d1 = MyAppStore()
+        _ = d1.addMyApp(typeId: "tracker", name: "Alpha", iconSystemName: "a.circle")
+        #expect(!d1.isRosterUnsaved, "a normal seeded install saves normally")
+
+        let cloud = TestStorage.root.appendingPathComponent("cloud-\(UUID().uuidString)", isDirectory: true)
+        _ = try await TestStorage.withCloudMirror(cloud) {
+            StorageMirror.converge(localRoot: PupaStorage.activeRoot, cloudRoot: cloud)
+        }
+
+        await MyAppStore.clearStorage()
+        let saved = MyAppStore.provisioningTimeout
+        MyAppStore.provisioningTimeout = .zero
+        defer { MyAppStore.provisioningTimeout = saved }
+
+        try await TestStorage.withCloudMirror(cloud) {
+            let store = MyAppStore()
+            #expect(store.isRosterUnsaved)
+            await store.finishProvisioning()
+            await store.cloudRosterRetry?.value
+            #expect(!store.isRosterUnsaved, "the real roster is here — writes are real again")
+        }
+    }
+
     /// Two `finishProvisioning`/CloudWatcher passes must not stack two pollers
     /// on the same store.
     @Test("the roster retry never starts twice")
