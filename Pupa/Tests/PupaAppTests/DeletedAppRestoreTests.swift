@@ -204,6 +204,70 @@ struct DeletedAppRestoreTests {
         }
     }
 
+    // MARK: - Permanent delete
+
+    @Test("purge drops every restore source, pins included")
+    func purgeDropsEverything() async {
+        let (store, a, _) = await twoAppStore()
+        guard let app = store.myApp(withId: a) else { Issue.record("missing app"); return }
+        SnapshotStore.record(app, reason: .pinned, label: "keep")
+        store.removeMyApp(a)
+
+        MyAppStore.purgeDeletedMyApp(a)
+
+        #expect(SnapshotStore.metas(a).isEmpty, "a permanent delete keeps nothing")
+        #expect(MyAppStore.hasRestoreSource(a) == false)
+        #expect(store.restoreDeletedMyApp(a) == false)
+    }
+
+    @Test("a purged app leaves the listing and the Settings row with it")
+    func purgeUnlistsApp() async {
+        let (store, a, b) = await twoAppStore()
+        store.removeMyApp(a)
+        MyAppStore.writeTombstone(b, name: "Flight search")   // the roster keeps one app
+
+        MyAppStore.purgeDeletedMyApp(a)
+        #expect(MyAppStore.deletedMyApps().map(\.id) == [b])
+        #expect(MyAppStore.hasTombstones(), "b is still listable")
+
+        MyAppStore.purgeDeletedMyApp(b)
+        #expect(MyAppStore.deletedMyApps().isEmpty)
+        #expect(MyAppStore.hasTombstones() == false, "nothing listable → no Settings row")
+    }
+
+    /// The marker outlives the purge on purpose: a device that still holds the
+    /// body has to see the delete, and this one must not resurrect it either.
+    @Test("purge keeps the tombstone suppressing a re-pushed body")
+    func purgeKeepsSuppression() async throws {
+        let (store, a, _) = await twoAppStore()
+        let body = try Data(contentsOf: PupaStorage.stateRoot
+            .appendingPathComponent("apps/\(a.uuidString).json"))
+        store.removeMyApp(a)
+        MyAppStore.purgeDeletedMyApp(a)
+
+        try body.write(to: PupaStorage.stateRoot
+            .appendingPathComponent("apps/\(a.uuidString).json"))   // another device re-pushes
+
+        let reloaded = MyAppStore()
+        #expect(!reloaded.myApps.contains { $0.id == a })
+
+        // …and the sweep reaps it without re-capturing a restore point the user
+        // asked to be rid of.
+        MyAppStore.sweepOrphanAppFiles(keeping: [])
+        #expect(SnapshotStore.head(a) == nil)
+        #expect(MyAppStore.deletedMyApps().isEmpty)
+    }
+
+    @Test("a purged tombstone still ages out at the TTL")
+    func purgedTombstoneStillGCs() async {
+        let (store, a, _) = await twoAppStore()
+        store.removeMyApp(a)
+        MyAppStore.purgeDeletedMyApp(a)
+
+        #expect(MyAppStore.gcTombstones(ttl: -1) == 1)
+        #expect(MyAppStore.hasTombstones() == false)
+    }
+
     @Test("hasTombstones tracks the listing without resolving restore sources")
     func hasTombstonesTracksListing() async {
         let (store, a, _) = await twoAppStore()

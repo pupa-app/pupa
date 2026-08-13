@@ -3314,6 +3314,10 @@ public final class MyAppStore {
         /// without reconstructing the whole app from its snapshot chain.
         /// Optional: tombstones written before this existed still decode.
         var name: String?
+        /// Set by a permanent delete. The marker stays — the delete must keep
+        /// propagating — but nothing survives to restore from, so the app stops
+        /// being listed under Recently deleted.
+        var purged: Bool?
     }
 
     private nonisolated static var tombstonesDir: URL {
@@ -3369,11 +3373,23 @@ public final class MyAppStore {
             || FileManager.default.fileExists(atPath: appURL(id).path)
     }
 
-    /// Whether any tombstone exists — the gate on the Settings ▸ Recently
-    /// deleted row. A filename scan: no decode, no restore-source probe, so
-    /// it's safe to re-run on navigation.
+    /// Tombstoned ids still worth listing: every marker minus the ones a
+    /// permanent delete purged. One tiny decode each — no restore-source probe.
+    private nonisolated static func listableTombstoneIds() -> Set<UUID> {
+        diskTombstoneIds().filter { !isPurged($0) }
+    }
+
+    /// Whether the user permanently deleted tombstoned `id`.
+    private nonisolated static func isPurged(_ id: UUID) -> Bool {
+        CloudDocument.read(tombstoneURL(id))
+            .flatMap { try? JSONDecoder().decode(Tombstone.self, from: $0) }?.purged == true
+    }
+
+    /// Whether anything is listable — the gate on the Settings ▸ Recently
+    /// deleted row. No restore-source probe, so it's safe to re-run on
+    /// navigation.
     public nonisolated static func hasTombstones() -> Bool {
-        !diskTombstoneIds().isEmpty
+        !listableTombstoneIds().isEmpty
     }
 
     /// Tombstoned MyApps, newest first — what Settings ▸ Recently deleted
@@ -3384,7 +3400,7 @@ public final class MyAppStore {
     public nonisolated static func deletedMyApps() -> [DeletedMyApp] {
         let dec = JSONDecoder()
         var out: [DeletedMyApp] = []
-        for id in diskTombstoneIds() {
+        for id in listableTombstoneIds() {
             let stone = CloudDocument.read(tombstoneURL(id)).flatMap { try? dec.decode(Tombstone.self, from: $0) }
             let isRestorable = hasRestoreSource(id)
             // Legacy tombstones carry no name — recover it from the restore
@@ -3401,6 +3417,24 @@ public final class MyAppStore {
         }
         // Undated (corrupt tombstone) sorts last rather than jumping to the top.
         return out.sorted { ($0.deletedAt ?? .distantPast) > ($1.deletedAt ?? .distantPast) }
+    }
+
+    /// Permanently delete tombstoned `id`: drop every restore source — history,
+    /// the user's pins, and the body — and mark the tombstone purged so it
+    /// leaves Settings ▸ Recently deleted (and Pinned snapshots with it).
+    ///
+    /// The tombstone itself stays until its TTL: it's the only thing stopping a
+    /// device that hasn't synced the purge from re-pushing the body.
+    public nonisolated static func purgeDeletedMyApp(_ id: UUID) {
+        SnapshotStore.deleteAll(id)
+        CloudDocument.delete(appURL(id))
+        // Re-write rather than patch: keeps `deletedAt` (so GC's age check is
+        // unchanged) and the name, and mints both if the marker didn't decode.
+        let old = CloudDocument.read(tombstoneURL(id))
+            .flatMap { try? JSONDecoder().decode(Tombstone.self, from: $0) }
+        let stone = Tombstone(id: id, deletedAt: old?.deletedAt ?? Date(), name: old?.name, purged: true)
+        guard let data = try? stateEncoder().encode(stone) else { return }
+        try? CloudDocument.write(data, to: tombstoneURL(id))
     }
 
     /// Bring a deleted MyApp back. Returns false when it's already in the roster
@@ -3579,7 +3613,10 @@ public final class MyAppStore {
                 // sole restore material until that snapshot syncs. `hasHistory`
                 // first — on the launch path the common answer costs a `stat`
                 // rather than a listing plus a header decode per record.
-                if !SnapshotStore.hasHistory(id) || SnapshotStore.head(id) == nil,
+                // …unless the user purged it: a permanent delete must not be
+                // undone by a body arriving from a device that hasn't synced it.
+                if !isPurged(id),
+                   !SnapshotStore.hasHistory(id) || SnapshotStore.head(id) == nil,
                    let data = CloudDocument.read(url),
                    let app = try? JSONDecoder().decode(MyApp.self, from: data) {
                     SnapshotStore.record(app, reason: .deleted)

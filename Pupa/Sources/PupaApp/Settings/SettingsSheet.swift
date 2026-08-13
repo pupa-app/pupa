@@ -172,7 +172,9 @@ public struct SettingsSheet: View {
                 }
                 if store != nil, hasDeletedApps {
                     NavigationLink(value: SettingsCategory.recentlyDeleted) {
-                        categoryRow(icon: "trash.arrow.circlepath", title: "Recently deleted",
+                        // `arrow.up.trash`, not `trash.arrow.circlepath` — the
+                        // latter isn't an SF Symbol and rendered as a blank gap.
+                        categoryRow(icon: "arrow.up.trash", title: "Recently deleted",
                                     caption: "Restore a deleted app")
                     }
                 }

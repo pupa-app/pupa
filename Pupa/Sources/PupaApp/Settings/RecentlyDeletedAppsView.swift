@@ -14,6 +14,8 @@ struct RecentlyDeletedAppsView: View {
     /// Set when a Restore we offered didn't take — the source can go away
     /// between the scan and the tap. Doing nothing reads as a broken button.
     @State private var failedToRestore: String?
+    /// The row awaiting confirmation of a permanent delete.
+    @State private var pendingPurge: MyAppStore.DeletedMyApp?
 
     var body: some View {
         List {
@@ -29,7 +31,7 @@ struct RecentlyDeletedAppsView: View {
                     }
                 }
             } footer: {
-                Text("Deleted apps are listed here for 180 days. Restoring brings back the last saved state — chats and components included — and clears the delete on your other devices.")
+                Text("Deleted apps are listed here for 180 days. Restoring brings back the last saved state — chats and components included — and clears the delete on your other devices. Deleting permanently erases that saved state everywhere.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -56,6 +58,20 @@ struct RecentlyDeletedAppsView: View {
         } message: {
             Text("\(failedToRestore ?? "") can no longer be restored — its saved state is gone.")
         }
+        .confirmationDialog(
+            "Delete \(pendingPurge?.name ?? "") permanently?",
+            isPresented: Binding(
+                get: { pendingPurge != nil },
+                set: { if !$0 { pendingPurge = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingPurge
+        ) { app in
+            Button("Delete permanently", role: .destructive) { purge(app) }
+            Button("Cancel", role: .cancel) { pendingPurge = nil }
+        } message: { _ in
+            Text("Erases its saved state on all your devices — pinned snapshots included. This can't be undone.")
+        }
     }
 
     @ViewBuilder
@@ -68,9 +84,17 @@ struct RecentlyDeletedAppsView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            // `.borderless` on both: a plain-styled button inside a List row
+            // takes the whole row's tap on iOS, so the two would be one control.
             Button("Restore") { restore(app) }
                 .buttonStyle(.borderless)
                 .disabled(!app.isRestorable)
+            Button(role: .destructive) { pendingPurge = app } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .tint(.red)
+            .accessibilityLabel("Delete \(app.name) permanently")
         }
     }
 
@@ -91,5 +115,14 @@ struct RecentlyDeletedAppsView: View {
             return
         }
         deleted.removeAll { $0.id == app.id }
+    }
+
+    /// Off-main like the scan: this unlinks a snapshot directory.
+    private func purge(_ app: MyAppStore.DeletedMyApp) {
+        pendingPurge = nil
+        deleted.removeAll { $0.id == app.id }
+        Task.detached(priority: .userInitiated) {
+            MyAppStore.purgeDeletedMyApp(app.id)
+        }
     }
 }
