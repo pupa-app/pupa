@@ -29,6 +29,14 @@ struct ProfileSettingsView: View {
     private var statusText: String {
         guard iCloudActive else { return "Inactive" }
         let s = SyncStatus.shared
+        // Before the generic count, which is non-zero by definition while the
+        // roster is inbound — that's what we're waiting on. Checked second,
+        // this branch was unreachable in the one case it exists for, leaving a
+        // bare "Syncing 43…" that said nothing about the roster being partial.
+        if store?.awaitingCloudRoster == true {
+            let pending = max(store?.pendingCloudDownloads ?? 0, s.pendingDownloads)
+            return pending > 0 ? "Restoring your apps · \(pending) left" : "Restoring your apps…"
+        }
         if s.pendingDownloads > 0 { return "Syncing \(s.pendingDownloads)…" }
         guard let at = s.lastConvergedAt else { return "Waiting for iCloud" }
         return "Up to date · \(Self.relativeFmt.localizedString(for: at, relativeTo: Date()))"
@@ -47,6 +55,16 @@ struct ProfileSettingsView: View {
         guard !isSyncing else { return }
         isSyncing = true
         defer { isSyncing = false }
+        // Kick downloads first: `reconcile()` only copies already-materialized
+        // files, so against dataless cloud placeholders — exactly the state
+        // this button is meant to unstick — a bare reconcile did nothing.
+        //
+        // Concurrent and on a short deadline, since the button is disabled
+        // throughout and two sequential 60s defaults would park it for two
+        // minutes. The kick is what matters; downloads continue regardless.
+        async let state: Bool = PupaStorage.downloadSubtreeUntilSettled("state", timeout: .seconds(15))
+        async let memories: Bool = PupaStorage.downloadSubtreeUntilSettled("memories", timeout: .seconds(15))
+        _ = await (state, memories)
         let changed = await StorageMirror.shared.reconcile()
         guard changed else { return }
         await store?.reloadFromDisk()

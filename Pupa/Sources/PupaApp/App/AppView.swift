@@ -270,6 +270,7 @@ public struct AppView: View {
         platformBody
             .safeAreaInset(edge: .top) {
                 VStack(spacing: 0) {
+                    if let warning = store.rosterWarning { unsavedRosterBanner(warning) }
                     if store.pendingSyncRemoval != nil { syncRemovalBanner }
                     if showBackendReminder { backendReminderBanner }
                 }
@@ -635,6 +636,41 @@ public struct AppView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Dismiss")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.regularMaterial)
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    /// The roster on screen is a stand-in that is deliberately never written to
+    /// disk (see `MyAppStore.rosterWarning`). Without this the user works in an
+    /// app whose every edit is dropped on relaunch — and once the retry gives
+    /// up, nothing else in the UI says so.
+    private func unsavedRosterBanner(_ warning: MyAppStore.RosterWarning) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: warning == .restoring
+                  ? "icloud.and.arrow.down"
+                  : "exclamationmark.icloud")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(warning == .restoring
+                     ? "Restoring your apps from iCloud…"
+                     : "Couldn’t reach your apps in iCloud")
+                    .font(.subheadline)
+                Text("Changes here won’t be saved.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .lineLimit(2)
+            .minimumScaleFactor(0.85)
+            Spacer(minLength: 8)
+            if warning == .unreachable {
+                Button("Try again") { store.retryCloudRoster() }
+                    .font(.subheadline.weight(.semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.tint)
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)

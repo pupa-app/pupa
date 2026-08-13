@@ -92,7 +92,21 @@ public struct SettingsSheet: View {
     /// category's real controls (the existing section builders, re-hosted in
     /// their own `Form`).
     private enum SettingsCategory: Hashable {
-        case profile, backend, tools, agents, agentsOverview, notifications, examples, sharing, pinned, archive
+        case profile, backend, tools, agents, agentsOverview, notifications, examples, sharing, pinned, archive, recentlyDeleted
+    }
+
+    /// Whether to offer the Recently deleted row. Loaded on appear, never in
+    /// `body`: it reads the filesystem.
+    @State private var hasDeletedApps = false
+
+    /// Off-main tombstone scan feeding `hasDeletedApps`. `hasTombstones()`, not
+    /// `deletedMyApps()` — the row needs only "any?", and the full listing's
+    /// per-entry resolve belongs on the screen itself, not on a gate re-run on
+    /// every settings navigation.
+    private func refreshHasDeletedApps() async {
+        hasDeletedApps = await Task.detached(priority: .userInitiated) {
+            MyAppStore.hasTombstones()
+        }.value
     }
 
     /// True when the Import & Export screen can be shown (stores wired in).
@@ -156,6 +170,12 @@ public struct SettingsSheet: View {
                                     caption: "Hidden apps")
                     }
                 }
+                if store != nil, hasDeletedApps {
+                    NavigationLink(value: SettingsCategory.recentlyDeleted) {
+                        categoryRow(icon: "trash.arrow.circlepath", title: "Recently deleted",
+                                    caption: "Restore a deleted app")
+                    }
+                }
                 if let onStartTour {
                     Section {
                         Button {
@@ -174,6 +194,13 @@ public struct SettingsSheet: View {
             #endif
             .navigationDestination(for: SettingsCategory.self) { category in
                 categoryDetail(category)
+            }
+            .task { await refreshHasDeletedApps() }
+            // Re-check on the pop, so restoring the last deleted app drops the
+            // row. A push can't have changed what's on disk.
+            .onChange(of: path) { _, new in
+                guard new.isEmpty else { return }
+                Task { await refreshHasDeletedApps() }
             }
             .toolbar {
                 // Dismiss control sits leading (left) on both platforms, so
@@ -313,6 +340,10 @@ public struct SettingsSheet: View {
             case .archive:
                 if let store {
                     ArchivedAppsView(store: store)
+                }
+            case .recentlyDeleted:
+                if let store {
+                    RecentlyDeletedAppsView(store: store)
                 }
             }
         }

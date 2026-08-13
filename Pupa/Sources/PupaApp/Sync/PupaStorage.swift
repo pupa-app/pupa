@@ -133,7 +133,10 @@ public enum PupaStorage {
     /// a device awaiting its first sync materializes the real `index.json` +
     /// app files instead of racing ahead on placeholders. No-op when iCloud is
     /// off or the items aren't ubiquitous (tests use a plain mirror dir).
-    public static func startDownloadingState() {
+    /// Returns how many items are still pending, so a caller can report "N
+    /// left" instead of an open-ended spinner.
+    @discardableResult
+    public static func startDownloadingState() -> Int {
         kickUndownloaded(subtree: "state")
     }
 

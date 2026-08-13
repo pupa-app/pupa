@@ -952,10 +952,62 @@ the real apps on every device (the reported "everything replaced by Daily
 Briefing" wipe). Instead `MyAppStore` enters `isProvisioning` (holds an
 in-memory placeholder, persists nothing) and `finishProvisioning()` forces the
 `state/` subtree to download, converges, and either **adopts** the pulled roster
-or seeds the default only if the cloud is genuinely empty. A durable local
+or seeds the default only if the cloud is genuinely empty. If the window
+expires with a roster in the cloud it couldn't pull, it sets
+`awaitingCloudRoster` and keeps retrying in the background (up to 10 min) rather
+than parking on the placeholder — a slow link otherwise showed only the seeded
+app indefinitely. The retry is `Task.detached` (the store is `@MainActor`, so an
+inherited-isolation `Task` would poll the filesystem on the main thread) and
+clears `awaitingCloudRoster` when it gives up, so the UI never promises a
+restore that stopped. One poll is expensive — a walk of the cloud `state/`
+subtree, a full converge, and a decode of the index plus every app body — so it
+backs off 3s → 30s and skips the decode when the converge moved nothing; a
+device on a link slow enough to need the retry is the last one that should be
+polled flat out. `adopt` stops the retry whenever a roster lands by any route
+(a watcher `reloadFromDisk` can beat it), dropping both guards with it.
+`pendingCloudDownloads` carries the still-downloading count so Account can say
+"Restoring your apps · N left". A durable local
 `.roster-established` marker plus a `StorageMirror.provisioning` flag — which
 makes `plan()` refuse to push or win a conflict on `state/index.json` — ensure a
-placeholder can never overwrite a populated cloud index. Separately, when a
+placeholder can never overwrite a populated cloud index.
+
+**Both guards stay armed for the whole wait.** `isProvisioning` (gates local
+writes) and `StorageMirror.provisioning` (gates the index push) fall together,
+in `leaveProvisioning()`, and only when the roster is actually adopted — never
+on entering the retry window. Dropping them there is precisely the wipe: we
+know a roster is up there, and one edit to the placeholder would persist and
+push a one-app index over it. If the retry gives up, local writes resume but
+the mirror guard stays on for the session — bodies push normally, only
+`state/index.json` stays pinned to the cloud side. Resuming writes does **not**
+release the seeded roster itself: `unadoptedPlaceholderIds` keeps it out of
+`persist()` (no body, and filtered out of the index `order`) until a real
+roster is adopted, or until the cloud proves empty and the seed becomes this
+install's own. Otherwise the user's next edit persists a body carrying a
+launch-fresh UUID, and union-load — which takes existence from bodies — lists
+it *beside* the real roster on arrival: a duplicate "Daily Briefing" pushed to
+every device. Apps the user creates after the give-up are real intent and
+persist normally.
+
+Holding the stand-in back is silent on its own, so `rosterWarning` drives a top
+**banner**: `.restoring` ("Restoring your apps from iCloud…") while the retry
+runs, `.unreachable` ("Couldn't reach your apps in iCloud", with a **Try again**
+that re-arms the poller) once it gave up — both under "Changes here won't be
+saved." Without it the user works in an app whose every edit is dropped on
+relaunch, and after the give-up nothing else in the UI says so:
+`awaitingCloudRoster` is false, so Account has reverted to its ordinary sync
+status. `rosterWarning` is nil for the initial `finishProvisioning` window even
+though the stand-in is unsaved there too — that wait ends in an adopted roster
+on the common path, so warning would put a failure banner on every successful
+cold restore. The banner has no dismiss: it clears when a real roster is
+adopted, or when the cloud proves empty and the seed is committed.
+
+Note the mirror guard's reach while it stays on: `IndexFile` also carries
+`memoryThreads`, `memoryCurrentThreadId`, `itemEventLog`, `componentFolders`
+and `activeId`, so after a give-up none of those sync from this device for the
+rest of the session (bodies still do, and union-load recovers roster membership
+from them on the other side). A relaunch that adopts a roster clears it.
+
+Separately, when a
 remote reload removes MyApps this user did **not** delete, `reloadFromDisk`
 snapshots them and raises a dismissible **restore banner**: the merge still
 applies (losers are in History), but the user is advised and can restore in one
@@ -991,15 +1043,49 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
 - **Deletion tombstones.** Because union-load treats any on-disk body as a live
   app, a delete needs a durable record or a not-yet-synced copy on another device
   would resurrect it. So deleting a MyApp writes a mirrored marker
-  `state/tombstones/<uuid>.json` (`{id, deletedAt}`) alongside removing the body.
+  `state/tombstones/<uuid>.json` (`{id, deletedAt, name?}`) alongside removing the
+  body, and records a `.deleted` snapshot first — the restore point behind
+  **Settings → Recently deleted**, which lists tombstoned apps for the marker's
+  180-day life. `deleteNonPinned` (run when an app leaves the roster) keeps
+  `.deleted` records alongside pins; `gcTombstones` passes `keeping: [.pinned]`
+  so the restore point goes with the tombstone instead of being orphaned.
+  Restoring writes the body back *before* clearing the tombstone, so a device
+  syncing mid-restore never sees a tombstone-free id with no body; it un-hides
+  an archived app, and refuses outright while provisioning (`persist()` is a
+  no-op then, so clearing the tombstone would lose the app from both the roster
+  and the list).
+- **A restore point is never left behind.** `.deleted` records are exempt from
+  the snapshot TTL *and* the per-app cap, so `prune` can never collect one — the
+  thing that retires it is whatever retires its tombstone. So every exit is
+  covered: `gcTombstones` at 180 days, and `MyAppStore.clearDeleteMarkers`
+  (`clearTombstone` + `SnapshotStore.dropRecords(reasons: [.deleted])`) on
+  **every** un-delete path — `restoreDeletedMyApp`, `restorePinnedSnapshot`,
+  `restoreSyncRemovedApps`, `importMyApp`. Clearing a tombstone alone retires
+  the record's only collector and strands a full base (the whole serialized
+  MyApp, chats included) permanently, mirrored to iCloud — so the pair always
+  goes together, which is why the un-delete paths call the helper and not
+  `clearTombstone`. Callers resolve what they're restoring *before* the call and
+  record any new snapshot *after*, so nothing reads a record on its way out or
+  diffs off one. `dropRecords` re-bases any survivor that diffed off a dropped
+  record, so history still resolves.
+- **Every tombstoned app stays restorable.** `MyAppStore.restorableApp` takes
+  the newest snapshot that resolves, else the body file itself — a tombstone
+  arriving from another device suppresses the local body before that device's
+  `.deleted` snapshot has necessarily synced. The orphan sweep captures a
+  tombstoned body as a `.deleted` snapshot before reaping it, so the handoff is
+  lossless. Only a pre-0.0.240 delete (which captured nothing) lists as
+  non-restorable. The Recently deleted *listing* answers restorability with
+  `hasRestoreSource` — a `stat` per source rather than a chain walk and a whole
+  `MyApp` decode per row, which made the screen's cost scale with app size
+  rather than app count; the full resolve happens on the tap.
   Union-load subtracts tombstoned ids (a tombstone suppresses a body even while
   it's still on disk), and the orphan sweep reaps a tombstoned body regardless of
   decodability or age — that's how an arriving tombstone reaps the second device's
   copy. A tombstone beats a concurrent body edit (a delete is sticky, and lets the
   user prune duplicate apps for good). An explicit un-delete — restoring a pinned
   snapshot, re-importing a bundle, or restoring a sync-removed app — clears the
-  tombstone (`clearTombstone`), or union-load would re-suppress the revived app and
-  the sweep reap its body on the next relaunch. Tombstones GC after 180 days —
+  markers (`clearDeleteMarkers`), or union-load would re-suppress the revived app
+  and the sweep reap its body on the next relaunch. Tombstones GC after 180 days —
   generous so one always outlives an un-synced stale body (which sweeps at 7 days);
   a corrupt tombstone ages out via file mtime so it can't suppress forever.
 - **Component folders (UI-only)** → the home-page grid
