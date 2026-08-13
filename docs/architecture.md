@@ -1205,7 +1205,9 @@ slug-safe rename, traversal-safe memory writes).
 `pupa-install://import?url=…&sha256=…` link, whose bundle URL
 `MarketplaceInstallLink` allow-lists by component to the catalog's `main/apps/`
 tree, downloads under the importer's byte cap, and checksums — then stages for
-the *same* confirm sheet a tapped file gets. Full design + threat model:
+the *same* confirm sheet a tapped file gets. The Import screen links out to
+that catalog (`MarketplaceInstallLink.browseURL`) beside the file picker; the
+app never reads a catalog itself. Full design + threat model:
 [marketplace.md](marketplace.md).
 
 ## Backend
