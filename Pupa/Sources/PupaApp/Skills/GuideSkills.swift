@@ -15,7 +15,7 @@ import Foundation
 /// component-kind list is generated from `MyAppType.kinds` so it can't drift.
 enum GuideSkills {
     /// Bump when any guide body changes so existing installs re-seed.
-    static let version = "18"
+    static let version = "19"
 
     /// The plugin folder holding this guide's skills.
     static let pluginDir = "\(MemoryStore.pupaPluginsDir)/pupa-guide"
@@ -166,7 +166,8 @@ enum GuideSkills {
     No code runs from the file itself.
 
     **Export.** Settings ▸ Import & Export: pick components, choose whether
-    records and memories ride along, then Share (AirDrop, Messages, Files…).
+    records and memories ride along, then Share (AirDrop, Messages, Files…) —
+    on Mac, Save, which writes the `.pupa` wherever you choose.
     Exporting a pinned snapshot (from History or Settings ▸ Pinned snapshots)
     opens this same screen with a "Pinned version" banner — records and memories
     default off there too.

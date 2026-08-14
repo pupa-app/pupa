@@ -56,10 +56,19 @@ structure) and an `exportDataWarning`. One per kind, registered in
 
 ## Export + share (Settings ▸ Import & Export)
 
-Export is a **Share…** action (`ShareLink`): the current selection is encoded to
-a temp `<App>.pupa` and handed to the system share sheet — AirDrop, Messages,
-WhatsApp, Mail, or Save to Files. The temp file is rebuilt whenever the
-component selection or the records/memories toggles change.
+Export is platform-split. On iPhone / iPad it's a **Share…** action
+(`ShareLink`): the selection is encoded to a temp `<App>.pupa` and handed to the
+system share sheet — AirDrop, Messages, WhatsApp, Mail, or Save to Files. The
+temp file is rebuilt whenever the component selection or the records/memories
+toggles change.
+
+On Mac (`DeviceInfo.isMac` — the shipping Mac app is the iOS binary, so
+`#if os(macOS)` is false there) it's a **Save…** action: the same bytes go
+straight to `.fileExporter` / `MyAppDocument`, no temp file. The share sheet is
+not offered because its "Save to Files" service crashes the app — ShareKit
+passes `nil` to `-[NSSavePanel setNameFieldStringValue:]` (Apple bug,
+FB13819800). The file base name comes from `MyAppExporter.exportBaseName`,
+which falls back to `pupa-app` for names that slugify to empty.
 
 `MyAppExporter.makeBundle`: keep selected components → strip records per policy
 (when records off) → prune dangling refs → carry agents (structural) → scope

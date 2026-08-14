@@ -87,10 +87,15 @@ struct ExportShareScreen: View {
     @State private var includeRecords = false
     @State private var includeMemories = false
 
-    /// Temp `.pupa` file backing the share sheet. Rebuilt whenever the
+    /// Temp `.pupa` file backing the share sheet (iOS). Rebuilt whenever the
     /// selection or toggles change so a share always reflects the current
     /// choices; `nil` (control disabled) until at least one component is picked.
     @State private var shareURL: URL?
+    /// The same bytes as a document, for the Mac save panel — no temp file.
+    @State private var shareDoc: MyAppDocument?
+    /// File name (no extension) the save panel opens with.
+    @State private var shareBaseName = ""
+    @State private var presentingExporter = false
     @State private var notice: SharingNotice?
 
     private let relFmt: RelativeDateTimeFormatter = {
@@ -135,6 +140,16 @@ struct ExportShareScreen: View {
         .onChange(of: includeMemories) { _, _ in regenerateShareFile() }
         .alert(item: $notice) { n in
             Alert(title: Text(n.title), message: Text(n.message), dismissButton: .default(Text("OK")))
+        }
+        .fileExporter(
+            isPresented: $presentingExporter,
+            document: shareDoc,
+            contentType: .pupaAppBundle,
+            defaultFilename: shareBaseName
+        ) { result in
+            if case .failure(let error) = result {
+                notice = SharingNotice(title: "Export failed", message: error.localizedDescription)
+            }
         }
     }
 
@@ -200,7 +215,17 @@ struct ExportShareScreen: View {
             }
 
             Section {
-                if let shareURL {
+                if DeviceInfo.isMac {
+                    // Mac routes through the save panel, not the system share
+                    // sheet: its "Save to Files" service crashes the app —
+                    // ShareKit hands NSSavePanel a nil name (FB13819800).
+                    Button {
+                        presentingExporter = true
+                    } label: {
+                        Label("Save…", systemImage: "square.and.arrow.down")
+                    }
+                    .disabled(shareDoc == nil)
+                } else if let shareURL {
                     // An explicit preview stops the share sheet probing the
                     // bundle for a thumbnail it can't make (benign but noisy
                     // "error fetching item … (null)" logs) and gives a clean card.
@@ -217,9 +242,15 @@ struct ExportShareScreen: View {
                         .foregroundStyle(.secondary)
                 }
             } footer: {
-                Text(isAllApps
-                     ? "Shares a .\(MyAppBundle.fileExtension) file with every app — AirDrop, Messages, WhatsApp, Mail, or Save to Files. Opening it on another device imports them all into Pupa."
-                     : "Shares a .\(MyAppBundle.fileExtension) file — AirDrop, Messages, WhatsApp, Mail, or Save to Files. Opening it on another device imports the app into Pupa.")
+                if DeviceInfo.isMac {
+                    Text(isAllApps
+                         ? "Saves a .\(MyAppBundle.fileExtension) file with every app. Opening it on another device imports them all into Pupa."
+                         : "Saves a .\(MyAppBundle.fileExtension) file. Opening it on another device imports the app into Pupa.")
+                } else {
+                    Text(isAllApps
+                         ? "Shares a .\(MyAppBundle.fileExtension) file with every app — AirDrop, Messages, WhatsApp, Mail, or Save to Files. Opening it on another device imports them all into Pupa."
+                         : "Shares a .\(MyAppBundle.fileExtension) file — AirDrop, Messages, WhatsApp, Mail, or Save to Files. Opening it on another device imports the app into Pupa.")
+                }
             }
         } else {
             Section { Text("No apps to share.").foregroundStyle(.secondary) }
@@ -279,13 +310,12 @@ struct ExportShareScreen: View {
         regenerateShareFile()
     }
 
-    /// Encode the current selection to a temp `.pupa` file the share sheet
-    /// hands off — a single-app bundle, or (all-apps mode) a library of every
-    /// app. `nil`s `shareURL` when nothing is selectable. Cheap enough to re-run
-    /// on every toggle.
+    /// Encode the current selection — a single-app bundle, or (all-apps mode) a
+    /// library of every app. Clears the export when nothing is selectable.
+    /// Cheap enough to re-run on every toggle.
     private func regenerateShareFile() {
         if isAllApps {
-            guard !store.myApps.isEmpty else { shareURL = nil; return }
+            guard !store.myApps.isEmpty else { clearShareFile(); return }
             let library = MyAppExporter.makeLibraryBundle(
                 apps: store.myApps,
                 includeRecords: includeRecords,
@@ -294,7 +324,7 @@ struct ExportShareScreen: View {
             writeShareFile(named: "Pupa Apps") { try library.encoded() }
             return
         }
-        guard let app, !selectedComponentIds.isEmpty else { shareURL = nil; return }
+        guard let app, !selectedComponentIds.isEmpty else { clearShareFile(); return }
         let bundle = MyAppExporter.makeBundle(
             app: app,
             options: .init(
@@ -302,26 +332,40 @@ struct ExportShareScreen: View {
                 includeRecords: includeRecords,
                 includeMemories: includeMemories),
             memory: memory)
-        writeShareFile(named: MemoryStore.myAppFolder(myAppName: app.name)) { try bundle.encoded() }
+        writeShareFile(named: MyAppExporter.exportBaseName(forAppName: app.name)) {
+            try bundle.encoded()
+        }
     }
 
-    /// Write `encode()`'s bytes to a temp `<base>.pupa` and point the share
-    /// sheet at it (or surface an error). Each regeneration gets a fresh
-    /// unique folder: `ShareLink` keys off the item URL's identity, so
-    /// rewriting one fixed path could hand off a bundle built before the
-    /// latest toggle change (e.g. memories missing despite the toggle ON).
+    private func clearShareFile() {
+        shareURL = nil
+        shareDoc = nil
+    }
+
+    /// Stage `encode()`'s bytes for export under `<base>.pupa` (or surface an
+    /// error). Mac keeps them in memory for the save panel; iOS also writes a
+    /// temp file, since the share sheet hands off a URL. Each iOS regeneration
+    /// gets a fresh unique folder: `ShareLink` keys off the item URL's
+    /// identity, so rewriting one fixed path could hand off a bundle built
+    /// before the latest toggle change (e.g. memories missing despite the
+    /// toggle ON).
     private func writeShareFile(named base: String, encode: () throws -> Data) {
         let previous = shareURL
         do {
-            let dir = FileManager.default.temporaryDirectory
-                .appendingPathComponent("share-\(UUID().uuidString)", isDirectory: true)
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            let url = dir.appendingPathComponent(base)
-                .appendingPathExtension(MyAppBundle.fileExtension)
-            try encode().write(to: url, options: .atomic)
-            shareURL = url
+            let data = try encode()
+            shareBaseName = base
+            shareDoc = MyAppDocument(data: data)
+            if !DeviceInfo.isMac {
+                let dir = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("share-\(UUID().uuidString)", isDirectory: true)
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                let url = dir.appendingPathComponent(base)
+                    .appendingPathExtension(MyAppBundle.fileExtension)
+                try data.write(to: url, options: .atomic)
+                shareURL = url
+            }
         } catch {
-            shareURL = nil
+            clearShareFile()
             notice = SharingNotice(title: "Export failed", message: error.localizedDescription)
         }
         removeShareFolder(of: previous)

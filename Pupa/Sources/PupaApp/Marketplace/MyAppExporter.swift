@@ -134,4 +134,13 @@ public enum MyAppExporter {
             includedMemories: includeMemories)
         return MyAppLibraryBundle(header: header, apps: bundles)
     }
+
+    /// File base name (no extension) for an exported app. The slug drops every
+    /// non-alphanumeric, so emoji-only names slug to `""` — which would write
+    /// the bundle *outside* its temp folder and hand the save panel a junk
+    /// name. Fall back instead.
+    public nonisolated static func exportBaseName(forAppName name: String) -> String {
+        let slug = MemoryStore.myAppFolder(myAppName: name)
+        return slug.isEmpty ? "pupa-app" : slug
+    }
 }
