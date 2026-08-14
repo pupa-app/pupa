@@ -75,7 +75,7 @@ public final class SlackInvoker {
         channelId: String,
         myAppId: UUID,
         invocationId: UUID,
-        caller: UUID?,
+        caller: AgentCallerContext,
         treeRoot: UUID
     ) -> UUID {
         gate.enter(

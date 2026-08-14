@@ -32,6 +32,31 @@ public enum AgentInvocationKey: Hashable, Sendable {
     }
 }
 
+/// Who issued a delegation. Separates *policy* (does this call nest under a
+/// live run?) from *attribution* (which agent gets credit for making it).
+///
+/// A user-facing chat panel is ungated — it owns no forest node — but the
+/// agent driving it is known, so `.session` attributes its delegations
+/// without adding a level to the tree.
+public enum AgentCallerContext: Hashable, Sendable {
+    /// Human-initiated: the chat composer, a Slack @-mention. Roots a tree
+    /// and attributes nothing — a person is not an agent.
+    case user
+    /// An ungated chat panel acting on its agent's behalf. Roots a tree
+    /// exactly like `.user` — no node, no depth, no turn budget — but the
+    /// delegation is credited to `key`.
+    case session(AgentInvocationKey)
+    /// A live gated run. Nests under it; its key is resolved from the forest.
+    case agent(UUID)
+
+    /// The forest parent, if any. Only `.agent` has one — which is what keeps
+    /// `.session` policy-neutral.
+    public var invocationId: UUID? {
+        if case .agent(let id) = self { return id }
+        return nil
+    }
+}
+
 /// One node in the active invocation forest. Every in-flight agent
 /// run produces exactly one node; nested calls hang off their parent
 /// via `parentInvocationId`. Tree roots have `parentInvocationId ==
@@ -92,8 +117,8 @@ public enum AgentInvocationDecision: Equatable, Sendable {
 /// call `enter(...)` / `exit(_:)` around the actual session loop.
 ///
 /// **Forest model.** Each in-flight run is one `InvocationNode`,
-/// linked to its parent via `parentInvocationId`. User-initiated
-/// runs are tree roots (no caller). Reentry is *"target appears in
+/// linked to its parent via `parentInvocationId`. `.user` and
+/// `.session` callers are tree roots. Reentry is *"target appears in
 /// the caller's ancestor chain"* — siblings and cross-branch calls
 /// are explicitly allowed, even when they share an `AgentInvocationKey`,
 /// because neither sits above the other on the tree.
@@ -141,13 +166,14 @@ public final class AgentInvocationGate {
     /// Cleaned up when the parent node exits.
     private var pairTurnCounts: [UUID: [AgentInvocationKey: Int]] = [:]
 
-    /// Fired on every *nested* `enter` (caller present) with the caller's
-    /// and target's keys. The single chokepoint both MyApp sub-runs and
-    /// Slack sub-agents funnel through, so the coordinator wires this once
-    /// to record lifetime activity in `AgentStatsStore`. Pure side-channel:
-    /// the gate's own policy never consults it.
+    /// Fired on every `enter` whose caller resolves to an agent key — a
+    /// nested run (`.agent`) or an ungated chat panel (`.session`). Not fired
+    /// for `.user`: a person makes no delegation. The single chokepoint every
+    /// delegation funnels through, so the coordinator wires this once to
+    /// record lifetime activity in `AgentStatsStore`. Pure side-channel: the
+    /// gate's own policy never consults it.
     @ObservationIgnored
-    public var onNestedEnter: ((_ caller: AgentInvocationKey, _ target: AgentInvocationKey) -> Void)?
+    public var onDelegation: ((_ caller: AgentInvocationKey, _ target: AgentInvocationKey) -> Void)?
 
     public init(maxChainDepth: Int = 4, maxTurnsPerPair: Int = 5) {
         self.maxChainDepth = maxChainDepth
@@ -199,22 +225,37 @@ public final class AgentInvocationGate {
     public func enter(
         invocationId: UUID,
         target: AgentInvocationKey,
-        caller: UUID?,
+        caller: AgentCallerContext,
         treeRoot: UUID
     ) {
+        // Policy state keys off the forest parent only, so `.session` and
+        // `.user` behave identically to a bare root.
+        let parent = caller.invocationId
         activeInvocations[invocationId] = InvocationNode(
             invocationId: invocationId,
             agentKey: target,
-            parentInvocationId: caller,
+            parentInvocationId: parent,
             treeRootInvocationId: treeRoot
         )
-        if let caller {
-            pairTurnCounts[caller, default: [:]][target, default: 0] += 1
-            // Caller's node was entered before this one, so its key is
-            // resolvable from the live forest. Fire the activity hook.
-            if let callerKey = activeInvocations[caller]?.agentKey {
-                onNestedEnter?(callerKey, target)
-            }
+        if let parent {
+            pairTurnCounts[parent, default: [:]][target, default: 0] += 1
+        }
+        if let callerKey = callerKey(caller) {
+            onDelegation?(callerKey, target)
+        }
+    }
+
+    /// The delegating agent's key, or nil when there is none to credit.
+    private func callerKey(_ caller: AgentCallerContext) -> AgentInvocationKey? {
+        switch caller {
+        case .user:
+            return nil
+        case .session(let key):
+            return key
+        case .agent(let id):
+            // The parent was entered before this node, so its key is
+            // resolvable from the live forest — unless it already exited.
+            return activeInvocations[id]?.agentKey
         }
     }
 

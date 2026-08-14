@@ -329,8 +329,9 @@ public final class ChatViewModel {
     private let settings: SettingsStore
     /// Held so `/tools` can enumerate exactly the tool surface advertised to
     /// the model — `AgentSession` reads from the same `ToolRegistry` when
-    /// building each `RunAgentInput.tools`.
-    private let registry: ToolRegistry
+    /// building each `RunAgentInput.tools`. Not private so tests can dispatch
+    /// a real registered tool without standing up a backend.
+    let registry: ToolRegistry
     /// Reused for AGUIKit's `AgentClient` and the REST `BackendToolsClient`
     /// when the session is rebuilt mid-app on a settings change.
     private let urlSession: URLSession

@@ -852,6 +852,9 @@ the subagent runs.
 Every subagent run is gated by the shared `AgentInvocationGate` under a
 `.subagent(myAppId:slug:)` key, so reentrancy, chain-depth, and per-pair turn
 budgets bound A2A chains exactly as they bound orchestrator→MyApp delegation.
+Entry points thread an `AgentCallerContext` saying who delegated — `.agent(id)`
+(nests under a live run), `.session(key)` (an ungated chat panel: roots a tree,
+costs no depth or turn budget, but is credited in the stats), or `.user`.
 
 **Slack is a UI over subagents.** A Slack component holds only channels +
 messages (`SlackData`); its workspace roster is *all* subagents discovered under
@@ -1210,9 +1213,13 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
   `[agentKey: AgentStat]` bag whose `counters` are an open `[String: Int]`,
   keyed by `AgentInvocationKey.statKey` (opaque string, never a struct
   shape) so it survives as agent kinds grow. Counters are bumped at the one
-  `AgentInvocationGate.onNestedEnter` chokepoint every MyApp sub-run and
-  Slack sub-agent funnels through — `delegationsMade` on the caller,
-  `invocationsReceived` on the target. Stats are advisory/lossy-tolerant
+  `AgentInvocationGate.onDelegation` chokepoint every delegation funnels
+  through — `delegationsMade` on the caller, `invocationsReceived` on the
+  target. The hook fires whenever the `AgentCallerContext` resolves to an
+  agent key: `.agent(id)` for a live gated run, **and** `.session(key)` for an
+  ungated chat panel, so first-level delegations (orchestrator chat → MyApp
+  agent, MyApp chat → subagent) are counted too. `.user` — the composer, a
+  Slack @-mention — roots a tree and credits nobody. Stats are advisory/lossy-tolerant
   (missing key → zero; orphans ignored). **Settings → Agents**
   (`AgentsOverviewView`) reads the roster through the existing
   `AgentRegistry` descriptor pipeline and renders it as nested dropdowns

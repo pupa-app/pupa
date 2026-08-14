@@ -77,8 +77,9 @@ public final class ChatSessionCoordinator {
     private var sessions: [SessionKey: ChatViewModel] = [:]
 
     /// Lifetime per-agent activity counters. Bumped via the gate's
-    /// `onNestedEnter` hook so every MyApp sub-run and Slack sub-agent
-    /// records `delegationsMade` / `invocationsReceived` through one path.
+    /// `onDelegation` hook so every delegation — including a first-level one
+    /// from an ungated chat panel — records `delegationsMade` /
+    /// `invocationsReceived` through one path.
     public let agentStats: AgentStatsStore
 
     /// Cross-scope agent-invocation policy. Owns the busy set,
@@ -120,9 +121,9 @@ public final class ChatSessionCoordinator {
         )
         self.agentInvocationGate = gate
         self.slackInvoker = SlackInvoker(gate: gate)
-        // Record lifetime activity at the one chokepoint every nested run
+        // Record lifetime activity at the one chokepoint every delegation
         // funnels through. `caller` delegated to `target`.
-        gate.onNestedEnter = { [weak stats] caller, target in
+        gate.onDelegation = { [weak stats] caller, target in
             stats?.bump(caller.statKey, AgentStatsStore.delegationsMade)
             stats?.bump(target.statKey, AgentStatsStore.invocationsReceived)
         }
@@ -289,7 +290,11 @@ public final class ChatSessionCoordinator {
             // `pupa/agents/<slug>/AGENTS.md` subagent in this myApp.
             AppTools.registerSubagentTools(on: registry, run: { [weak self] name, prompt in
                 guard let self else { return "" }
-                return try await self.runSubagent(myAppId: id, agentName: name, prompt: prompt)
+                // The panel is ungated (no forest node), but the delegation is
+                // this myApp's main agent's — credit it.
+                return try await self.runSubagent(
+                    myAppId: id, agentName: name, prompt: prompt, caller: .session(.myApp(id))
+                )
             })
             let toolGateState = ToolGateState()
             sessionToolGateState = toolGateState
@@ -316,7 +321,9 @@ public final class ChatSessionCoordinator {
                 store: store,
                 runOneShot: { [weak self] myAppId, prompt in
                     guard let self else { return "" }
-                    return try await self.runOneShot(myAppId: myAppId, prompt: prompt)
+                    return try await self.runOneShot(
+                        myAppId: myAppId, prompt: prompt, caller: .session(.orchestrator)
+                    )
                 },
                 onMyAppCreated: { [weak self] myApp in
                     Task { @MainActor [weak self] in self?.ensureMyAppMemory(myApp) }
@@ -370,20 +377,20 @@ public final class ChatSessionCoordinator {
     /// conversation in that myApp is untouched.
     ///
     /// **Reentrancy / chain-depth.** Consults `agentInvocationGate`
-    /// before doing any setup work. The optional `caller` is the
-    /// `invocationId` of the agent run that issued this delegation
-    /// (nil when invoked by a user-initiated session — the orchestrator
-    /// chat panel is itself ungated). If the gate rejects the call,
+    /// before doing any setup work. `caller` says who delegated:
+    /// `.agent(id)` for a live gated run (nests under it), `.session(key)`
+    /// for the ungated orchestrator chat panel (roots a tree, but the
+    /// delegation is still credited to `key`). If the gate rejects the call,
     /// throws `AgentInvocationRejection` so the caller
     /// (`AppTools.invokeMyAppAgent`) can echo a structured
     /// `agent_unavailable` payload back to the orchestrating agent
     /// instead of running anyway and stomping on a concurrent run.
-    func runOneShot(myAppId: UUID, prompt: String, caller: UUID? = nil) async throws -> String {
+    func runOneShot(myAppId: UUID, prompt: String, caller: AgentCallerContext) async throws -> String {
         let target: AgentInvocationKey = .myApp(myAppId)
         syncGateLimitsFromSettings()
-        let decision = agentInvocationGate.decide(caller: caller, target: target)
+        let decision = agentInvocationGate.decide(caller: caller.invocationId, target: target)
         guard case let .proceed(invocationId, treeRoot) = decision else {
-            let ancestors = caller.map { agentInvocationGate.ancestorChain(from: $0) } ?? []
+            let ancestors = caller.invocationId.map { agentInvocationGate.ancestorChain(from: $0) } ?? []
             throw AgentInvocationRejection(
                 decision: decision,
                 callPath: ancestors.map { $0.agentKey },
@@ -509,8 +516,8 @@ public final class ChatSessionCoordinator {
     ///
     /// The generic counterpart to `runOneShot` (which targets another MyApp's
     /// *main* agent). Invoked by the `invoke_agent` frontend tool — from the
-    /// main chat (`caller == nil`) or from another subagent (A2A; `caller` is
-    /// the parent run's invocationId). Consults `agentInvocationGate` first
+    /// main chat (`.session(.myApp(id))`) or from another subagent (A2A;
+    /// `.agent(parentInvocationId)`). Consults `agentInvocationGate` first
     /// and throws `AgentInvocationRejection` when rejected so the tool handler
     /// can echo `agent_unavailable`; throws `SubagentRunError.notFound` when
     /// no such subagent exists.
@@ -518,7 +525,7 @@ public final class ChatSessionCoordinator {
         myAppId: UUID,
         agentName: String,
         prompt: String,
-        caller: UUID? = nil
+        caller: AgentCallerContext
     ) async throws -> String {
         let store = self.store
         let settings = self.settings
@@ -532,9 +539,9 @@ public final class ChatSessionCoordinator {
         }
         let target: AgentInvocationKey = .subagent(myAppId: myAppId, slug: subagent.name)
         syncGateLimitsFromSettings()
-        let decision = agentInvocationGate.decide(caller: caller, target: target)
+        let decision = agentInvocationGate.decide(caller: caller.invocationId, target: target)
         guard case let .proceed(invocationId, treeRoot) = decision else {
-            let ancestors = caller.map { agentInvocationGate.ancestorChain(from: $0) } ?? []
+            let ancestors = caller.invocationId.map { agentInvocationGate.ancestorChain(from: $0) } ?? []
             throw AgentInvocationRejection(
                 decision: decision,
                 callPath: ancestors.map { $0.agentKey },
@@ -558,7 +565,7 @@ public final class ChatSessionCoordinator {
         AppTools.registerSubagentTools(on: registry, run: { [weak self] name, subPrompt in
             guard let self else { return "" }
             return try await self.runSubagent(
-                myAppId: myAppId, agentName: name, prompt: subPrompt, caller: invocationId
+                myAppId: myAppId, agentName: name, prompt: subPrompt, caller: .agent(invocationId)
             )
         })
         let subRunToolGateState = ToolGateState()
@@ -757,7 +764,7 @@ public final class ChatSessionCoordinator {
         channelId: String,
         myAppId: UUID,
         componentId: String,
-        caller: UUID? = nil
+        caller: AgentCallerContext
     ) async -> SlackInvoker.InvocationOutcome {
         // Pull instance refs into local @Sendable bindings up front so
         // every closure below captures the same locals (avoids the
@@ -793,7 +800,7 @@ public final class ChatSessionCoordinator {
         let invocationId: UUID
         let treeRoot: UUID
         syncGateLimitsFromSettings()
-        switch agentInvocationGate.decide(caller: caller, target: .subagent(myAppId: myAppId, slug: slug)) {
+        switch agentInvocationGate.decide(caller: caller.invocationId, target: .subagent(myAppId: myAppId, slug: slug)) {
         case .reentrant: return .reentrant(targetName: agentDisplayName)
         case .busy: return .busy(targetName: agentDisplayName)
         case .maxDepthExceeded(_, let depth):
@@ -838,7 +845,7 @@ public final class ChatSessionCoordinator {
         AppTools.registerSubagentTools(on: registry, run: { [weak self] name, subPrompt in
             guard let self else { return "" }
             return try await self.runSubagent(
-                myAppId: myAppId, agentName: name, prompt: subPrompt, caller: invocationId
+                myAppId: myAppId, agentName: name, prompt: subPrompt, caller: .agent(invocationId)
             )
         })
         let slackToolGateState = ToolGateState()
@@ -995,7 +1002,8 @@ public final class ChatSessionCoordinator {
                     agentId: agentId,
                     channelId: channelId,
                     myAppId: myAppId,
-                    componentId: componentId
+                    componentId: componentId,
+                    caller: .session(.myApp(myAppId))
                 )
             },
             resolveAgentId: { [weak self] name in
@@ -1039,8 +1047,9 @@ public final class ChatSessionCoordinator {
                 // invocationId so the nested call records the
                 // sub-agent → sub-agent edge correctly. Read on
                 // MainActor since the invoker is @MainActor.
-                let caller = await MainActor.run {
+                let caller: AgentCallerContext = await MainActor.run {
                     self.slackInvoker.currentInvocationId(agentId: currentAgentId)
+                        .map(AgentCallerContext.agent) ?? .user
                 }
                 return await self.invokeSlackAgent(
                     agentId: agentId,

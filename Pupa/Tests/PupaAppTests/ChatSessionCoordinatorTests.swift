@@ -10,6 +10,9 @@ import AGUIKit
 @Suite("ChatSessionCoordinator")
 struct ChatSessionCoordinatorTests {
 
+    /// `bootstrapMemories()` writes AGENTS.md under `PupaStorage.activeRoot`.
+    init() { TestStorage.activate() }
+
     private func makeStore(spaceCount: Int = 2) -> (store: MyAppStore, ids: [UUID]) {
         MyAppTypeRegistry.shared.registerBuiltins()
         let myApps = (0..<spaceCount).map { i in
@@ -185,7 +188,9 @@ struct ChatSessionCoordinatorTests {
         #expect(coord.busyMyApps.isEmpty)
 
         let runTask = Task<Void, Never> {
-            _ = try? await coord.runOneShot(myAppId: target, prompt: "ping")
+            _ = try? await coord.runOneShot(
+                myAppId: target, prompt: "ping", caller: .session(.orchestrator)
+            )
         }
 
         // Wait for runOneShot's incrementBusy to land. The increment is
@@ -204,5 +209,99 @@ struct ChatSessionCoordinatorTests {
         // Wait for the run to settle (connect timeout → throw → defer fires).
         await runTask.value
         #expect(coord.busyMyApps.isEmpty, "busyMyApps must clear after the sub-run exits.")
+    }
+
+    // MARK: - Delegation stats wiring
+
+    /// Throwaway defaults domain so stats tests never touch `.standard`.
+    private func freshDefaults() -> UserDefaults {
+        let name = "agentstats-tests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        return defaults
+    }
+
+    /// Coordinator pointed at a blackholed backend with a fast connect
+    /// timeout: a sub-run enters the gate synchronously, then fails at the
+    /// first POST. Enough to observe everything that happens before the wire.
+    private func makeStatsCoordinator(
+        store: MyAppStore,
+        stats: AgentStatsStore
+    ) -> ChatSessionCoordinator {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.timeoutIntervalForRequest = 0.3
+        cfg.timeoutIntervalForResource = 0.3
+        return ChatSessionCoordinator(
+            store: store,
+            memory: MemoryStore(rootOverride: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("pupa-tests-\(UUID().uuidString)")),
+            settings: SettingsStore(backendURL: URL(string: "http://192.0.2.1/")!),
+            agentStats: stats,
+            urlSession: URLSession(configuration: cfg)
+        )
+    }
+
+    @Test("runOneShot from the orchestrator chat panel records the delegation")
+    func runOneShotRecordsSessionDelegation() async {
+        let (store, ids) = makeStore()
+        let stats = AgentStatsStore(defaults: freshDefaults())
+        let coord = makeStatsCoordinator(store: store, stats: stats)
+
+        _ = try? await coord.runOneShot(
+            myAppId: ids[0], prompt: "ping", caller: .session(.orchestrator)
+        )
+
+        #expect(
+            stats.stat(for: "orchestrator").count(AgentStatsStore.delegationsMade) == 1,
+            "The chat panel is ungated, but its delegation must still be attributed."
+        )
+        #expect(
+            stats.stat(for: ids[0].uuidString).count(AgentStatsStore.invocationsReceived) == 1
+        )
+    }
+
+    /// The regression test proper: drives the REAL `invokeMyAppAgent` handler
+    /// off the REAL orchestrator registry, so the caller context is chosen by
+    /// production code, not by the test. Nothing covered this path before —
+    /// which is why first-level delegations went uncounted.
+    @Test("invokeMyAppAgent from the orchestrator registry counts both sides")
+    func orchestratorToolCountsDelegation() async throws {
+        let (store, ids) = makeStore()
+        let stats = AgentStatsStore(defaults: freshDefaults())
+        let coord = makeStatsCoordinator(store: store, stats: stats)
+
+        let tool = try #require(coord.session(for: .memory).registry.resolve("invokeMyAppAgent"))
+        _ = try? await tool.handler(.object([
+            "myAppId": .string(ids[0].uuidString),
+            "prompt": .string("hi"),
+        ]))
+
+        #expect(stats.stat(for: "orchestrator").count(AgentStatsStore.delegationsMade) == 1)
+        #expect(stats.stat(for: ids[0].uuidString).count(AgentStatsStore.invocationsReceived) == 1)
+    }
+
+    /// Same, one level down: a MyApp's own chat panel delegating to one of its
+    /// `pupa/agents/<slug>` subagents.
+    @Test("invoke_agent from a myApp chat panel counts both sides")
+    func myAppToolCountsSubagentDelegation() async throws {
+        let (store, ids) = makeStore()
+        let stats = AgentStatsStore(defaults: freshDefaults())
+        let coord = makeStatsCoordinator(store: store, stats: stats)
+        let appName = store.myApps.first(where: { $0.id == ids[0] })!.name
+        // `runSubagent` throws `.notFound` before ever reaching the gate, so
+        // the subagent has to exist on disk.
+        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: appName))
+        _ = try AgentStore(memory: appMemory).createAgent(name: "scout", description: "recon")
+
+        let tool = try #require(coord.session(for: .myApp(ids[0])).registry.resolve("invoke_agent"))
+        _ = try? await tool.handler(.object([
+            "name": .string("scout"),
+            "prompt": .string("hi"),
+        ]))
+
+        #expect(stats.stat(for: ids[0].uuidString).count(AgentStatsStore.delegationsMade) == 1)
+        #expect(
+            stats.stat(for: "subagent:\(ids[0].uuidString):scout")
+                .count(AgentStatsStore.invocationsReceived) == 1
+        )
     }
 }
