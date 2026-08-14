@@ -659,7 +659,9 @@ public struct SlackView: View {
                     agentId: agentId,
                     channelId: channelId,
                     myAppId: myAppId,
-                    componentId: componentId
+                    componentId: componentId,
+                    // A person typed the @-mention — no agent to credit.
+                    caller: .user
                 )
                 let displayName = agentNamesById[agentId] ?? agentId
                 switch outcome {

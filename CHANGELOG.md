@@ -288,6 +288,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   its own draft, so switching threads no longer drags your half-written message
   along. Drafts are cleared on send and are not kept across app relaunches.
 
+## [0.0.229] — 2026-08-14
+
+### Fixed
+
+- **Settings → Agents now counts the delegations you actually make.** Only
+  agent-to-agent calls two levels deep were recorded, so an orchestrator chat
+  handing work to a myApp — or a myApp's chat calling one of its subagents —
+  counted as nothing, and the orchestrator's own counter could never move at
+  all. First-level delegations are now attributed to the agent that made them.
+  Guardrails (chain depth, reentrancy, per-pair turn budgets) are unchanged.
+
 ## [0.0.228] — 2026-08-02
 
 ### Added

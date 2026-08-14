@@ -223,9 +223,7 @@ public struct AgentsOverviewView: View {
 
     /// Resolve the `AgentStatsStore` key for a descriptor, matching
     /// `AgentInvocationKey.statKey` on the write side. Main-agent
-    /// descriptors share a constant id, so key them off `myAppId`; Slack
-    /// descriptor ids are `"slack:<componentId>:<bareId>"` while the gate
-    /// keys on `"slack:<bareId>"` — take the segment after the last `:`.
+    /// descriptors share a constant id, so key them off `myAppId`.
     private func statKey(for descriptor: AgentDescriptor) -> String {
         switch descriptor.kind {
         case .orchestrator:

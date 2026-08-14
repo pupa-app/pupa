@@ -27,19 +27,21 @@ public final class AgentStatsStore {
 
     public private(set) var stats: [String: AgentStat]
 
-    public init() {
-        let defaults = UserDefaults.standard
-        if let data = defaults.data(forKey: Self.storageKey),
-           let decoded = try? JSONDecoder().decode([String: AgentStat].self, from: data) {
+    /// Defaults domain reads and writes go to. Injectable so tests can use a
+    /// throwaway suite instead of polluting `.standard`.
+    private let defaults: UserDefaults
+
+    /// `seed` skips the initial load; every `bump` still persists to `defaults`.
+    public init(defaults: UserDefaults = .standard, seed: [String: AgentStat]? = nil) {
+        self.defaults = defaults
+        if let seed {
+            stats = seed
+        } else if let data = defaults.data(forKey: Self.storageKey),
+                  let decoded = try? JSONDecoder().decode([String: AgentStat].self, from: data) {
             stats = decoded
         } else {
             stats = [:]
         }
-    }
-
-    /// Test seam: start from an explicit map without touching UserDefaults.
-    public init(seed: [String: AgentStat]) {
-        stats = seed
     }
 
     /// Increment `counter` for `key` and stamp `lastActiveAt`. Persists.
@@ -58,11 +60,11 @@ public final class AgentStatsStore {
 
     private func persist() {
         guard let data = try? JSONEncoder().encode(stats) else { return }
-        UserDefaults.standard.set(data, forKey: Self.storageKey)
+        defaults.set(data, forKey: Self.storageKey)
     }
 
-    public static func clearStorage() {
-        UserDefaults.standard.removeObject(forKey: storageKey)
+    public static func clearStorage(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: storageKey)
     }
 }
 

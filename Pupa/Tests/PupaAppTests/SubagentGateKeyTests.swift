@@ -14,7 +14,10 @@ struct SubagentGateKeyTests {
         guard case let .proceed(id, root) = gate.decide(caller: caller, target: target) else {
             Issue.record("Expected .proceed for \(target)"); return UUID()
         }
-        gate.enter(invocationId: id, target: target, caller: caller, treeRoot: root)
+        gate.enter(
+            invocationId: id, target: target,
+            caller: caller.map(AgentCallerContext.agent) ?? .user, treeRoot: root
+        )
         return id
     }
 

@@ -26,7 +26,7 @@ struct SlackInvokerReentrancyTests {
             return UUID()
         }
         return inv.enter(agentId, agentName: agentName, channelId: channelId,
-                         myAppId: myAppId, invocationId: id, caller: nil, treeRoot: root)
+                         myAppId: myAppId, invocationId: id, caller: .user, treeRoot: root)
     }
 
     @Test("activeInvocations tracks live agent state per channel")

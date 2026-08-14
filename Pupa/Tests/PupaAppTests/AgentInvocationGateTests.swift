@@ -34,7 +34,10 @@ struct AgentInvocationGateTests {
             Issue.record("Expected .proceed but got a rejection for \(target)")
             return UUID()
         }
-        gate.enter(invocationId: id, target: target, caller: caller, treeRoot: root)
+        gate.enter(
+            invocationId: id, target: target,
+            caller: caller.map(AgentCallerContext.agent) ?? .user, treeRoot: root
+        )
         return id
     }
 
@@ -58,11 +61,43 @@ struct AgentInvocationGateTests {
         guard case let .proceed(id2, root2) = d2 else {
             Issue.record("Expected .proceed for second root invocation of same key"); return
         }
-        gate.enter(invocationId: id2, target: .myApp(app), caller: nil, treeRoot: root2)
+        gate.enter(invocationId: id2, target: .myApp(app), caller: .user, treeRoot: root2)
         #expect(id1 != id2)
         // Both nodes in the forest.
         #expect(gate.activeInvocations[id1] != nil)
         #expect(gate.activeInvocations[id2] != nil)
+    }
+
+    /// `.session` exists purely for stats attribution. It must cost nothing
+    /// in gate policy — otherwise crediting a chat panel's delegation would
+    /// silently shorten every A2A chain by one.
+    @Test("A .session caller adds no depth")
+    func sessionCallerAddsNoDepth() {
+        let gate = AgentInvocationGate(maxChainDepth: 1)
+        let a = UUID(), b = UUID()
+        guard case let .proceed(idA, rootA) = gate.decide(caller: nil, target: .myApp(a)) else {
+            Issue.record("Expected .proceed"); return
+        }
+        gate.enter(invocationId: idA, target: .myApp(a), caller: .session(.orchestrator), treeRoot: rootA)
+        // A sits at depth 1, exactly as if the panel weren't there: the next
+        // hop is depth 2 and blocked by maxChainDepth 1.
+        #expect(gate.decide(caller: idA, target: .myApp(b)) ==
+                .maxDepthExceeded(target: .myApp(b), depth: 2))
+    }
+
+    @Test("A .session caller owns no per-pair turn budget")
+    func sessionCallerHasNoTurnBudget() {
+        let gate = AgentInvocationGate(maxTurnsPerPair: 1)
+        let b = UUID()
+        // Same panel delegates to the same target twice. Each is its own root,
+        // so neither consumes the other's budget.
+        for turn in 1...2 {
+            guard case let .proceed(id, root) = gate.decide(caller: nil, target: .myApp(b)) else {
+                Issue.record("Turn \(turn) from a chat panel must proceed"); return
+            }
+            gate.enter(invocationId: id, target: .myApp(b), caller: .session(.orchestrator), treeRoot: root)
+            gate.exit(id)
+        }
     }
 
     // MARK: - Ancestor-only reentry
@@ -134,7 +169,7 @@ struct AgentInvocationGateTests {
         guard case let .proceed(idC, _) = d else {
             Issue.record("Expected .proceed for sibling C"); return
         }
-        gate.enter(invocationId: idC, target: .myApp(c), caller: idA, treeRoot: idA)
+        gate.enter(invocationId: idC, target: .myApp(c), caller: .agent(idA), treeRoot: idA)
         // B trying to invoke C (cross-branch).
         let dBC = gate.decide(caller: idB, target: .myApp(c))
         guard case .proceed = dBC else {
@@ -402,7 +437,7 @@ struct AgentInvocationGateTests {
             guard case let .proceed(idB, _) = gate.decide(caller: idA, target: .myApp(b)) else {
                 Issue.record("Expected .proceed within budget"); return
             }
-            gate.enter(invocationId: idB, target: .myApp(b), caller: idA, treeRoot: idA)
+            gate.enter(invocationId: idB, target: .myApp(b), caller: .agent(idA), treeRoot: idA)
             gate.exit(idB)
         }
     }
@@ -416,7 +451,7 @@ struct AgentInvocationGateTests {
             guard case let .proceed(idB, _) = gate.decide(caller: idA, target: .myApp(b)) else {
                 Issue.record("Expected .proceed for first 3 turns"); return
             }
-            gate.enter(invocationId: idB, target: .myApp(b), caller: idA, treeRoot: idA)
+            gate.enter(invocationId: idB, target: .myApp(b), caller: .agent(idA), treeRoot: idA)
             gate.exit(idB)
         }
         let d = gate.decide(caller: idA, target: .myApp(b))
@@ -437,7 +472,7 @@ struct AgentInvocationGateTests {
             guard case let .proceed(idB, _) = gate.decide(caller: idA1, target: .myApp(b)) else {
                 Issue.record("Expected .proceed"); return
             }
-            gate.enter(invocationId: idB, target: .myApp(b), caller: idA1, treeRoot: idA1)
+            gate.enter(invocationId: idB, target: .myApp(b), caller: .agent(idA1), treeRoot: idA1)
             gate.exit(idB)
         }
         #expect(gate.decide(caller: idA1, target: .myApp(b)) ==
@@ -459,7 +494,7 @@ struct AgentInvocationGateTests {
         guard case let .proceed(idB, _) = gate.decide(caller: idA, target: .myApp(b)) else {
             Issue.record("Expected .proceed"); return
         }
-        gate.enter(invocationId: idB, target: .myApp(b), caller: idA, treeRoot: idA)
+        gate.enter(invocationId: idB, target: .myApp(b), caller: .agent(idA), treeRoot: idA)
         gate.exit(idB)
         #expect(gate.decide(caller: idA, target: .myApp(b)) ==
                 .budgetExhausted(target: .myApp(b), exhaustedAfter: 1))
@@ -478,7 +513,7 @@ struct AgentInvocationGateTests {
             guard case let .proceed(idB, _) = gate.decide(caller: idA, target: .myApp(b)) else {
                 Issue.record("Expected .proceed"); return
             }
-            gate.enter(invocationId: idB, target: .myApp(b), caller: idA, treeRoot: idA)
+            gate.enter(invocationId: idB, target: .myApp(b), caller: .agent(idA), treeRoot: idA)
             gate.exit(idB)
         }
         let decision = gate.decide(caller: idA, target: .myApp(b))
@@ -507,7 +542,7 @@ struct AgentInvocationGateTests {
             Issue.record("Expected .proceed for Slack sub-agent"); return
         }
         inv.enter("a1", agentName: "marketing", channelId: "c1",
-                  myAppId: kGateApp, invocationId: idSlack, caller: idApp, treeRoot: root)
+                  myAppId: kGateApp, invocationId: idSlack, caller: .agent(idApp), treeRoot: root)
         // Gate has both nodes.
         #expect(gate.activeInvocations[idApp] != nil)
         #expect(gate.activeInvocations[idSlack] != nil)
@@ -530,7 +565,7 @@ struct AgentInvocationGateTests {
             Issue.record("Expected .proceed"); return
         }
         inv.enter("a1", agentName: "bot", channelId: "c1",
-                  myAppId: kGateApp, invocationId: id, caller: nil, treeRoot: root)
+                  myAppId: kGateApp, invocationId: id, caller: .user, treeRoot: root)
         #expect(inv.currentInvocationId(agentId: "a1") == id)
         #expect(inv.currentInvocationId(agentId: "a2") == nil)
         inv.exit("a1")
