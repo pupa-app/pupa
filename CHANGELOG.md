@@ -14,7 +14,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   removes), but nothing brought them back. Restoring now re-materializes the
   app's own memory files, skipping any that are still on disk and taking only
   what was lost around the removal, so a skill deleted deliberately on another
-  device isn't resurrected. Recoverable for 30 days after the loss. (#251)
+  device isn't resurrected. Recoverable for 30 days after the loss — including
+  when the same file is lost twice, and when the restore comes from a pinned
+  snapshot taken before the app was renamed. (#251)
 
 ## [0.0.244] — 2026-08-14
 

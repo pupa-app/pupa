@@ -357,6 +357,42 @@ struct StorageMirrorTests {
         #expect(found.keys.contains("memories/mine/pupa/skills/a/SKILL.md"))
     }
 
+    /// Losing the *same bytes* twice must stay recoverable. Dedup writes no
+    /// second copy, so the first one's preservation time has to be refreshed —
+    /// otherwise the recovery window (and the age prune) still measure from a
+    /// loss that was already repaired.
+    @Test("a repeat loss of unchanged content refreshes its preserved copy")
+    func repeatLossRefreshesPreservedCopy() {
+        let (local, cloud) = (tmp(), tmp())
+        let rel = "memories/mine/pupa/skills/a/SKILL.md"
+
+        put(local, rel, "warmup skill")
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)
+        try? FileManager.default.removeItem(at: cloud.appendingPathComponent(rel))
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)
+        #expect(!exists(local, rel))
+
+        // Age the quarantine: the first loss was long ago and already restored.
+        let dir = local.appendingPathComponent("conflicts/\(rel)", isDirectory: true)
+        for u in (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [] {
+            try? FileManager.default.setAttributes(
+                [.modificationDate: Date(timeIntervalSinceNow: -10 * 24 * 3600)], ofItemAtPath: u.path)
+        }
+        put(local, rel, "warmup skill")
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)
+        #expect(exists(cloud, rel))
+
+        // Second loss, byte-identical.
+        try? FileManager.default.removeItem(at: cloud.appendingPathComponent(rel))
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)
+        #expect(!exists(local, rel))
+
+        let found = StorageMirror.preservedFiles(
+            underPrefix: "memories/mine", since: Date(timeIntervalSinceNow: -300), localRoot: local)
+
+        #expect(found.keys.contains(rel))
+    }
+
     // MARK: - Conflict-preservation budget
 
     private func t(_ ti: Double) -> Date { Date(timeIntervalSince1970: ti) }

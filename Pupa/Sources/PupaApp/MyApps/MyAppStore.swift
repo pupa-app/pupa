@@ -3502,12 +3502,12 @@ public final class MyAppStore {
         backfillColorIndices()
         persist()
         // Before the marker goes — it carries the removal time the recovery
-        // window is measured from.
-        let removedAt = Self.markerDeletedAt(id)
+        // window is measured from, and the name its memory folder is keyed by.
+        let marker = Self.deleteMarker(id)
         // Retire the markers that just did their job — before `record` below,
         // so the new `.restored` never diffs off a record on its way out.
         Self.clearDeleteMarkers(id)
-        Self.recoverMemoryFiles(forAppNamed: app.name, removedAt: removedAt)
+        Self.recoverMemoryFiles(for: marker, appNamed: app.name)
         // No longer a delete this user made: a later sync that drops the id is
         // now a surprise and must raise the notice.
         userInitiatedRemovals.remove(id)
@@ -3521,17 +3521,22 @@ public final class MyAppStore {
 
     // MARK: - Memory recovery
 
-    /// How far before a removal a quarantined memory file still counts as lost
-    /// *to* that removal. The mirror can unlink the memory tree a beat before
-    /// the roster shrink is noticed, so the window can't be zero — but it stays
-    /// tight, because a file the user deliberately deleted on another device is
-    /// quarantined by the very same mechanism (see `preservedFiles`).
+    /// How far *before* a removal a quarantined memory file still counts as lost
+    /// to it. The mirror can unlink the memory tree a beat before the roster
+    /// shrink is noticed, so the window can't be zero; a subtree dropped much
+    /// earlier (a staged cloud-side deletion) is not recovered.
+    ///
+    /// There is deliberately no bound on the other side — the eviction guard can
+    /// defer a memory `.deleteLocal` to a much later pass, and that is still the
+    /// same loss. The cost: a file deliberately deleted on another device while
+    /// the app sits in Recently deleted is quarantined by the very same
+    /// mechanism (see `preservedFiles`) and comes back with it.
     nonisolated static let memoryRecoverySlack: TimeInterval = 5 * 60
 
-    /// When `id` was marked deleted / lost, per its marker.
-    private nonisolated static func markerDeletedAt(_ id: UUID) -> Date? {
+    /// `id`'s delete / lost marker, if it decodes.
+    private nonisolated static func deleteMarker(_ id: UUID) -> Tombstone? {
         CloudDocument.read(markerURL(id))
-            .flatMap { try? JSONDecoder().decode(Tombstone.self, from: $0) }?.deletedAt
+            .flatMap { try? JSONDecoder().decode(Tombstone.self, from: $0) }
     }
 
     /// Re-materialize memory files the app lost to a sync-driven local delete —
@@ -3544,16 +3549,25 @@ public final class MyAppStore {
     /// file always wins), and takes only copies quarantined around the removal.
     /// Bounded by `StorageMirror.conflictMaxAge` — past that the quarantine is
     /// pruned and there is nothing to recover.
-    private nonisolated static func recoverMemoryFiles(forAppNamed name: String, removedAt: Date?) {
-        guard let removedAt else { return }
+    ///
+    /// Read side and write side are keyed by different names. Quarantined paths
+    /// carry the slug the app had when it was removed — the marker's name, since
+    /// a rename migrates the memory folder (`renameMyApp`). The restored app
+    /// reads its *own* name's folder, which can be older: reviving a pin taken
+    /// before a rename carries the pre-rename name. So recover from the marker's
+    /// slug into `liveName`'s. Both collapse to one folder on the ordinary
+    /// paths, where the two names agree.
+    private nonisolated static func recoverMemoryFiles(for marker: Tombstone?, appNamed liveName: String) {
+        guard let removedAt = marker?.deletedAt else { return }
         let root = PupaStorage.activeRoot
-        let prefix = "memories/\(MemoryStore.myAppFolder(myAppName: name))"
+        let from = "memories/\(MemoryStore.myAppFolder(myAppName: marker?.name ?? liveName))"
+        let to = "memories/\(MemoryStore.myAppFolder(myAppName: liveName))"
         let preserved = StorageMirror.preservedFiles(
-            underPrefix: prefix,
+            underPrefix: from,
             since: removedAt.addingTimeInterval(-memoryRecoverySlack),
             localRoot: root)
         for (rel, src) in preserved {
-            let dst = root.appendingPathComponent(rel)
+            let dst = root.appendingPathComponent(to + rel.dropFirst(from.count))
             guard !FileManager.default.fileExists(atPath: dst.path),
                   let data = CloudDocument.read(src) else { continue }
             try? CloudDocument.write(data, to: dst)
@@ -4139,14 +4153,14 @@ public final class MyAppStore {
         for id in notice.ids where !myApps.contains(where: { $0.id == id }) {
             if let head = SnapshotStore.head(id),
                let app = SnapshotStore.restoredApp(id, id: head.id) {
-                let removedAt = Self.markerDeletedAt(id)
+                let marker = Self.deleteMarker(id)
                 // User explicitly restored — clear the delete markers (e.g. from
                 // a remote delete) so it isn't re-suppressed on relaunch. After
                 // `restoredApp` above: that may have resolved off the very
                 // `.deleted` record this drops.
                 Self.clearDeleteMarkers(id)
                 // The same sync that took the app usually took its memory tree.
-                Self.recoverMemoryFiles(forAppNamed: app.name, removedAt: removedAt)
+                Self.recoverMemoryFiles(for: marker, appNamed: app.name)
                 myApps.append(app)
             }
         }
@@ -4276,13 +4290,15 @@ public final class MyAppStore {
             return restore(myAppId: appId, snapshotId: snapshotId) ? appId : nil
         }
         guard let revived = SnapshotStore.restoredApp(appId, id: snapshotId) else { return nil }
-        let removedAt = Self.markerDeletedAt(appId)
+        let marker = Self.deleteMarker(appId)
         // Restoring a pinned snapshot of a deleted app is an un-delete — clear
         // its markers or union-load re-suppresses it and the sweep reaps the
         // restored body on the next relaunch. After `restoredApp` above; the pin
         // itself survives, only `.deleted` is dropped.
         Self.clearDeleteMarkers(revived.id)
-        Self.recoverMemoryFiles(forAppNamed: revived.name, removedAt: removedAt)
+        // `revived.name` is the name at pin time — the marker's is the name at
+        // removal, which is the one the memory folder is keyed by.
+        Self.recoverMemoryFiles(for: marker, appNamed: revived.name)
         myApps.append(revived)
         activeMyAppId = revived.id
         historyRevision += 1

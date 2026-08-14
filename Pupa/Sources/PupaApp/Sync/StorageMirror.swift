@@ -309,8 +309,11 @@ public actor StorageMirror {
 
     /// Store the losing side under `conflicts/<sub>/<rel>/<stamp>` — one folder
     /// per conflicted path. Two guards keep this from ballooning:
-    ///   1. **dedup** — skip if this exact content is already preserved for the
-    ///      path (an oscillating conflict re-presents the same loser each pass),
+    ///   1. **dedup** — reuse the copy if this exact content is already
+    ///      preserved for the path (an oscillating conflict re-presents the same
+    ///      loser each pass), but touch it: this is a *new* loss, and the mtime
+    ///      is the preservation time both `preservedFiles` and
+    ///      `pruneConflictsByAge` read,
     ///   2. **cap** — keep only the newest `maxConflictCopiesPerPath`.
     /// Combined with the periodic age prune and the fact that `conflicts/` is
     /// local-only (never mirrored), preserved data stays bounded.
@@ -318,7 +321,14 @@ public actor StorageMirror {
         let dir = conflictsRoot.appendingPathComponent(rel, isDirectory: true)
         let loserHash = hash(data)
         let existing = conflictCopies(in: dir)
-        if existing.contains(where: { read($0, coordinate: false).map(hash) == loserHash }) { return }
+        if let dup = existing.first(where: { read($0, coordinate: false).map(hash) == loserHash }) {
+            // Without this a repeat loss of unchanged content is unrecoverable:
+            // no new copy is written, and the old one's mtime already sits
+            // outside the recovery window.
+            try? FileManager.default.setAttributes(
+                [.modificationDate: Date()], ofItemAtPath: dup.path)
+            return
+        }
         let ext = (rel as NSString).pathExtension
         // Timestamp sorts lexically = chronologically; random suffix avoids a
         // same-second filename collision.
@@ -345,10 +355,17 @@ public actor StorageMirror {
     static func preservedFiles(
         underPrefix prefix: String, since: Date, localRoot: URL
     ) -> [String: URL] {
-        let conflictsRoot = localRoot.appendingPathComponent("conflicts", isDirectory: true)
-        let base = conflictsRoot.resolvingSymlinksInPath().path
+        // Walk the prefix's own folder, not all of `conflicts/`: the prefix is a
+        // literal path, so scoping is a subtree walk rather than a filter over
+        // every quarantined file on the device.
+        let scope = localRoot
+            .appendingPathComponent("conflicts", isDirectory: true)
+            .appendingPathComponent(prefix, isDirectory: true)
+        // Resolved on both sides: the enumerator hands back canonical URLs
+        // (`/private/var/…`) for a root that may be a symlink (`/var/…`).
+        let base = scope.resolvingSymlinksInPath().path
         guard let en = FileManager.default.enumerator(
-            at: conflictsRoot, includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey])
+            at: scope, includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey])
         else { return [:] }
         var newest: [String: (url: URL, at: Date)] = [:]
         for case let url as URL in en {
@@ -356,11 +373,17 @@ public actor StorageMirror {
             let vals = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey])
             guard vals?.isRegularFile == true,
                   let at = vals?.contentModificationDate, at >= since else { continue }
-            // The copy's *parent* is the folder named after the original rel.
+            // The copy's *parent* is the folder named after the original rel;
+            // under `scope`, so the tail is what extends the prefix.
             let dir = url.deletingLastPathComponent().resolvingSymlinksInPath().path
-            guard dir.hasPrefix(base + "/") else { continue }
-            let rel = String(dir.dropFirst(base.count + 1))
-            guard rel == prefix || rel.hasPrefix(prefix + "/") else { continue }
+            let rel: String
+            if dir == base {
+                rel = prefix
+            } else if dir.hasPrefix(base + "/") {
+                rel = "\(prefix)/\(dir.dropFirst(base.count + 1))"
+            } else {
+                continue
+            }
             if let existing = newest[rel], existing.at >= at { continue }
             newest[rel] = (url, at)
         }

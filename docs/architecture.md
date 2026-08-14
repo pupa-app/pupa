@@ -1083,9 +1083,18 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
   re-materialize the app's own memory subtree. Three guards, because quarantine
   can't tell a bad sync from a file the user deliberately deleted elsewhere:
   scoped to the restored app's slug, never overwrites a path still on disk, and
-  takes only copies quarantined within `memoryRecoverySlack` (5 min) of the
-  marker's `deletedAt`. The recovery window is `conflictMaxAge` (30 days), not
-  the marker's 180 — past that the quarantine is pruned and nothing survives.
+  ignores copies quarantined more than `memoryRecoverySlack` (5 min) **before**
+  the marker's `deletedAt`. There is no bound on the other side — the eviction
+  guard can defer a memory `.deleteLocal` to a much later pass, and that is
+  still the same loss — so a file deliberately deleted on another device while
+  the app sits in Recently deleted does come back with it. The source folder is
+  the slug of the *marker's* name (a rename migrates the memory folder), the
+  destination the restored app's; they differ only when a pin predating a
+  rename revives the app under its old name. The recovery window is
+  `conflictMaxAge` (30 days), not the marker's 180 — past that the quarantine
+  is pruned and nothing survives. A repeat loss of unchanged content is
+  deduped rather than re-stashed, so `preserveLoser` touches the copy it reuses
+  — the mtime is the preservation time both the window and the prune read.
 - **Permanent delete.** A Recently deleted row also offers "delete permanently"
   (`purgeDeletedMyApp`, behind a confirmation): `SnapshotStore.deleteAll` — pins
   included, since the label promises it — plus the body, then the tombstone is
