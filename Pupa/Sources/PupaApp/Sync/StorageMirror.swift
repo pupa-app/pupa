@@ -309,8 +309,11 @@ public actor StorageMirror {
 
     /// Store the losing side under `conflicts/<sub>/<rel>/<stamp>` — one folder
     /// per conflicted path. Two guards keep this from ballooning:
-    ///   1. **dedup** — skip if this exact content is already preserved for the
-    ///      path (an oscillating conflict re-presents the same loser each pass),
+    ///   1. **dedup** — reuse the copy if this exact content is already
+    ///      preserved for the path (an oscillating conflict re-presents the same
+    ///      loser each pass), but touch it: this is a *new* loss, and the mtime
+    ///      is the preservation time both `preservedFiles` and
+    ///      `pruneConflictsByAge` read,
     ///   2. **cap** — keep only the newest `maxConflictCopiesPerPath`.
     /// Combined with the periodic age prune and the fact that `conflicts/` is
     /// local-only (never mirrored), preserved data stays bounded.
@@ -318,7 +321,14 @@ public actor StorageMirror {
         let dir = conflictsRoot.appendingPathComponent(rel, isDirectory: true)
         let loserHash = hash(data)
         let existing = conflictCopies(in: dir)
-        if existing.contains(where: { read($0, coordinate: false).map(hash) == loserHash }) { return }
+        if let dup = existing.first(where: { read($0, coordinate: false).map(hash) == loserHash }) {
+            // Without this a repeat loss of unchanged content is unrecoverable:
+            // no new copy is written, and the old one's mtime already sits
+            // outside the recovery window.
+            try? FileManager.default.setAttributes(
+                [.modificationDate: Date()], ofItemAtPath: dup.path)
+            return
+        }
         let ext = (rel as NSString).pathExtension
         // Timestamp sorts lexically = chronologically; random suffix avoids a
         // same-second filename collision.
@@ -326,15 +336,95 @@ public actor StorageMirror {
         let unique = "\(stamp)-\(UUID().uuidString.prefix(4))"
         let name = ext.isEmpty ? unique : "\(unique).\(ext)"
         write(data, to: dir.appendingPathComponent(name), coordinate: false)
-        // Cap: drop all but the newest N for this path.
-        let all = conflictCopies(in: dir).sorted { $0.lastPathComponent > $1.lastPathComponent }
+        // Cap: drop all but the newest N for this path. Ordered by preservation
+        // time, not by the stamp in the name — a deduped copy is touched but
+        // keeps its original name, so the two disagree and only the mtime is
+        // what the recovery window and the age prune read.
+        let all = conflictCopies(in: dir).sorted {
+            let (a, b) = (preservedAt($0), preservedAt($1))
+            return a == b ? $0.lastPathComponent > $1.lastPathComponent : a > b
+        }
         for stale in all.dropFirst(maxConflictCopiesPerPath) { remove(stale, coordinate: false) }
+    }
+
+    /// Newest quarantined copy of every path under `prefix` (a `<subtree>/<rel>`
+    /// path fragment) preserved at or after `since`, keyed by its original rel.
+    ///
+    /// The read side of `preserveLoser`: `.deleteLocal` stashes bytes before it
+    /// unlinks, so a file iCloud took away is recoverable — until
+    /// `pruneConflictsByAge` reaps it at `conflictMaxAge`. Preservation time is
+    /// the copy's mtime; the stamped filename is for ordering and collisions.
+    ///
+    /// `since` is the whole safety story: quarantine can't tell a file the user
+    /// deliberately deleted elsewhere from one a bad sync took, so only copies
+    /// made around the loss are eligible.
+    static func preservedFiles(
+        underPrefix prefix: String, since: Date, localRoot: URL
+    ) -> [String: URL] {
+        // Walk the prefix's own folder, not all of `conflicts/`: the prefix is a
+        // literal path, so scoping is a subtree walk rather than a filter over
+        // every quarantined file on the device.
+        let scope = localRoot
+            .appendingPathComponent("conflicts", isDirectory: true)
+            .appendingPathComponent(prefix, isDirectory: true)
+        // Resolved on both sides: the enumerator hands back canonical URLs
+        // (`/private/var/…`) for a root that may be a symlink (`/var/…`).
+        let base = scope.resolvingSymlinksInPath().path
+        guard let en = FileManager.default.enumerator(
+            at: scope, includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey])
+        else { return [:] }
+        var newest: [String: (url: URL, at: Date)] = [:]
+        for case let url as URL in en {
+            if url.lastPathComponent.hasPrefix(".") { continue }
+            let vals = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey])
+            guard vals?.isRegularFile == true,
+                  let at = vals?.contentModificationDate, at >= since else { continue }
+            // The copy's *parent* is the folder named after the original rel;
+            // under `scope`, so the tail is what extends the prefix.
+            let dir = url.deletingLastPathComponent().resolvingSymlinksInPath().path
+            let rel: String
+            if dir == base {
+                rel = prefix
+            } else if dir.hasPrefix(base + "/") {
+                rel = "\(prefix)/\(dir.dropFirst(base.count + 1))"
+            } else {
+                continue
+            }
+            if let existing = newest[rel], existing.at >= at { continue }
+            newest[rel] = (url, at)
+        }
+        return newest.mapValues(\.url)
+    }
+
+    /// When a path's data was last quarantined — the newest preserved copy's
+    /// mtime, nil if nothing is preserved for it. `path` is a `<subtree>/<rel>`
+    /// fragment. Callers use it as the instant a loss happened.
+    static func preservationTime(ofPath path: String, localRoot: URL) -> Date? {
+        conflictCopies(in: localRoot
+            .appendingPathComponent("conflicts", isDirectory: true)
+            .appendingPathComponent(path, isDirectory: true))
+            .map(preservedAt).max()
+    }
+
+    /// Forget every copy preserved for `path`. Call once the loss it recorded
+    /// is repaired, so its preservation time stops standing for an open one.
+    static func dropPreserved(path: String, localRoot: URL) {
+        try? FileManager.default.removeItem(at: localRoot
+            .appendingPathComponent("conflicts", isDirectory: true)
+            .appendingPathComponent(path, isDirectory: true))
     }
 
     /// Regular files directly inside a conflict path's folder (skips hidden).
     private static func conflictCopies(in dir: URL) -> [URL] {
         (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))?
             .filter { !$0.lastPathComponent.hasPrefix(".") } ?? []
+    }
+
+    /// A preserved copy's preservation time. `.distantPast` if it won't stat,
+    /// so an unreadable copy sorts and prunes as the oldest.
+    private static func preservedAt(_ url: URL) -> Date {
+        (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+            .contentModificationDate ?? .distantPast
     }
 
     /// Delete preserved copies older than `conflictMaxAge`, then remove any

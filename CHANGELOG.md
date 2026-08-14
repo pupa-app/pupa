@@ -3,6 +3,22 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.245] — 2026-08-14
+
+### Fixed
+
+- **Restoring an app brings its subagents and skills back.** After iCloud
+  removed an app's data, restoring it left empty `pupa/agents/` and
+  `pupa/skills/` folders — the agent roster read empty and custom skills didn't
+  load. The bodies were never destroyed (the mirror quarantines every file it
+  removes), but nothing brought them back. Restoring now re-materializes the
+  app's own memory files, skipping any that are still on disk and taking only
+  what was lost around the removal, so a skill deleted deliberately on another
+  device isn't resurrected. Recoverable for 30 days after the loss — including
+  when the same file is lost twice, when the removal only surfaced long after
+  the sync that caused it, and when the restore comes from a pinned snapshot
+  taken before the app was renamed. (#251)
+
 ## [0.0.244] — 2026-08-14
 
 ### Fixed

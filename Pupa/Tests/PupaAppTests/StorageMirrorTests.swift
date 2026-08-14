@@ -303,6 +303,96 @@ struct StorageMirrorTests {
         #expect(get(local, "memories/a.md") == "x")
     }
 
+    // MARK: - Reading quarantine back (issue #251)
+
+    /// Quarantine one copy the way `preserveLoser` lays it out:
+    /// `conflicts/<rel>/<stamp>`, mtime = preservation time.
+    private func quarantine(_ local: URL, _ rel: String, _ body: String, at when: Date, stamp: String) {
+        put(local, "conflicts/\(rel)/\(stamp)", body, mtime: when)
+    }
+
+    @Test("preservedFiles returns the newest copy per path, scoped to the prefix")
+    func preservedFilesNewestPerPathAndScoped() {
+        let local = tmp()
+        let old = Date(timeIntervalSince1970: 1_000)
+        let recent = Date(timeIntervalSince1970: 2_000)
+        quarantine(local, "memories/mine/pupa/skills/a/SKILL.md", "v1", at: old, stamp: "s1.md")
+        quarantine(local, "memories/mine/pupa/skills/a/SKILL.md", "v2", at: recent, stamp: "s2.md")
+        quarantine(local, "memories/theirs/pupa/skills/b/SKILL.md", "not mine", at: recent, stamp: "s1.md")
+
+        let found = StorageMirror.preservedFiles(
+            underPrefix: "memories/mine", since: old, localRoot: local)
+
+        #expect(Set(found.keys) == ["memories/mine/pupa/skills/a/SKILL.md"])
+        #expect((try? Data(contentsOf: found.values.first!)).map { String(decoding: $0, as: UTF8.self) } == "v2")
+    }
+
+    @Test("preservedFiles ignores copies quarantined before the cutoff")
+    func preservedFilesRespectsCutoff() {
+        let local = tmp()
+        quarantine(local, "memories/mine/a.md", "stale",
+                   at: Date(timeIntervalSince1970: 1_000), stamp: "s1.md")
+
+        let found = StorageMirror.preservedFiles(
+            underPrefix: "memories/mine", since: Date(timeIntervalSince1970: 2_000), localRoot: local)
+
+        #expect(found.isEmpty)
+    }
+
+    /// End-to-end: the mirror's own `.deleteLocal` quarantine is what the
+    /// recovery reads, so the two halves have to agree on the layout.
+    @Test("a memory file iCloud removed is readable back out of quarantine")
+    func convergeDeleteIsRecoverable() {
+        let (local, cloud) = (tmp(), tmp())
+        put(local, "memories/mine/pupa/skills/a/SKILL.md", "warmup skill")
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)
+        try? FileManager.default.removeItem(
+            at: cloud.appendingPathComponent("memories/mine/pupa/skills/a/SKILL.md"))
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)
+        #expect(!exists(local, "memories/mine/pupa/skills/a/SKILL.md"))
+
+        let found = StorageMirror.preservedFiles(
+            underPrefix: "memories/mine", since: Date(timeIntervalSinceNow: -60), localRoot: local)
+
+        #expect(found.keys.contains("memories/mine/pupa/skills/a/SKILL.md"))
+    }
+
+    /// Losing the *same bytes* twice must stay recoverable. Dedup writes no
+    /// second copy, so the first one's preservation time has to be refreshed —
+    /// otherwise the recovery window (and the age prune) still measure from a
+    /// loss that was already repaired.
+    @Test("a repeat loss of unchanged content refreshes its preserved copy")
+    func repeatLossRefreshesPreservedCopy() {
+        let (local, cloud) = (tmp(), tmp())
+        let rel = "memories/mine/pupa/skills/a/SKILL.md"
+
+        put(local, rel, "warmup skill")
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)
+        try? FileManager.default.removeItem(at: cloud.appendingPathComponent(rel))
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)
+        #expect(!exists(local, rel))
+
+        // Age the quarantine: the first loss was long ago and already restored.
+        let dir = local.appendingPathComponent("conflicts/\(rel)", isDirectory: true)
+        for u in (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [] {
+            try? FileManager.default.setAttributes(
+                [.modificationDate: Date(timeIntervalSinceNow: -10 * 24 * 3600)], ofItemAtPath: u.path)
+        }
+        put(local, rel, "warmup skill")
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)
+        #expect(exists(cloud, rel))
+
+        // Second loss, byte-identical.
+        try? FileManager.default.removeItem(at: cloud.appendingPathComponent(rel))
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)
+        #expect(!exists(local, rel))
+
+        let found = StorageMirror.preservedFiles(
+            underPrefix: "memories/mine", since: Date(timeIntervalSinceNow: -300), localRoot: local)
+
+        #expect(found.keys.contains(rel))
+    }
+
     // MARK: - Conflict-preservation budget
 
     private func t(_ ti: Double) -> Date { Date(timeIntervalSince1970: ti) }
@@ -350,6 +440,41 @@ struct StorageMirrorTests {
             makeConflict(local, cloud, local: "L\(i)", loser: "C\(i)", at: Double(i))
         }
         #expect(conflictCount(local, "state/index.json") == StorageMirror.maxConflictCopiesPerPath)
+    }
+
+    /// The cap, the age prune and the recovery window must read one clock. A
+    /// deduped copy is touched but keeps its original stamp, so a cap ordered by
+    /// filename can prune the very copy preserved most recently.
+    @Test("the per-path cap keeps the newest copy by preservation time, not by name")
+    func conflictCapOrdersByPreservationTime() throws {
+        let (local, cloud) = (tmp(), tmp())
+        put(local, "state/index.json", "base")
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)
+        for i in 0..<StorageMirror.maxConflictCopiesPerPath {
+            makeConflict(local, cloud, local: "L\(i)", loser: "C\(i)", at: Double(i))
+        }
+        let dir = local.appendingPathComponent("conflicts/state/index.json", isDirectory: true)
+        let copies = (((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [])
+            .filter { !$0.lastPathComponent.hasPrefix(".") })
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        #expect(copies.count == StorageMirror.maxConflictCopiesPerPath)
+        // Invert name order against preservation time — what a deduped repeat
+        // loss leaves behind. The oldest-*named* copy is the freshest; the
+        // newest-named one is the stalest and the only one the cap should drop.
+        let refreshed = try #require(copies.first)
+        let stalest = try #require(copies.last)
+        for (i, u) in copies.enumerated() {
+            try? FileManager.default.setAttributes(
+                [.modificationDate: i == 0 ? Date() : Date(timeIntervalSinceNow: -Double(1_000 + i))],
+                ofItemAtPath: u.path)
+        }
+
+        makeConflict(local, cloud, local: "LAST", loser: "CLAST", at: 99)   // overflows the cap
+
+        #expect(conflictCount(local, "state/index.json") == StorageMirror.maxConflictCopiesPerPath)
+        #expect(FileManager.default.fileExists(atPath: refreshed.path))
+        // Ordered by name, this one survives and `refreshed` is what goes.
+        #expect(!FileManager.default.fileExists(atPath: stalest.path))
     }
 
     @Test("preserved copies older than the max age are pruned on the next pass")
