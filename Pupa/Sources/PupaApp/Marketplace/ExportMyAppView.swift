@@ -357,7 +357,7 @@ private struct ImportAppScreen: View {
                     Label("Choose a .\(MyAppBundle.fileExtension) file…", systemImage: "folder")
                 }
             } footer: {
-                Text("Pick a .\(MyAppBundle.fileExtension) bundle from Files. You can also open one straight from Mail, Messages, or AirDrop — Pupa imports it after a confirm step. Imported apps are sandboxed: untrusted bundles can't change your settings.")
+                Text("Pick a .\(MyAppBundle.fileExtension) bundle from Files. You can also open one straight from Mail, Messages, or AirDrop.")
             }
             Section {
                 Link(destination: MarketplaceInstallLink.browseURL) {
@@ -370,7 +370,7 @@ private struct ImportAppScreen: View {
                     }
                 }
             } footer: {
-                Text("Opens pupa-app.com in your browser. Installing an app from there hands it back to Pupa, with the same confirm step.")
+                Text("Opens pupa-app.com in your browser.")
             }
         }
         .navigationTitle("Import an app")
