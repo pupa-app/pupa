@@ -303,6 +303,60 @@ struct StorageMirrorTests {
         #expect(get(local, "memories/a.md") == "x")
     }
 
+    // MARK: - Reading quarantine back (issue #251)
+
+    /// Quarantine one copy the way `preserveLoser` lays it out:
+    /// `conflicts/<rel>/<stamp>`, mtime = preservation time.
+    private func quarantine(_ local: URL, _ rel: String, _ body: String, at when: Date, stamp: String) {
+        put(local, "conflicts/\(rel)/\(stamp)", body, mtime: when)
+    }
+
+    @Test("preservedFiles returns the newest copy per path, scoped to the prefix")
+    func preservedFilesNewestPerPathAndScoped() {
+        let local = tmp()
+        let old = Date(timeIntervalSince1970: 1_000)
+        let recent = Date(timeIntervalSince1970: 2_000)
+        quarantine(local, "memories/mine/pupa/skills/a/SKILL.md", "v1", at: old, stamp: "s1.md")
+        quarantine(local, "memories/mine/pupa/skills/a/SKILL.md", "v2", at: recent, stamp: "s2.md")
+        quarantine(local, "memories/theirs/pupa/skills/b/SKILL.md", "not mine", at: recent, stamp: "s1.md")
+
+        let found = StorageMirror.preservedFiles(
+            underPrefix: "memories/mine", since: old, localRoot: local)
+
+        #expect(Set(found.keys) == ["memories/mine/pupa/skills/a/SKILL.md"])
+        #expect((try? Data(contentsOf: found.values.first!)).map { String(decoding: $0, as: UTF8.self) } == "v2")
+    }
+
+    @Test("preservedFiles ignores copies quarantined before the cutoff")
+    func preservedFilesRespectsCutoff() {
+        let local = tmp()
+        quarantine(local, "memories/mine/a.md", "stale",
+                   at: Date(timeIntervalSince1970: 1_000), stamp: "s1.md")
+
+        let found = StorageMirror.preservedFiles(
+            underPrefix: "memories/mine", since: Date(timeIntervalSince1970: 2_000), localRoot: local)
+
+        #expect(found.isEmpty)
+    }
+
+    /// End-to-end: the mirror's own `.deleteLocal` quarantine is what the
+    /// recovery reads, so the two halves have to agree on the layout.
+    @Test("a memory file iCloud removed is readable back out of quarantine")
+    func convergeDeleteIsRecoverable() {
+        let (local, cloud) = (tmp(), tmp())
+        put(local, "memories/mine/pupa/skills/a/SKILL.md", "warmup skill")
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)
+        try? FileManager.default.removeItem(
+            at: cloud.appendingPathComponent("memories/mine/pupa/skills/a/SKILL.md"))
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)
+        #expect(!exists(local, "memories/mine/pupa/skills/a/SKILL.md"))
+
+        let found = StorageMirror.preservedFiles(
+            underPrefix: "memories/mine", since: Date(timeIntervalSinceNow: -60), localRoot: local)
+
+        #expect(found.keys.contains("memories/mine/pupa/skills/a/SKILL.md"))
+    }
+
     // MARK: - Conflict-preservation budget
 
     private func t(_ ti: Double) -> Date { Date(timeIntervalSince1970: ti) }

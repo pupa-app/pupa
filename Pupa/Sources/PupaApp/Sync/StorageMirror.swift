@@ -331,6 +331,42 @@ public actor StorageMirror {
         for stale in all.dropFirst(maxConflictCopiesPerPath) { remove(stale, coordinate: false) }
     }
 
+    /// Newest quarantined copy of every path under `prefix` (a `<subtree>/<rel>`
+    /// path fragment) preserved at or after `since`, keyed by its original rel.
+    ///
+    /// The read side of `preserveLoser`: `.deleteLocal` stashes bytes before it
+    /// unlinks, so a file iCloud took away is recoverable — until
+    /// `pruneConflictsByAge` reaps it at `conflictMaxAge`. Preservation time is
+    /// the copy's mtime; the stamped filename is for ordering and collisions.
+    ///
+    /// `since` is the whole safety story: quarantine can't tell a file the user
+    /// deliberately deleted elsewhere from one a bad sync took, so only copies
+    /// made around the loss are eligible.
+    static func preservedFiles(
+        underPrefix prefix: String, since: Date, localRoot: URL
+    ) -> [String: URL] {
+        let conflictsRoot = localRoot.appendingPathComponent("conflicts", isDirectory: true)
+        let base = conflictsRoot.resolvingSymlinksInPath().path
+        guard let en = FileManager.default.enumerator(
+            at: conflictsRoot, includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey])
+        else { return [:] }
+        var newest: [String: (url: URL, at: Date)] = [:]
+        for case let url as URL in en {
+            if url.lastPathComponent.hasPrefix(".") { continue }
+            let vals = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey])
+            guard vals?.isRegularFile == true,
+                  let at = vals?.contentModificationDate, at >= since else { continue }
+            // The copy's *parent* is the folder named after the original rel.
+            let dir = url.deletingLastPathComponent().resolvingSymlinksInPath().path
+            guard dir.hasPrefix(base + "/") else { continue }
+            let rel = String(dir.dropFirst(base.count + 1))
+            guard rel == prefix || rel.hasPrefix(prefix + "/") else { continue }
+            if let existing = newest[rel], existing.at >= at { continue }
+            newest[rel] = (url, at)
+        }
+        return newest.mapValues(\.url)
+    }
+
     /// Regular files directly inside a conflict path's folder (skips hidden).
     private static func conflictCopies(in dir: URL) -> [URL] {
         (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))?
