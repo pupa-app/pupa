@@ -610,7 +610,7 @@ private struct CalculatorEmptyHint: View {
                 .foregroundStyle(.secondary)
             Text("No rows yet")
                 .font(.headline)
-            Text("Ask the chat to build a calculation — try \"Estimate my monthly mortgage payment\" or \"Total my expenses by category\".")
+            Text("Ask the chat to build a calculation — try \"Estimate my total amount of...\".")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

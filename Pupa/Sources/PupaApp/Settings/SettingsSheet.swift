@@ -752,7 +752,7 @@ private struct ToolsSettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 if !tool.enabledByEnv {
-                    Text("Unavailable — server is missing the required API key.")
+                    Text("Unavailable. Server is missing the required API key.")
                         .font(.caption2).foregroundStyle(.orange)
                 }
             }

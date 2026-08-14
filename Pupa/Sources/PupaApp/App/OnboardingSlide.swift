@@ -26,22 +26,22 @@ enum OnboardingContent {
         OnboardingSlideContent(
             art: .logo,
             title: "Meet Pupa",
-            subtitle: "Apps that build themselves around you. Describe what you need — Pupa assembles it."
+            subtitle: "Apps that build themselves around you. Describe what you need. Pupa assembles it."
         ),
         OnboardingSlideContent(
             art: .myApps,
             title: "Living workspaces",
-            subtitle: "Trackers, calendars, checklists and chat rooms — bundled into apps that reshape on demand."
+            subtitle: "Trackers, calendars, checklists and chat rooms. All bundled into apps that reshape on demand."
         ),
         OnboardingSlideContent(
             art: .chat,
             title: "Just ask",
-            subtitle: "Tell your agent what you want. It edits the canvas in real time — no forms, no menus."
+            subtitle: "Tell your agent what you want. It edits the canvas in real time. No forms, no menus."
         ),
         OnboardingSlideContent(
             art: .memory,
             title: "It remembers",
-            subtitle: "Pupa keeps memories of your goals and preferences, plus a full history of every change — so nothing gets lost and every undo is one tap away."
+            subtitle: "Pupa keeps memories of your goals and preferences, plus a full history of every change. So nothing gets lost and every undo is one tap away."
         ),
     ]
 }
@@ -152,7 +152,7 @@ struct OnboardingArtView: View {
     private var chatArt: some View {
         VStack(alignment: .leading, spacing: 10) {
             bubble("Track my job applications", isUser: true)
-            bubble("On it — adding a tracker and a prep checklist.", isUser: false)
+            bubble("On it! Adding a tracker and a prep checklist.", isUser: false)
             HStack(spacing: 6) {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.caption2)

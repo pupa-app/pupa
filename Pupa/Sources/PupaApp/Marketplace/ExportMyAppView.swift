@@ -28,7 +28,7 @@ struct SharingSettingsView: View {
                            caption: "Load a .\(MyAppBundle.fileExtension) someone shared, or browse the marketplace")
                 }
             } footer: {
-                Text("Apps travel as inert .\(MyAppBundle.fileExtension) bundles. Sharing publishes whatever you include — review the agent prompts on the Share screen before sending.")
+                Text("Apps travel as json .\(MyAppBundle.fileExtension) bundles. Sharing publishes whatever you include. Review the agent prompts on the Share screen before sending.")
             }
         }
         .navigationTitle("Import & Export")
