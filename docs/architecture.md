@@ -1248,13 +1248,16 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
 A MyApp can be exported as a portable, **inert** `.pupa` bundle (versioned
 header + the `Codable` `MyApp` tree + memory files) and rebuilt on another
 install — **no code from the bundle is executed**. UI lives in Settings ▸
-Import & Export: export is a **Share…** action (`ShareLink` → AirDrop /
-Messages / WhatsApp / Files). `.pupa` is a registered, app-owned file type
+Import & Export: export is a **Share…** action on iOS (`ShareLink` → AirDrop /
+Messages / WhatsApp / Files) and a **Save…** action on Mac (`.fileExporter` →
+save panel), split at runtime by `DeviceInfo.isMac` because the share sheet's
+"Save to Files" crashes on Mac (ShareKit hands `NSSavePanel` a nil name,
+FB13819800). `.pupa` is a registered, app-owned file type
 (`UTType.pupaAppBundle`), so opening a shared bundle routes to Pupa via
 `AppView.onOpenURL`, which read-only-decodes it for a confirm sheet before
-running the same importer. Each Share regeneration writes a fresh unique
+running the same importer. Each iOS Share regeneration writes a fresh unique
 temp file so the `ShareLink` never hands off a bundle built before the
-latest toggle change. Cross-component references are enumerated/pruned by a single
+latest toggle change; Mac keeps the bytes in memory instead. Cross-component references are enumerated/pruned by a single
 unified model on `CanvasApp` (`componentReferences` / `remapReferences`) shared
 with the delete cascade; each kind registers a `ComponentExportPolicy`. Import
 treats the bundle as untrusted (settings allow-list, size/count caps,

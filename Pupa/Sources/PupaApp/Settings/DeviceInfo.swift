@@ -16,4 +16,18 @@ public enum DeviceInfo {
         return "Pupa"
         #endif
     }
+
+    /// Running on a Mac — native, or the iOS build on Apple silicon
+    /// ("Designed for iPad" / Catalyst), where `os(macOS)` is *false*.
+    /// Runtime, not `#if`, because the shipping Mac app is the iOS binary.
+    public static var isMac: Bool {
+        #if os(macOS)
+        return true
+        #elseif os(iOS)
+        return ProcessInfo.processInfo.isiOSAppOnMac
+            || ProcessInfo.processInfo.isMacCatalystApp
+        #else
+        return false
+        #endif
+    }
 }

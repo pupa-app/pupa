@@ -3,6 +3,17 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.247] — 2026-08-14
+
+### Fixed
+
+- **Exporting an app on Mac no longer quits Pupa.** Share ▸ Save to Files
+  crashed the app every time (Copy worked): macOS hands the save panel an
+  empty file name from inside the system share sheet. Mac now exports with a
+  plain **Save…** button and a normal save panel, prefilled with the app's
+  name; iPhone and iPad keep the share sheet. An app whose name is all emoji
+  now saves as `pupa-app.pupa` instead of a random temp name.
+
 ## [0.0.246] — 2026-08-14
 
 ### Fixed
