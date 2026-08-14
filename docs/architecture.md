@@ -1054,21 +1054,41 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
   an archived app, and refuses outright while provisioning (`persist()` is a
   no-op then, so clearing the tombstone would lose the app from both the roster
   and the list).
+- **Sync-lost apps (local-only markers).** A sync can also remove an app with
+  *no* tombstone — a bad merge, or a cloud-side deletion the mirror propagated
+  down. `noteSurpriseRemovals` raises the dismissible restore banner for that,
+  but the banner is in-memory: dismissing it (or relaunching without answering)
+  used to leave the app unreachable from any screen. So for a surprise removal
+  with no tombstone it now also records a `.deleted` snapshot and writes a
+  marker to `lost/<uuid>.json` — same `{id, deletedAt, name?}` payload, listed
+  and restored exactly like a tombstone, captioned "Removed by sync" rather than
+  "Deleted". The marker is **local-only**: `lost/` sits outside
+  `mirroredSubtrees` (like `conflicts/`), because the removal may be a bad merge
+  and a device that still holds the body must stay free to push it back — a
+  mirrored tombstone would propagate the loss and suppress that recovery. It is
+  never fed to union-load's suppression for the same reason; instead `adopt()`
+  retires the marker for any id that is live in the incoming roster, so a body
+  that comes back isn't listed as removed alongside itself. A surprise removal
+  that *does* carry a tombstone is untouched — it already lists.
 - **Permanent delete.** A Recently deleted row also offers "delete permanently"
   (`purgeDeletedMyApp`, behind a confirmation): `SnapshotStore.deleteAll` — pins
   included, since the label promises it — plus the body, then the tombstone is
   re-written with `purged: true`, keeping its `deletedAt` so GC's age check is
-  unchanged. The marker stays until the TTL because it's the only thing stopping
-  an un-synced device from re-pushing the body; the sweep skips its
-  capture-before-reap for a purged id, so that body can't resurrect a restore
-  point. `deletedMyApps` / `hasTombstones` list `listableTombstoneIds` (every
-  marker minus the purged), so the row and — once nothing is left — the whole
-  Settings entry disappear.
+  unchanged — in place, in whichever directory it lives (`markerURL`), so
+  purging a sync-lost app doesn't mint the mirrored tombstone that was
+  deliberately withheld. The marker stays until the TTL because it's the only
+  thing stopping an un-synced device from re-pushing the body; the sweep skips
+  its capture-before-reap for a purged id, so that body can't resurrect a
+  restore point. `deletedMyApps` / `hasTombstones` list `listableTombstoneIds`
+  (every marker of either kind, minus the purged), so the row and — once nothing
+  is left — the whole Settings entry disappear.
 - **A restore point is never left behind.** `.deleted` records are exempt from
   the snapshot TTL *and* the per-app cap, so `prune` can never collect one — the
-  thing that retires it is whatever retires its tombstone. So every exit is
-  covered: `gcTombstones` at 180 days, and `MyAppStore.clearDeleteMarkers`
-  (`clearTombstone` + `SnapshotStore.dropRecords(reasons: [.deleted])`) on
+  thing that retires it is whatever retires its marker. So every exit is
+  covered: `gcTombstones` at 180 days (it sweeps `tombstones/` and `lost/` on
+  the same clock, and drops the restore point only once *both* markers for an id
+  are gone), and `MyAppStore.clearDeleteMarkers` (tombstone + lost marker +
+  `SnapshotStore.dropRecords(reasons: [.deleted])`) on
   **every** un-delete path — `restoreDeletedMyApp`, `restorePinnedSnapshot`,
   `restoreSyncRemovedApps`, `importMyApp`. Clearing a tombstone alone retires
   the record's only collector and strands a full base (the whole serialized

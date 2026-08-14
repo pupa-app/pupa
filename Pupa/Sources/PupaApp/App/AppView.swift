@@ -680,7 +680,8 @@ public struct AppView: View {
 
     /// Non-blocking advisement: an incoming sync removed MyApps this user didn't
     /// delete. The removal is already applied (losers preserved in History), so
-    /// this offers a one-tap restore rather than blocking the merge.
+    /// this offers a one-tap restore rather than blocking the merge. Dismissing
+    /// loses nothing — they stay in Settings ▸ Recently deleted.
     private var syncRemovalBanner: some View {
         HStack(spacing: 10) {
             Image(systemName: "exclamationmark.arrow.triangle.2.circlepath")

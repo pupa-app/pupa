@@ -3327,6 +3327,38 @@ public final class MyAppStore {
         tombstonesDir.appendingPathComponent("\(id.uuidString).json")
     }
 
+    /// Local-only twin of a tombstone: a MyApp an incoming sync removed without
+    /// this user's action (`noteSurpriseRemovals`). Same `Tombstone` payload, so
+    /// it lists, restores and GCs exactly like a real delete.
+    ///
+    /// Lives OUTSIDE `state/` — like `conflicts/`, deliberately **not** mirrored.
+    /// The removal may be a bad merge rather than a delete, and a device that
+    /// still holds the body must stay free to push it back; a mirrored marker
+    /// would propagate the loss and suppress that recovery.
+    nonisolated static var lostDir: URL {
+        PupaStorage.activeRoot.appendingPathComponent("lost", isDirectory: true)
+    }
+    private nonisolated static func lostURL(_ id: UUID) -> URL {
+        lostDir.appendingPathComponent("\(id.uuidString).json")
+    }
+
+    /// Where `id`'s delete marker lives: the mirrored tombstone when there is
+    /// one, else the local-only lost marker. Read/purge go through this so both
+    /// kinds behave identically everywhere but on the wire.
+    private nonisolated static func markerURL(_ id: UUID) -> URL {
+        let stone = tombstoneURL(id)
+        return FileManager.default.fileExists(atPath: stone.path) ? stone : lostURL(id)
+    }
+
+    /// Record `id` as lost to a sync this user didn't initiate. Local-only —
+    /// see `lostDir`. Callers pair it with a `.deleted` snapshot, which is what
+    /// the restore actually resolves from.
+    nonisolated static func writeLostMarker(_ id: UUID, name: String? = nil, at now: Date = Date()) {
+        let marker = Tombstone(id: id, deletedAt: now, name: name)
+        guard let data = try? stateEncoder().encode(marker) else { return }
+        try? CloudDocument.write(data, to: lostURL(id))
+    }
+
     /// Record `id` as deleted. Durable + mirrored, so the delete survives a
     /// relaunch and reaches every device. Re-deleting just refreshes `deletedAt`.
     nonisolated static func writeTombstone(_ id: UUID, name: String? = nil, at now: Date = Date()) {
@@ -3345,6 +3377,9 @@ public final class MyAppStore {
         /// False for a pre-0.0.240 delete, which captured nothing. The row says
         /// so instead of offering a Restore that can't work.
         public let isRestorable: Bool
+        /// True when a sync removed it rather than the user — the row says so,
+        /// since "Deleted" would be a lie about something nobody deleted.
+        public let wasSyncRemoved: Bool
     }
 
     /// Restore tombstoned `id` from the best source available: the newest
@@ -3373,15 +3408,16 @@ public final class MyAppStore {
             || FileManager.default.fileExists(atPath: appURL(id).path)
     }
 
-    /// Tombstoned ids still worth listing: every marker minus the ones a
-    /// permanent delete purged. One tiny decode each — no restore-source probe.
+    /// Marked ids still worth listing — tombstoned and sync-lost alike, minus
+    /// the ones a permanent delete purged. One tiny decode each — no
+    /// restore-source probe.
     private nonisolated static func listableTombstoneIds() -> Set<UUID> {
-        diskTombstoneIds().filter { !isPurged($0) }
+        diskTombstoneIds().union(diskLostIds()).filter { !isPurged($0) }
     }
 
-    /// Whether the user permanently deleted tombstoned `id`.
+    /// Whether the user permanently deleted marked `id`.
     private nonisolated static func isPurged(_ id: UUID) -> Bool {
-        CloudDocument.read(tombstoneURL(id))
+        CloudDocument.read(markerURL(id))
             .flatMap { try? JSONDecoder().decode(Tombstone.self, from: $0) }?.purged == true
     }
 
@@ -3392,16 +3428,19 @@ public final class MyAppStore {
         !listableTombstoneIds().isEmpty
     }
 
-    /// Tombstoned MyApps, newest first — what Settings ▸ Recently deleted
-    /// lists, until `gcTombstones` reaps the marker at 180 days.
+    /// Marked MyApps, newest first — what Settings ▸ Recently deleted lists,
+    /// until `gcTombstones` reaps the marker at 180 days. Covers both a real
+    /// delete (tombstone) and a sync removal this user never asked for
+    /// (`lostDir`), so a dismissed restore banner is never the last chance.
     ///
-    /// Reads each tombstone and probes for its restore source — call on appear,
+    /// Reads each marker and probes for its restore source — call on appear,
     /// never from a view's `body`. Use `hasTombstones()` for presence alone.
     public nonisolated static func deletedMyApps() -> [DeletedMyApp] {
         let dec = JSONDecoder()
+        let tombstoned = diskTombstoneIds()
         var out: [DeletedMyApp] = []
         for id in listableTombstoneIds() {
-            let stone = CloudDocument.read(tombstoneURL(id)).flatMap { try? dec.decode(Tombstone.self, from: $0) }
+            let stone = CloudDocument.read(markerURL(id)).flatMap { try? dec.decode(Tombstone.self, from: $0) }
             let isRestorable = hasRestoreSource(id)
             // Legacy tombstones carry no name — recover it from the restore
             // source. The only case where this listing pays for a full resolve.
@@ -3412,29 +3451,33 @@ public final class MyAppStore {
                 id: id,
                 name: label,
                 deletedAt: stone?.deletedAt,
-                isRestorable: isRestorable
+                isRestorable: isRestorable,
+                wasSyncRemoved: !tombstoned.contains(id)
             ))
         }
         // Undated (corrupt tombstone) sorts last rather than jumping to the top.
         return out.sorted { ($0.deletedAt ?? .distantPast) > ($1.deletedAt ?? .distantPast) }
     }
 
-    /// Permanently delete tombstoned `id`: drop every restore source — history,
-    /// the user's pins, and the body — and mark the tombstone purged so it
-    /// leaves Settings ▸ Recently deleted (and Pinned snapshots with it).
+    /// Permanently delete marked `id`: drop every restore source — history,
+    /// the user's pins, and the body — and mark it purged so it leaves
+    /// Settings ▸ Recently deleted (and Pinned snapshots with it).
     ///
-    /// The tombstone itself stays until its TTL: it's the only thing stopping a
-    /// device that hasn't synced the purge from re-pushing the body.
+    /// The marker itself stays until its TTL: it's the only thing stopping a
+    /// device that hasn't synced the purge from re-pushing the body. A sync-lost
+    /// app is purged in place, in `lostDir` — this must not mint the mirrored
+    /// tombstone that `noteSurpriseRemovals` deliberately withheld.
     public nonisolated static func purgeDeletedMyApp(_ id: UUID) {
         SnapshotStore.deleteAll(id)
         CloudDocument.delete(appURL(id))
         // Re-write rather than patch: keeps `deletedAt` (so GC's age check is
         // unchanged) and the name, and mints both if the marker didn't decode.
-        let old = CloudDocument.read(tombstoneURL(id))
+        let url = markerURL(id)
+        let old = CloudDocument.read(url)
             .flatMap { try? JSONDecoder().decode(Tombstone.self, from: $0) }
         let stone = Tombstone(id: id, deletedAt: old?.deletedAt ?? Date(), name: old?.name, purged: true)
         guard let data = try? stateEncoder().encode(stone) else { return }
-        try? CloudDocument.write(data, to: tombstoneURL(id))
+        try? CloudDocument.write(data, to: url)
     }
 
     /// Bring a deleted MyApp back. Returns false when it's already in the roster
@@ -3496,13 +3539,24 @@ public final class MyAppStore {
     /// snapshot AFTER, so nothing reads or diffs off a record on its way out.
     nonisolated static func clearDeleteMarkers(_ id: UUID) {
         clearTombstone(id)
+        CloudDocument.delete(lostURL(id))
         SnapshotStore.dropRecords(id, reasons: [.deleted])
     }
 
     /// UUIDs of every `tombstones/<uuid>.json` on disk. Ids come from filenames
     /// (no decode) so even a half-written tombstone still suppresses its app.
     private nonisolated static func diskTombstoneIds() -> Set<UUID> {
-        guard let names = try? FileManager.default.contentsOfDirectory(atPath: tombstonesDir.path) else { return [] }
+        markerIds(in: tombstonesDir)
+    }
+
+    /// UUIDs of every local-only lost marker. Never fed to `load()`'s
+    /// suppression: a body that comes back must resurrect, not stay hidden.
+    private nonisolated static func diskLostIds() -> Set<UUID> {
+        markerIds(in: lostDir)
+    }
+
+    private nonisolated static func markerIds(in dir: URL) -> Set<UUID> {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else { return [] }
         return Set(names.compactMap { name in
             name.hasSuffix(".json") ? UUID(uuidString: String(name.dropLast(".json".count))) : nil
         })
@@ -3653,23 +3707,31 @@ public final class MyAppStore {
     ) -> Int {
         let fm = FileManager.default
         let dec = JSONDecoder()
-        guard let names = try? fm.contentsOfDirectory(atPath: tombstonesDir.path) else { return 0 }
         var gcd = 0
-        for name in names where name.hasSuffix(".json") {
-            let url = tombstonesDir.appendingPathComponent(name)
-            let deletedAt: Date? = CloudDocument.read(url)
-                .flatMap { try? dec.decode(Tombstone.self, from: $0) }?.deletedAt
-                ?? (try? fm.attributesOfItem(atPath: url.path)[.modificationDate]) as? Date
-            guard let deletedAt, now.timeIntervalSince(deletedAt) > ttl else { continue }
-            CloudDocument.delete(url)
-            // The app can never be listed under Recently deleted again, so drop
-            // the restore point the tombstone was holding. `keeping: [.pinned]`
-            // is the point — the default set preserves `.deleted` too, which
-            // would orphan it here forever.
-            if let id = UUID(uuidString: String(name.dropLast(".json".count))) {
-                SnapshotStore.deleteNonPinned(id, keeping: [.pinned])
+        var reaped = Set<UUID>()
+        // Both marker kinds age out on the same clock — a sync-lost app is
+        // listed and restorable for exactly as long as a deleted one.
+        for dir in [tombstonesDir, lostDir] {
+            guard let names = try? fm.contentsOfDirectory(atPath: dir.path) else { continue }
+            for name in names where name.hasSuffix(".json") {
+                let url = dir.appendingPathComponent(name)
+                let deletedAt: Date? = CloudDocument.read(url)
+                    .flatMap { try? dec.decode(Tombstone.self, from: $0) }?.deletedAt
+                    ?? (try? fm.attributesOfItem(atPath: url.path)[.modificationDate]) as? Date
+                guard let deletedAt, now.timeIntervalSince(deletedAt) > ttl else { continue }
+                CloudDocument.delete(url)
+                if let id = UUID(uuidString: String(name.dropLast(".json".count))) { reaped.insert(id) }
+                gcd += 1
             }
-            gcd += 1
+        }
+        // The app can never be listed under Recently deleted again, so drop the
+        // restore point the marker was holding. `keeping: [.pinned]` is the
+        // point — the default set preserves `.deleted` too, which would orphan
+        // it here forever. Only once BOTH markers are gone: an id can carry a
+        // lost marker and a later-arriving tombstone at the same time.
+        let surviving = diskTombstoneIds().union(diskLostIds())
+        for id in reaped.subtracting(surviving) {
+            SnapshotStore.deleteNonPinned(id, keeping: [.pinned])
         }
         return gcd
     }
@@ -3814,6 +3876,13 @@ public final class MyAppStore {
         memoryCurrentThreadId = loaded.memoryCurrentThreadId
         itemEventLog = loaded.itemEventLog
         componentFolders = loaded.componentFolders
+        // A lost app whose body came back (the other device pushed it up again)
+        // is not lost any more — retire its marker so it stops being listed
+        // under Recently deleted alongside the live copy. One listing, normally
+        // empty.
+        for id in Self.diskLostIds() where loaded.myApps.contains(where: { $0.id == id }) {
+            Self.clearDeleteMarkers(id)
+        }
         lastAppHash.removeAll()
         primeHashes()
         // A real roster is here, however it got here — the background retry, or
@@ -3995,9 +4064,26 @@ public final class MyAppStore {
         let surprise = vanished.filter { !userInitiatedRemovals.contains($0.id) }
         userInitiatedRemovals.subtract(vanished.map(\.id))
         guard !surprise.isEmpty else { return }
-        // Guarantee a restore point even for an app that was byte-clean (the
-        // dirty-only `.preReload` loop above would have skipped it).
-        for app in surprise { SnapshotStore.record(app, reason: .preReload) }
+        let tombstoned = Self.diskTombstoneIds()
+        for app in surprise {
+            // A tombstoned removal is a real delete made elsewhere: it already
+            // lists under Recently deleted, and the deleting device's `.deleted`
+            // record is the restore point. Just guarantee one for an app that
+            // was byte-clean (the dirty-only `.preReload` loop above skipped it).
+            guard !tombstoned.contains(app.id) else {
+                SnapshotStore.record(app, reason: .preReload)
+                continue
+            }
+            // No tombstone: the body vanished under us (a bad merge, a
+            // cloud-side deletion the mirror propagated). The banner is
+            // transient — dismiss it, or relaunch without answering, and the app
+            // would be unreachable. Mark it so Settings ▸ Recently deleted keeps
+            // it, and hold the restore point with `.deleted`, which is exempt
+            // from the snapshot TTL and cap (`SnapshotStore.survivesDeletion`)
+            // and is collected by the very marker this writes.
+            SnapshotStore.record(app, reason: .deleted)
+            Self.writeLostMarker(app.id, name: app.name)
+        }
         pendingSyncRemoval = SyncRemovalNotice(ids: surprise.map(\.id), names: surprise.map(\.name))
     }
 
@@ -4020,7 +4106,9 @@ public final class MyAppStore {
         persist()
     }
 
-    /// Dismiss the restore banner without restoring (losers remain in History).
+    /// Dismiss the restore banner without restoring. Non-destructive: the app
+    /// stays listed under Settings ▸ Recently deleted via the marker
+    /// `noteSurpriseRemovals` wrote, so this is "not now", not "lose it".
     public func dismissSyncRemoval() { pendingSyncRemoval = nil }
 
     // MARK: - Snapshot history
@@ -4238,6 +4326,9 @@ public final class MyAppStore {
         storageEpoch += 1
         await StorageMirror.shared.drain()
         try? FileManager.default.removeItem(at: stateRoot)
+        // Lives outside `state/` (never mirrored) — wipe it too, else a lost
+        // marker leaks into the next test's Recently deleted listing.
+        try? FileManager.default.removeItem(at: lostDir)
         StorageMirror.removeBaseline(localRoot: PupaStorage.activeRoot)
         // Reset the provisioning fixtures so a "fresh device" test starts truly
         // fresh and the process-wide guard flag can't leak into a sibling suite.
