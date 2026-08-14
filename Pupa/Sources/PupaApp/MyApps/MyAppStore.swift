@@ -138,6 +138,21 @@ public final class MyAppStore {
         public let names: [String]
     }
 
+    /// Set when a sync took memory files from apps that are still in the roster.
+    /// Drives its own dismissible recover banner; nil when there's nothing to
+    /// advise about.
+    public private(set) var pendingMemoryLoss: MemoryLossNotice?
+
+    /// Skills / subagents a sync removed from live MyApps, surfaced by the
+    /// recover banner. `names` parallels `ids`; `fileCount` is every memory file
+    /// recovery would bring back, which is more than the lost units alone when a
+    /// whole subtree went.
+    public struct MemoryLossNotice: Equatable, Sendable {
+        public let ids: [UUID]
+        public let names: [String]
+        public let fileCount: Int
+    }
+
     public init(initial: ([MyApp], UUID)? = nil) {
         if let initial {
             self.myApps = initial.0
@@ -3940,6 +3955,9 @@ public final class MyAppStore {
         guard loaded.fromDisk else { return }
         noteSurpriseRemovals(incoming: loaded.myApps)
         adopt(loaded)
+        // After `adopt`: the scan is per live app, so it needs the roster the
+        // sync just handed us, not the one it replaced.
+        noteMemoryLosses()
     }
 
     /// Republish loaded state onto the main-actor store and re-prime the
@@ -4193,6 +4211,106 @@ public final class MyAppStore {
     /// `noteSurpriseRemovals` wrote, so this is "not now", not "lose it".
     public func dismissSyncRemoval() { pendingSyncRemoval = nil }
 
+    // MARK: - Memory-loss advisement
+
+    /// Raise `pendingMemoryLoss` when a sync took memory files from apps that
+    /// are still in the roster — the half `recoverMemoryFiles` can't reach,
+    /// since it only runs on an un-delete (#251 follow-up).
+    ///
+    /// **Trigger is a lost *unit*, not a lost file.** A file deleted
+    /// deliberately on another device arrives as the same `.deleteLocal` and is
+    /// quarantined the same way, so firing on any missing file would nag on
+    /// ordinary multi-device use. A whole `pupa/skills/<x>/` or
+    /// `pupa/agents/<x>/` folder with nothing left on disk is the shape that
+    /// isn't ordinary — it's a skill or subagent that stopped loading.
+    ///
+    /// Once one unit has gone, recovery takes everything of that app's still
+    /// missing, so a dropped subtree comes back whole rather than config-only.
+    private func noteMemoryLosses() {
+        guard !isProvisioning else { return }
+        let since = Self.memoryLossSeenAt()
+        let lost = myApps.compactMap { app -> (MyApp, [String: URL])? in
+            let missing = Self.missingMemoryFiles(app.name, since: since)
+            guard missing.keys.contains(where: { Self.isLostUnitPath($0, appNamed: app.name) })
+            else { return nil }
+            return (app, missing)
+        }
+        guard !lost.isEmpty else { return }
+        pendingMemoryLoss = MemoryLossNotice(
+            ids: lost.map(\.0.id), names: lost.map(\.0.name),
+            fileCount: lost.reduce(0) { $0 + $1.1.count })
+    }
+
+    /// Quarantined memory files for `appName` preserved since `since` whose path
+    /// is no longer on disk. A live file always means no loss to report: the
+    /// copy is a conflict loser or a folded twin, not something that went.
+    private nonisolated static func missingMemoryFiles(
+        _ appName: String, since: Date
+    ) -> [String: URL] {
+        let root = PupaStorage.activeRoot
+        let prefix = "memories/\(MemoryStore.myAppFolder(myAppName: appName))"
+        return StorageMirror.preservedFiles(underPrefix: prefix, since: since, localRoot: root)
+            .filter { !FileManager.default.fileExists(atPath: root.appendingPathComponent($0.key).path) }
+    }
+
+    /// Whether `rel` sits in a `pupa/skills/<x>/` or `pupa/agents/<x>/` folder
+    /// that has no files left on disk — a unit that stopped loading, rather than
+    /// one file of a unit that still works.
+    private nonisolated static func isLostUnitPath(_ rel: String, appNamed appName: String) -> Bool {
+        let prefix = "memories/\(MemoryStore.myAppFolder(myAppName: appName))/"
+        guard rel.hasPrefix(prefix) else { return false }
+        let parts = rel.dropFirst(prefix.count).split(separator: "/").map(String.init)
+        // `pupa/<kind>/<name>/…` — anything shallower isn't a unit.
+        guard parts.count > 3, parts[0] == "pupa",
+              ["skills", "agents"].contains(parts[1]) else { return false }
+        let unit = PupaStorage.activeRoot
+            .appendingPathComponent("\(prefix)pupa/\(parts[1])/\(parts[2])", isDirectory: true)
+        return !FileManager.default.fileExists(atPath: unit.path)
+            || (try? FileManager.default.contentsOfDirectory(atPath: unit.path))?.isEmpty != false
+    }
+
+    /// Re-materialize every memory file the flagged apps are missing, then clear
+    /// the notice. The bytes come from the same quarantine an un-delete reads.
+    public func recoverLostMemoryFiles() {
+        guard let notice = pendingMemoryLoss else { return }
+        let since = Self.memoryLossSeenAt()
+        let root = PupaStorage.activeRoot
+        for name in notice.names {
+            for (rel, src) in Self.missingMemoryFiles(name, since: since) {
+                guard let data = CloudDocument.read(src) else { continue }
+                try? CloudDocument.write(data, to: root.appendingPathComponent(rel))
+            }
+        }
+        Self.markMemoryLossSeen()
+        pendingMemoryLoss = nil
+    }
+
+    /// Dismiss without recovering. Unlike the sync-removal banner there is no
+    /// list to fall back on, so the dismissal is recorded: the same loss must
+    /// not re-raise on every relaunch. The bytes stay in quarantine until
+    /// `conflictMaxAge`, and a *later* loss raises again.
+    public func dismissMemoryLoss() {
+        Self.markMemoryLossSeen()
+        pendingMemoryLoss = nil
+    }
+
+    /// Local-only watermark: losses preserved at or before it have been shown.
+    /// Outside `state/` — like `lost/`, this is one device's UI history, not
+    /// something to propagate.
+    private nonisolated static var memoryLossSeenURL: URL {
+        PupaStorage.activeRoot.appendingPathComponent("memory-loss-seen.json")
+    }
+
+    private nonisolated static func memoryLossSeenAt() -> Date {
+        CloudDocument.read(memoryLossSeenURL)
+            .flatMap { try? JSONDecoder().decode(Date.self, from: $0) } ?? .distantPast
+    }
+
+    private nonisolated static func markMemoryLossSeen(at now: Date = Date()) {
+        guard let data = try? JSONEncoder().encode(now) else { return }
+        try? CloudDocument.write(data, to: memoryLossSeenURL)
+    }
+
     // MARK: - Snapshot history
 
     /// Bumped whenever the on-disk snapshot timeline changes out-of-band
@@ -4418,6 +4536,7 @@ public final class MyAppStore {
         try? FileManager.default.removeItem(at: PupaStorage.memoriesRoot)
         try? FileManager.default.removeItem(
             at: PupaStorage.activeRoot.appendingPathComponent("conflicts", isDirectory: true))
+        try? FileManager.default.removeItem(at: memoryLossSeenURL)
         StorageMirror.removeBaseline(localRoot: PupaStorage.activeRoot)
         // Reset the provisioning fixtures so a "fresh device" test starts truly
         // fresh and the process-wide guard flag can't leak into a sibling suite.

@@ -1093,6 +1093,22 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
   *marker's* name slug, destination the restored app's; they differ only when a
   pin predating a rename revives the app under its old name. Nothing survives
   past `conflictMaxAge` (30 days), not the marker's 180.
+- **Memory loss without a removal.** The above only runs on an un-delete, so a
+  sync that took a skill from an app still in the roster left an empty folder
+  and no signal. `noteMemoryLosses` (after `adopt`, per live app) raises
+  `pendingMemoryLoss`, an AppView banner with Recover / Dismiss. Detection needs
+  no plumbing through `converge`: only a sync-driven `.deleteLocal` quarantines
+  memory files (a local delete goes through `CloudDocument.delete`), so
+  "quarantined, and the live path is gone" already means "a sync took this".
+  **The trigger is a lost *unit*, not a lost file** — a whole
+  `pupa/{skills,agents}/<x>/` with nothing left on disk. A file deleted
+  deliberately on another device arrives as the same `.deleteLocal`, so firing
+  per file would nag on ordinary multi-device use; a unit that stopped loading
+  is the shape that isn't ordinary. Once one unit is gone, Recover takes
+  everything of that app's still missing, so a dropped subtree returns whole.
+  Dismissal is durable — local-only `memory-loss-seen.json`, the watermark
+  `preservedFiles` filters on — since unlike a removed app there is no Recently
+  deleted row to fall back on. A later loss still raises.
 - **Permanent delete.** A Recently deleted row also offers "delete permanently"
   (`purgeDeletedMyApp`, behind a confirmation): `SnapshotStore.deleteAll` — pins
   included, since the label promises it — plus the body, then the tombstone is
