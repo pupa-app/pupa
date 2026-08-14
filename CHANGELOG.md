@@ -3,6 +3,19 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.246] — 2026-08-14
+
+### Fixed
+
+- **Skills and subagents a sync removes can be put back.** `0.0.245` recovered
+  memory files when an app was restored, but a sync that dropped a skill or
+  subagent from an app that was still there left the folder empty with no way to
+  notice or repair it — the skill just stopped loading. A "Sync removed N memory
+  files" banner now offers a one-tap recover, for 30 days after the loss.
+  Dismissing is remembered, so the same loss doesn't ask again. It only appears
+  when a whole skill or subagent went, never for an ordinary file you deleted on
+  another device.
+
 ## [0.0.245] — 2026-08-14
 
 ### Fixed

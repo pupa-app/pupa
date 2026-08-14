@@ -271,7 +271,10 @@ public struct AppView: View {
             .safeAreaInset(edge: .top) {
                 VStack(spacing: 0) {
                     if let warning = store.rosterWarning { unsavedRosterBanner(warning) }
+                    // One at a time: a removed app subsumes its memory files, so
+                    // the app-level advisement wins while it's up.
                     if store.pendingSyncRemoval != nil { syncRemovalBanner }
+                    else if store.pendingMemoryLoss != nil { memoryLossBanner }
                     if showBackendReminder { backendReminderBanner }
                 }
             }
@@ -709,6 +712,48 @@ public struct AppView: View {
         .padding(.vertical, 10)
         .background(.regularMaterial)
         .overlay(alignment: .bottom) { Divider() }
+    }
+
+    /// Non-blocking advisement: a sync took skills / subagents from apps that
+    /// are still here. The bytes sit in the same 30-day quarantine an un-delete
+    /// recovers from, so this offers a one-tap repair. Dismissing is recorded —
+    /// the same loss won't ask again.
+    private var memoryLossBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "brain.head.profile")
+                .foregroundStyle(.orange)
+            Text(memoryLossMessage)
+                .font(.subheadline)
+                .lineLimit(2)
+                .minimumScaleFactor(0.85)
+            Spacer(minLength: 8)
+            Button("Recover") { store.recoverLostMemoryFiles() }
+                .font(.subheadline.weight(.semibold))
+                .buttonStyle(.plain)
+                .foregroundStyle(.tint)
+            Button {
+                store.dismissMemoryLoss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.regularMaterial)
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    /// "Sync removed N file(s) from “App”" — naming the app when it's the only
+    /// one, since that's what the user needs in order to judge the repair.
+    private var memoryLossMessage: String {
+        guard let notice = store.pendingMemoryLoss else { return "Sync removed some memory files" }
+        let files = notice.fileCount == 1 ? "1 memory file" : "\(notice.fileCount) memory files"
+        if notice.names.count == 1 { return "Sync removed \(files) from “\(notice.names[0])”" }
+        return "Sync removed \(files) from \(notice.names.count) apps"
     }
 
     /// "Sync removed N app(s) — restore them?" naming the first one or two.

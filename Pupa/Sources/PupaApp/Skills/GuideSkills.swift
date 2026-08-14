@@ -15,7 +15,7 @@ import Foundation
 /// component-kind list is generated from `MyAppType.kinds` so it can't drift.
 enum GuideSkills {
     /// Bump when any guide body changes so existing installs re-seed.
-    static let version = "17"
+    static let version = "18"
 
     /// The plugin folder holding this guide's skills.
     static let pluginDir = "\(MemoryStore.pupaPluginsDir)/pupa-guide"
@@ -211,6 +211,9 @@ enum GuideSkills {
       banner loses nothing — the app waits here. Each row can also be **deleted
       permanently** — that erases its saved state, pinned snapshots included, on
       every device.
+    - **Recovering lost skills** — if a sync takes a skill or subagent from a
+      myapp that is still here, a "Sync removed N memory files" banner offers to
+      put them back. Recoverable for 30 days.
     """
 
     private static let agentsBody = """
