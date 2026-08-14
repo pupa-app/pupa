@@ -3501,9 +3501,13 @@ public final class MyAppStore {
         myApps.append(app)
         backfillColorIndices()
         persist()
+        // Before the marker goes — it carries the removal time the recovery
+        // window is measured from.
+        let removedAt = Self.markerDeletedAt(id)
         // Retire the markers that just did their job — before `record` below,
         // so the new `.restored` never diffs off a record on its way out.
         Self.clearDeleteMarkers(id)
+        Self.recoverMemoryFiles(forAppNamed: app.name, removedAt: removedAt)
         // No longer a delete this user made: a later sync that drops the id is
         // now a surprise and must raise the notice.
         userInitiatedRemovals.remove(id)
@@ -3513,6 +3517,47 @@ public final class MyAppStore {
         pendingSnapshotTasks[id] = nil
         SnapshotStore.record(app, reason: .restored)
         return true
+    }
+
+    // MARK: - Memory recovery
+
+    /// How far before a removal a quarantined memory file still counts as lost
+    /// *to* that removal. The mirror can unlink the memory tree a beat before
+    /// the roster shrink is noticed, so the window can't be zero — but it stays
+    /// tight, because a file the user deliberately deleted on another device is
+    /// quarantined by the very same mechanism (see `preservedFiles`).
+    nonisolated static let memoryRecoverySlack: TimeInterval = 5 * 60
+
+    /// When `id` was marked deleted / lost, per its marker.
+    private nonisolated static func markerDeletedAt(_ id: UUID) -> Date? {
+        CloudDocument.read(markerURL(id))
+            .flatMap { try? JSONDecoder().decode(Tombstone.self, from: $0) }?.deletedAt
+    }
+
+    /// Re-materialize memory files the app lost to a sync-driven local delete —
+    /// the `pupa/agents/<slug>/AGENTS.md` and `pupa/skills/<name>/SKILL.md`
+    /// bodies that otherwise come back as empty folders (issue #251). Restoring
+    /// the roster entry never touched them: `MyApp` carries no memory files, so
+    /// no snapshot can hold them.
+    ///
+    /// Scoped to this app's own folder, skips any path still on disk (a live
+    /// file always wins), and takes only copies quarantined around the removal.
+    /// Bounded by `StorageMirror.conflictMaxAge` — past that the quarantine is
+    /// pruned and there is nothing to recover.
+    private nonisolated static func recoverMemoryFiles(forAppNamed name: String, removedAt: Date?) {
+        guard let removedAt else { return }
+        let root = PupaStorage.activeRoot
+        let prefix = "memories/\(MemoryStore.myAppFolder(myAppName: name))"
+        let preserved = StorageMirror.preservedFiles(
+            underPrefix: prefix,
+            since: removedAt.addingTimeInterval(-memoryRecoverySlack),
+            localRoot: root)
+        for (rel, src) in preserved {
+            let dst = root.appendingPathComponent(rel)
+            guard !FileManager.default.fileExists(atPath: dst.path),
+                  let data = CloudDocument.read(src) else { continue }
+            try? CloudDocument.write(data, to: dst)
+        }
     }
 
     /// Drop `id`'s tombstone. Call whenever an app with that id legitimately
@@ -4094,11 +4139,14 @@ public final class MyAppStore {
         for id in notice.ids where !myApps.contains(where: { $0.id == id }) {
             if let head = SnapshotStore.head(id),
                let app = SnapshotStore.restoredApp(id, id: head.id) {
+                let removedAt = Self.markerDeletedAt(id)
                 // User explicitly restored — clear the delete markers (e.g. from
                 // a remote delete) so it isn't re-suppressed on relaunch. After
                 // `restoredApp` above: that may have resolved off the very
                 // `.deleted` record this drops.
                 Self.clearDeleteMarkers(id)
+                // The same sync that took the app usually took its memory tree.
+                Self.recoverMemoryFiles(forAppNamed: app.name, removedAt: removedAt)
                 myApps.append(app)
             }
         }
@@ -4228,11 +4276,13 @@ public final class MyAppStore {
             return restore(myAppId: appId, snapshotId: snapshotId) ? appId : nil
         }
         guard let revived = SnapshotStore.restoredApp(appId, id: snapshotId) else { return nil }
+        let removedAt = Self.markerDeletedAt(appId)
         // Restoring a pinned snapshot of a deleted app is an un-delete — clear
         // its markers or union-load re-suppresses it and the sweep reaps the
         // restored body on the next relaunch. After `restoredApp` above; the pin
         // itself survives, only `.deleted` is dropped.
         Self.clearDeleteMarkers(revived.id)
+        Self.recoverMemoryFiles(forAppNamed: revived.name, removedAt: removedAt)
         myApps.append(revived)
         activeMyAppId = revived.id
         historyRevision += 1

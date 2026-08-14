@@ -1070,6 +1070,22 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
   retires the marker for any id that is live in the incoming roster, so a body
   that comes back isn't listed as removed alongside itself. A surprise removal
   that *does* carry a tombstone is untouched — it already lists.
+- **Memory files come back with the app.** A `MyApp` carries no memory files
+  (they live in the `memories/` subtree, keyed by name slug), so no snapshot can
+  hold them and restoring the roster entry never recreated them: an app restored
+  after iCloud dropped its data came back with empty `pupa/agents/<slug>/` and
+  `pupa/skills/<name>/` folders — subagents and skills silently gone (#251). The
+  bytes were never destroyed: `converge()`'s `.deleteLocal` quarantines every
+  file under local-only `conflicts/<sub>/<rel>/<stamp>` before it unlinks. What
+  was missing is the read side — `StorageMirror.preservedFiles(underPrefix:
+  since:localRoot:)` — which the three un-delete paths (`restoreDeletedMyApp`,
+  `restoreSyncRemovedApps`, `restorePinnedSnapshot`'s revive) now use to
+  re-materialize the app's own memory subtree. Three guards, because quarantine
+  can't tell a bad sync from a file the user deliberately deleted elsewhere:
+  scoped to the restored app's slug, never overwrites a path still on disk, and
+  takes only copies quarantined within `memoryRecoverySlack` (5 min) of the
+  marker's `deletedAt`. The recovery window is `conflictMaxAge` (30 days), not
+  the marker's 180 — past that the quarantine is pruned and nothing survives.
 - **Permanent delete.** A Recently deleted row also offers "delete permanently"
   (`purgeDeletedMyApp`, behind a confirmation): `SnapshotStore.deleteAll` — pins
   included, since the label promises it — plus the body, then the tombstone is
