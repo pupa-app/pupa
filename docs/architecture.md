@@ -889,7 +889,10 @@ unlinking** — a "remote delete" can also be iCloud renaming a whole dir away
 recoverable instead of being destroyed.
 The `conflicts/` tree is **local-only (never mirrored)** and **bounded**:
 losing sides are deduped by content, capped to the newest few per path, and
-aged out, so a repeatedly-conflicting file can't balloon storage.
+aged out, so a repeatedly-conflicting file can't balloon storage. A copy's
+mtime is its preservation time — the one clock the cap, the age prune and the
+recovery window read — so a deduped repeat loss touches the copy it reuses
+rather than leaving it dated to a loss already repaired.
 It's triggered at launch (`warm()`), after any local write, by the
 `CloudWatcher` (`NSMetadataQuery`) when a remote change lands, on app foreground
 (scene-phase `.active`), by a ~45s foreground poll, and by the Account screen's
@@ -1070,31 +1073,26 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
   retires the marker for any id that is live in the incoming roster, so a body
   that comes back isn't listed as removed alongside itself. A surprise removal
   that *does* carry a tombstone is untouched — it already lists.
-- **Memory files come back with the app.** A `MyApp` carries no memory files
-  (they live in the `memories/` subtree, keyed by name slug), so no snapshot can
-  hold them and restoring the roster entry never recreated them: an app restored
-  after iCloud dropped its data came back with empty `pupa/agents/<slug>/` and
-  `pupa/skills/<name>/` folders — subagents and skills silently gone (#251). The
-  bytes were never destroyed: `converge()`'s `.deleteLocal` quarantines every
-  file under local-only `conflicts/<sub>/<rel>/<stamp>` before it unlinks. What
-  was missing is the read side — `StorageMirror.preservedFiles(underPrefix:
-  since:localRoot:)` — which the three un-delete paths (`restoreDeletedMyApp`,
-  `restoreSyncRemovedApps`, `restorePinnedSnapshot`'s revive) now use to
-  re-materialize the app's own memory subtree. Three guards, because quarantine
-  can't tell a bad sync from a file the user deliberately deleted elsewhere:
-  scoped to the restored app's slug, never overwrites a path still on disk, and
-  ignores copies quarantined more than `memoryRecoverySlack` (5 min) **before**
-  the marker's `deletedAt`. There is no bound on the other side — the eviction
-  guard can defer a memory `.deleteLocal` to a much later pass, and that is
-  still the same loss — so a file deliberately deleted on another device while
-  the app sits in Recently deleted does come back with it. The source folder is
-  the slug of the *marker's* name (a rename migrates the memory folder), the
-  destination the restored app's; they differ only when a pin predating a
-  rename revives the app under its old name. The recovery window is
-  `conflictMaxAge` (30 days), not the marker's 180 — past that the quarantine
-  is pruned and nothing survives. A repeat loss of unchanged content is
-  deduped rather than re-stashed, so `preserveLoser` touches the copy it reuses
-  — the mtime is the preservation time both the window and the prune read.
+- **Memory files come back with the app.** A `MyApp` carries no memory files (they
+  live in `memories/`, keyed by name slug), so no snapshot holds them and an app
+  restored after iCloud dropped its data came back with empty `pupa/agents/` and
+  `pupa/skills/` folders (#251). The bytes survive — `.deleteLocal` quarantines
+  under `conflicts/<sub>/<rel>/<stamp>` before unlinking — only the read side was
+  missing. `clearDeleteMarkers(_:restoringAs:)`, which every un-delete already
+  goes through, now reads it back via `StorageMirror.preservedFiles`; pass
+  `restoringAs` and the app's memory subtree is re-materialized with it.
+  Quarantine can't tell a bad sync from a deliberate delete elsewhere, so three
+  guards: scoped to the app's slug, never overwrites a live path, and starts at
+  the loss instant. That anchor is the app body's own quarantine time (same
+  `.deleteLocal` pass), falling back to the marker's `deletedAt` for a user
+  delete, which quarantines nothing; recovery then drops the body copy, so a
+  repaired loss stops anchoring a later one. `memoryRecoverySlack` (5 min) is
+  jitter tolerance either side. There is no late bound — a deferred
+  `.deleteLocal` is the same loss — so a file deleted on another device while the
+  app sits in Recently deleted does come back with it. Source folder is the
+  *marker's* name slug, destination the restored app's; they differ only when a
+  pin predating a rename revives the app under its old name. Nothing survives
+  past `conflictMaxAge` (30 days), not the marker's 180.
 - **Permanent delete.** A Recently deleted row also offers "delete permanently"
   (`purgeDeletedMyApp`, behind a confirmation): `SnapshotStore.deleteAll` — pins
   included, since the label promises it — plus the body, then the tombstone is

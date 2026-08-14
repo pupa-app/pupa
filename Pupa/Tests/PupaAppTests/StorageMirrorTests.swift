@@ -442,6 +442,41 @@ struct StorageMirrorTests {
         #expect(conflictCount(local, "state/index.json") == StorageMirror.maxConflictCopiesPerPath)
     }
 
+    /// The cap, the age prune and the recovery window must read one clock. A
+    /// deduped copy is touched but keeps its original stamp, so a cap ordered by
+    /// filename can prune the very copy preserved most recently.
+    @Test("the per-path cap keeps the newest copy by preservation time, not by name")
+    func conflictCapOrdersByPreservationTime() throws {
+        let (local, cloud) = (tmp(), tmp())
+        put(local, "state/index.json", "base")
+        StorageMirror.converge(localRoot: local, cloudRoot: cloud)
+        for i in 0..<StorageMirror.maxConflictCopiesPerPath {
+            makeConflict(local, cloud, local: "L\(i)", loser: "C\(i)", at: Double(i))
+        }
+        let dir = local.appendingPathComponent("conflicts/state/index.json", isDirectory: true)
+        let copies = (((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [])
+            .filter { !$0.lastPathComponent.hasPrefix(".") })
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        #expect(copies.count == StorageMirror.maxConflictCopiesPerPath)
+        // Invert name order against preservation time — what a deduped repeat
+        // loss leaves behind. The oldest-*named* copy is the freshest; the
+        // newest-named one is the stalest and the only one the cap should drop.
+        let refreshed = try #require(copies.first)
+        let stalest = try #require(copies.last)
+        for (i, u) in copies.enumerated() {
+            try? FileManager.default.setAttributes(
+                [.modificationDate: i == 0 ? Date() : Date(timeIntervalSinceNow: -Double(1_000 + i))],
+                ofItemAtPath: u.path)
+        }
+
+        makeConflict(local, cloud, local: "LAST", loser: "CLAST", at: 99)   // overflows the cap
+
+        #expect(conflictCount(local, "state/index.json") == StorageMirror.maxConflictCopiesPerPath)
+        #expect(FileManager.default.fileExists(atPath: refreshed.path))
+        // Ordered by name, this one survives and `refreshed` is what goes.
+        #expect(!FileManager.default.fileExists(atPath: stalest.path))
+    }
+
     @Test("preserved copies older than the max age are pruned on the next pass")
     func conflictAgePrune() {
         let (local, cloud) = (tmp(), tmp())

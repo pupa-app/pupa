@@ -336,8 +336,14 @@ public actor StorageMirror {
         let unique = "\(stamp)-\(UUID().uuidString.prefix(4))"
         let name = ext.isEmpty ? unique : "\(unique).\(ext)"
         write(data, to: dir.appendingPathComponent(name), coordinate: false)
-        // Cap: drop all but the newest N for this path.
-        let all = conflictCopies(in: dir).sorted { $0.lastPathComponent > $1.lastPathComponent }
+        // Cap: drop all but the newest N for this path. Ordered by preservation
+        // time, not by the stamp in the name — a deduped copy is touched but
+        // keeps its original name, so the two disagree and only the mtime is
+        // what the recovery window and the age prune read.
+        let all = conflictCopies(in: dir).sorted {
+            let (a, b) = (preservedAt($0), preservedAt($1))
+            return a == b ? $0.lastPathComponent > $1.lastPathComponent : a > b
+        }
         for stale in all.dropFirst(maxConflictCopiesPerPath) { remove(stale, coordinate: false) }
     }
 
@@ -390,10 +396,35 @@ public actor StorageMirror {
         return newest.mapValues(\.url)
     }
 
+    /// When a path's data was last quarantined — the newest preserved copy's
+    /// mtime, nil if nothing is preserved for it. `path` is a `<subtree>/<rel>`
+    /// fragment. Callers use it as the instant a loss happened.
+    static func preservationTime(ofPath path: String, localRoot: URL) -> Date? {
+        conflictCopies(in: localRoot
+            .appendingPathComponent("conflicts", isDirectory: true)
+            .appendingPathComponent(path, isDirectory: true))
+            .map(preservedAt).max()
+    }
+
+    /// Forget every copy preserved for `path`. Call once the loss it recorded
+    /// is repaired, so its preservation time stops standing for an open one.
+    static func dropPreserved(path: String, localRoot: URL) {
+        try? FileManager.default.removeItem(at: localRoot
+            .appendingPathComponent("conflicts", isDirectory: true)
+            .appendingPathComponent(path, isDirectory: true))
+    }
+
     /// Regular files directly inside a conflict path's folder (skips hidden).
     private static func conflictCopies(in dir: URL) -> [URL] {
         (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))?
             .filter { !$0.lastPathComponent.hasPrefix(".") } ?? []
+    }
+
+    /// A preserved copy's preservation time. `.distantPast` if it won't stat,
+    /// so an unreadable copy sorts and prunes as the oldest.
+    private static func preservedAt(_ url: URL) -> Date {
+        (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+            .contentModificationDate ?? .distantPast
     }
 
     /// Delete preserved copies older than `conflictMaxAge`, then remove any
