@@ -209,11 +209,12 @@ public enum MyAppImporter {
         // Stage 4 — insert.
         let id = store.importMyApp(app)
 
-        // Stage 5 — memories (last). Re-rooted under the new name; every write
-        // goes through `MemoryStore.writeFile`, whose `resolve` blocks `..`,
-        // absolute paths and any extension outside the `.md` / `.json` allowlist
-        // (so an imported bundle can't drop, say, a `.py` into the sandbox).
-        writeMemories(bundle.memories, appName: newName, memory: memory)
+        // Stage 5 — memories (last). Re-rooted under the new app's immutable id
+        // (fresh UUID above) — so a re-import can never collide with or clobber
+        // the source app's memory subtree. Every write goes through
+        // `MemoryStore.writeFile`, whose `resolve` blocks `..`, absolute paths and
+        // any extension outside the `.md` / `.json` allowlist.
+        writeMemories(bundle.memories, appId: id, memory: memory)
 
         return ImportResult(myAppId: id, warnings: warnings)
     }
@@ -334,9 +335,9 @@ public enum MyAppImporter {
         return "\(base) \(n)"
     }
 
-    private static func writeMemories(_ files: [MemoryFile], appName: String, memory: MemoryStore) {
+    private static func writeMemories(_ files: [MemoryFile], appId: UUID, memory: MemoryStore) {
         let capped = files.prefix(maxMemoryFiles)
-        let scoped = memory.appScopedStore(forAppNamed: appName)
+        let scoped = memory.appScopedStore(forAppId: appId)
         for file in capped {
             guard file.content.utf8.count <= maxMemoryFileBytes else { continue }
             // writeFile's resolve() rejects `..`, absolute paths and any

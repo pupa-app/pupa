@@ -50,9 +50,10 @@ public struct MyAppMemoriesView: View {
         return store.isMemoryLocked(myAppId: id)
     }
 
-    /// Scope-root folder new items land in and the tree renders from.
+    /// Scope-root folder new items land in and the tree renders from. Keyed on
+    /// the app's immutable id (the on-disk folder), matching the agent's store.
     private var slug: String {
-        if let app = myApp { return MemoryStore.myAppFolder(myAppName: app.name) }
+        if let app = myApp { return MemoryStore.myAppFolder(myAppId: app.id) }
         return MemoryStore.orchestratorFolder()
     }
 

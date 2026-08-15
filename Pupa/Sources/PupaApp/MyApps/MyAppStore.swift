@@ -163,6 +163,7 @@ public final class MyAppStore {
             // Injected apps carry no stored color slots — freeze them now so
             // colors are stable and `nextColorIndex()` doesn't collide.
             backfillColorIndices()
+            installMemoryResolver()
         } else {
             let loaded = Self.load()
             self.myApps = loaded.myApps
@@ -171,6 +172,7 @@ public final class MyAppStore {
             self.memoryCurrentThreadId = loaded.memoryCurrentThreadId
             self.itemEventLog = loaded.itemEventLog
             self.componentFolders = loaded.componentFolders
+            installMemoryResolver()
             // Seed disk on fresh install; otherwise prime hashes so the first
             // mutation only writes the app that actually changed. On fresh
             // install also ship default skills into the seeded app (app-birth
@@ -449,15 +451,25 @@ public final class MyAppStore {
         return myApp.id
     }
 
+    /// Wire the memory layer's name→id resolver to this store, so the legacy
+    /// name-based folder helpers (`MemoryStore.appRoot(myAppName:)` etc.) key on
+    /// the immutable app id. Installed at init before any per-app store is built.
+    private func installMemoryResolver() {
+        MemoryStore.appIdForName = { [weak self] name in
+            self?.myApps.first { $0.name == name }?.id
+        }
+    }
+
     public func renameMyApp(_ id: UUID, to newName: String) {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let idx = myApps.firstIndex(where: { $0.id == id }) else { return }
         let oldName = myApps[idx].name
         guard oldName != trimmed else { return }
         myApps[idx].name = trimmed
-        // Memories live under the name's slug — move them along or they're
-        // orphaned (empty Memories tab, exports ship no memories).
-        globalMemory?.migrateAppFolder(fromAppNamed: oldName, toAppNamed: trimmed)
+        // Memories are keyed on the immutable app id (`MemoryStore.myAppFolder(myAppId:)`),
+        // so a rename never moves files — nothing to migrate. `oldName` retained
+        // only for the guard above.
+        _ = oldName
         persist()
     }
 
@@ -3298,7 +3310,7 @@ public final class MyAppStore {
     public func isMemoryLocked(forRootPath path: String) -> Bool {
         let slug = path.split(separator: "/").first.map(String.init) ?? ""
         guard !slug.isEmpty else { return false }
-        return myApps.contains { $0.isMemoryLocked && MemoryStore.myAppFolder(myAppName: $0.name) == slug }
+        return myApps.contains { $0.isMemoryLocked && MemoryStore.myAppFolder(myAppId: $0.id) == slug }
     }
 
     // MARK: - Per-file persistence
@@ -3581,8 +3593,11 @@ public final class MyAppStore {
     ) {
         let root = PupaStorage.activeRoot
         guard let since = lossTime(id, marker: marker, root: root) else { return }
-        let from = "memories/\(MemoryStore.myAppFolder(myAppName: marker?.name ?? liveName))"
-        let to = "memories/\(MemoryStore.myAppFolder(myAppName: liveName))"
+        // Memory is keyed on the immutable app id, so the removed app and the
+        // revived app share one folder — no rename bridge needed.
+        _ = (marker, liveName)
+        let from = "memories/\(MemoryStore.myAppFolder(myAppId: id))"
+        let to = from
         for (rel, src) in StorageMirror.preservedFiles(
             underPrefix: from, since: since, localRoot: root) {
             let dst = root.appendingPathComponent(to + rel.dropFirst(from.count))
@@ -4230,8 +4245,8 @@ public final class MyAppStore {
         guard !isProvisioning else { return }
         let since = Self.memoryLossSeenAt()
         let lost = myApps.compactMap { app -> (MyApp, [String: URL])? in
-            let missing = Self.missingMemoryFiles(app.name, since: since)
-            guard missing.keys.contains(where: { Self.isLostUnitPath($0, appNamed: app.name) })
+            let missing = Self.missingMemoryFiles(app.id, since: since)
+            guard missing.keys.contains(where: { Self.isLostUnitPath($0, appId: app.id) })
             else { return nil }
             return (app, missing)
         }
@@ -4245,10 +4260,10 @@ public final class MyAppStore {
     /// is no longer on disk. A live file always means no loss to report: the
     /// copy is a conflict loser or a folded twin, not something that went.
     private nonisolated static func missingMemoryFiles(
-        _ appName: String, since: Date
+        _ appId: UUID, since: Date
     ) -> [String: URL] {
         let root = PupaStorage.activeRoot
-        let prefix = "memories/\(MemoryStore.myAppFolder(myAppName: appName))"
+        let prefix = "memories/\(MemoryStore.myAppFolder(myAppId: appId))"
         return StorageMirror.preservedFiles(underPrefix: prefix, since: since, localRoot: root)
             .filter { !FileManager.default.fileExists(atPath: root.appendingPathComponent($0.key).path) }
     }
@@ -4256,8 +4271,8 @@ public final class MyAppStore {
     /// Whether `rel` sits in a `pupa/skills/<x>/` or `pupa/agents/<x>/` folder
     /// that has no files left on disk — a unit that stopped loading, rather than
     /// one file of a unit that still works.
-    private nonisolated static func isLostUnitPath(_ rel: String, appNamed appName: String) -> Bool {
-        let prefix = "memories/\(MemoryStore.myAppFolder(myAppName: appName))/"
+    private nonisolated static func isLostUnitPath(_ rel: String, appId: UUID) -> Bool {
+        let prefix = "memories/\(MemoryStore.myAppFolder(myAppId: appId))/"
         guard rel.hasPrefix(prefix) else { return false }
         let parts = rel.dropFirst(prefix.count).split(separator: "/").map(String.init)
         // `pupa/<kind>/<name>/…` — anything shallower isn't a unit.
@@ -4275,8 +4290,8 @@ public final class MyAppStore {
         guard let notice = pendingMemoryLoss else { return }
         let since = Self.memoryLossSeenAt()
         let root = PupaStorage.activeRoot
-        for name in notice.names {
-            for (rel, src) in Self.missingMemoryFiles(name, since: since) {
+        for id in notice.ids {
+            for (rel, src) in Self.missingMemoryFiles(id, since: since) {
                 guard let data = CloudDocument.read(src) else { continue }
                 try? CloudDocument.write(data, to: root.appendingPathComponent(rel))
             }

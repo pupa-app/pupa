@@ -249,7 +249,7 @@ struct MarketplaceBundleTests {
         let result = try MyAppImporter.importBundle(try bundle.encoded(), into: store, memory: mem)
         let imported = try #require(store.myApps.first { $0.id == result.myAppId })
 
-        let scoped = mem.appScopedStore(forAppNamed: imported.name)
+        let scoped = mem.appScopedStore(forAppId: imported.id)
         let paths = scoped.snapshotPaths()
         #expect(paths.contains("slack/coach/AGENTS.md"))
         #expect(!paths.contains { $0.contains("escape") })
@@ -263,7 +263,7 @@ struct MarketplaceBundleTests {
         let app = fixtureApp()
         let store = MyAppStore(initial: ([], UUID()))
         // Seed config (pupa/) + a user note into the app's scoped memory.
-        let appMem = mem.appScopedStore(forAppNamed: app.name)
+        let appMem = mem.appScopedStore(forAppId: app.id)
         try appMem.writeFile(path: "pupa/skills/greet/SKILL.md", content: "---\ndescription: greet\n---\nSay hi.")
         try appMem.writeFile(path: "pupa/agents/coach/AGENTS.md", content: "Coach persona.")
         try appMem.writeFile(path: "notes/scratch.md", content: "user note")
@@ -281,7 +281,7 @@ struct MarketplaceBundleTests {
         // Re-import: skill re-materialises on disk and is discoverable again.
         let result = try MyAppImporter.importBundle(try bundle.encoded(), into: store, memory: mem)
         let imported = try #require(store.myApps.first { $0.id == result.myAppId })
-        let scoped = mem.appScopedStore(forAppNamed: imported.name)
+        let scoped = mem.appScopedStore(forAppId: imported.id)
         #expect(scoped.fileExists(at: "pupa/skills/greet/SKILL.md"))
         #expect(scoped.fileExists(at: "pupa/agents/coach/AGENTS.md"))
         #expect(SkillStore(memory: scoped).skill(named: "greet") != nil)
@@ -306,7 +306,7 @@ struct MarketplaceBundleTests {
         let mem = tempMemory()
         let app = fixtureApp()
         let store = MyAppStore(initial: ([], UUID()))
-        try mem.appScopedStore(forAppNamed: app.name)
+        try mem.appScopedStore(forAppId: app.id)
             .writeFile(path: "notes/scratch.md", content: "user note")
 
         let bundle = MyAppExporter.makeBundle(app: app, options: allSelected(app), memory: mem)
@@ -314,7 +314,7 @@ struct MarketplaceBundleTests {
 
         let result = try MyAppImporter.importBundle(try bundle.encoded(), into: store, memory: mem)
         let imported = try #require(store.myApps.first { $0.id == result.myAppId })
-        let scoped = mem.appScopedStore(forAppNamed: imported.name)
+        let scoped = mem.appScopedStore(forAppId: imported.id)
         #expect(scoped.fileExists(at: "notes/scratch.md"))
         #expect(try scoped.readFile(path: "notes/scratch.md").content == "user note")
     }
@@ -325,7 +325,7 @@ struct MarketplaceBundleTests {
         let app = fixtureApp()
         let store = MyAppStore(initial: ([app], app.id))
         store.globalMemory = mem
-        try mem.appScopedStore(forAppNamed: app.name)
+        try mem.appScopedStore(forAppId: app.id)
             .writeFile(path: "notes/scratch.md", content: "user note")
 
         store.renameMyApp(app.id, to: "Demo Renamed")
@@ -345,7 +345,7 @@ struct MarketplaceBundleTests {
         let app = fixtureApp()
         // "Demo" already exists, so the import lands under a fresh slug.
         let store = MyAppStore(initial: ([app], app.id))
-        try mem.appScopedStore(forAppNamed: app.name)
+        try mem.appScopedStore(forAppId: app.id)
             .writeFile(path: "notes/scratch.md", content: "user note")
 
         let bundle = MyAppExporter.makeBundle(app: app, options: allSelected(app), memory: mem)
@@ -386,9 +386,9 @@ struct MarketplaceBundleTests {
         app2.name = "Demo Two"
         // Seed a skill into each app's scoped memory so we can prove per-app
         // re-materialisation on import.
-        try mem.appScopedStore(forAppNamed: app1.name)
+        try mem.appScopedStore(forAppId: app1.id)
             .writeFile(path: "pupa/skills/one/SKILL.md", content: "---\ndescription: one\n---\nA.")
-        try mem.appScopedStore(forAppNamed: app2.name)
+        try mem.appScopedStore(forAppId: app2.id)
             .writeFile(path: "pupa/skills/two/SKILL.md", content: "---\ndescription: two\n---\nB.")
         let store = MyAppStore(initial: ([], UUID()))
 
@@ -404,8 +404,8 @@ struct MarketplaceBundleTests {
         // Memories re-materialised under each imported app's own scope.
         let one = try #require(store.myApps.first { $0.name == "Demo" })
         let two = try #require(store.myApps.first { $0.name == "Demo Two" })
-        #expect(mem.appScopedStore(forAppNamed: one.name).fileExists(at: "pupa/skills/one/SKILL.md"))
-        #expect(mem.appScopedStore(forAppNamed: two.name).fileExists(at: "pupa/skills/two/SKILL.md"))
+        #expect(mem.appScopedStore(forAppId: one.id).fileExists(at: "pupa/skills/one/SKILL.md"))
+        #expect(mem.appScopedStore(forAppId: two.id).fileExists(at: "pupa/skills/two/SKILL.md"))
     }
 
     @Test("Library apps that collide are renamed uniquely, one per app")

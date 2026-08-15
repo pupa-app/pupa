@@ -1733,7 +1733,10 @@ public final class ChatViewModel {
                 let typePayload: [String: String] = [
                     "typeId": myApp.typeId,
                     "myAppName": myApp.name,
-                    "memoryFolder": MemoryStore.myAppFolder(myAppName: myApp.name),
+                    // The agent's memory store is chroot'd to this app's root, so
+                    // its memory paths are relative to "/". It must not know or
+                    // prefix the on-disk folder (the app's uuid).
+                    "memoryFolder": "/",
                 ]
                 let typeJSON = (try? JSONEncoder().encode(typePayload)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
                 return [

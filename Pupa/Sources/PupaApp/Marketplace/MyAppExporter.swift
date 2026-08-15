@@ -81,7 +81,7 @@ public enum MyAppExporter {
         // 6. Memories — scope to the app's root; filter by the toggles.
         let selectedKinds = Set(app.components.map(\.kindString))
         let droppedKinds = allKinds.subtracting(selectedKinds)
-        let scoped = memory.appScopedStore(forAppNamed: app.name)
+        let scoped = memory.appScopedStore(forAppId: app.id)
         let memories = scoped.exportFiles { path in
             // Drop a deselected component kind's whole subtree (e.g. `slack/`).
             if let top = path.split(separator: "/").first.map(String.init),

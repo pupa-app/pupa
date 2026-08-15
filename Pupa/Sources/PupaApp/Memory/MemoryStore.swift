@@ -255,9 +255,28 @@ public final class MemoryStore {
     /// excluded (marketplace import threat surface; nothing executes them).
     nonisolated static let writableExtensions: Set<String> = ["md", "json"]
 
-    /// Top-level folder for a myApp: `<slug>` (e.g. `"my-fitness-app"`).
+    /// Resolve a display name to its immutable myApp id. Installed once by
+    /// `MyAppStore`. Lets the legacy name-based folder helpers key on the id
+    /// (stable, collision-proof) instead of the mutable name slug — so rename /
+    /// import / slug-collision can never strand or divert a memory subtree.
+    /// `nil` (tests, orchestrator, an unknown name) falls back to the slug.
+    nonisolated(unsafe) public static var appIdForName: ((String) -> UUID?)?
+
+    /// Top-level memory folder for a myApp: its immutable UUID (lowercased).
+    /// Keying on the id — not the display-name slug — means the on-disk
+    /// location never changes when the app is renamed and never collides on
+    /// import. The Memories UI labels the dir with the live app name.
+    public nonisolated static func myAppFolder(myAppId: UUID) -> String {
+        myAppId.uuidString.lowercased()
+    }
+
+    /// Legacy name-keyed resolver. Routes to the id folder when the name maps
+    /// to a live app (`appIdForName`); otherwise falls back to the slug (tests,
+    /// pre-insert, unknown names). Prefer `myAppFolder(myAppId:)` at call sites
+    /// that already hold the id.
     public nonisolated static func myAppFolder(myAppName: String) -> String {
-        slugify(myAppName)
+        if let id = appIdForName?(myAppName) { return myAppFolder(myAppId: id) }
+        return slugify(myAppName)
     }
 
     // MARK: `pupa/` config folder
@@ -292,6 +311,10 @@ public final class MemoryStore {
     public static func pupaFolder(myAppName: String) -> String {
         "\(myAppFolder(myAppName: myAppName))/\(pupaFolderName)"
     }
+    /// Absolute (global-root-relative) `pupa/` folder for a myApp, keyed by id.
+    public static func pupaFolder(myAppId: UUID) -> String {
+        "\(myAppFolder(myAppId: myAppId))/\(pupaFolderName)"
+    }
 
     /// Top-level folder for the orchestrator's memories.
     public nonisolated static func orchestratorFolder() -> String { "orchestrator" }
@@ -300,6 +323,11 @@ public final class MemoryStore {
     /// creating a session-scoped `MemoryStore`.
     public static func appRoot(myAppName: String) -> URL {
         defaultRoot().appendingPathComponent(myAppFolder(myAppName: myAppName), isDirectory: true)
+    }
+    /// Absolute memory root for a myApp, keyed by its immutable id. Preferred
+    /// over the name-based form at call sites that hold the id.
+    public static func appRoot(myAppId: UUID) -> URL {
+        defaultRoot().appendingPathComponent(myAppFolder(myAppId: myAppId), isDirectory: true)
     }
 
     /// This store's root URL (the override, or the default `…/memories`).
@@ -313,6 +341,15 @@ public final class MemoryStore {
     public func appScopedStore(forAppNamed name: String) -> MemoryStore {
         let child = MemoryStore(rootOverride: root.appendingPathComponent(
             Self.myAppFolder(myAppName: name), isDirectory: true))
+        child.onDidMutate = { [weak self] in self?.rescan() }
+        return child
+    }
+
+    /// A store scoped to one myApp's folder, keyed by its immutable id. Preferred
+    /// over `forAppNamed` — no name lookup, no ambiguity.
+    public func appScopedStore(forAppId id: UUID) -> MemoryStore {
+        let child = MemoryStore(rootOverride: root.appendingPathComponent(
+            Self.myAppFolder(myAppId: id), isDirectory: true))
         child.onDidMutate = { [weak self] in self?.rescan() }
         return child
     }

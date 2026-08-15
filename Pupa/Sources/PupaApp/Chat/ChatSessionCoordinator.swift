@@ -272,8 +272,9 @@ public final class ChatSessionCoordinator {
         switch scope {
         case .myApp(let id):
             let myApp = store.myApps.first(where: { $0.id == id })
-            let name = myApp?.name ?? ""
-            sessionMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: name))
+            // Root the agent's memory on the immutable app id — never the display
+            // name. Rename/import can't strand or divert this session's writes.
+            sessionMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: id))
             sessionMemory.onDidMutate = { [weak self] in self?.memory.rescan() }
             sessionMemory.writeGuard = { [weak store] _ in store?.isMemoryLocked(myAppId: id) ?? false }
             if let myApp { ensureMyAppMemory(myApp) }
