@@ -3,6 +3,20 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.251] — 2026-08-16
+
+### Fixed
+
+- **Note links on a card now show the note's name instead of all reading
+  "memory".** An item carrying three linked notes showed three identical
+  `memory` pills, because the pill was labelled from the link's kind rather
+  than what it points at. Each pill now reads the note name (`reading`,
+  `journal`), and a link to a component reads that component's id. Links to
+  the web are unchanged — they still show the site.
+- **Pairing instructions name the command you actually have.** The backend
+  setup sheet told you to run `make pair`, which only works from a checkout of
+  the backend repo; it now says `pupa-backend pair`, the installed command.
+
 ## [0.0.250] — 2026-08-16
 
 ### Fixed
