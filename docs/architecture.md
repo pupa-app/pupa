@@ -241,6 +241,11 @@ read. `pupa://component/<id>` targets the current myApp; the explicit
 `pupa://myapp/<uuid>/memory/<path>` form is for cross-scope links. Distinct from
 Slack's `pupa-mention://` and the `.pupa` file type.
 
+Tracker `.link` fields hold a bare URL with no markdown title, so the card pill
+labels itself via `ChatLink.displayLabel` — note name sans extension, or the
+component id. Web URLs fall back to the host; a `pupa://` host is the link
+*kind*, so labelling by host alone made every note pill read `memory`.
+
 The card header is split across two rows. The **agent selector** (`AgentDropdown`)
 sits in the card's top bar — alongside the resize / expand / close controls — so
 the active agent's name and colour read as the card title; switching agents calls

@@ -68,4 +68,41 @@ struct ChatLinkTests {
         #expect(ChatLink.sidebarSelection(
             from: url("pupa-mention://agent-7"), currentMyAppId: appId) == nil)
     }
+
+    // MARK: - displayLabel
+
+    @Test("Memory link labels with the note name, not the host")
+    func labelMemoryUsesNoteName() {
+        #expect(ChatLink.displayLabel(for: url("pupa://memory/notes/reading.md")) == "reading")
+        #expect(ChatLink.displayLabel(for: url("pupa://memory/journal.md")) == "journal")
+    }
+
+    @Test("Label decodes percent-encoding and keeps inner dots")
+    func labelDecodesAndKeepsInnerDots() {
+        #expect(ChatLink.displayLabel(for: url("pupa://memory/My%20Note.md")) == "My Note")
+        #expect(ChatLink.displayLabel(for: url("pupa://memory/v1.2.notes.md")) == "v1.2.notes")
+    }
+
+    @Test("Extensionless note keeps its whole name")
+    func labelExtensionlessNote() {
+        #expect(ChatLink.displayLabel(for: url("pupa://memory/AGENTS")) == "AGENTS")
+    }
+
+    @Test("Cross-scope myapp link labels with the note name too")
+    func labelCrossScope() {
+        #expect(ChatLink.displayLabel(
+            for: url("pupa://myapp/22222222-2222-2222-2222-222222222222/memory/a/b.md")) == "b")
+    }
+
+    @Test("Component link labels with the component id")
+    func labelComponent() {
+        #expect(ChatLink.displayLabel(for: url("pupa://component/tracker-1")) == "tracker-1")
+    }
+
+    @Test("Unlabelable pupa URLs and web URLs return nil (caller falls back to host)")
+    func labelFallsBack() {
+        #expect(ChatLink.displayLabel(for: url("pupa://memory/")) == nil)
+        #expect(ChatLink.displayLabel(for: url("pupa://myapp/not-a-uuid")) == nil)
+        #expect(ChatLink.displayLabel(for: url("https://example.com/page")) == nil)
+    }
 }
