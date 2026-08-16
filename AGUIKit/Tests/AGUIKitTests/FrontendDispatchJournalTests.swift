@@ -336,17 +336,30 @@ struct DispatchJournal {
 
     // MARK: - Dropped resume
 
-    /// The replay log can only serve what the backend already emitted, and a
-    /// parked backend emits nothing until it gets the results. So a dropped
-    /// resume POST must re-send the RESULTS; a bare re-attach would come back
-    /// empty, read as a clean finish, and strand the park forever — losing the
-    /// turn this whole feature exists to save.
-    @Test("A dropped resume POST re-sends the results, not a bare re-attach")
+    /// A dropped resume POST is ambiguous: the results may have landed (and the
+    /// response been lost) or never arrived at all. The replay log settles it —
+    /// a parked backend emits nothing until it has the results, so an empty tail
+    /// means they never arrived and the RESULTS must be re-sent. Giving up on
+    /// the empty tail would read as a clean finish and strand the park forever,
+    /// losing the turn this whole feature exists to save.
+    @Test("A dropped resume POST probes the replay log, then re-sends the results")
     func droppedResumePost_resendsResults() async throws {
         let recorder = CallRecorder()
         let journal = TestJournal()
         let session = freshSession(registry: recordingRegistry(recorder), journal: journal)
         Self.scriptParkThenAnswer([(id: "call_A", name: "addItem", args: #"{"item":"apple"}"#)])
+        // The park is still waiting, so the log has nothing past the cursor.
+        let serveRound = MockURLProtocol.responder!
+        MockURLProtocol.responder = { request in
+            // #1 is the catch-up reattach itself, which serves the parked tail.
+            let body = MockURLProtocol.requestBodies.last ?? Data()
+            let input = try? JSONDecoder().decode(RunAgentInput.self, from: body)
+            if MockURLProtocol.requestCount > 1,
+               input?.forwardedProps["command"]?["reattach"] != nil {
+                return (204, Data(), [:])
+            }
+            return serveRound(request)
+        }
         // POST #2 is the resume — kill it at connect time.
         MockURLProtocol.failer = { idx in idx == 2 ? URLError(.networkConnectionLost) : nil }
         await session.seedReplayCursor(4)
@@ -356,24 +369,20 @@ struct DispatchJournal {
             if case .frontendDispatchResolved = ev { resolved += 1 }
         }
 
-        // #1 tail, #2 dropped resume, #3 the retry.
-        #expect(MockURLProtocol.requestCount == 3)
-        let retry = try JSONDecoder().decode(
+        // #1 tail, #2 dropped resume, #3 the log probe, #4 the re-sent resume.
+        #expect(MockURLProtocol.requestCount == 4)
+        let probe = try JSONDecoder().decode(
             RunAgentInput.self, from: MockURLProtocol.requestBodies[2])
+        #expect(probe.forwardedProps["command"]?["reattach"] != nil,
+                "the log is probed first — a resume whose response was lost still landed")
+        let retry = try JSONDecoder().decode(
+            RunAgentInput.self, from: MockURLProtocol.requestBodies[3])
         let results = retry.forwardedProps["command"]?["resume"]?["tool_results"]?.arrayValue
         #expect(results?.first?["toolCallId"]?.stringValue == "call_A",
-                "the retry must carry the tool results, not command.reattach")
-        #expect(retry.forwardedProps["command"]?["reattach"] == nil)
+                "an empty tail means the backend never got the results — re-POST them")
         #expect(resolved == 1)
         #expect(await recorder.count == 1, "the tool must not run twice on the retry")
     }
-
-    // The mirror case — a resume that drops AFTER a frame has arrived must
-    // re-attach rather than re-send, since the backend demonstrably got the
-    // results — is enforced by the `sawAnyFrame` guard in `reattachAfterDrop`
-    // but is not covered here: `MockURLProtocol` emits `didLoad` and
-    // `didFailWithError` back to back, so `URLSession.bytes` throws before the
-    // buffered frame reaches the decoder and the case can't be staged.
 
     @Test("A resume that never lands keeps the journal for the next wake")
     func undeliverableResume_keepsJournal() async throws {

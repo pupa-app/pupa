@@ -14,11 +14,15 @@ final class RelaunchMockURLProtocol: URLProtocol, @unchecked Sendable {
     /// different body per round. Past the end falls back to `sseBody`.
     nonisolated(unsafe) static var sseBodies: [Data]?
     nonisolated(unsafe) static var postBodies: [Data] = []
+    /// Connect-time failure injector, keyed by 1-based POST index — mimics a
+    /// dropped socket so the session's retry ladder can be driven.
+    nonisolated(unsafe) static var failPostAt: (@Sendable (Int) -> URLError?)?
 
     static func reset() {
         sseBody = nil
         sseBodies = nil
         postBodies = []
+        failPostAt = nil
     }
 
     /// Body for the POST being served (bodies are appended before this runs).
@@ -48,6 +52,11 @@ final class RelaunchMockURLProtocol: URLProtocol, @unchecked Sendable {
                 data = request.httpBody ?? Data()
             }
             Self.postBodies.append(data)
+
+            if let failer = Self.failPostAt, let err = failer(Self.postBodies.count) {
+                client?.urlProtocol(self, didFailWithError: err)
+                return
+            }
 
             guard let body = Self.bodyForCurrentPost() else {
                 let resp = HTTPURLResponse(url: request.url!, statusCode: 204,

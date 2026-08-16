@@ -299,6 +299,108 @@ struct ParkedDispatchRecoveryTests {
         })
     }
 
+    // MARK: - Foreground recovery
+
+    /// The relaunch path rewinds to the interrupt frame; the foreground path
+    /// must too. Reattaching at the live cursor lands PAST the interrupt, so
+    /// the backend re-delivers nothing, the parked run is never answered, and
+    /// it dies on its wall with the user told nothing.
+    @Test("A foreground reattach rewinds to the parked interrupt, not the live cursor")
+    func foregroundReattach_rewindsToPark() async throws {
+        await MyAppStore.clearStorage()
+        RelaunchMockURLProtocol.reset()
+        let (store, scope, tid) = makeApp()
+
+        let ran = Counter()
+        let registry = ToolRegistry()
+        registry.register(ClientTool(
+            descriptor: ToolDescriptor(name: "addItem", description: "add", parameters: ["type": "object"]),
+            handler: { _ in
+                await ran.bump()
+                return .object(["ok": .bool(true)])
+            }
+        ))
+
+        // POST #1 parks on the interrupt at seq 6; every POST after that dies at
+        // connect time, so the turn ends on a `connectionIssue` with the rewind
+        // point held and the cursor sitting at 7.
+        RelaunchMockURLProtocol.sseBodies = [
+            sseFrames([
+                (5, #"{"type":"RUN_STARTED","threadId":"\#(tid)","runId":"r1"}"#),
+                (6, interruptFrame(id: "call_A", name: "addItem", args: #"{"item":"apple"}"#)),
+                (7, #"{"type":"RUN_FINISHED","threadId":"\#(tid)","runId":"r1"}"#),
+            ]),
+        ]
+        RelaunchMockURLProtocol.failPostAt = { idx in
+            idx >= 2 ? URLError(.networkConnectionLost) : nil
+        }
+
+        let vm = makeVM(store: store, scope: scope, registry: registry)
+        vm.send("add apple")
+
+        // The retry ladder runs its full backoff (~7.5s) before surfacing.
+        #expect(await poll(timeout: .seconds(30)) { vm.connectionIssue != nil && !vm.isStreaming })
+        #expect(vm.pendingDispatchAfterSeq == 5)
+
+        // Back to the foreground, network restored.
+        RelaunchMockURLProtocol.failPostAt = nil
+        RelaunchMockURLProtocol.postBodies = []
+        RelaunchMockURLProtocol.sseBodies = nil
+        RelaunchMockURLProtocol.sseBody = nil     // 204 — assert the wire, not the flow
+        vm.reattachIfNeeded()
+
+        #expect(await poll(timeout: .seconds(10)) { !RelaunchMockURLProtocol.postBodies.isEmpty })
+        let post = try #require(RelaunchMockURLProtocol.postBodies.first)
+        let input = try JSONDecoder().decode(RunAgentInput.self, from: post)
+        #expect(input.forwardedProps["command"]?["reattach"]?["after_seq"]?.intValue == 5,
+                "must rewind to the interrupt frame, not resume from the live cursor (7)")
+    }
+
+    // MARK: - Expired parks
+
+    /// The replay log outlives the park (hours vs minutes), so an expired park
+    /// still replays its interrupt — and the resume that follows is answered
+    /// with a backend error, not silence. That error is the backend telling us
+    /// the park is gone; treating it as a generic failure keeps the rewind point
+    /// set, which keeps `turnInFlight` latched and re-errors on every launch.
+    @Test("A resume the backend rejects is reported as an expired park, not a generic failure")
+    func rejectedResume_surfacesExpiredPark() async throws {
+        await MyAppStore.clearStorage()
+        RelaunchMockURLProtocol.reset()
+        let (store, scope, tid) = makeApp()
+
+        try writeJournal([
+            "call_A": FrontendCallRecord(name: "addItem", result: .object(["ok": .bool(true)])),
+        ], threadId: tid)
+        TranscriptCache.save(
+            TranscriptSnapshot(bubbles: [ChatBubble(role: .user, text: "add apple")],
+                               lastEventSeq: 6, turnInFlight: true, savedAt: Date(),
+                               pendingDispatchAfterSeq: 5),
+            threadId: tid)
+
+        RelaunchMockURLProtocol.sseBodies = [
+            // The log still holds the interrupt the app never answered…
+            sseFrames([
+                (6, interruptFrame(id: "call_A", name: "addItem", args: #"{"item":"apple"}"#)),
+                (7, #"{"type":"RUN_FINISHED","threadId":"\#(tid)","runId":"r1"}"#),
+            ]),
+            // …but the run behind it is long gone.
+            Data(#"data: {"type":"RUN_ERROR","message":"no parked session for this thread"}\#u{0A}\#u{0A}"#.utf8),
+        ]
+
+        let vm = makeVM(store: store, scope: scope)
+        vm.loadHistoryIfNeeded()
+
+        #expect(await poll(timeout: .seconds(10)) {
+            vm.bubbles.contains { $0.role == .system && $0.text.contains("timed out") }
+        }, "the backend answered — say the turn is gone instead of a generic error")
+        #expect(await poll { vm.pendingDispatchAfterSeq == nil },
+                "a spent rewind point would latch turnInFlight and re-error every launch")
+        #expect(await poll {
+            !FileManager.default.fileExists(atPath: FrontendDispatchJournalStore.url(tid).path)
+        }, "an undeliverable record is reaped")
+    }
+
     // MARK: - Journal store lifetime
 
     @Test("The journal round-trips through disk and clears")

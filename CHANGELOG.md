@@ -18,6 +18,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   honestly so the assistant can decide what to do. If too much time passed and
   the server stopped waiting, the chat says so instead of quietly restarting.
 
+  This applies to every way a turn gets interrupted, not only a full app kill:
+  coming back after the connection dropped mid-action resumes the same turn, and
+  a turn that pauses for the app more than once is recoverable at every pause.
+  A reply that the server finished but never managed to deliver is now fetched
+  back instead of surfacing as an error, and an interruption that leaves nothing
+  to recover no longer discards the record that would have made a later retry
+  safe.
+
 ## [0.0.249] — 2026-08-16
 
 ### Fixed

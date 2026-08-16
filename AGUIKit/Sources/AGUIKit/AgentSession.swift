@@ -179,6 +179,19 @@ public actor AgentSession {
         AGUIKitLog.session("seeded replay cursor thread=\(threadId) after_seq=\(seq)")
     }
 
+    /// Move the cursor BACK to a `.frontendDispatchParked` rewind point so the
+    /// backend re-delivers the interrupt frame a dispatch never answered
+    /// (pupa#258). Unlike `seedReplayCursor` this is not monotonic — rewinding
+    /// is the whole point — so it is only for that recovery: a live cursor is
+    /// otherwise the newest truth. Events between the rewind point and the old
+    /// cursor are replayed; the host has already applied them, so it must be
+    /// able to tolerate the repeat (the journal makes the tool calls idempotent).
+    public func rewindReplayCursor(to seq: Int) {
+        guard lastEventSeq != seq else { return }
+        lastEventSeq = seq
+        AGUIKitLog.session("rewound replay cursor thread=\(threadId) after_seq=\(seq)")
+    }
+
     /// Transport drops mid-round are retried this many times (exponential
     /// backoff, base 0.5s) before the error is surfaced to the caller.
     private let maxReattachAttempts = 4
@@ -376,20 +389,10 @@ public actor AgentSession {
         // locally can't leave the backend parked on results we never POST.
         var draining = false
         var drainRounds = 0
-        // True while a staged resume has been POSTed but not yet confirmed by
-        // the round returning. The journal is cleared only on confirmation:
-        // a kill mid-POST must leave the record intact so the next wake
-        // replays the same results instead of re-running the tools.
-        var awaitingResumeConfirmation = false
         while true {
             round += 1
             let outcome = try await runOneRound(input: input, yield: yield)
             producedText = producedText || outcome.producedText
-            if awaitingResumeConfirmation {
-                awaitingResumeConfirmation = false
-                await journal?.clear()
-                yield(.frontendDispatchResolved)
-            }
 
             guard let dispatch = outcome.pendingDispatch else {
                 // A first round with no frames at all is the replay layer's
@@ -397,8 +400,12 @@ public actor AgentSession {
                 // buffer) — a clean no-op catch-up, not a dropped stream.
                 if round == 1, !outcome.sawAnyFrame {
                     AGUIKitLog.session("reattach: nothing buffered for thread=\(threadId) → completed")
-                    // Nothing left to deliver results to: the park is gone.
-                    await journal?.clear()
+                    // The journal is NOT cleared here. An empty tail also comes
+                    // back when this reattach simply started past the interrupt
+                    // frame, with the backend still parked — deleting the record
+                    // on that evidence loses the only thing that can answer it
+                    // without re-running the side effects. The host reaps it
+                    // once it decides the park is genuinely gone.
                     yield(.completed(.produced))
                     return
                 }
@@ -448,7 +455,6 @@ public actor AgentSession {
                     ])
                 ])
             )
-            awaitingResumeConfirmation = true
 
             // The resume is staged; the next iteration POSTs it. Only then may
             // the cap stop us — exiting here would strand the parked backend
@@ -572,9 +578,6 @@ public actor AgentSession {
         // flush staged tool results back to the parked backend.
         var draining = false
         var drainRounds = 0
-        // See `runReattachLoop`: the journal is cleared only once the resume
-        // carrying its results has actually reached the backend.
-        var awaitingResumeConfirmation = false
         while true {
             let input = await makeInput(nextForwardedProps)
             AGUIKitLog.session(
@@ -585,11 +588,6 @@ public actor AgentSession {
             let outcome = try await runOneRound(input: input, yield: yield)
             producedText = producedText || outcome.producedText
             round += 1
-            if awaitingResumeConfirmation {
-                awaitingResumeConfirmation = false
-                await journal?.clear()
-                yield(.frontendDispatchResolved)
-            }
 
             // No interrupt → the run has settled. `lastSendSettledCleanly`
             // tracks whether the round produced anything (empty round →
@@ -970,6 +968,10 @@ public actor AgentSession {
         var textBuffers: [String: String] = [:]
         var pendingArgs: [String: String] = [:]
         var pendingNames: [String: String] = [:]
+        /// True while this round carries a staged resume whose delivery hasn't
+        /// been confirmed yet. Cleared by the round's first frame — see
+        /// `consumeRoundStream`.
+        var confirmsResume = false
     }
 
     /// True for errors worth a re-attach: the socket died (app backgrounded,
@@ -1011,6 +1013,10 @@ public actor AgentSession {
         yield: @Sendable (SessionEvent) -> Void
     ) async throws -> RoundOutcome {
         var state = RoundState()
+        // A parked backend emits nothing until it has the tool results, so this
+        // round's first frame is proof the staged resume landed. That is when
+        // the journal is spent and the host's rewind point may be released.
+        state.confirmsResume = input.forwardedProps["command"]?["resume"] != nil
         do {
             try await consumeRoundStream(client.runSequenced(input), state: &state, yield: yield)
         } catch let error where Self.isReattachable(error) {
@@ -1026,14 +1032,20 @@ public actor AgentSession {
     /// cursor left off. Throws the last transport error once attempts are
     /// exhausted (the caller then surfaces it as before this feature existed).
     ///
-    /// A resume round that died **before its first frame** retries the original
-    /// body, not a bare re-attach: nothing was emitted, so the backend never got
-    /// the results, and the replay log has nothing to serve. Re-attaching would
-    /// return an empty tail that reads as a clean finish while the run stays
-    /// parked forever — losing the very turn the journal exists to save
-    /// (pupa#258). Once a frame HAS arrived the backend clearly received the
-    /// resume, so the normal cursor-based re-attach is correct and re-sending
-    /// would be redundant.
+    /// For a resume round the replay log is probed FIRST. A resume whose
+    /// *response* was lost still reached the backend, which then ran the turn to
+    /// completion and retired the session; re-POSTing it would be answered "no
+    /// parked session for this thread" and the finished turn would sit unread in
+    /// the log. A cursor-based re-attach recovers it instead.
+    ///
+    /// An empty tail is the signal to re-POST: a parked backend emits nothing
+    /// until it has the results, so nothing-past-the-cursor means they never
+    /// arrived. Re-attaching forever would read as a clean finish while the run
+    /// stays parked — losing the very turn the journal exists to save
+    /// (pupa#258). With no cursor at all there is nothing to probe, so a resume
+    /// is re-POSTed directly; a bare re-attach carrying `after_seq: -1` and an
+    /// empty message list is never sent, because the replay middleware wouldn't
+    /// short-circuit it and it would land on a real agent loop.
     private func reattachAfterDrop(
         originalError: Error,
         original: RunAgentInput,
@@ -1041,20 +1053,16 @@ public actor AgentSession {
         yield: @Sendable (SessionEvent) -> Void
     ) async throws {
         let carriesResume = original.forwardedProps["command"]?["resume"] != nil
-        /// True while the results still demonstrably haven't reached the
-        /// backend. Recomputed per attempt: a partial consume flips
-        /// `sawAnyFrame`, and from then on re-attach is the right move.
-        var mustResendResume: Bool { carriesResume && !state.outcome.sawAnyFrame }
-        // Never seen a replay seq → the backend predates the replay layer
-        // (or this run died before its first frame). A reattach POST would
-        // then reach a real agent loop with an empty message list — worse
-        // than surfacing the drop. Bail to the legacy error path.
-        guard lastEventSeq != nil || mustResendResume else { throw originalError }
+        // No cursor to replay from and no results to re-POST — nothing to
+        // retry with. Bail to the legacy error path.
+        guard lastEventSeq != nil || carriesResume else { throw originalError }
         var lastError = originalError
+        // Set once the log has told us it holds nothing past the cursor.
+        var tailWasEmpty = false
         for attempt in 1...maxReattachAttempts {
             try? await Task.sleep(nanoseconds: reattachBaseDelayNanos << (attempt - 1))
             if Task.isCancelled { throw AgentClientError.cancelled }
-            let resend = mustResendResume
+            let resend = carriesResume && (lastEventSeq == nil || tailWasEmpty)
             AGUIKitLog.session(
                 "stream dropped (\(lastError)) — \(resend ? "re-POST resume" : "reattach") " +
                 "\(attempt)/\(maxReattachAttempts) " +
@@ -1062,11 +1070,20 @@ public actor AgentSession {
             )
             do {
                 let retry = resend ? original : reattachInput()
+                let sawFramesBefore = state.outcome.sawAnyFrame
                 try await consumeRoundStream(client.runSequenced(retry), state: &state, yield: yield)
+                if !resend, carriesResume, !state.outcome.sawAnyFrame, !sawFramesBefore {
+                    AGUIKitLog.session("reattach tail empty — the resume never landed, re-POSTing it")
+                    tailWasEmpty = true
+                    continue
+                }
                 AGUIKitLog.session("reattach succeeded on attempt \(attempt)")
                 return
             } catch let error where Self.isReattachable(error) {
                 lastError = error
+                // A resend that never connected says nothing about the log;
+                // probe it again before spending another resend.
+                if resend { tailWasEmpty = false }
             }
         }
         AGUIKitLog.session("reattach exhausted after \(maxReattachAttempts) attempts — surfacing error")
@@ -1079,6 +1096,23 @@ public actor AgentSession {
         yield: @Sendable (SessionEvent) -> Void
     ) async throws {
         for try await sequenced in stream {
+            // Announced from INSIDE the round, before any frame is decoded: a
+            // new interrupt later in this same round yields its own
+            // `.frontendDispatchParked`, and the host keeps one rewind slot. A
+            // resolve emitted after the round would land on top of that fresh
+            // park and wipe it, leaving the second dispatch unrecoverable.
+            //
+            // A `RUN_ERROR` is the one frame that proves nothing: the backend
+            // answered the POST but rejected it (an expired park replies exactly
+            // that). Confirming on it would drop the journal and spend the
+            // rewind point before the host can tell the two apart.
+            var confirmsThisFrame = state.confirmsResume
+            if case .runError = sequenced.event { confirmsThisFrame = false }
+            if confirmsThisFrame {
+                state.confirmsResume = false
+                await journal?.clear()
+                yield(.frontendDispatchResolved)
+            }
             state.outcome.sawAnyFrame = true
             // Set by the `on_interrupt` branch so the rewind point can be
             // yielded once the frame's own seq is known (pupa#258).

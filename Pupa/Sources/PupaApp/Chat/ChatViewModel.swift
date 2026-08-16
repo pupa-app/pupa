@@ -1129,7 +1129,19 @@ public final class ChatViewModel {
         AGUIKitLog.session("foreground reattach: thread=\(threadId)")
         connectionIssue = nil
         setStreaming(true)
-        consume(stream: session.reattach(toolFilter: currentToolFilter()))
+        // A turn parked on a frontend tool needs the same rewind as the relaunch
+        // path (pupa#258): the live cursor sits PAST the `on_interrupt` frame, so
+        // reattaching at it replays nothing and the parked run is never answered.
+        let parked = pendingDispatchAfterSeq
+        if parked != nil { isRecoveringParkedDispatch = true }
+        let session = self.session
+        Task { [weak self] in
+            if let parked { await session.rewindReplayCursor(to: parked) }
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.consume(stream: session.reattach(toolFilter: self.currentToolFilter()))
+            }
+        }
     }
 
     /// The kind-gated tool surface, as a per-round closure. Shared by `send`
@@ -1203,6 +1215,14 @@ public final class ChatViewModel {
         }
         isRecoveringParkedDispatch = false
         guard pendingDispatchAfterSeq != nil else { return }   // resolved normally
+        abandonParkedDispatch()
+    }
+
+    /// Give up on a parked dispatch: the results can never be delivered, so drop
+    /// the rewind point and the recorded results and tell the user, rather than
+    /// letting the next message look like an unexplained fresh start.
+    private func abandonParkedDispatch() {
+        isRecoveringParkedDispatch = false
         pendingDispatchAfterSeq = nil
         FrontendDispatchJournalStore.delete(threadId)
         appendBubble(ChatBubble(role: .system, text: Self.abandonedParkedTurnMessage))
@@ -1314,7 +1334,11 @@ public final class ChatViewModel {
                 // the parked run can be answered rather than restarted
                 // (pupa#258). Otherwise resume from where the cache ends.
                 let parked = snapshot.pendingDispatchAfterSeq
-                await session.seedReplayCursor(parked ?? snapshot.lastEventSeq ?? -1)
+                if let parked {
+                    await session.rewindReplayCursor(to: parked)
+                } else {
+                    await session.seedReplayCursor(snapshot.lastEventSeq ?? -1)
+                }
                 await MainActor.run { [weak self] in
                     guard let self else { return }
                     if let parked {
@@ -1479,7 +1503,18 @@ public final class ChatViewModel {
         case .error(let message, let code):
             openToolRoundId = nil
             AGUIKitLog.session("backend run error [\(code ?? "-")]: \(message)")
-            connectionIssue = .failed(Self.backendErrorMessage)
+            // An error while answering a parked dispatch is the backend telling
+            // us the park is gone — it answered, it just has no run to resume.
+            // The replay log outlives the park (hours vs minutes), so this is
+            // the *normal* expired-park ending, not a transport problem. Reap
+            // the recovery state and name it; a generic banner would leave the
+            // rewind point set, latching `turnInFlight` and re-erroring on every
+            // launch (pupa#258).
+            if isRecoveringParkedDispatch, pendingDispatchAfterSeq != nil {
+                abandonParkedDispatch()
+            } else {
+                connectionIssue = .failed(Self.backendErrorMessage)
+            }
         case .cursorAdvanced(let seq):
             appliedEventSeq = seq
         case .frontendDispatchParked(let afterSeq):
