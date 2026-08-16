@@ -712,8 +712,9 @@ Row selection for both tracker views lives in one pure, SwiftUI-free
 the persisted select `filter`, the search query, and the kanban lane
 bucketing. Kanban used to bucket `data.items` directly and ignore `filter`
 entirely; both views now go through this, so an agent-set `setTrackerFilter`
-applies in either mode (and kanban renders the filter chips so it can be
-cleared there).
+applies in either mode. The chips themselves live behind the title bar's
+funnel button, collapsed by default and badged with the active-filter count —
+a filter is never applied invisibly, and it can be cleared from either view.
 
 - **Search text is never persisted.** `persist()` is a synchronous whole-app
   encode plus disk write, so a stored query would cost one per keystroke. It

@@ -18,6 +18,9 @@ public struct TrackerView: View {
     /// structural position — a bare `String` here would leak one tracker's
     /// query onto the next. Same fix `SlackView.channelScrollAnchor` uses.
     @State private var queryByComponent: [String: String] = [:]
+    /// Filter-panel disclosure, collapsed by default. Component-keyed for the
+    /// same reason as the query.
+    @State private var filtersShownByComponent: [String: Bool] = [:]
 
     public init(store: MyAppStore, data: TrackerData, myAppId: UUID, componentId: String? = nil) {
         self.store = store
@@ -28,14 +31,20 @@ public struct TrackerView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            CanvasTitleBar(store: store, data: data, componentId: componentId)
+            CanvasTitleBar(
+                store: store,
+                data: data,
+                componentId: componentId,
+                filtersExpanded: hasAnyFilters ? filtersShownBinding : nil,
+                activeFilterCount: activeFilterCount
+            )
 
             if !data.items.isEmpty {
                 TrackerSearchField(initialText: query, onQueryChange: setQuery)
                     .id(componentId)
             }
 
-            if hasAnyFilters {
+            if hasAnyFilters, filtersShown {
                 FiltersBar(store: store, fields: data.visibleFields, filter: data.filter, componentId: componentId)
             }
 
@@ -80,6 +89,19 @@ public struct TrackerView: View {
 
     private var hasAnyFilters: Bool {
         data.visibleFields.contains { $0.type == .select && !($0.options ?? []).isEmpty }
+    }
+
+    private var filtersShown: Bool { filtersShownByComponent[componentId ?? ""] ?? false }
+
+    private var filtersShownBinding: Binding<Bool> {
+        Binding(
+            get: { filtersShown },
+            set: { filtersShownByComponent[componentId ?? ""] = $0 }
+        )
+    }
+
+    private var activeFilterCount: Int {
+        data.filter.reduce(into: 0) { n, entry in if !entry.value.isEmpty { n += 1 } }
     }
 
     private var query: String { queryByComponent[componentId ?? ""] ?? "" }

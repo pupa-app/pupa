@@ -48,6 +48,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   or by the agent had no effect once you switched to kanban. Both views now
   select rows the same way, and the filter chips are reachable from kanban.
 
+### Changed
+
+- **Filter chips are tucked behind a button.** They used to take a permanent
+  row above every tracker. The funnel button in the header opens them, with a
+  count badge when a filter is live and a Clear action to drop them all.
+
 ## [0.0.249] — 2026-08-16
 
 ### Fixed

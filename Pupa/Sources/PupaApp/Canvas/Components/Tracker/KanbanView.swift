@@ -13,6 +13,8 @@ public struct KanbanView: View {
     @State private var sheet: SheetTarget?
     /// See `TrackerView.queryByComponent` — same structural-`@State` caveat.
     @State private var queryByComponent: [String: String] = [:]
+    /// Filter-panel disclosure, collapsed by default.
+    @State private var filtersShownByComponent: [String: Bool] = [:]
 
     public init(store: MyAppStore, data: TrackerData, myAppId: UUID, componentId: String? = nil) {
         self.store = store
@@ -23,7 +25,13 @@ public struct KanbanView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            CanvasTitleBar(store: store, data: data, componentId: componentId)
+            CanvasTitleBar(
+                store: store,
+                data: data,
+                componentId: componentId,
+                filtersExpanded: hasAnyFilters ? filtersShownBinding : nil,
+                activeFilterCount: activeFilterCount
+            )
 
             if let column = resolvedColumnField {
                 if !data.items.isEmpty {
@@ -33,7 +41,7 @@ public struct KanbanView: View {
                 // Kanban honours `data.filter` too, so the chips must be
                 // reachable from here — otherwise an agent- or grid-set filter
                 // hides cards with no visible cause and no way to clear it.
-                if hasAnyFilters {
+                if hasAnyFilters, filtersShown {
                     FiltersBar(store: store, fields: data.visibleFields, filter: data.filter, componentId: componentId)
                 }
                 GroupByBar(store: store, fields: data.visibleFields, currentColumn: column, componentId: componentId)
@@ -91,6 +99,19 @@ public struct KanbanView: View {
 
     private var hasAnyFilters: Bool {
         data.visibleFields.contains { $0.type == .select && !($0.options ?? []).isEmpty }
+    }
+
+    private var filtersShown: Bool { filtersShownByComponent[componentId ?? ""] ?? false }
+
+    private var filtersShownBinding: Binding<Bool> {
+        Binding(
+            get: { filtersShown },
+            set: { filtersShownByComponent[componentId ?? ""] = $0 }
+        )
+    }
+
+    private var activeFilterCount: Int {
+        data.filter.reduce(into: 0) { n, entry in if !entry.value.isEmpty { n += 1 } }
     }
 
     /// Selected once here and passed down, so bucketing never re-runs the

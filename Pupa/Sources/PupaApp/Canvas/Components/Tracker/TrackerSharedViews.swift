@@ -18,14 +18,46 @@ struct CanvasTitleBar: View {
     /// mutation lands on THIS tracker, not the first tracker in the myApp
     /// (the kind-routed fallback ignores which component is on screen).
     var componentId: String? = nil
+    /// Disclosure state for the filter chips. Nil when the tracker has no
+    /// filterable select field — the button then doesn't render at all.
+    var filtersExpanded: Binding<Bool>? = nil
+    /// Non-empty entries in `data.filter`. Surfaced as a badge so a filter
+    /// set by the agent, or left behind from a previous session, is visible
+    /// while the panel is collapsed.
+    var activeFilterCount: Int = 0
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             Text(data.title).font(.title).bold()
             Spacer()
+            if let filtersExpanded {
+                filterButton(filtersExpanded)
+            }
             shrinkButton
             toggleButton
         }
+    }
+
+    private func filterButton(_ expanded: Binding<Bool>) -> some View {
+        Button {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                expanded.wrappedValue.toggle()
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: activeFilterCount > 0
+                      ? "line.3.horizontal.decrease.circle.fill"
+                      : "line.3.horizontal.decrease.circle")
+                if activeFilterCount > 0 {
+                    Text("\(activeFilterCount)")
+                }
+            }
+            .font(.caption.weight(.semibold))
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .tint(activeFilterCount > 0 ? Color.accentColor : nil)
+        .help(expanded.wrappedValue ? "Hide filters" : "Show filters")
     }
 
     private var shrinkButton: some View {
@@ -188,6 +220,10 @@ struct TrackerSearchField: View {
 /// Select-field filter chips. Shared by both views: kanban honours
 /// `TrackerData.filter` too, so it needs the same way to see and clear one
 /// that the agent (`setTrackerFilter`) or grid mode may have set.
+///
+/// Collapsed by default behind the title bar's filter button — chips are
+/// occasional, and on a narrow board they cost a whole row of the canvas.
+/// The button carries a count badge so a live filter is never invisible.
 struct FiltersBar: View {
     @Bindable var store: MyAppStore
     let fields: [FieldDef]
@@ -197,8 +233,6 @@ struct FiltersBar: View {
     var body: some View {
         SectionCard {
             HStack(alignment: .top) {
-                Image(systemName: "line.3.horizontal.decrease.circle")
-                    .foregroundStyle(.secondary)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
                         ForEach(filterableFields) { field in
@@ -212,7 +246,23 @@ struct FiltersBar: View {
                         }
                     }
                 }
+                if activeCount > 0 {
+                    Button("Clear") {
+                        for field in filterableFields where !(filter[field.name] ?? "").isEmpty {
+                            store.setFilter(field: field.name, value: "", componentId: componentId)
+                        }
+                    }
+                    .font(.caption.weight(.semibold))
+                    .buttonStyle(.borderless)
+                }
             }
+        }
+        .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+
+    private var activeCount: Int {
+        filterableFields.reduce(into: 0) { n, f in
+            if !(filter[f.name] ?? "").isEmpty { n += 1 }
         }
     }
 
