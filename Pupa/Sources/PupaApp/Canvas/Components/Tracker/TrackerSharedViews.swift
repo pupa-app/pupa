@@ -1159,7 +1159,11 @@ private struct LinkPill: View {
     let url: URL?
 
     private var displayText: String {
-        if let url = url, let host = url.host {
+        guard let url = url else { return value }
+        // In-app `pupa://` links label by note / component name — their host
+        // is the link *kind* ("memory"), so hosts alone read identically.
+        if let label = ChatLink.displayLabel(for: url) { return label }
+        if let host = url.host {
             return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
         }
         return value

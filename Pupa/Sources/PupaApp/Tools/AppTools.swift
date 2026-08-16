@@ -1474,8 +1474,9 @@ public enum AppTools {
                 root (use "" for the root). With `recursive=true`, returns the full \
                 subtree (paths flattened). Result echoes \
                 {entries: [{path, name, kind: "file"|"folder", sizeBytes?, modifiedAt?}]}. \
-                To surface a note in chat as a tappable link, write the markdown \
-                `[title](pupa://memory/<path>)` using a returned `path`.
+                To surface a note as a tappable link — in chat or from another \
+                note's body — write the markdown `[title](pupa://memory/<path>)` \
+                using a returned `path`.
                 """,
                 parameters: [
                     "type": "object",
@@ -1548,7 +1549,10 @@ public enum AppTools {
                 description: """
                 Create or overwrite a markdown file. `path` must end in .md and be \
                 relative to the memories root (e.g. "notes/diet.md"). Parent folders \
-                are created as needed. Result echoes {path, sizeBytes}.
+                are created as needed. Result echoes {path, sizeBytes}. \
+                Link from the body with markdown: `[title](pupa://memory/<path>)` \
+                for another note, `[title](pupa://component/<id>)` for a canvas \
+                item. Both are tappable in chat and in the note.
                 """,
                 parameters: [
                     "type": "object",

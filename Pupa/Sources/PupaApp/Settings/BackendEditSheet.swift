@@ -413,11 +413,11 @@ struct BackendEditSheet: View {
     @ViewBuilder
     private var pairFooter: some View {
         if pairedLive {
-            Text("This device is paired — requests carry a device-scoped token from the Keychain. Tap Unpair to revoke this device from both the backend and the Keychain.")
+            Text("This device is paired. Requests carry a device-scoped token from the Keychain. Tap Unpair to revoke this device from both the backend and the Keychain.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         } else {
-            Text("Run `make pair` on the laptop running this backend to mint an 8-character code, then enter or scan it here. Pairs once; no need to enter the API key after.")
+            Text("Run `pupa-backend pair` on the laptop running this backend to mint an 8-character code, then enter or scan it here. Pairs once; no need to enter the API key after.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

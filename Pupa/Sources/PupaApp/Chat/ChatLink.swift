@@ -58,4 +58,42 @@ public enum ChatLink {
             return nil
         }
     }
+
+    /// Human label for a `pupa://` URL shown where no markdown link title
+    /// exists — tracker `.link` field pills, which carry a bare URL string.
+    /// `nil` for anything unlabelable (web URLs, malformed forms) so callers
+    /// keep their own fallback (host for web links).
+    ///
+    /// Notes label with the file name sans extension; without this every
+    /// note pill reads "memory", the URL's host.
+    public static func displayLabel(for url: URL) -> String? {
+        guard url.scheme == scheme,
+              let host = url.host(percentEncoded: false) else { return nil }
+        let segments = url.path(percentEncoded: false)
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map(String.init)
+
+        switch host {
+        case "memory":
+            return segments.last.map(noteName)
+
+        case "myapp":
+            guard segments.count >= 3, segments[1] == "memory",
+                  UUID(uuidString: segments[0]) != nil else { return nil }
+            return segments.last.map(noteName)
+
+        case "component":
+            return segments.first.flatMap { $0.isEmpty ? nil : $0 }
+
+        default:
+            return nil
+        }
+    }
+
+    /// File name minus its extension, keeping inner dots (`v1.2.notes.md` →
+    /// `v1.2.notes`). Extensionless names pass through whole.
+    private static func noteName(_ fileName: String) -> String {
+        let stem = (fileName as NSString).deletingPathExtension
+        return stem.isEmpty ? fileName : stem
+    }
 }
