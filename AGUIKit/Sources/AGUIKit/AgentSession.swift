@@ -38,6 +38,15 @@ public enum SessionEvent: Sendable {
     /// `AgentSession.lastEventSeq` so a persisted value never runs ahead of
     /// the UI state saved alongside it.
     case cursorAdvanced(Int)
+    /// The turn just parked on a frontend-tool interrupt. `afterSeq` is the
+    /// replay cursor value that re-delivers that interrupt frame — persist it
+    /// (pupa#258) and seed it via `seedReplayCursor` on relaunch so a turn
+    /// killed mid-dispatch can be resumed instead of silently restarted.
+    /// Not emitted when the backend didn't stamp the frame with a seq.
+    case frontendDispatchParked(afterSeq: Int)
+    /// The resume carrying that batch's results reached the backend. The
+    /// persisted `afterSeq` is spent and the journal has been cleared.
+    case frontendDispatchResolved
 }
 
 /// How a `send` / `reattach` settled, so the host can decide whether to show
@@ -189,13 +198,19 @@ public actor AgentSession {
     /// immediate state ping in `setHostBackgrounded`.
     private var activeDispatches = 0
 
+    /// Host-supplied record of frontend-tool progress, so a turn killed
+    /// mid-dispatch can be answered on relaunch without re-running side
+    /// effects (pupa#258). `nil` disables the feature.
+    private let journal: FrontendDispatchJournal?
+
     public init(
         client: AgentClient,
         registry: ToolRegistry,
         threadId: String,
         initialMessages: [AgentMessage] = [],
         maxRounds: Int? = nil,
-        keepaliveInterval: TimeInterval = 10
+        keepaliveInterval: TimeInterval = 10,
+        journal: FrontendDispatchJournal? = nil
     ) {
         self.client = client
         self.registry = registry
@@ -203,6 +218,7 @@ public actor AgentSession {
         self.messages = initialMessages
         self.maxRounds = maxRounds
         self.keepaliveIntervalNanos = UInt64(max(0.01, keepaliveInterval) * 1_000_000_000)
+        self.journal = journal
         let toolNames = registry.descriptors.map(\.name).sorted().joined(separator: ",")
         AGUIKitLog.session(
             "AgentSession init thread=\(threadId) maxRounds=\(Self.capDescription(maxRounds)) " +
@@ -225,6 +241,12 @@ public actor AgentSession {
         if let threadId {
             self.threadId = threadId
             self.lastEventSeq = nil
+            // Moving to a different thread abandons whatever the journal
+            // described. NOT cleared on a plain history re-seed: hosts call
+            // that on every open, including the relaunch that is about to
+            // replay the journal to answer a parked turn (pupa#258).
+            // Fire-and-forget — `reset` is sync for its callers.
+            if let journal { Task { await journal.clear() } }
             AGUIKitLog.session("AgentSession reset threadId=\(threadId)")
         }
     }
@@ -340,10 +362,20 @@ public actor AgentSession {
         // locally can't leave the backend parked on results we never POST.
         var draining = false
         var drainRounds = 0
+        // True while a staged resume has been POSTed but not yet confirmed by
+        // the round returning. The journal is cleared only on confirmation:
+        // a kill mid-POST must leave the record intact so the next wake
+        // replays the same results instead of re-running the tools.
+        var awaitingResumeConfirmation = false
         while true {
             round += 1
             let outcome = try await runOneRound(input: input, yield: yield)
             producedText = producedText || outcome.producedText
+            if awaitingResumeConfirmation {
+                awaitingResumeConfirmation = false
+                await journal?.clear()
+                yield(.frontendDispatchResolved)
+            }
 
             guard let dispatch = outcome.pendingDispatch else {
                 // A first round with no frames at all is the replay layer's
@@ -351,10 +383,13 @@ public actor AgentSession {
                 // buffer) — a clean no-op catch-up, not a dropped stream.
                 if round == 1, !outcome.sawAnyFrame {
                     AGUIKitLog.session("reattach: nothing buffered for thread=\(threadId) → completed")
+                    // Nothing left to deliver results to: the park is gone.
+                    await journal?.clear()
                     yield(.completed(.produced))
                     return
                 }
                 if outcome.hadOutput { lastSendSettledCleanly = true }
+                await journal?.clear()
                 let result = draining
                     ? cutShort(producedText, .maxRounds)
                     : settleOutcome(producedText: producedText, outcome: outcome)
@@ -391,6 +426,7 @@ public actor AgentSession {
                     ])
                 ])
             )
+            awaitingResumeConfirmation = true
 
             // The resume is staged; the next iteration POSTs it. Only then may
             // the cap stop us — exiting here would strand the parked backend
@@ -514,6 +550,9 @@ public actor AgentSession {
         // flush staged tool results back to the parked backend.
         var draining = false
         var drainRounds = 0
+        // See `runReattachLoop`: the journal is cleared only once the resume
+        // carrying its results has actually reached the backend.
+        var awaitingResumeConfirmation = false
         while true {
             let input = await makeInput(nextForwardedProps)
             AGUIKitLog.session(
@@ -524,6 +563,11 @@ public actor AgentSession {
             let outcome = try await runOneRound(input: input, yield: yield)
             producedText = producedText || outcome.producedText
             round += 1
+            if awaitingResumeConfirmation {
+                awaitingResumeConfirmation = false
+                await journal?.clear()
+                yield(.frontendDispatchResolved)
+            }
 
             // No interrupt → the run has settled. `lastSendSettledCleanly`
             // tracks whether the round produced anything (empty round →
@@ -568,6 +612,7 @@ public actor AgentSession {
                     result = settleOutcome(producedText: producedText, outcome: outcome)
                 }
                 AGUIKitLog.session("round \(round) settled → completed (\(result))")
+                await journal?.clear()
                 yield(.completed(result))
                 return
             }
@@ -717,15 +762,40 @@ public actor AgentSession {
     /// run inline in submission order. Results are returned in submission
     /// order so the resume payload mirrors the call order the model emitted,
     /// and the caller's `.toolCallFinished` events fire deterministically.
+    ///
+    /// Journal-aware (pupa#258). An entry keyed by `toolCallId` means a
+    /// previous process already got this far, so the call is answered from the
+    /// record instead of re-run: a stored result is replayed verbatim, and a
+    /// started-but-unfinished call is reported incomplete rather than
+    /// re-applying a side effect that may already have landed. Only calls with
+    /// no entry run. `restore()` is read ONCE for the whole batch, before the
+    /// parallel pre-launch — a second read could race this batch's own
+    /// `noteFinished` and re-run a call.
     private func runFrontendDispatch(
         calls: [FrontendToolCall],
         yield: @Sendable (SessionEvent) -> Void
     ) async -> [AnyJSON] {
+        let recorded = await journal?.restore() ?? [:]
+        if !recorded.isEmpty {
+            let replayed = recorded.values.filter(\.isFinished).count
+            AGUIKitLog.session(
+                "restored dispatch journal: \(recorded.count) entr(ies), " +
+                "\(replayed) with results — answering without re-running"
+            )
+        }
+
         var parallelTasks: [String: Task<AnyJSON, Never>] = [:]
         for call in calls {
+            // A recorded call must not have a task spawned at all: the side
+            // effect would fire before the sequential loop ever consults the
+            // journal.
+            guard recorded[call.id] == nil else { continue }
             guard let tool = registry.resolve(call.name), tool.parallelSafe else { continue }
             let handler = tool.handler
             let args = call.args
+            let callId = call.id
+            let name = call.name
+            await journal?.noteStarted(callId: callId, name: name)
             parallelTasks[call.id] = Task<AnyJSON, Never> {
                 do {
                     return try await handler(args)
@@ -741,12 +811,31 @@ public actor AgentSession {
         var results: [AnyJSON] = []
         results.reserveCapacity(calls.count)
         for call in calls {
-            AGUIKitLog.session("dispatch tool=\(call.name) call=\(call.id)")
             let result: AnyJSON
-            if let tool = registry.resolve(call.name) {
+            if let record = recorded[call.id] {
+                if let stored = record.result {
+                    AGUIKitLog.session("replay  tool=\(call.name) call=\(call.id) from journal")
+                    result = stored
+                } else {
+                    // Entered the handler, never recorded a result: the app
+                    // died mid-call. Whether the side effect landed is
+                    // unknowable, so say so rather than risk applying it twice.
+                    AGUIKitLog.session("incomplete tool=\(call.name) call=\(call.id) — app restarted mid-call")
+                    result = .object([
+                        "ok": .bool(false),
+                        "error": .string(
+                            "frontend tool '\(call.name)' did not complete — the app restarted " +
+                            "while it was running, so it may or may not have taken effect. " +
+                            "Check the current state before calling it again."
+                        ),
+                    ])
+                }
+            } else if let tool = registry.resolve(call.name) {
+                AGUIKitLog.session("dispatch tool=\(call.name) call=\(call.id)")
                 if let task = parallelTasks[call.id] {
                     result = await task.value
                 } else {
+                    await journal?.noteStarted(callId: call.id, name: call.name)
                     do {
                         result = try await tool.handler(call.args)
                     } catch {
@@ -756,6 +845,7 @@ public actor AgentSession {
                         ])
                     }
                 }
+                await journal?.noteFinished(callId: call.id, result: result)
             } else {
                 // Backend advertised a tool the client doesn't know about.
                 // Synthesise a structured failure so the model can react
@@ -940,6 +1030,9 @@ public actor AgentSession {
     ) async throws {
         for try await sequenced in stream {
             state.outcome.sawAnyFrame = true
+            // Set by the `on_interrupt` branch so the rewind point can be
+            // yielded once the frame's own seq is known (pupa#258).
+            var parkedThisFrame = false
             switch sequenced.event {
             case .runStarted:
                 break
@@ -990,6 +1083,7 @@ public actor AgentSession {
                 if c.name == "on_interrupt" {
                     if let parsed = decodeFrontendDispatch(c.value) {
                         state.outcome.pendingDispatch = PendingFrontendDispatch(calls: parsed)
+                        parkedThisFrame = true
                     } else {
                         // An interrupt we can't read is worse than an error we
                         // can — without a dispatch the run settles silently.
@@ -1005,6 +1099,14 @@ public actor AgentSession {
             if let seq = sequenced.seq {
                 lastEventSeq = seq
                 yield(.cursorAdvanced(seq))
+                // Hand the host the cursor value that re-delivers THIS frame,
+                // so a kill during the dispatch that follows can be recovered
+                // by rewinding to it (pupa#258). An unstamped frame (backend
+                // predating the replay layer) can't be rewound to — the turn
+                // then degrades to the old restart-on-wake behaviour.
+                if parkedThisFrame {
+                    yield(.frontendDispatchParked(afterSeq: seq - 1))
+                }
             }
         }
     }

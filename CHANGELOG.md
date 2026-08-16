@@ -3,6 +3,21 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.250] — 2026-08-16
+
+### Fixed
+
+- **A turn interrupted while the app was doing something on your device now
+  picks up where it left off.** When the assistant asks the app to do something
+  — add a component, look something up, write to a calendar — and the app was
+  closed or killed before it could report back, the whole turn was silently
+  dropped: the chat looked idle and your next message started over, as if the
+  connection had dropped. Reopening now resumes that turn. Anything the app had
+  already finished is reported with its real result rather than run a second
+  time, so nothing gets applied twice; anything it hadn't finished is reported
+  honestly so the assistant can decide what to do. If too much time passed and
+  the server stopped waiting, the chat says so instead of quietly restarting.
+
 ## [0.0.249] — 2026-08-16
 
 ### Fixed

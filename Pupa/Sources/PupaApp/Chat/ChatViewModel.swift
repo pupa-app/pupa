@@ -230,6 +230,15 @@ public final class ChatViewModel {
     /// transcript so a relaunch reattaches exactly where the cache ends
     /// (pupa#103).
     private(set) var appliedEventSeq: Int?
+    /// Replay cursor that re-delivers the `on_interrupt` frame this turn is
+    /// parked on, while it is parked. Persisted with the transcript so a
+    /// relaunch can rewind to it and answer the parked turn instead of
+    /// silently restarting it (pupa#258). Nil whenever nothing is parked.
+    private(set) var pendingDispatchAfterSeq: Int?
+    /// Set while a relaunch is attempting to answer a parked turn, so the
+    /// settle path can tell "resumed the turn" from "the park was already
+    /// gone" and surface a notice for the latter.
+    private var isRecoveringParkedDispatch = false
     /// True when a turn finished while this thread was not on screen — drives
     /// the "unviewed answer" badge on the pupa circle / thread lists. Set when
     /// a real turn settles (see `setStreaming`); cleared by `markViewed()` when
@@ -855,7 +864,8 @@ public final class ChatViewModel {
             client: client,
             registry: registry,
             threadId: threadId,
-            maxRounds: settings.effectiveMaxToolRounds
+            maxRounds: settings.effectiveMaxToolRounds,
+            journal: FrontendDispatchJournalStore(threadId: threadId)
         )
         self.sessionBackendURL = initialURL
         self.sessionAuthHeaders = initialHeaders
@@ -883,7 +893,8 @@ public final class ChatViewModel {
             client: client,
             registry: registry,
             threadId: threadId,
-            maxRounds: settings.effectiveMaxToolRounds
+            maxRounds: settings.effectiveMaxToolRounds,
+            journal: FrontendDispatchJournalStore(threadId: threadId)
         )
         sessionBackendURL = url
         sessionAuthHeaders = headers
@@ -1153,6 +1164,7 @@ public final class ChatViewModel {
             }
             self?.setStreaming(false)
             self?.streamTask = nil
+            self?.finishParkedDispatchRecovery()
             // Turn settled — persist the full transcript (assistant + tool bubbles).
             self?.persistTranscript()
             // Turn settled. Auto-send the next queued message unless the stream
@@ -1161,6 +1173,27 @@ public final class ChatViewModel {
             if !cancelled { self?.drainQueue() }
         }
     }
+
+    /// Close out a relaunch that tried to answer a turn parked on a frontend
+    /// tool (pupa#258). Reaching here with the pending cursor still set means
+    /// the resume never went out — the backend's park had already expired (its
+    /// wall is 300s, or 30s past the last keepalive when the app died in the
+    /// foreground), so the results can never be delivered. Say so instead of
+    /// letting the next message look like an unexplained fresh start.
+    private func finishParkedDispatchRecovery() {
+        guard isRecoveringParkedDispatch else { return }
+        isRecoveringParkedDispatch = false
+        guard pendingDispatchAfterSeq != nil else { return }   // resolved normally
+        pendingDispatchAfterSeq = nil
+        FrontendDispatchJournalStore.delete(threadId)
+        appendBubble(ChatBubble(role: .system, text: Self.abandonedParkedTurnMessage))
+    }
+
+    /// Shown when a turn parked on an on-device tool couldn't be resumed
+    /// because the backend stopped waiting while the app was away.
+    static let abandonedParkedTurnMessage =
+        "That turn was interrupted while an on-device action was running, and it timed out before "
+        + "the app came back. Nothing was resent — ask again if you still need it."
 
     public func cancel() {
         // Case A — parked on a human-in-the-loop interrupt. The model is NOT
@@ -1251,8 +1284,20 @@ public final class ChatViewModel {
             // the cached bubbles only hold user messages then, so nothing
             // duplicates.
             if let snapshot, snapshot.turnInFlight {
-                await session.seedReplayCursor(snapshot.lastEventSeq ?? -1)
-                await MainActor.run { [weak self] in self?.catchUpAfterRelaunch() }
+                // A turn parked on a frontend tool rewinds to just before its
+                // `on_interrupt` frame so the backend re-delivers the calls and
+                // the parked run can be answered rather than restarted
+                // (pupa#258). Otherwise resume from where the cache ends.
+                let parked = snapshot.pendingDispatchAfterSeq
+                await session.seedReplayCursor(parked ?? snapshot.lastEventSeq ?? -1)
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    if let parked {
+                        self.pendingDispatchAfterSeq = parked
+                        self.isRecoveringParkedDispatch = true
+                    }
+                    self.catchUpAfterRelaunch()
+                }
             }
             let client = BackendThreadsClient(
                 backendURL: backendURL,
@@ -1308,8 +1353,12 @@ public final class ChatViewModel {
         let snapshot = TranscriptSnapshot(
             bubbles: bubbles,
             lastEventSeq: appliedEventSeq,
-            turnInFlight: isStreaming || connectionIssue == .reconnecting,
-            savedAt: Date()
+            // A turn parked on a frontend tool counts as in flight even if the
+            // stream has settled locally: the backend is still waiting on us.
+            turnInFlight: isStreaming || connectionIssue == .reconnecting
+                || pendingDispatchAfterSeq != nil,
+            savedAt: Date(),
+            pendingDispatchAfterSeq: pendingDispatchAfterSeq
         )
         let threadId = self.threadId
         let prev = persistTask
@@ -1408,6 +1457,15 @@ public final class ChatViewModel {
             connectionIssue = .failed(Self.backendErrorMessage)
         case .cursorAdvanced(let seq):
             appliedEventSeq = seq
+        case .frontendDispatchParked(let afterSeq):
+            // The turn is now parked on an on-device tool with no open socket.
+            // Persist the rewind point straight away — a kill can land at any
+            // moment from here until the resume POST goes out (pupa#258).
+            pendingDispatchAfterSeq = afterSeq
+            persistTranscript()
+        case .frontendDispatchResolved:
+            pendingDispatchAfterSeq = nil
+            persistTranscript()
         }
     }
 

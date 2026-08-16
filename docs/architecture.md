@@ -255,10 +255,14 @@ history stays reachable.
 title, `createdAt`, per-thread LLM override). The message transcript is owned by
 the backend but also **cached on-device** by `TranscriptCache`
 (`state/transcripts/<threadId>.json`, one file per thread, riding the same
-`state/` iCloud mirror). The file is a v1 snapshot envelope — bubbles **plus**
-the applied SSE replay cursor (`lastEventSeq`) and a `turnInFlight` flag,
+`state/` iCloud mirror). The file is a v2 snapshot envelope — bubbles **plus**
+the applied SSE replay cursor (`lastEventSeq`), a `turnInFlight` flag, and
+`pendingDispatchAfterSeq` (the parked-dispatch rewind point, pupa#258),
 captured together on the main actor so they are always mutually consistent;
-legacy bare-array files still decode (no cursor). `ChatViewModel.persistTranscript`
+v1 files and legacy bare-array files still decode. **Every envelope field added
+here must be Optional** — the decoder is synthesized and all-or-nothing, so a
+required new key would fail every older file and silently wipe the device's
+cached history. `ChatViewModel.persistTranscript`
 writes the snapshot at turn boundaries (after send, per assistant-message end,
 at turn settle — not per token) and on scene-phase `.background` /
 background-task expiry via `ChatSessionCoordinator.persistAllForBackground`;
@@ -299,6 +303,43 @@ handler can tell a slow tool from a dead app; scene-phase background sends one
 `state: "background"` notice (backend falls back to its absolute wall) and
 foreground re-arms the short liveness grace
 (`ChatSessionCoordinator.setAllHostBackgrounded`).
+
+**Resuming a turn parked on a frontend tool (pupa#258).** While the client runs
+an on-device tool the backend has already closed its SSE and parked, so a kill
+before the resume POST leaves nothing to catch up on — the replay cursor is
+already past the interrupt, the tail comes back empty, and the turn used to be
+reported settled and lost. Two pieces recover it:
+
+- **The rewind point.** `AgentSession` yields `.frontendDispatchParked(afterSeq:)`
+  when it decodes an `on_interrupt` — the cursor value that re-delivers *that*
+  frame. The VM persists it in the snapshot immediately (a kill can follow at
+  any moment) and, on relaunch, seeds **it** instead of `lastEventSeq`, so the
+  backend re-sends the call list and the existing "found interrupt →
+  dispatching" path answers the parked run. `.frontendDispatchResolved` clears
+  it once the resume lands. Nothing new is persisted about the calls themselves:
+  the backend's replay log outlives the park (~6h vs 300s), so it is always the
+  cheaper source of truth. An unstamped interrupt frame yields no rewind point
+  and degrades to the old restart behaviour.
+- **The dispatch journal.** `FrontendDispatchJournalStore`
+  (`dispatch/<threadId>.json` at `activeRoot`, deliberately **outside** the
+  mirrored `state/` — it records what *this device* did) marks each call
+  `started` before its handler runs and `finished` with the result after.
+  `runFrontendDispatch` reads it **once per batch** (before the parallel
+  pre-launch, so a recorded call never gets a `Task` spawned) and answers by
+  `toolCallId`: a stored result replays verbatim, a started-but-unfinished call
+  reports "did not complete", and only an unrecorded call runs. That is what
+  makes the rewind safe — re-running blind would double-apply `addComponent`
+  and calendar writes whose side effect may already have landed.
+
+The batch is answered in **one** resume carrying **every** result in submission
+order: the backend synthesises `missing_tool_result` for any batch call absent
+from the payload, so a partial answer would corrupt the others. The journal is
+cleared only *after* the resume round returns (a kill mid-POST must replay, not
+re-run), and reaped four ways: that confirmation, a thread swap
+(`reset(threadId:)`), thread deletion, and a 24h launch sweep
+(`FrontendDispatchJournalStore.sweep`, well past the 300s park wall). Past that
+wall the park is gone: the reattach finds nothing, and the transcript gets an
+explicit "that turn timed out" notice instead of a silent restart.
 
 **Chat-storage cap.** An opt-in **Settings ▸ Account ▸ Chat storage** cap
 (`SettingsStore.threadCapEnabled` / `threadCapMB` — off by default, fractional MB)
