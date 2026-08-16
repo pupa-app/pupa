@@ -1356,7 +1356,13 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
   **immutable uuid** (`MemoryStore.myAppFolder(myAppId:)`), never its display
   name — so a rename moves nothing and an import can't collide with the app it
   was exported from. The Memories UI labels the folder with the live app
-  name. App-scoped stores from
+  name. Pre-0.0.249 trees were keyed on the name slug instead;
+  `MemoryFolderMigration` adopts those into the uuid folder at launch (both
+  before the first seed and again after the iCloud subtree settles, since a
+  fresh install has nothing on disk yet at init). It is a migration, not a
+  shim — no read path consults the slug, and the pass self-disables once the
+  source folder is gone, so it can be deleted outright once every install has
+  launched. App-scoped stores from
   `appScopedStore` propagate their writes to the parent store's tree, so
   the sidebar / Memories tab refresh without a relaunch.
 - **Chat history** → owned by the *backend* checkpointer, keyed by

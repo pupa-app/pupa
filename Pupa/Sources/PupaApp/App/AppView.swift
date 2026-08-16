@@ -126,6 +126,11 @@ public struct AppView: View {
         // new guide bodies on app update — the one exception to the
         // seed-once rule below. Runs before `MemoryStore()` so the global
         // sidebar store's init rescan already sees the files.
+        // Before seeding: adopt any pre-0.0.249 slug-keyed memory folder into
+        // its app's id folder, so the seed lands in a tree that still holds the
+        // user's notes rather than beside it. Self-disabling — see
+        // `MemoryFolderMigration`.
+        MemoryFolderMigration.run(apps: store.myApps.map { (id: $0.id, name: $0.name) })
         GuideSkills.seedOrchestrator()
         for app in store.myApps { GuideSkills.seed(appId: app.id) }
         let memory = MemoryStore()
@@ -375,6 +380,10 @@ public struct AppView: View {
                     // in already-materialized app folders instead of racing
                     // the first pull (which spawned iCloud conflict twins).
                     await PupaStorage.downloadSubtreeUntilSettled("memories")
+                    // Re-run now the cloud tree is materialized: on a fresh
+                    // install the slug folders don't exist yet at init, so the
+                    // pass up there had nothing to adopt.
+                    MemoryFolderMigration.run(apps: store.myApps.map { (id: $0.id, name: $0.name) })
                     for app in store.myApps { GuideSkills.seed(appId: app.id) }
                     memory.foldConflictTwinDirs(addressableBases: addressableMemoryBases())
                     await memory.reloadFromDisk()
