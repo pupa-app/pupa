@@ -334,6 +334,71 @@ struct DispatchJournal {
         #expect(await recorder.count == 1)   // still dispatched, just not recoverable
     }
 
+    // MARK: - Dropped resume
+
+    /// The replay log can only serve what the backend already emitted, and a
+    /// parked backend emits nothing until it gets the results. So a dropped
+    /// resume POST must re-send the RESULTS; a bare re-attach would come back
+    /// empty, read as a clean finish, and strand the park forever — losing the
+    /// turn this whole feature exists to save.
+    @Test("A dropped resume POST re-sends the results, not a bare re-attach")
+    func droppedResumePost_resendsResults() async throws {
+        let recorder = CallRecorder()
+        let journal = TestJournal()
+        let session = freshSession(registry: recordingRegistry(recorder), journal: journal)
+        Self.scriptParkThenAnswer([(id: "call_A", name: "addItem", args: #"{"item":"apple"}"#)])
+        // POST #2 is the resume — kill it at connect time.
+        MockURLProtocol.failer = { idx in idx == 2 ? URLError(.networkConnectionLost) : nil }
+        await session.seedReplayCursor(4)
+
+        var resolved = 0
+        for try await ev in session.reattach() {
+            if case .frontendDispatchResolved = ev { resolved += 1 }
+        }
+
+        // #1 tail, #2 dropped resume, #3 the retry.
+        #expect(MockURLProtocol.requestCount == 3)
+        let retry = try JSONDecoder().decode(
+            RunAgentInput.self, from: MockURLProtocol.requestBodies[2])
+        let results = retry.forwardedProps["command"]?["resume"]?["tool_results"]?.arrayValue
+        #expect(results?.first?["toolCallId"]?.stringValue == "call_A",
+                "the retry must carry the tool results, not command.reattach")
+        #expect(retry.forwardedProps["command"]?["reattach"] == nil)
+        #expect(resolved == 1)
+        #expect(await recorder.count == 1, "the tool must not run twice on the retry")
+    }
+
+    // The mirror case — a resume that drops AFTER a frame has arrived must
+    // re-attach rather than re-send, since the backend demonstrably got the
+    // results — is enforced by the `sawAnyFrame` guard in `reattachAfterDrop`
+    // but is not covered here: `MockURLProtocol` emits `didLoad` and
+    // `didFailWithError` back to back, so `URLSession.bytes` throws before the
+    // buffered frame reaches the decoder and the case can't be staged.
+
+    @Test("A resume that never lands keeps the journal for the next wake")
+    func undeliverableResume_keepsJournal() async throws {
+        let recorder = CallRecorder()
+        let journal = TestJournal()
+        let session = freshSession(registry: recordingRegistry(recorder), journal: journal)
+        Self.scriptParkThenAnswer([(id: "call_A", name: "addItem", args: #"{"item":"apple"}"#)])
+        // Every resume attempt dies — the backend never gets the results.
+        MockURLProtocol.failer = { idx in idx >= 2 ? URLError(.networkConnectionLost) : nil }
+        await session.seedReplayCursor(4)
+
+        var resolved = 0
+        do {
+            for try await ev in session.reattach() {
+                if case .frontendDispatchResolved = ev { resolved += 1 }
+            }
+        } catch {
+            // Surfaced to the host as a connection failure — expected.
+        }
+
+        #expect(resolved == 0, "nothing was delivered, so nothing is resolved")
+        #expect(await journal.records["call_A"]?.isFinished == true,
+                "the recorded result must survive for the next attempt")
+    }
+
     // MARK: - Regressions
 
     @Test("With no journal the dispatch behaves exactly as before")

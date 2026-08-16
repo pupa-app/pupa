@@ -223,6 +223,82 @@ struct ParkedDispatchRecoveryTests {
                 "pupa#103's clean no-op catch-up must stay silent")
     }
 
+    // MARK: - Recovery state is not destroyed by unrelated failures
+
+    /// A failed connection says nothing about the park — it may still be
+    /// waiting. Declaring the turn dead here would delete the only state that
+    /// could recover it, and tell the user to "ask again" for a turn the
+    /// backend is still holding.
+    @Test("A transport failure during recovery keeps the rewind point and stays quiet")
+    func recoveryTransportFailure_preservesState() async throws {
+        await MyAppStore.clearStorage()
+        RelaunchMockURLProtocol.reset()
+        let (store, scope, tid) = makeApp()
+
+        try writeJournal([
+            "call_A": FrontendCallRecord(name: "addItem", result: .object(["ok": .bool(true)])),
+        ], threadId: tid)
+        TranscriptCache.save(
+            TranscriptSnapshot(bubbles: [ChatBubble(role: .user, text: "add apple")],
+                               lastEventSeq: 6, turnInFlight: true, savedAt: Date(),
+                               pendingDispatchAfterSeq: 5),
+            threadId: tid)
+
+        // Connection refused — nothing is learned about the park.
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.timeoutIntervalForRequest = 2
+        let vm = ChatViewModel(
+            store: store, memory: makeMemory(),
+            settings: SettingsStore(backendURL: URL(string: "http://localhost:65535/")!),
+            registry: ToolRegistry(), scope: scope, threadId: tid,
+            urlSession: URLSession(configuration: cfg), toolGateState: ToolGateState())
+        vm.loadHistoryIfNeeded()
+
+        // A refused connect is reattachable, so the session spends its full
+        // backoff ladder (~7.5s) before surfacing the failure.
+        #expect(await poll(timeout: .seconds(20)) { vm.connectionIssue != nil })
+        #expect(await poll(timeout: .seconds(20)) { !vm.isStreaming })
+        #expect(!vm.bubbles.contains { $0.text.contains("timed out") },
+                "a refused connection must not be reported as an expired park")
+        #expect(vm.pendingDispatchAfterSeq == 5, "the rewind point must survive for the next try")
+        #expect(FileManager.default.fileExists(atPath: FrontendDispatchJournalStore.url(tid).path),
+                "the recorded results must survive for the next try")
+    }
+
+    @Test("Stop abandons a parked dispatch instead of re-dispatching it next launch")
+    func stopClearsParkedDispatch() async throws {
+        await MyAppStore.clearStorage()
+        RelaunchMockURLProtocol.reset()
+        let (store, scope, tid) = makeApp()
+
+        try writeJournal(["call_A": FrontendCallRecord(name: "addItem")], threadId: tid)
+        TranscriptCache.save(
+            TranscriptSnapshot(bubbles: [ChatBubble(role: .user, text: "add apple")],
+                               lastEventSeq: 6, turnInFlight: true, savedAt: Date(),
+                               pendingDispatchAfterSeq: 5),
+            threadId: tid)
+        // Park stays open: the tail replays the interrupt, the resume hangs.
+        RelaunchMockURLProtocol.sseBodies = [
+            sseFrames([
+                (6, interruptFrame(id: "call_A", name: "addItem", args: #"{"item":"apple"}"#)),
+                (7, #"{"type":"RUN_FINISHED","threadId":"\#(tid)","runId":"r1"}"#),
+            ]),
+        ]
+
+        let vm = makeVM(store: store, scope: scope)
+        vm.loadHistoryIfNeeded()
+        _ = await poll { vm.pendingDispatchAfterSeq != nil || !RelaunchMockURLProtocol.postBodies.isEmpty }
+
+        vm.cancel()
+
+        #expect(vm.pendingDispatchAfterSeq == nil, "Stop means stop — no relaunch re-dispatch")
+        #expect(!FileManager.default.fileExists(atPath: FrontendDispatchJournalStore.url(tid).path))
+        // And the persisted snapshot must not claim a turn is still in flight.
+        #expect(await poll {
+            TranscriptCache.loadSnapshot(tid)?.pendingDispatchAfterSeq == nil
+        })
+    }
+
     // MARK: - Journal store lifetime
 
     @Test("The journal round-trips through disk and clears")

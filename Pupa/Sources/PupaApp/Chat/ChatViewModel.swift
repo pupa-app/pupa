@@ -1182,6 +1182,14 @@ public final class ChatViewModel {
     /// letting the next message look like an unexplained fresh start.
     private func finishParkedDispatchRecovery() {
         guard isRecoveringParkedDispatch else { return }
+        // A transport failure or an explicit Stop says nothing about the park —
+        // it may well still be waiting. Keep the rewind point and the journal so
+        // the next foreground/launch can try again, rather than declaring the
+        // turn dead and deleting the only state that could recover it.
+        guard connectionIssue == nil, !didUserStop else {
+            isRecoveringParkedDispatch = false
+            return
+        }
         isRecoveringParkedDispatch = false
         guard pendingDispatchAfterSeq != nil else { return }   // resolved normally
         pendingDispatchAfterSeq = nil
@@ -1231,6 +1239,12 @@ public final class ChatViewModel {
         streamTask?.cancel()
         streamTask = nil
         clearQueue()
+        // Stop means "halt everything" — including a parked dispatch. Left set,
+        // the rewind point would keep `turnInFlight` true and the next launch
+        // would re-dispatch a batch the user explicitly stopped (pupa#258).
+        pendingDispatchAfterSeq = nil
+        isRecoveringParkedDispatch = false
+        FrontendDispatchJournalStore.delete(threadId)
         setStreaming(false)
     }
 

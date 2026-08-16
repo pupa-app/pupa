@@ -238,10 +238,13 @@ struct Reattach {
         #expect(completed)
         // send(1) + resume-that-drops(2) + reattach-retry(3).
         #expect(MockURLProtocol.requestCount == 3)
-        // The recovery POST re-attaches (never re-sends the resume) — it carries
-        // command.reattach, not command.resume.
+        // The resume died before its first frame, so the backend never got the
+        // results and its replay log has nothing to serve. The recovery POST
+        // therefore re-sends the RESULTS (pupa#258) — re-attaching would come
+        // back empty and read as a clean finish while the run stayed parked.
         let retry = try JSONDecoder().decode(RunAgentInput.self, from: MockURLProtocol.requestBodies[2])
-        #expect(retry.forwardedProps["command"]?["reattach"] != nil)
+        #expect(retry.forwardedProps["command"]?["resume"] != nil)
+        #expect(retry.forwardedProps["command"]?["reattach"] == nil)
     }
 }
 }
@@ -403,8 +406,11 @@ struct CursorPersistence {
 
         #expect(completed)
         #expect(MockURLProtocol.requestCount == 3)
+        // A 502 means the edge never delivered the resume, so the retry re-sends
+        // the results rather than re-attaching to an empty log (pupa#258).
         let retry = try JSONDecoder().decode(RunAgentInput.self, from: MockURLProtocol.requestBodies[2])
-        #expect(retry.forwardedProps["command"]?["reattach"] != nil)
+        #expect(retry.forwardedProps["command"]?["resume"] != nil)
+        #expect(retry.forwardedProps["command"]?["reattach"] == nil)
     }
 
     @Test("reattach() whose first connect drops retries with backoff instead of erroring")

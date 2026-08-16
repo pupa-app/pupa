@@ -333,13 +333,30 @@ reported settled and lost. Two pieces recover it:
 
 The batch is answered in **one** resume carrying **every** result in submission
 order: the backend synthesises `missing_tool_result` for any batch call absent
-from the payload, so a partial answer would corrupt the others. The journal is
-cleared only *after* the resume round returns (a kill mid-POST must replay, not
-re-run), and reaped four ways: that confirmation, a thread swap
-(`reset(threadId:)`), thread deletion, and a 24h launch sweep
-(`FrontendDispatchJournalStore.sweep`, well past the 300s park wall). Past that
-wall the park is gone: the reattach finds nothing, and the transcript gets an
-explicit "that turn timed out" notice instead of a silent restart.
+from the payload, so a partial answer would corrupt the others. Both harnesses
+key resume results by `toolCallId` (claude `registry.resolve_results`, langgraph
+`frontend_interrupt`), and that id is the model's own `tool_use` id, stable
+across a replay — which is what makes an id-keyed journal safe on both.
+
+A resume round whose socket dies **before its first frame** re-POSTs the results
+rather than re-attaching: the backend never received them, so the replay log has
+nothing to serve and a bare re-attach would return an empty tail that reads as a
+clean finish while the run stayed parked. Once a frame has arrived the backend
+clearly has the results, so the normal cursor re-attach applies.
+
+The journal is cleared only *after* the resume round returns (a kill mid-POST
+must replay, not re-run), and reaped four ways: that confirmation, thread
+deletion, an explicit Stop, and a 24h launch sweep
+(`FrontendDispatchJournalStore.sweep`, well past the 300s park wall). A
+transport failure or a Stop mid-recovery deliberately does **not** reap it —
+neither says anything about whether the park is still alive. Past the wall the
+park is gone: the reattach finds nothing, and the transcript gets an explicit
+"that turn timed out" notice instead of a silent restart.
+
+Note the effective window is often ~30s rather than 300s: the backend deadline
+is `min(wall, last_keepalive + grace)` unless the client reported itself
+backgrounded, so a foreground crash usually exceeds it while the common
+backgrounded-then-killed case gets the full wall.
 
 **Chat-storage cap.** An opt-in **Settings ▸ Account ▸ Chat storage** cap
 (`SettingsStore.threadCapEnabled` / `threadCapMB` — off by default, fractional MB)

@@ -795,13 +795,22 @@ public actor AgentSession {
             let args = call.args
             let callId = call.id
             let name = call.name
+            let journal = self.journal
             await journal?.noteStarted(callId: callId, name: name)
             parallelTasks[call.id] = Task<AnyJSON, Never> {
+                let result: AnyJSON
                 do {
-                    return try await handler(args)
+                    result = try await handler(args)
                 } catch {
-                    return .object(["ok": .bool(false), "error": .string(String(describing: error))])
+                    result = .object(["ok": .bool(false), "error": .string(String(describing: error))])
                 }
+                // Record here, not where the sequential loop awaits this task:
+                // results are consumed in submission order, so a fast call
+                // behind a slow one would otherwise sit unrecorded — and a kill
+                // in that window would report a call that fully succeeded as
+                // never having completed.
+                await journal?.noteFinished(callId: callId, result: result)
+                return result
             }
         }
         if !parallelTasks.isEmpty {
@@ -983,7 +992,8 @@ public actor AgentSession {
         do {
             try await consumeRoundStream(client.runSequenced(input), state: &state, yield: yield)
         } catch let error where Self.isReattachable(error) {
-            try await reattachAfterDrop(originalError: error, state: &state, yield: yield)
+            try await reattachAfterDrop(
+                originalError: error, original: input, state: &state, yield: yield)
         }
         finishRound(state: state, yield: yield)
         return state.outcome
@@ -993,26 +1003,44 @@ public actor AgentSession {
     /// exponential backoff, resuming event consumption exactly where the seq
     /// cursor left off. Throws the last transport error once attempts are
     /// exhausted (the caller then surfaces it as before this feature existed).
+    ///
+    /// A resume round that died **before its first frame** retries the original
+    /// body, not a bare re-attach: nothing was emitted, so the backend never got
+    /// the results, and the replay log has nothing to serve. Re-attaching would
+    /// return an empty tail that reads as a clean finish while the run stays
+    /// parked forever — losing the very turn the journal exists to save
+    /// (pupa#258). Once a frame HAS arrived the backend clearly received the
+    /// resume, so the normal cursor-based re-attach is correct and re-sending
+    /// would be redundant.
     private func reattachAfterDrop(
         originalError: Error,
+        original: RunAgentInput,
         state: inout RoundState,
         yield: @Sendable (SessionEvent) -> Void
     ) async throws {
+        let carriesResume = original.forwardedProps["command"]?["resume"] != nil
+        /// True while the results still demonstrably haven't reached the
+        /// backend. Recomputed per attempt: a partial consume flips
+        /// `sawAnyFrame`, and from then on re-attach is the right move.
+        var mustResendResume: Bool { carriesResume && !state.outcome.sawAnyFrame }
         // Never seen a replay seq → the backend predates the replay layer
         // (or this run died before its first frame). A reattach POST would
         // then reach a real agent loop with an empty message list — worse
         // than surfacing the drop. Bail to the legacy error path.
-        guard lastEventSeq != nil else { throw originalError }
+        guard lastEventSeq != nil || mustResendResume else { throw originalError }
         var lastError = originalError
         for attempt in 1...maxReattachAttempts {
             try? await Task.sleep(nanoseconds: reattachBaseDelayNanos << (attempt - 1))
             if Task.isCancelled { throw AgentClientError.cancelled }
+            let resend = mustResendResume
             AGUIKitLog.session(
-                "stream dropped (\(lastError)) — reattach \(attempt)/\(maxReattachAttempts) " +
+                "stream dropped (\(lastError)) — \(resend ? "re-POST resume" : "reattach") " +
+                "\(attempt)/\(maxReattachAttempts) " +
                 "after_seq=\(lastEventSeq.map(String.init) ?? "-1")"
             )
             do {
-                try await consumeRoundStream(client.runSequenced(reattachInput()), state: &state, yield: yield)
+                let retry = resend ? original : reattachInput()
+                try await consumeRoundStream(client.runSequenced(retry), state: &state, yield: yield)
                 AGUIKitLog.session("reattach succeeded on attempt \(attempt)")
                 return
             } catch let error where Self.isReattachable(error) {

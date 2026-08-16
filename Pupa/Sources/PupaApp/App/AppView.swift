@@ -146,7 +146,8 @@ public struct AppView: View {
         // Reap dispatch journals no relaunch can act on any more: the backend's
         // park wall is 300s, so anything a day old is provably undeliverable
         // (pupa#258). Belt-and-braces — the normal paths clear their own.
-        FrontendDispatchJournalStore.sweep()
+        // Off-main: it enumerates a directory and stats every file (pupa#120).
+        Task.detached(priority: .utility) { FrontendDispatchJournalStore.sweep() }
         self._store = State(initialValue: store)
         self._memory = State(initialValue: memory)
         self._settings = State(initialValue: settings)
