@@ -81,6 +81,33 @@ Before a human cuts the release:
   - `swift build --package-path Pupa`
 - If you change behaviour, update [docs/architecture.md](docs/architecture.md) — that doc is the entrypoint anyone uses to understand the app.
 
+## Licensing of contributions
+
+The repo carries two licenses, split by role:
+
+| Path | License |
+|---|---|
+| `AGUIKit/` | **MIT** — [AGUIKit/LICENSE](AGUIKit/LICENSE) |
+| Everything else | **MPL-2.0** — [LICENSE](LICENSE) |
+
+By opening a PR you license your contribution under whichever of the two
+covers the files you touched. Inbound terms are identical to outbound —
+there is **no CLA**, and you keep copyright on your own work.
+
+Three things worth knowing:
+
+- **MPL-2.0 is file-level copyleft.** Modify an MPL file and that file's
+  changes stay MPL. It imposes nothing on larger works, so the app still
+  combines with proprietary code and ships on the App Store cleanly.
+- **New files.** Adding a file to an MPL directory means it's MPL. We use
+  the directory-level notice MPL-2.0 permits in Exhibit A, so no per-file
+  header is needed — don't add one.
+- **Moving code across the boundary.** MIT → MPL is fine. **MPL → MIT is
+  not**: lifting code out of `Pupa/` into `AGUIKit/` relicenses it, which
+  nobody but the copyright holder may do. If a refactor wants to promote
+  app code into AGUIKit, flag it in the PR so it can be handled
+  deliberately.
+
 ## What goes where
 
 - **Code:** in the appropriate sub-package (`AGUIKit/`, `Pupa/`). Bump that sub-package's own version when its code changes.

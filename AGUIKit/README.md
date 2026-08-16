@@ -116,3 +116,16 @@ swift test
 - **Optimistic UI / offline edits.** The session round-trips every change to the agent. If you want optimistic local mutations (the pupa canvas pattern), apply state changes synchronously in your tool handlers and let the round trip confirm.
 - **Reasoning events.** `THINKING_*` and `REASONING_*` events arrive as `.unknown(...)` — implement them when needed.
 - **State delta application** (RFC 6902 JSON Patch). `STATE_DELTA` is decoded as `AnyJSON` but not applied; feed it to your state store yourself.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Deliberately more permissive than the rest
+of the repo (MPL-2.0) so AGUIKit can be embedded anywhere, including in
+closed-source apps.
+
+Note for contributors: MIT code may be moved *into* the MPL-licensed
+side of the repo freely, but MPL-licensed code may **not** be moved into
+`AGUIKit/` — that would relicense it. Extract shared helpers from the app
+into AGUIKit only if you wrote them or they were MIT to begin with.
+
+Copyright © 2026 Pupa.
