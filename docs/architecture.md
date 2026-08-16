@@ -701,7 +701,39 @@ and use a plain `VStack`.
 Related: never let a measurement change the size of the thing being measured
 (a `GeometryReader` writing `@State` that adds or removes a subview). That was
 the same issue's other half — see `TextOverflowEstimate` in
-`TrackerSharedViews.swift`.
+`TrackerSharedViews.swift`. A card *may* still change height from a tap (the
+`ExpandableText` "Show more" toggle, the link "+N" chip) — the cycle only
+closes when geometry feeds the state.
+
+### Tracker search, density and links
+
+Row selection for both tracker views lives in one pure, SwiftUI-free
+[`TrackerFiltering`](../Pupa/Sources/PupaApp/Canvas/Components/Tracker/TrackerFiltering.swift):
+the persisted select `filter`, the search query, and the kanban lane
+bucketing. Kanban used to bucket `data.items` directly and ignore `filter`
+entirely; both views now go through this, so an agent-set `setTrackerFilter`
+applies in either mode. The chips themselves live behind the title bar's
+funnel button, collapsed by default and badged with the active-filter count —
+a filter is never applied invisibly, and it can be cleared from either view.
+
+- **Search text is never persisted.** `persist()` is a synchronous whole-app
+  encode plus disk write, so a stored query would cost one per keystroke. It
+  lives in `@State` — and specifically inside the leaf `TrackerSearchField`,
+  which hands the parent a 150ms-debounced query. A parent-owned `@State`
+  would rebuild every card on each character regardless of debounce. The
+  applied query is keyed by component id, because `CanvasView` builds
+  component views without `.id(component.id)` and bare `@State` would leak
+  across two trackers of the same kind.
+- **Lanes never reflow.** `TrackerFiltering.lanes` returns one bucket per
+  column option plus `(Unset)` unconditionally, so filtering or searching
+  narrows cards but leaves the board's columns in place.
+- **`shrinkCards`** is persisted view config alongside `viewMode` /
+  `columnField`. It feeds `CardDensity` (`.comfortable` grid, `.compact`
+  kanban lane, `.minimal` shrunk one-liner); shrink collapses both modes onto
+  `.minimal` rather than doubling the layouts. No frontend tool — UI only.
+- **Links:** `CardLayout` carries every `.link` field; the card caps per
+  density (3 / 2 / 0) and offers a "+N" chip that expands into fixed-width
+  rows. Chunking is a constant, never a measured wrap.
 
 ### Component modules — one folder, one self-registering module (#162)
 

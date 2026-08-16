@@ -13,6 +13,14 @@ public struct TrackerView: View {
     /// init paths; CanvasView always supplies it.
     let componentId: String?
     @State private var sheet: SheetTarget?
+    /// Debounced search text, keyed by component id. `CanvasView` builds
+    /// component views without `.id(component.id)`, so `@State` is keyed by
+    /// structural position — a bare `String` here would leak one tracker's
+    /// query onto the next. Same fix `SlackView.channelScrollAnchor` uses.
+    @State private var queryByComponent: [String: String] = [:]
+    /// Filter-panel disclosure, collapsed by default. Component-keyed for the
+    /// same reason as the query.
+    @State private var filtersShownByComponent: [String: Bool] = [:]
 
     public init(store: MyAppStore, data: TrackerData, myAppId: UUID, componentId: String? = nil) {
         self.store = store
@@ -23,14 +31,26 @@ public struct TrackerView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            CanvasTitleBar(store: store, data: data, componentId: componentId)
+            CanvasTitleBar(
+                store: store,
+                data: data,
+                componentId: componentId,
+                filtersExpanded: hasAnyFilters ? filtersShownBinding : nil,
+                activeFilterCount: activeFilterCount
+            )
 
-            if hasAnyFilters {
+            if !data.items.isEmpty {
+                TrackerSearchField(initialText: query, onQueryChange: setQuery)
+                    .id(componentId)
+            }
+
+            if hasAnyFilters, filtersShown {
                 FiltersBar(store: store, fields: data.visibleFields, filter: data.filter, componentId: componentId)
             }
 
             CardsSection(
                 data: data,
+                query: query,
                 resolveLinkName: { ref in
                     store.displayNameForRefTarget(
                         componentId: ref.componentId,
@@ -71,17 +91,33 @@ public struct TrackerView: View {
         data.visibleFields.contains { $0.type == .select && !($0.options ?? []).isEmpty }
     }
 
-    private var filtered: [(item: TrackerItem, positionIndex: Int)] {
-        data.items.enumerated()
-            .map { (item: $1, positionIndex: $0) }
-            .filter { entry in
-                for (field, val) in data.filter where !val.isEmpty {
-                    if (entry.item.values[field] ?? "").lowercased() != val.lowercased() {
-                        return false
-                    }
-                }
-                return true
-            }
+    private var filtersShown: Bool { filtersShownByComponent[componentId ?? ""] ?? false }
+
+    private var filtersShownBinding: Binding<Bool> {
+        Binding(
+            get: { filtersShown },
+            set: { filtersShownByComponent[componentId ?? ""] = $0 }
+        )
+    }
+
+    private var activeFilterCount: Int {
+        data.filter.reduce(into: 0) { n, entry in if !entry.value.isEmpty { n += 1 } }
+    }
+
+    private var query: String { queryByComponent[componentId ?? ""] ?? "" }
+
+    private func setQuery(_ new: String) {
+        guard new != query else { return }
+        queryByComponent[componentId ?? ""] = new
+    }
+
+    private var filtered: [TrackerFiltering.Entry] {
+        TrackerFiltering.visibleEntries(
+            items: data.items,
+            fields: data.visibleFields,
+            filter: data.filter,
+            query: query
+        )
     }
 
     private func initialItem(for target: SheetTarget) -> [String: String] {
@@ -94,87 +130,33 @@ public struct TrackerView: View {
     }
 }
 
-// MARK: - Filters
-
-private struct FiltersBar: View {
-    @Bindable var store: MyAppStore
-    let fields: [FieldDef]
-    let filter: [String: String]
-    var componentId: String? = nil
-
-    var body: some View {
-        SectionCard {
-            HStack(alignment: .top) {
-                Image(systemName: "line.3.horizontal.decrease.circle")
-                    .foregroundStyle(.secondary)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(filterableFields) { field in
-                            FilterChip(
-                                field: field,
-                                value: filter[field.name] ?? "",
-                                onSelect: { value in
-                                    store.setFilter(field: field.name, value: value, componentId: componentId)
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private var filterableFields: [FieldDef] {
-        fields.filter { $0.type == .select && !($0.options ?? []).isEmpty }
-    }
-}
-
-private struct FilterChip: View {
-    let field: FieldDef
-    let value: String
-    let onSelect: (String) -> Void
-
-    var body: some View {
-        Menu {
-            Button("All") { onSelect("") }
-            ForEach(field.options ?? [], id: \.self) { opt in
-                Button(opt) { onSelect(opt) }
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Text(field.label ?? field.name)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(value.isEmpty ? "All" : value)
-                    .font(.caption.weight(.semibold))
-                Image(systemName: "chevron.down")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(value.isEmpty ? Color.gray.opacity(0.12) : Color.accentColor.opacity(0.18))
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
 // MARK: - Cards section
 
 private struct CardsSection: View {
     let data: TrackerData
+    let query: String
     /// Resolver passed to each `TrackerItemCard` so it can render
     /// chain-link pills for its `linkedItems`. Closes over the store +
     /// myAppId from `TrackerView`.
     let resolveLinkName: (ComponentItemRef) -> String?
-    let filtered: [(item: TrackerItem, positionIndex: Int)]
+    let filtered: [TrackerFiltering.Entry]
     let onAdd: () -> Void
     let onEdit: (UUID) -> Void
 
-    private let columns: [GridItem] = [
-        GridItem(.adaptive(minimum: 220), spacing: 12, alignment: .top)
-    ]
+    /// Shrunk cards are one line tall, so they want narrower columns —
+    /// otherwise a shrunk board wastes most of its width on padding.
+    private func gridColumns(_ density: CardDensity) -> [GridItem] {
+        [GridItem(.adaptive(minimum: density == .minimal ? 180 : 220), spacing: 12, alignment: .top)]
+    }
+
+    private var emptyMessage: String {
+        if data.items.isEmpty {
+            return "No items yet — tap Add to create one, or type in the chat."
+        }
+        return query.isEmpty
+            ? "No items match the current filter."
+            : "No items match “\(query)”."
+    }
 
     var body: some View {
         SectionCard {
@@ -193,22 +175,22 @@ private struct CardsSection: View {
             }
 
             if filtered.isEmpty {
-                Text(data.items.isEmpty
-                     ? "No items yet — tap Add to create one, or type in the chat."
-                     : "No items match the current filter.")
+                Text(emptyMessage)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)
             } else {
                 let layout = CardLayout.from(fields: data.visibleFields)
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
-                    ForEach(filtered, id: \.item.id) { entry in
+                let density = CardDensity.resolve(viewMode: .grid, shrink: data.shrinkCards)
+                LazyVGrid(columns: gridColumns(density), alignment: .leading, spacing: 12) {
+                    ForEach(filtered) { entry in
                         TrackerItemCard(
                             item: entry.item,
                             layout: layout,
                             positionIndex: entry.positionIndex,
+                            density: density,
                             onTap: { onEdit(entry.item.id) },
-                            resolveLinkName: resolveLinkName
+                            resolveLinkName: density == .minimal ? nil : resolveLinkName
                         )
                     }
                 }

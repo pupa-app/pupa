@@ -139,6 +139,10 @@ public struct TrackerData: Codable, Hashable, Sendable {
     /// at switch time. Retained across grid/kanban toggles so the user's
     /// column choice survives.
     public var columnField: String?
+    /// Collapse every card to a one-line title, in either view mode. A view
+    /// preference, not item data: persisted with the component so a board
+    /// stays shrunk across relaunches, but never exposed as a frontend tool.
+    public var shrinkCards: Bool
 
     public init(
         title: String,
@@ -146,7 +150,8 @@ public struct TrackerData: Codable, Hashable, Sendable {
         items: [TrackerItem] = [],
         filter: [String: String] = [:],
         viewMode: TrackerViewMode = .grid,
-        columnField: String? = nil
+        columnField: String? = nil,
+        shrinkCards: Bool = false
     ) {
         self.title = title
         self.fields = fields
@@ -154,6 +159,7 @@ public struct TrackerData: Codable, Hashable, Sendable {
         self.filter = filter
         self.viewMode = viewMode
         self.columnField = columnField
+        self.shrinkCards = shrinkCards
     }
 
     /// Non-hidden fields only. Every UI read site (form, card, filter,
@@ -164,7 +170,7 @@ public struct TrackerData: Codable, Hashable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case title, fields, items, filter, viewMode, columnField
+        case title, fields, items, filter, viewMode, columnField, shrinkCards
     }
 
     /// Custom decoder. Handles two backward-compat concerns:
@@ -183,5 +189,6 @@ public struct TrackerData: Codable, Hashable, Sendable {
         self.filter = try c.decodeIfPresent([String: String].self, forKey: .filter) ?? [:]
         self.viewMode = try c.decodeIfPresent(TrackerViewMode.self, forKey: .viewMode) ?? .grid
         self.columnField = try c.decodeIfPresent(String.self, forKey: .columnField)
+        self.shrinkCards = try c.decodeIfPresent(Bool.self, forKey: .shrinkCards) ?? false
     }
 }

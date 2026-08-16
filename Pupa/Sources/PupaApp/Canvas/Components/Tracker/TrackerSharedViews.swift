@@ -7,10 +7,10 @@ import SwiftUI
 
 // MARK: - Canvas title bar
 
-/// Title + view-mode toggle. The toggle flips `TrackerData.viewMode` between
-/// `.grid` and `.kanban` via `MyAppStore.setTrackerViewMode`. Disabled in
-/// grid mode when no select field has options — kanban needs a column field
-/// to group by.
+/// Title + shrink toggle + view-mode toggle. The view-mode toggle flips
+/// `TrackerData.viewMode` between `.grid` and `.kanban` via
+/// `MyAppStore.setTrackerViewMode`. Disabled in grid mode when no select
+/// field has options — kanban needs a column field to group by.
 struct CanvasTitleBar: View {
     @Bindable var store: MyAppStore
     let data: TrackerData
@@ -18,12 +18,63 @@ struct CanvasTitleBar: View {
     /// mutation lands on THIS tracker, not the first tracker in the myApp
     /// (the kind-routed fallback ignores which component is on screen).
     var componentId: String? = nil
+    /// Disclosure state for the filter chips. Nil when the tracker has no
+    /// filterable select field — the button then doesn't render at all.
+    var filtersExpanded: Binding<Bool>? = nil
+    /// Non-empty entries in `data.filter`. Surfaced as a badge so a filter
+    /// set by the agent, or left behind from a previous session, is visible
+    /// while the panel is collapsed.
+    var activeFilterCount: Int = 0
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             Text(data.title).font(.title).bold()
             Spacer()
+            if let filtersExpanded {
+                filterButton(filtersExpanded)
+            }
+            shrinkButton
             toggleButton
+        }
+    }
+
+    private func filterButton(_ expanded: Binding<Bool>) -> some View {
+        Button {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                expanded.wrappedValue.toggle()
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: activeFilterCount > 0
+                      ? "line.3.horizontal.decrease.circle.fill"
+                      : "line.3.horizontal.decrease.circle")
+                if activeFilterCount > 0 {
+                    Text("\(activeFilterCount)")
+                }
+            }
+            .font(.caption.weight(.semibold))
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .tint(activeFilterCount > 0 ? Color.accentColor : nil)
+        .help(expanded.wrappedValue ? "Hide filters" : "Show filters")
+    }
+
+    private var shrinkButton: some View {
+        Button(action: toggleShrink) {
+            Image(systemName: data.shrinkCards
+                  ? "rectangle.expand.vertical"
+                  : "rectangle.compress.vertical")
+                .font(.caption.weight(.semibold))
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .help(data.shrinkCards ? "Show full cards" : "Shrink cards to one line")
+    }
+
+    private func toggleShrink() {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+            _ = store.setTrackerCardsShrunk(!data.shrinkCards, componentId: componentId)
         }
     }
 
@@ -85,6 +136,169 @@ struct SectionCard<Content: View>: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(Color.cardBorder, lineWidth: 1)
         )
+    }
+}
+
+// MARK: - Search
+
+/// Free-text row search, shared by grid and kanban.
+///
+/// Owns the typed text itself and hands the parent only a debounced query.
+/// That split is load-bearing, not tidiness: the parent re-runs
+/// `TrackerFiltering` and rebuilds every card whenever its own state changes,
+/// and the kanban lane stack is deliberately non-lazy, so a `@State` on the
+/// parent would rebuild the whole board on every keystroke — the debounce
+/// alone would not help. Here a keystroke invalidates this one `HStack`.
+///
+/// Never persisted: `MyAppStore.persist()` is a synchronous whole-app encode
+/// plus disk write, so a stored query would mean one of those per character.
+struct TrackerSearchField: View {
+    let initialText: String
+    var placeholder: String = "Search items"
+    let onQueryChange: (String) -> Void
+
+    @State private var text: String
+
+    init(initialText: String, placeholder: String = "Search items", onQueryChange: @escaping (String) -> Void) {
+        self.initialText = initialText
+        self.placeholder = placeholder
+        self.onQueryChange = onQueryChange
+        _text = State(initialValue: initialText)
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            field
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                    // Clearing restores the whole board — never make that wait
+                    // out the debounce.
+                    onQueryChange("")
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("Clear search")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.gray.opacity(0.04))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        // `.task(id:)` cancels the pending task on every new keystroke, so the
+        // query only lands once typing pauses. No Task handle to leak.
+        .task(id: text) {
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard !Task.isCancelled else { return }
+            onQueryChange(text)
+        }
+    }
+
+    private var field: some View {
+        let base = TextField(placeholder, text: $text)
+            .textFieldStyle(.plain)
+            .font(.subheadline)
+            .autocorrectionDisabled(true)
+        #if os(iOS)
+        return base
+            .textInputAutocapitalization(.never)
+            .submitLabel(.search)
+        #else
+        return base
+        #endif
+    }
+}
+
+// MARK: - Filters
+
+/// Select-field filter chips. Shared by both views: kanban honours
+/// `TrackerData.filter` too, so it needs the same way to see and clear one
+/// that the agent (`setTrackerFilter`) or grid mode may have set.
+///
+/// Collapsed by default behind the title bar's filter button — chips are
+/// occasional, and on a narrow board they cost a whole row of the canvas.
+/// The button carries a count badge so a live filter is never invisible.
+struct FiltersBar: View {
+    @Bindable var store: MyAppStore
+    let fields: [FieldDef]
+    let filter: [String: String]
+    var componentId: String? = nil
+
+    var body: some View {
+        SectionCard {
+            HStack(alignment: .top) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(filterableFields) { field in
+                            FilterChip(
+                                field: field,
+                                value: filter[field.name] ?? "",
+                                onSelect: { value in
+                                    store.setFilter(field: field.name, value: value, componentId: componentId)
+                                }
+                            )
+                        }
+                    }
+                }
+                if activeCount > 0 {
+                    Button("Clear") {
+                        for field in filterableFields where !(filter[field.name] ?? "").isEmpty {
+                            store.setFilter(field: field.name, value: "", componentId: componentId)
+                        }
+                    }
+                    .font(.caption.weight(.semibold))
+                    .buttonStyle(.borderless)
+                }
+            }
+        }
+        .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+
+    private var activeCount: Int {
+        filterableFields.reduce(into: 0) { n, f in
+            if !(filter[f.name] ?? "").isEmpty { n += 1 }
+        }
+    }
+
+    private var filterableFields: [FieldDef] {
+        fields.filter { $0.type == .select && !($0.options ?? []).isEmpty }
+    }
+}
+
+private struct FilterChip: View {
+    let field: FieldDef
+    let value: String
+    let onSelect: (String) -> Void
+
+    var body: some View {
+        Menu {
+            Button("All") { onSelect("") }
+            ForEach(field.options ?? [], id: \.self) { opt in
+                Button(opt) { onSelect(opt) }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Text(field.label ?? field.name)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(value.isEmpty ? "All" : value)
+                    .font(.caption.weight(.semibold))
+                Image(systemName: "chevron.down")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(value.isEmpty ? Color.gray.opacity(0.12) : Color.accentColor.opacity(0.18))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -392,6 +606,51 @@ private struct TextDetailEditor: View {
     }
 }
 
+// MARK: - Card density
+
+/// How much of an item a card shows. Derived from the view mode and the
+/// persisted `shrinkCards` flag — shrink collapses both modes onto one
+/// rendering rather than doubling the layouts, since a one-liner is a
+/// one-liner whether it sits in a lane or a grid cell.
+enum CardDensity {
+    case comfortable   // grid: hero, meta rows, 3 chips, 3 links
+    case compact       // kanban lane: no hero, tighter type, 1 chip, 2 links
+    case minimal       // shrunk: title only, one line
+
+    static func resolve(viewMode: TrackerViewMode, shrink: Bool) -> CardDensity {
+        if shrink { return .minimal }
+        return viewMode == .kanban ? .compact : .comfortable
+    }
+}
+
+/// Per-density caps, split out so they are testable without building a view.
+enum CardDensityMetrics {
+    static func chipCap(_ density: CardDensity) -> Int {
+        switch density {
+        case .comfortable: 3
+        case .compact: 1
+        case .minimal: 0
+        }
+    }
+
+    static func linkCap(_ density: CardDensity) -> Int {
+        switch density {
+        case .comfortable: 3
+        case .compact: 2
+        case .minimal: 0
+        }
+    }
+
+    /// Link pills per row once the "+k more" chip has expanded them. A
+    /// constant, never a measurement: pill widths are unknown until layout,
+    /// and reading them back to decide the wrap would rebuild the
+    /// measurement→state→size cycle `TextOverflowEstimate` exists to avoid.
+    /// `LinkPill` already truncates, so a fixed chunk cannot overflow.
+    static func linksPerRow(_ density: CardDensity) -> Int {
+        density == .comfortable ? 2 : 1
+    }
+}
+
 // MARK: - Card layout
 
 struct CardLayout {
@@ -399,7 +658,7 @@ struct CardLayout {
     let titleField: FieldDef?
     let metaFields: [FieldDef]      // up to 2
     let chipFields: [FieldDef]      // all select fields, capped per-card at 3
-    let linkFields: [FieldDef]      // all .link fields, capped per-card at 2
+    let linkFields: [FieldDef]      // all .link fields; the card caps per density
 
     /// Build a layout from a tracker's fields. `excluding` lets kanban hide
     /// the column field's value from each card (the lane header already
@@ -435,7 +694,7 @@ struct CardLayout {
             titleField: title,
             metaFields: Array(meta.prefix(2)),
             chipFields: chips,
-            linkFields: Array(links.prefix(2))
+            linkFields: links
         )
     }
 }
@@ -509,35 +768,40 @@ private struct ExpandableText: View {
 
 // MARK: - Item card
 
-/// Renders one tracker row. Used in both the grid (full layout, hero image)
-/// and kanban (compact layout, no hero, single chip) views. The card reads
-/// values from the item's sparse `values` dict — missing keys for a given
-/// field render as empty, which keeps the card valid through any schema
-/// mutation (add field, hide field, …).
+/// Renders one tracker row. Used by both views at three densities — grid
+/// (`.comfortable`: hero image, meta rows), kanban lane (`.compact`), and
+/// shrunk (`.minimal`: a one-line title, for scanning a whole board). The
+/// card reads values from the item's sparse `values` dict — missing keys for
+/// a given field render as empty, which keeps the card valid through any
+/// schema mutation (add field, hide field, …).
 struct TrackerItemCard: View {
     let item: TrackerItem
     let layout: CardLayout
     let positionIndex: Int
-    let compact: Bool
+    let density: CardDensity
     let onTap: () -> Void
     /// Optional resolver invoked once per ref in `item.linkedItems` to
     /// produce the chain-link pill text. Caller is typically `TrackerView`
     /// closing over the store + myAppId. Nil → linked-items row hidden
-    /// (kanban-compact mode passes nil to keep lane cards tight).
+    /// (kanban passes nil to keep lane cards tight).
     let resolveLinkName: ((ComponentItemRef) -> String?)?
+
+    /// Set by the "+k more" chip. Written only by a tap — nothing here reads
+    /// geometry, so growing the card cannot feed back into a measurement.
+    @State private var linksExpanded = false
 
     init(
         item: TrackerItem,
         layout: CardLayout,
         positionIndex: Int,
-        compact: Bool = false,
+        density: CardDensity = .comfortable,
         onTap: @escaping () -> Void,
         resolveLinkName: ((ComponentItemRef) -> String?)? = nil
     ) {
         self.item = item
         self.layout = layout
         self.positionIndex = positionIndex
-        self.compact = compact
+        self.density = density
         self.onTap = onTap
         self.resolveLinkName = resolveLinkName
     }
@@ -546,7 +810,59 @@ struct TrackerItemCard: View {
 
     private static let heroHeight: CGFloat = 120
 
+    private var compact: Bool { density == .compact }
+
     var body: some View {
+        Group {
+            if density == .minimal { minimalCard } else { fullCard }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .stroke(Color.cardBorder, lineWidth: 1)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { onTap() }
+    }
+
+    private var cornerRadius: CGFloat {
+        switch density {
+        case .comfortable: 12
+        case .compact: 10
+        case .minimal: 8
+        }
+    }
+
+    /// One line, nothing else. Skips `ExpandableText` (and its per-card state
+    /// and overflow estimate), the hero `AsyncImage`, meta rows, chips and
+    /// pills — which is also why a shrunk board is far cheaper to rebuild.
+    private var minimalCard: some View {
+        HStack(spacing: 6) {
+            if let tint = minimalTint {
+                Circle().fill(tint).frame(width: 6, height: 6)
+            }
+            Text(titleText)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundStyle(titleIsFallback ? .secondary : .primary)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+    }
+
+    /// Keeps the first chip's colour semantics visible even with no chips
+    /// rendered, so lanes stay scannable when shrunk.
+    private var minimalTint: Color? {
+        guard let first = allItemChips.first?.1 else { return nil }
+        let hue = Double(abs(first.hashValue) % 360) / 360.0
+        return Color(hue: hue, saturation: 0.55, brightness: 0.65)
+    }
+
+    private var fullCard: some View {
         VStack(alignment: .leading, spacing: 0) {
             if !compact, layout.imageField != nil {
                 hero
@@ -597,12 +913,8 @@ struct TrackerItemCard: View {
                     }
                 }
 
-                if !linkEntries.isEmpty {
-                    HStack(spacing: 6) {
-                        ForEach(linkEntries, id: \.field) { entry in
-                            LinkPill(field: entry.field, value: entry.value, url: entry.url)
-                        }
-                    }
+                if !visibleLinkEntries.isEmpty {
+                    linksRow
                 }
 
                 if let resolveLinkName, !item.linkedItems.isEmpty {
@@ -611,15 +923,49 @@ struct TrackerItemCard: View {
             }
             .padding(compact ? 10 : 14)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: compact ? 10 : 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: compact ? 10 : 12)
-                .stroke(Color.cardBorder, lineWidth: 1)
-        )
-        .contentShape(Rectangle())
-        .onTapGesture { onTap() }
+    }
+
+    /// Collapsed: one row of pills plus a "+k" chip. Expanded: fixed-width
+    /// chunks so a link-heavy item stays inside a 260pt lane.
+    @ViewBuilder
+    private var linksRow: some View {
+        let rows = chunkedLinks
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { row in
+                HStack(spacing: 6) {
+                    ForEach(row.element, id: \.field) { entry in
+                        LinkPill(field: entry.field, value: entry.value, url: entry.url)
+                    }
+                    if row.offset == rows.count - 1, linkOverflow > 0 || linksExpanded {
+                        linkOverflowChip
+                    }
+                }
+            }
+        }
+    }
+
+    private var linkOverflowChip: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.18)) { linksExpanded.toggle() }
+        } label: {
+            Text(linksExpanded ? "Show less" : "+\(linkOverflow)")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Color.gray.opacity(0.12))
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.borderless)
+    }
+
+    private var chunkedLinks: [[LinkEntry]] {
+        let entries = visibleLinkEntries
+        let perRow = CardDensityMetrics.linksPerRow(density)
+        guard linksExpanded, perRow > 0 else { return [entries] }
+        return stride(from: 0, to: entries.count, by: perRow).map {
+            Array(entries[$0..<min($0 + perRow, entries.count)])
+        }
     }
 
     @ViewBuilder
@@ -723,7 +1069,7 @@ struct TrackerItemCard: View {
         }
     }
 
-    private var chipCap: Int { compact ? 1 : 3 }
+    private var chipCap: Int { CardDensityMetrics.chipCap(density) }
 
     private var visibleChips: [(String, String)] {
         Array(allItemChips.prefix(chipCap))
@@ -739,15 +1085,25 @@ struct TrackerItemCard: View {
         let url: URL?
     }
 
-    private var linkEntries: [LinkEntry] {
-        let cap = compact ? 1 : 2
-        return layout.linkFields.compactMap { f -> LinkEntry? in
+    /// Every non-empty `.link` field. `CardLayout` no longer truncates —
+    /// how many fit is a per-density presentation call, made here.
+    private var allLinkEntries: [LinkEntry] {
+        layout.linkFields.compactMap { f -> LinkEntry? in
             let v = (values[f.name] ?? "").trimmingCharacters(in: .whitespaces)
             guard !v.isEmpty else { return nil }
             return LinkEntry(field: f.name, value: v, url: parseURL(v))
         }
-        .prefix(cap)
-        .map { $0 }
+    }
+
+    private var visibleLinkEntries: [LinkEntry] {
+        let all = allLinkEntries
+        guard !linksExpanded else { return all }
+        return Array(all.prefix(CardDensityMetrics.linkCap(density)))
+    }
+
+    private var linkOverflow: Int {
+        guard !linksExpanded else { return 0 }
+        return max(0, allLinkEntries.count - CardDensityMetrics.linkCap(density))
     }
 
     private func parseURL(_ value: String) -> URL? {
