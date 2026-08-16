@@ -991,9 +991,7 @@ public final class ChatViewModel {
             // mid-turn the instant the agent's `addComponent` call adds a
             // component of a new kind (and shrinks when the last one is
             // removed). MainActor hop reads the live `MyAppStore`.
-            toolFilter: { [store, toolGateState] in
-                await MainActor.run { Self.allowedToolNames(scope: scope, store: store, toolGateState: toolGateState) }
-            },
+            toolFilter: currentToolFilter(),
             state: { [settings, store] in
                 await Self.stateJSON(settings: settings, scope: scope, store: store)
             },
@@ -1131,7 +1129,20 @@ public final class ChatViewModel {
         AGUIKitLog.session("foreground reattach: thread=\(threadId)")
         connectionIssue = nil
         setStreaming(true)
-        consume(stream: session.reattach())
+        consume(stream: session.reattach(toolFilter: currentToolFilter()))
+    }
+
+    /// The kind-gated tool surface, as a per-round closure. Shared by `send`
+    /// and both reattach paths: the resume's `tools_after_round` drives what
+    /// the backend exposes next, so a recovery that advertised the unfiltered
+    /// registry would read as a gate unlock (pupa#258).
+    private func currentToolFilter() -> @Sendable () async -> Set<String> {
+        let scope = pinnedScope
+        return { [store, toolGateState] in
+            await MainActor.run {
+                Self.allowedToolNames(scope: scope, store: store, toolGateState: toolGateState)
+            }
+        }
     }
 
     /// Launch-time catch-up after an app kill: the persisted snapshot said a
@@ -1143,7 +1154,7 @@ public final class ChatViewModel {
         guard streamTask == nil, !isStreaming else { return }
         AGUIKitLog.session("relaunch catch-up: thread=\(threadId)")
         setStreaming(true)
-        consume(stream: session.reattach())
+        consume(stream: session.reattach(toolFilter: currentToolFilter()))
     }
 
     /// Shared event-pump for both the initial `send` and the post-interrupt

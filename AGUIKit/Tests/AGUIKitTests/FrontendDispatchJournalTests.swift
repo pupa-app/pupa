@@ -399,6 +399,48 @@ struct DispatchJournal {
                 "the recorded result must survive for the next attempt")
     }
 
+    // MARK: - Tool surface
+
+    /// The resume's `tools_after_round` tells the backend what to expose next.
+    /// The claude harness diffs it against the live session's surface and treats
+    /// a wider list as a gate unlock — rebuilding its client (breaking the
+    /// prompt cache) and injecting a synthetic "the tools you activated are now
+    /// available" turn for a gate nobody touched. A recovery must therefore
+    /// advertise exactly what a live send would.
+    @Test("A recovery advertises the gated tool surface, never the whole registry")
+    func recoveryHonoursToolFilter() async throws {
+        let recorder = CallRecorder()
+        let session = freshSession(registry: recordingRegistry(recorder), journal: TestJournal())
+        Self.scriptParkThenAnswer([(id: "call_A", name: "addItem", args: #"{"item":"apple"}"#)])
+        await session.seedReplayCursor(4)
+
+        // The gate exposes only `addItem`; `readItems` is registered but hidden.
+        await drain(session.reattach(toolFilter: { ["addItem"] }))
+
+        let resume = try JSONDecoder().decode(
+            RunAgentInput.self, from: MockURLProtocol.requestBodies[1])
+        let advertised = try #require(
+            resume.forwardedProps["command"]?["resume"]?["tools_after_round"]?.arrayValue)
+        #expect(advertised.compactMap { $0["name"]?.stringValue } == ["addItem"])
+        #expect(resume.tools.map(\.name) == ["addItem"])
+    }
+
+    @Test("With no filter a recovery still advertises the full registry")
+    func recoveryWithoutFilter_advertisesEverything() async throws {
+        let recorder = CallRecorder()
+        let session = freshSession(registry: recordingRegistry(recorder), journal: TestJournal())
+        Self.scriptParkThenAnswer([(id: "call_A", name: "addItem", args: #"{"item":"apple"}"#)])
+        await session.seedReplayCursor(4)
+
+        await drain(session.reattach())
+
+        let resume = try JSONDecoder().decode(
+            RunAgentInput.self, from: MockURLProtocol.requestBodies[1])
+        let advertised = try #require(
+            resume.forwardedProps["command"]?["resume"]?["tools_after_round"]?.arrayValue)
+        #expect(Set(advertised.compactMap { $0["name"]?.stringValue }) == ["addItem", "readItems"])
+    }
+
     // MARK: - Regressions
 
     @Test("With no journal the dispatch behaves exactly as before")

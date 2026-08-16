@@ -321,11 +321,22 @@ public actor AgentSession {
     /// `forwardedProps` (model selection etc.) — the backend falls back to
     /// its env default for the remainder of the turn. Acceptable for the
     /// recovery path.
-    public nonisolated func reattach() -> AsyncThrowingStream<SessionEvent, Error> {
+    ///
+    /// - Parameter toolFilter: Same contract as `send`'s, and it matters just as
+    ///   much here: the resume's `tools_after_round` tells the backend which
+    ///   frontend tools to expose next. Advertising the unfiltered registry from
+    ///   a recovery would look like a gate unlock to the backend, which answers
+    ///   one by rebuilding its client with a widened surface — breaking the
+    ///   prompt cache and injecting a synthetic "the tools you activated are now
+    ///   available" turn for a gate the user never touched (pupa#258).
+    public nonisolated func reattach(
+        toolFilter: (@Sendable () async -> Set<String>)? = nil
+    ) -> AsyncThrowingStream<SessionEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task { [self] in
                 do {
-                    try await runReattachLoop(yield: { ev in continuation.yield(ev) })
+                    try await runReattachLoop(
+                        toolFilter: toolFilter, yield: { ev in continuation.yield(ev) })
                     continuation.finish()
                 } catch is CancellationError {
                     continuation.finish(throwing: AgentClientError.cancelled)
@@ -339,7 +350,10 @@ public actor AgentSession {
 
     // MARK: - Internals
 
-    private func runReattachLoop(yield: @Sendable (SessionEvent) -> Void) async throws {
+    private func runReattachLoop(
+        toolFilter: (@Sendable () async -> Set<String>)? = nil,
+        yield: @Sendable (SessionEvent) -> Void
+    ) async throws {
         // No replay cursor → either the backend never stamped a seq (predates
         // the replay layer) or this session never streamed. Reattaching would
         // hit a real agent loop with an empty message list — do nothing.
@@ -405,7 +419,15 @@ public actor AgentSession {
                 "reattach round \(round) found interrupt → dispatching \(dispatch.calls.count) tool(s)"
             )
             let toolResults = await dispatchFrontendTools(calls: dispatch.calls, yield: yield)
-            let toolsAfterRound: [AnyJSON] = registry.descriptors.map { d in
+            // Same post-dispatch surface refresh as `runLoop`, filter included:
+            // an unfiltered advertisement reads as a gate unlock on the backend.
+            let descriptors: [ToolDescriptor]
+            if let filter = await toolFilter?() {
+                descriptors = registry.descriptors.filter { filter.contains($0.name) }
+            } else {
+                descriptors = registry.descriptors
+            }
+            let toolsAfterRound: [AnyJSON] = descriptors.map { d in
                 .object([
                     "name": .string(d.name),
                     "description": .string(d.description),
@@ -415,7 +437,7 @@ public actor AgentSession {
             input = RunAgentInput(
                 threadId: threadId,
                 messages: messages,
-                tools: registry.descriptors,
+                tools: descriptors,
                 context: [],
                 forwardedProps: .object([
                     "command": .object([

@@ -353,6 +353,16 @@ neither says anything about whether the park is still alive. Past the wall the
 park is gone: the reattach finds nothing, and the transcript gets an explicit
 "that turn timed out" notice instead of a silent restart.
 
+Recovery advertises the **same gated tool surface** a live send would:
+`reattach(toolFilter:)` takes the filter `send` uses, because the resume's
+`tools_after_round` is what the backend exposes next. Advertising the unfiltered
+registry reads as a gate unlock on the claude harness, which answers by
+rebuilding its client with a widened surface — breaking the prompt cache (tool
+definitions sit ahead of system and messages in the request prefix, so the whole
+cached prefix is invalidated) and injecting a synthetic "the tools you just
+activated are now available" turn for a gate the user never touched, with fresh
+`toolCallId`s the journal cannot match.
+
 Note the effective window is often ~30s rather than 300s: the backend deadline
 is `min(wall, last_keepalive + grace)` unless the client reported itself
 backgrounded, so a foreground crash usually exceeds it while the common
