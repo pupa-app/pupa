@@ -150,8 +150,7 @@ public struct AgentDetailView: View {
             store.setMyAppLLM(provider: provider, model: modelId, for: myAppId)
         case .subagent:
             guard let (myAppId, slug) = subagentTarget(descriptor) else { return }
-            let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(
-                myAppName: store.myApps.first(where: { $0.id == myAppId })?.name ?? ""))
+            let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myAppId))
             _ = try? AgentStore(memory: appMemory).setModel(slug: slug, provider: provider, model: modelId)
         case .orchestrator:
             settings.setOrchestratorLLM(provider: provider, model: modelId)
@@ -199,8 +198,7 @@ public struct AgentDetailView: View {
             store.setMyAppDisabledTools(disabled, for: myAppId)
         case .subagent:
             guard let (myAppId, slug) = subagentTarget(descriptor) else { return }
-            let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(
-                myAppName: store.myApps.first(where: { $0.id == myAppId })?.name ?? ""))
+            let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myAppId))
             _ = try? AgentStore(memory: appMemory).setDisabledTools(slug: slug, disabled)
         case .orchestrator:
             settings.setOrchestratorDisabledTools(disabled)

@@ -32,7 +32,8 @@ struct MemoryRecoveryOnRestoreTests {
         return (try? Data(contentsOf: url)).flatMap { String(data: $0, encoding: .utf8) }
     }
 
-    private func slug(_ name: String) -> String { MemoryStore.myAppFolder(myAppName: name) }
+    /// Memory folder = the app's immutable id (lowercased uuid).
+    private func folder(_ id: UUID) -> String { MemoryStore.myAppFolder(myAppId: id) }
 
     /// Quarantine the app body the way a sync-driven `.deleteLocal` does. Its
     /// preservation time is what recovery anchors the window on.
@@ -50,7 +51,7 @@ struct MemoryRecoveryOnRestoreTests {
         await MyAppStore.clearStorage()
         let store = MyAppStore()
         let id = store.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
-        let s = slug("Fitness")
+        let s = folder(id)
         store.removeMyApp(id)
         // iCloud dropped the memory tree; the mirror quarantined it on the way out.
         quarantine("memories/\(s)/pupa/agents/coach/AGENTS.md", "coach prompt")
@@ -67,7 +68,7 @@ struct MemoryRecoveryOnRestoreTests {
         await MyAppStore.clearStorage()
         let a = MyAppStore()
         let id = a.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
-        let s = slug("Fitness")
+        let s = folder(id)
         let other = MyAppStore()
         other.removeMyApp(id)
         MyAppStore.clearDeleteMarkers(id)          // vanished with no tombstone
@@ -85,7 +86,7 @@ struct MemoryRecoveryOnRestoreTests {
         await MyAppStore.clearStorage()
         let store = MyAppStore()
         let id = store.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
-        let s = slug("Fitness")
+        let s = folder(id)
         #expect(store.takeSnapshot(myAppId: id, label: "v1") != nil)
         let pin = try #require(SnapshotStore.pinnedMetas(id).first)
         store.removeMyApp(id)
@@ -109,12 +110,14 @@ struct MemoryRecoveryOnRestoreTests {
         let pin = try #require(SnapshotStore.pinnedMetas(id).first)
         store.renameMyApp(id, to: "Rename after")
         store.removeMyApp(id)
-        quarantine("memories/\(slug("Rename after"))/pupa/agents/coach/AGENTS.md", "coach prompt")
+        // Memory is id-keyed, so rename never moved the folder — recovery lands
+        // in the one folder (the app's id) regardless of the name at removal.
+        quarantine("memories/\(folder(id))/pupa/agents/coach/AGENTS.md", "coach prompt")
 
         #expect(store.restorePinnedSnapshot(appId: id, snapshotId: pin.id) == id)
 
         #expect(store.myApps.first { $0.id == id }?.name == "Rename before")
-        #expect(memoryBody("\(slug("Rename before"))/pupa/agents/coach/AGENTS.md") == "coach prompt")
+        #expect(memoryBody("\(folder(id))/pupa/agents/coach/AGENTS.md") == "coach prompt")
     }
 
     @Test("recovery never overwrites a memory file that is still on disk")
@@ -122,8 +125,8 @@ struct MemoryRecoveryOnRestoreTests {
         await MyAppStore.clearStorage()
         let store = MyAppStore()
         let id = store.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
-        let s = slug("Fitness")
-        let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: "Fitness"))
+        let s = folder(id)
+        let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: id))
         _ = try? memory.writeFile(path: "pupa/skills/warmup/SKILL.md", content: "live")
         store.removeMyApp(id)
         quarantine("memories/\(s)/pupa/skills/warmup/SKILL.md", "stale quarantined copy")
@@ -141,7 +144,7 @@ struct MemoryRecoveryOnRestoreTests {
         await MyAppStore.clearStorage()
         let store = MyAppStore()
         let id = store.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
-        let s = slug("Fitness")
+        let s = folder(id)
         store.removeMyApp(id)
         quarantine("memories/\(s)/pupa/skills/dropped/SKILL.md", "deliberately deleted",
                    at: Date(timeIntervalSinceNow: -3 * 24 * 3600))
@@ -157,11 +160,13 @@ struct MemoryRecoveryOnRestoreTests {
         let store = MyAppStore()
         let id = store.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
         store.removeMyApp(id)
-        quarantine("memories/\(slug("Other app"))/pupa/skills/x/SKILL.md", "not mine")
+        // Some other app's folder (a different id) — recovery must not touch it.
+        let other = UUID()
+        quarantine("memories/\(folder(other))/pupa/skills/x/SKILL.md", "not mine")
 
         #expect(store.restoreDeletedMyApp(id))
 
-        #expect(memoryBody("\(slug("Other app"))/pupa/skills/x/SKILL.md") == nil)
+        #expect(memoryBody("\(folder(other))/pupa/skills/x/SKILL.md") == nil)
     }
 
     // MARK: - Where the window opens
@@ -175,7 +180,7 @@ struct MemoryRecoveryOnRestoreTests {
         await MyAppStore.clearStorage()
         let store = MyAppStore()
         let id = store.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
-        let s = slug("Fitness")
+        let s = folder(id)
         store.removeMyApp(id)                            // marker's `deletedAt` = now
         // The sync that took it ran 40 minutes ago — far outside the slack.
         quarantineBody(id, at: Date(timeIntervalSinceNow: -40 * 60))

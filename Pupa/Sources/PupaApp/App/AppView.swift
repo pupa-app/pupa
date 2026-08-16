@@ -127,10 +127,8 @@ public struct AppView: View {
         // seed-once rule below. Runs before `MemoryStore()` so the global
         // sidebar store's init rescan already sees the files.
         GuideSkills.seedOrchestrator()
-        for app in store.myApps { GuideSkills.seed(appName: app.name) }
+        for app in store.myApps { GuideSkills.seed(appId: app.id) }
         let memory = MemoryStore()
-        // Rename must move the app's slug-keyed memory folder through the
-        // live store so the sidebar tree refreshes in place.
         store.globalMemory = memory
         // Sidebar/Memories edits go through this global store; refuse writes to
         // any app whose memories are locked, matching the agent's scoped guard.
@@ -239,8 +237,8 @@ public struct AppView: View {
     /// apps' rules never leak in.
     private func wireAutomations() {
         store.onCanvasEvent = { [weak store] event in
-            guard let store, let name = store.myApp(withId: event.myAppId)?.name else { return }
-            let mem = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: name))
+            guard let store, store.myApp(withId: event.myAppId) != nil else { return }
+            let mem = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: event.myAppId))
             engine.ingest(event, rules: AutomationStore(memory: mem).rules)
         }
         // A reaction thread finishing its turn releases the rule's in-flight
@@ -372,7 +370,7 @@ public struct AppView: View {
                     // in already-materialized app folders instead of racing
                     // the first pull (which spawned iCloud conflict twins).
                     await PupaStorage.downloadSubtreeUntilSettled("memories")
-                    for app in store.myApps { GuideSkills.seed(appName: app.name) }
+                    for app in store.myApps { GuideSkills.seed(appId: app.id) }
                     memory.foldConflictTwinDirs(addressableBases: addressableMemoryBases())
                     await memory.reloadFromDisk()
                     await settings.reloadFromDisk()
@@ -521,7 +519,7 @@ public struct AppView: View {
     /// Memory dirs an app (or the orchestrator) can address — the only bases
     /// twin-folding may touch.
     private func addressableMemoryBases() -> Set<String> {
-        Set(store.myApps.map { MemoryStore.myAppFolder(myAppName: $0.name) })
+        Set(store.myApps.map { MemoryStore.myAppFolder(myAppId: $0.id) })
             .union([MemoryStore.orchestratorFolder()])
     }
 
@@ -1332,9 +1330,7 @@ public struct AppView: View {
             }
             // ChatLink emits scope-relative memory paths; the shared `memory`
             // store reads global-root-relative ones — globalize before routing.
-            let global = sel.globalizedMemoryPath { id in
-                store.myApps.first { $0.id == id }?.name
-            }
+            let global = sel.globalizedMemoryPath()
             openFromChat(global)
             return .handled
         }

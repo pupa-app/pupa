@@ -1697,10 +1697,12 @@ public final class ChatViewModel {
                         "iconSystemName": myApp.iconSystemName,
                     ]
                 }
+                // No `memoryFolder`, same as the myApp payload below: this store
+                // is chroot'd to `orchestrator/`, so naming the folder invites
+                // the agent to nest a second one inside its own root.
                 let modePayload: [String: AnyJSON] = [
                     "mode": .string("memory"),
                     "focusedFile": .string(focusedPath),
-                    "memoryFolder": .string(MemoryStore.orchestratorFolder()),
                     "myApps": .array(myAppsSnapshot.map { dict in
                         .object(dict.mapValues { .string($0) })
                     }),
@@ -1725,15 +1727,17 @@ public final class ChatViewModel {
                 }
                 let summary = CanvasSummary.build(myApp: myApp, previewTracker: previewTracker)
                 let canvasJSON = summary.toJSONString()
-                // System prompt via MyAppPolicy — reads <myapps/name>/pupa/AGENTS.md;
-                // falls back to the type-fragment description.
+                // System prompt via MyAppPolicy — reads the app's own
+                // `pupa/AGENTS.md`; falls back to the type-fragment description.
                 let typeDescription = MyAppPolicy(myAppId: id).buildSystemPrompt(
                     myApp: myApp, memory: memory
                 )
+                // No `memoryFolder`: the agent's store is chroot'd to this app's
+                // root, so every memory path it uses is already relative to that
+                // root. Naming a folder here only invites a wrong prefix.
                 let typePayload: [String: String] = [
                     "typeId": myApp.typeId,
                     "myAppName": myApp.name,
-                    "memoryFolder": MemoryStore.myAppFolder(myAppName: myApp.name),
                 ]
                 let typeJSON = (try? JSONEncoder().encode(typePayload)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
                 return [

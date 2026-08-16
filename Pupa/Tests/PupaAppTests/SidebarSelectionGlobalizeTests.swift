@@ -10,32 +10,39 @@ import Testing
 struct SidebarSelectionGlobalizeTests {
 
     private let appId = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+    /// The app's memory folder — its lowercased uuid.
+    private var folder: String { MemoryStore.myAppFolder(myAppId: appId) }
 
-    @Test("myApp memory link is prefixed with the app slug")
+    @Test("myApp memory link is prefixed with the app id")
     func myAppMemoryGlobalized() {
         let sel = SidebarSelection.myAppMemoryFile(appId, "notes/reading.md")
-            .globalizedMemoryPath { _ in "My Fitness" }
-        #expect(sel == .myAppMemoryFile(appId, "my-fitness/notes/reading.md"))
+            .globalizedMemoryPath()
+        #expect(sel == .myAppMemoryFile(appId, "\(folder)/notes/reading.md"))
     }
 
     @Test("orchestrator memory link is prefixed with orchestrator/")
     func orchestratorMemoryGlobalized() {
         let sel = SidebarSelection.memoryFile("journal.md")
-            .globalizedMemoryPath { _ in nil }
+            .globalizedMemoryPath()
         #expect(sel == .memoryFile("orchestrator/journal.md"))
     }
 
-    @Test("Unresolvable myApp id leaves the selection untouched")
-    func unknownAppIdPassesThrough() {
-        let sel = SidebarSelection.myAppMemoryFile(appId, "notes/x.md")
-            .globalizedMemoryPath { _ in nil }
-        #expect(sel == .myAppMemoryFile(appId, "notes/x.md"))
+    /// Keying on the id removed the roster lookup that used to fail open — an
+    /// unresolvable id no longer passes the selection through unprefixed (which
+    /// left the global store reading a scope-relative path). Every id maps to a
+    /// folder, live app or not.
+    @Test("An id with no live app still globalizes")
+    func unknownAppIdStillGlobalized() {
+        let ghost = UUID()
+        let sel = SidebarSelection.myAppMemoryFile(ghost, "notes/x.md")
+            .globalizedMemoryPath()
+        #expect(sel == .myAppMemoryFile(ghost, "\(MemoryStore.myAppFolder(myAppId: ghost))/notes/x.md"))
     }
 
     @Test("Non-memory selections pass through untouched")
     func nonMemoryPassesThrough() {
         let sel = SidebarSelection.myAppComponent(appId, "tracker-1")
-            .globalizedMemoryPath { _ in "My Fitness" }
+            .globalizedMemoryPath()
         #expect(sel == .myAppComponent(appId, "tracker-1"))
     }
 
@@ -48,11 +55,11 @@ struct SidebarSelectionGlobalizeTests {
             .appendingPathComponent("pupa-globalize-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let store = MemoryStore(rootOverride: root)
-        try store.writeFile(path: "my-fitness/notes/reading.md", content: "hi")
+        try store.writeFile(path: "\(folder)/notes/reading.md", content: "hi")
 
         let parsed = ChatLink.sidebarSelection(
             from: URL(string: "pupa://memory/notes/reading.md")!, currentMyAppId: appId)
-        let global = parsed?.globalizedMemoryPath { _ in "My Fitness" }
+        let global = parsed?.globalizedMemoryPath()
         guard case .myAppMemoryFile(_, let path)? = global else {
             Issue.record("expected a myApp memory selection, got \(String(describing: global))")
             return

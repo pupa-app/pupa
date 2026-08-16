@@ -20,13 +20,14 @@ public protocol ExampleMyApp {
     /// Build a fully-populated `MyApp` ready to append to the store.
     static func make() -> MyApp
 
-    /// Write AGENTS.md persona files into the memory tree. No-op for
-    /// examples that don't need them. Always `@MainActor` because
-    /// `MemoryStore` is main-actor-isolated. `globalMemory` is rescanned when
-    /// non-nil; pass nil from app-birth call sites that have no sidebar store
-    /// (the chat coordinator rescans on the next app-scoped write).
+    /// Write AGENTS.md persona files into `appRoot` (the app's memory root,
+    /// keyed on its immutable id). No-op for examples that don't need them.
+    /// Always `@MainActor` because `MemoryStore` is main-actor-isolated.
+    /// `globalMemory` is rescanned when non-nil; pass nil from app-birth call
+    /// sites that have no sidebar store (the chat coordinator rescans on the
+    /// next app-scoped write).
     @MainActor
-    static func seedAgentsMd(globalMemory: MemoryStore?, appRootOverride: URL?)
+    static func seedAgentsMd(globalMemory: MemoryStore?, appRoot: URL)
 }
 
 /// Centralised registry of all seeded examples. Add a new conformance here
@@ -46,11 +47,15 @@ public enum ExampleRegistry {
     ]
 
     /// Seed one example's persona AGENTS.md at app birth (restore / fresh
-    /// install). No-op when the named MyApp isn't an example. `globalMemory`
-    /// is rescanned when provided.
+    /// install). The example is identified by display name; its memories are
+    /// rooted on `id`. No-op when the name isn't an example. `globalMemory` is
+    /// rescanned when provided.
     @MainActor
-    public static func seedAgentsMd(forAppNamed name: String, globalMemory: MemoryStore? = nil) {
-        example(named: name)?.seedAgentsMd(globalMemory: globalMemory, appRootOverride: nil)
+    public static func seedAgentsMd(
+        forAppNamed name: String, id: UUID, globalMemory: MemoryStore? = nil
+    ) {
+        example(named: name)?.seedAgentsMd(
+            globalMemory: globalMemory, appRoot: MemoryStore.appRoot(myAppId: id))
     }
 
     /// Look up an example type by its `name`. Returns `nil` when not found.

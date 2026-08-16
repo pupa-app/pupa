@@ -227,7 +227,7 @@ public final class MemoryStore {
 
     /// Snapshot every file under the root as `(relativePath, content)` pairs —
     /// the marketplace export of this (app-scoped) memory store. Paths are
-    /// root-relative so import can re-root them under a new app's slug.
+    /// root-relative so import can re-root them under a new app's folder.
     /// Optionally restrict to a set of relative paths (e.g. only `AGENTS.md`).
     /// Reads are coordinated so iCloud-synced files export their latest bytes.
     public func exportFiles(matching keep: ((String) -> Bool)? = nil) -> [MemoryFile] {
@@ -255,9 +255,12 @@ public final class MemoryStore {
     /// excluded (marketplace import threat surface; nothing executes them).
     nonisolated static let writableExtensions: Set<String> = ["md", "json"]
 
-    /// Top-level folder for a myApp: `<slug>` (e.g. `"my-fitness-app"`).
-    public nonisolated static func myAppFolder(myAppName: String) -> String {
-        slugify(myAppName)
+    /// Top-level memory folder for a myApp: its immutable UUID (lowercased).
+    /// Keying on the id — never the display-name slug — means the on-disk
+    /// location can't move on rename or collide on import. The Memories UI
+    /// labels the dir with the live app name.
+    public nonisolated static func myAppFolder(myAppId: UUID) -> String {
+        myAppId.uuidString.lowercased()
     }
 
     // MARK: `pupa/` config folder
@@ -289,8 +292,8 @@ public final class MemoryStore {
         "\(pupaAgentsDir)/\(slugify(name))"
     }
     /// Absolute (global-root-relative) `pupa/` folder for a myApp.
-    public static func pupaFolder(myAppName: String) -> String {
-        "\(myAppFolder(myAppName: myAppName))/\(pupaFolderName)"
+    public static func pupaFolder(myAppId: UUID) -> String {
+        "\(myAppFolder(myAppId: myAppId))/\(pupaFolderName)"
     }
 
     /// Top-level folder for the orchestrator's memories.
@@ -298,8 +301,8 @@ public final class MemoryStore {
 
     /// Absolute URL for a myApp's memory root — used as `rootOverride` when
     /// creating a session-scoped `MemoryStore`.
-    public static func appRoot(myAppName: String) -> URL {
-        defaultRoot().appendingPathComponent(myAppFolder(myAppName: myAppName), isDirectory: true)
+    public static func appRoot(myAppId: UUID) -> URL {
+        defaultRoot().appendingPathComponent(myAppFolder(myAppId: myAppId), isDirectory: true)
     }
 
     /// This store's root URL (the override, or the default `…/memories`).
@@ -310,43 +313,11 @@ public final class MemoryStore {
     /// dir rather than the real Application Support default. Used by the
     /// marketplace export/import. Writes through the child rescan this store
     /// too, so the sidebar/Memories tab refresh without a relaunch.
-    public func appScopedStore(forAppNamed name: String) -> MemoryStore {
+    public func appScopedStore(forAppId id: UUID) -> MemoryStore {
         let child = MemoryStore(rootOverride: root.appendingPathComponent(
-            Self.myAppFolder(myAppName: name), isDirectory: true))
+            Self.myAppFolder(myAppId: id), isDirectory: true))
         child.onDidMutate = { [weak self] in self?.rescan() }
         return child
-    }
-
-    /// Move a myApp's memory subtree to its new slug after a rename. Memories
-    /// are keyed on the display-name slug, so without this the Memories tab,
-    /// export scoping, and future agent writes all resolve to an empty new
-    /// slug while the files sit orphaned under the old one.
-    ///
-    /// No-op when the slugs coincide or the source folder is missing. If the
-    /// destination folder already exists the trees merge per-file and an
-    /// existing destination file wins (the source copy stays put).
-    public func migrateAppFolder(fromAppNamed oldName: String, toAppNamed newName: String) {
-        let oldSlug = Self.myAppFolder(myAppName: oldName)
-        let newSlug = Self.myAppFolder(myAppName: newName)
-        guard !oldSlug.isEmpty, !newSlug.isEmpty, oldSlug != newSlug else { return }
-        let fm = FileManager.default
-        let src = root.appendingPathComponent(oldSlug, isDirectory: true)
-        let dst = root.appendingPathComponent(newSlug, isDirectory: true)
-        guard fm.fileExists(atPath: src.path) else { return }
-        if !fm.fileExists(atPath: dst.path) {
-            try? CloudDocument.move(from: src, to: dst)
-        } else {
-            let srcComponents = src.standardizedFileURL.pathComponents.count
-            for file in filesUnder(src) {
-                let rel = file.standardizedFileURL.pathComponents
-                    .dropFirst(srcComponents).joined(separator: "/")
-                let target = dst.appendingPathComponent(rel)
-                guard !fm.fileExists(atPath: target.path) else { continue }
-                try? CloudDocument.move(from: file, to: target)
-            }
-            if filesUnder(src).isEmpty { CloudDocument.delete(src) }
-        }
-        rescan()
     }
 
     /// Fold iCloud conflict-renamed twin dirs (`<base> N/`, space+digits —
@@ -358,17 +329,17 @@ public final class MemoryStore {
     /// by the mirror's normal baseline delete propagation on the next
     /// reconcile. Idempotent.
     ///
-    /// **Top-level** twins (`memories/<slug> N`) fold when `<base>` is an
-    /// addressable slug — top-level dirs are app slugs / orchestrator and
-    /// slugify never emits a space, so the `<base> N` shape can only be an
-    /// iCloud twin. **Nested** twins (`memories/<slug>/…/<x> N`) inside an
+    /// **Top-level** twins (`memories/<base> N`) fold when `<base>` is an
+    /// addressable folder — top-level dirs are app uuids / orchestrator, neither
+    /// of which contains a space, so the `<base> N` shape can only be an
+    /// iCloud twin. **Nested** twins (`memories/<base>/…/<x> N`) inside an
     /// addressable subtree fold only when a sibling `<x>` dir survives — the
     /// twin's origin — since agent-created nested dirs may legitimately contain
     /// spaces, so the name alone isn't proof.
     @discardableResult
     public func foldConflictTwinDirs(addressableBases: Set<String>) -> Bool {
         var changed = false
-        // Top-level: gate on the addressable slug; no sibling required.
+        // Top-level: gate on the addressable folder; no sibling required.
         for src in subdirs(root) where twinBase(src.lastPathComponent).map(addressableBases.contains) == true {
             changed = foldTwinDir(src) || changed
         }
@@ -473,21 +444,6 @@ public final class MemoryStore {
     /// Absolute URL for the orchestrator's memory root.
     public static func orchestratorRoot() -> URL {
         defaultRoot().appendingPathComponent(orchestratorFolder(), isDirectory: true)
-    }
-
-    /// Component-type folder inside a myApp: `<myAppSlug>/<componentKind>`
-    /// (e.g. `"my-fitness-app/slack"`).
-    public static func componentFolder(myAppName: String, componentKind: String) -> String {
-        "\(myAppFolder(myAppName: myAppName))/\(componentKind)"
-    }
-
-    /// Private subfolder for a named subagent within the global root:
-    /// `<myAppSlug>/pupa/agents/<agentNameSlug>`
-    /// (e.g. `"my-fitness-app/pupa/agents/marketing"`). Lives under the `pupa/`
-    /// config folder so a subagent's prompt + private notes sit with the rest
-    /// of the workspace config.
-    public static func slackAgentFolder(myAppName: String, agentName: String) -> String {
-        "\(myAppFolder(myAppName: myAppName))/\(slackAgentSubfolder(agentName: agentName))"
     }
 
     /// Relative path within an app-scoped `MemoryStore` for a named subagent:

@@ -3,6 +3,23 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.249] — 2026-08-16
+
+### Fixed
+
+- **Renaming an app no longer risks losing its memories.** Memory folders were
+  named after the app's display name, so a rename had to move the whole subtree
+  and an import could land on another app's folder — either could strand notes,
+  skills and agent prompts. Each app's memories now live in a folder named after
+  the app itself, which never changes: renaming moves nothing, and an imported
+  copy always gets its own space.
+
+  **Breaking:** existing memory folders are not migrated. Export your apps on
+  `0.0.248` *before* updating, then import the bundles after — an export taken
+  after the update ships no memories. The old folders stay on disk under
+  `memories/`, named after the app they belonged to; nothing reads them any
+  more, so delete them by hand once you've confirmed the import.
+
 ## [0.0.247] — 2026-08-14
 
 ### Fixed

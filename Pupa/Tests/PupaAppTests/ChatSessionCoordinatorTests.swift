@@ -286,10 +286,9 @@ struct ChatSessionCoordinatorTests {
         let (store, ids) = makeStore()
         let stats = AgentStatsStore(defaults: freshDefaults())
         let coord = makeStatsCoordinator(store: store, stats: stats)
-        let appName = store.myApps.first(where: { $0.id == ids[0] })!.name
         // `runSubagent` throws `.notFound` before ever reaching the gate, so
         // the subagent has to exist on disk.
-        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: appName))
+        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: ids[0]))
         _ = try AgentStore(memory: appMemory).createAgent(name: "scout", description: "recon")
 
         let tool = try #require(coord.session(for: .myApp(ids[0])).registry.resolve("invoke_agent"))

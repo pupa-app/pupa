@@ -70,14 +70,14 @@ struct MemoryLockTests {
 
     // MARK: - Global (sidebar) store path guard
 
-    @Test("global-root path guard resolves the leading app slug")
+    @Test("global-root path guard resolves the leading app folder")
     func rootPathGuard() {
         let (store, id) = freshStore()
-        let slug = MemoryStore.myAppFolder(myAppName: "Notes App")
-        #expect(!store.isMemoryLocked(forRootPath: "\(slug)/notes/a.md"))
+        let folder = MemoryStore.myAppFolder(myAppId: id)
+        #expect(!store.isMemoryLocked(forRootPath: "\(folder)/notes/a.md"))
         store.setMemoryLocked(true, myAppId: id)
-        #expect(store.isMemoryLocked(forRootPath: "\(slug)/notes/a.md"))
-        #expect(!store.isMemoryLocked(forRootPath: "other-app/notes/a.md"))
+        #expect(store.isMemoryLocked(forRootPath: "\(folder)/notes/a.md"))
+        #expect(!store.isMemoryLocked(forRootPath: "\(UUID().uuidString.lowercased())/notes/a.md"))
         #expect(!store.isMemoryLocked(forRootPath: ""))
     }
 

@@ -157,7 +157,7 @@ public final class ChatSessionCoordinator {
     /// Call when a new myApp is created so the sidebar shows the file
     /// immediately, before any chat session is opened.
     public func ensureMyAppMemory(_ myApp: MyApp) {
-        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: myApp.name))
+        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myApp.id))
         if !appMemory.fileExists(at: MemoryStore.pupaAgentsPath) {
             // Do NOT bake the type fragment here. It is applied dynamically
             // (base + catalog + per-kind) and layered under AGENTS.md by
@@ -272,8 +272,9 @@ public final class ChatSessionCoordinator {
         switch scope {
         case .myApp(let id):
             let myApp = store.myApps.first(where: { $0.id == id })
-            let name = myApp?.name ?? ""
-            sessionMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: name))
+            // Root the agent's memory on the immutable app id — never the display
+            // name. Rename/import can't strand or divert this session's writes.
+            sessionMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: id))
             sessionMemory.onDidMutate = { [weak self] in self?.memory.rescan() }
             sessionMemory.writeGuard = { [weak store] _ in store?.isMemoryLocked(myAppId: id) ?? false }
             if let myApp { ensureMyAppMemory(myApp) }
@@ -405,8 +406,7 @@ public final class ChatSessionCoordinator {
         )
         defer { agentInvocationGate.exit(invocationId) }
         let registry = ToolRegistry()
-        let myAppName = store.myApps.first(where: { $0.id == myAppId })?.name ?? ""
-        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: myAppName))
+        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myAppId))
         appMemory.onDidMutate = { [weak self] in self?.memory.rescan() }
         appMemory.writeGuard = { [weak store] _ in store?.isMemoryLocked(myAppId: myAppId) ?? false }
         AppTools.registerMyAppTools(on: registry, store: store, myAppId: myAppId, memory: appMemory)
@@ -530,8 +530,7 @@ public final class ChatSessionCoordinator {
         let store = self.store
         let settings = self.settings
         let urlSession = self.urlSession
-        let myAppName = store.myApps.first(where: { $0.id == myAppId })?.name ?? ""
-        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: myAppName))
+        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myAppId))
         appMemory.onDidMutate = { [weak self] in self?.memory.rescan() }
         appMemory.writeGuard = { [weak store] _ in store?.isMemoryLocked(myAppId: myAppId) ?? false }
         guard let subagent = AgentStore(memory: appMemory).agent(named: agentName) else {
@@ -775,8 +774,7 @@ public final class ChatSessionCoordinator {
         let memory = self.memory
         let settings = self.settings
         let urlSession = self.urlSession
-        let myAppName = store.myApps.first(where: { $0.id == myAppId })?.name ?? ""
-        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: myAppName))
+        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myAppId))
         appMemory.onDidMutate = { [weak self] in self?.memory.rescan() }
         appMemory.writeGuard = { [weak store] _ in store?.isMemoryLocked(myAppId: myAppId) ?? false }
         // Resolve the subagent (`agentId` is its slug) from the filesystem and
@@ -1020,8 +1018,7 @@ public final class ChatSessionCoordinator {
     /// via the MyApp's `pupa/agents/` roster. Returns nil when no match.
     @MainActor
     private func resolveSubagentSlug(name: String, myAppId: UUID) -> String? {
-        let appName = store.myApps.first(where: { $0.id == myAppId })?.name ?? ""
-        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: appName))
+        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myAppId))
         let lower = name.lowercased()
         return AgentStore(memory: appMemory).agents.first(where: {
             $0.name.lowercased() == lower || ($0.displayName?.lowercased() == lower)

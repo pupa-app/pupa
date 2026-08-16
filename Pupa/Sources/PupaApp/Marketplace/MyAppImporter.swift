@@ -191,7 +191,7 @@ public enum MyAppImporter {
         var activeId = decoded.activeComponentId
         if let a = activeId, !keptIds.contains(a) { activeId = components.first?.id }
 
-        // Stage 0f — fresh id, unique name (+slug), fresh thread & timestamp.
+        // Stage 0f — fresh id, unique name, fresh thread & timestamp.
         let newName = uniqueName(base: decoded.name, store: store)
         let fresh = ChatThread()
         let app = MyApp(
@@ -209,11 +209,12 @@ public enum MyAppImporter {
         // Stage 4 — insert.
         let id = store.importMyApp(app)
 
-        // Stage 5 — memories (last). Re-rooted under the new name; every write
-        // goes through `MemoryStore.writeFile`, whose `resolve` blocks `..`,
-        // absolute paths and any extension outside the `.md` / `.json` allowlist
-        // (so an imported bundle can't drop, say, a `.py` into the sandbox).
-        writeMemories(bundle.memories, appName: newName, memory: memory)
+        // Stage 5 — memories (last). Re-rooted under the new app's immutable id
+        // (fresh UUID above) — so a re-import can never collide with or clobber
+        // the source app's memory subtree. Every write goes through
+        // `MemoryStore.writeFile`, whose `resolve` blocks `..`, absolute paths and
+        // any extension outside the `.md` / `.json` allowlist.
+        writeMemories(bundle.memories, appId: id, memory: memory)
 
         return ImportResult(myAppId: id, warnings: warnings)
     }
@@ -320,23 +321,20 @@ public enum MyAppImporter {
         return (clean, dropped)
     }
 
-    /// First free name whose display name *and* memory slug don't collide with
-    /// an existing app (slug collision would clobber another app's memories).
+    /// First display name that doesn't collide with an existing app. Memory
+    /// folders are keyed on the app's uuid, so only the visible name can clash.
     private static func uniqueName(base: String, store: MyAppStore) -> String {
         let names = Set(store.myApps.map(\.name))
-        let slugs = Set(store.myApps.map { MemoryStore.myAppFolder(myAppName: $0.name) })
-        func free(_ candidate: String) -> Bool {
-            !names.contains(candidate) && !slugs.contains(MemoryStore.myAppFolder(myAppName: candidate))
-        }
+        func free(_ candidate: String) -> Bool { !names.contains(candidate) }
         if free(base) { return base }
         var n = 2
         while !free("\(base) \(n)") { n += 1 }
         return "\(base) \(n)"
     }
 
-    private static func writeMemories(_ files: [MemoryFile], appName: String, memory: MemoryStore) {
+    private static func writeMemories(_ files: [MemoryFile], appId: UUID, memory: MemoryStore) {
         let capped = files.prefix(maxMemoryFiles)
-        let scoped = memory.appScopedStore(forAppNamed: appName)
+        let scoped = memory.appScopedStore(forAppId: appId)
         for file in capped {
             guard file.content.utf8.count <= maxMemoryFileBytes else { continue }
             // writeFile's resolve() rejects `..`, absolute paths and any

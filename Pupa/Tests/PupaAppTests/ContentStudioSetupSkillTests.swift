@@ -11,7 +11,7 @@ struct ContentStudioSetupSkillTests {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("pupa-cs-\(UUID().uuidString)", isDirectory: true)
         let mem = MemoryStore(rootOverride: root)
-        ContentStudioExample.seedAgentsMd(globalMemory: mem, appRootOverride: root)
+        ContentStudioExample.seedAgentsMd(globalMemory: mem, appRoot: root)
 
         #expect(mem.fileExists(at: "pupa/skills/setup/SKILL.md"))
         #expect(!mem.fileExists(at: "SETUP.md"))          // no legacy root playbook

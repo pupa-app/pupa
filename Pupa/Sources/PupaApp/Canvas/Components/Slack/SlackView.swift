@@ -71,8 +71,7 @@ public struct SlackView: View {
     /// recompute after the create-agent sheet writes a new file.
     private var agentRoster: [Subagent] {
         _ = rosterRefresh
-        let appName = store.myApps.first(where: { $0.id == myAppId })?.name ?? ""
-        return AgentStore(memory: MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: appName))).agents
+        return AgentStore(memory: MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myAppId))).agents
     }
 
     public var body: some View {
@@ -106,8 +105,7 @@ public struct SlackView: View {
                   let agentId = url.host, !agentId.isEmpty else {
                 return .systemAction
             }
-            let appName = store.myApps.first(where: { $0.id == myAppId })?.name ?? ""
-            let display = AgentStore(memory: MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: appName)))
+            let display = AgentStore(memory: MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myAppId)))
                 .agent(named: agentId)?.displayName ?? agentId
             if let dmId = store.slackOpenDM(
                 agentId: agentId,
@@ -170,8 +168,7 @@ public struct SlackView: View {
                     // Create a filesystem subagent — the canonical writer
                     // produces pupa/agents/<slug>/AGENTS.md; `role` becomes the
                     // subagent description.
-                    let appName = store.myApps.first(where: { $0.id == myAppId })?.name ?? ""
-                    let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: appName))
+                    let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myAppId))
                     _ = try? AgentStore(memory: appMemory).createAgent(
                         name: name,
                         description: role,
