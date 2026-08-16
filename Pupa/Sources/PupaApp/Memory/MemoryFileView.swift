@@ -12,6 +12,9 @@ import MarkdownUI
 /// wins. Outside edit mode, agent-driven rescans refresh the preview.
 public struct MemoryFileView: View {
     @Bindable var store: MemoryStore
+    /// Global-root-relative (`<appId>/notes/a.md`, `orchestrator/journal.md`) —
+    /// the space the shared store reads from. Displayed scope-relative; see
+    /// `displayPath`.
     let path: String
     /// When true (the file's app has locked memories), Edit / Delete are hidden
     /// and the note is preview-only.
@@ -111,6 +114,15 @@ public struct MemoryFileView: View {
         )
     }
 
+    /// `path` without its scope-root segment — the app's uuid folder, or
+    /// `orchestrator/`. Showing the raw path would put a 36-char uuid in the
+    /// title; scope-relative is also what the agent and the Memories tree use.
+    /// A path with no separator is already scope-relative.
+    var displayPath: String {
+        guard let slash = path.firstIndex(of: "/") else { return path }
+        return String(path[path.index(after: slash)...])
+    }
+
     /// "Memory file" for markdown, "JSON file" otherwise.
     private var kindLabel: String {
         if MemoryFilenameHelper.rendersAsMarkdown(path) { return "Memory file" }
@@ -120,7 +132,7 @@ public struct MemoryFileView: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(path)
+                Text(displayPath)
                     .font(.title3.weight(.semibold))
                     .lineLimit(2)
                 HStack(spacing: 8) {

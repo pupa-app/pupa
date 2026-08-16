@@ -95,6 +95,27 @@ struct MemoryUuidKeyingTests {
         #expect(!rootedMemory().folderExists(at: "bravo"))
     }
 
+    /// The folder is a uuid now, so anything rendering a global-root path
+    /// verbatim puts 36 characters of noise in front of the user.
+    @Test("The memory file header shows the path without its uuid scope root")
+    func fileHeaderHidesTheScopeRoot() {
+        let id = UUID()
+        let memory = rootedMemory()
+        let view = MemoryFileView(
+            store: memory,
+            path: "\(MemoryStore.myAppFolder(myAppId: id))/notes/a.md",
+            onDeleted: {})
+        #expect(view.displayPath == "notes/a.md")
+
+        let orchestrator = MemoryFileView(
+            store: memory, path: "orchestrator/journal.md", onDeleted: {})
+        #expect(orchestrator.displayPath == "journal.md")
+
+        // Already scope-relative (no separator) — left alone.
+        let bare = MemoryFileView(store: memory, path: "a.md", onDeleted: {})
+        #expect(bare.displayPath == "a.md")
+    }
+
     /// The supported upgrade path: export on the old build, import into a fresh
     /// store. Memories must land under the new app's id, not any name slug.
     @Test("Export → fresh store → import lands memories under the new id")

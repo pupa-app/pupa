@@ -191,7 +191,7 @@ public enum MyAppImporter {
         var activeId = decoded.activeComponentId
         if let a = activeId, !keptIds.contains(a) { activeId = components.first?.id }
 
-        // Stage 0f — fresh id, unique name (+slug), fresh thread & timestamp.
+        // Stage 0f — fresh id, unique name, fresh thread & timestamp.
         let newName = uniqueName(base: decoded.name, store: store)
         let fresh = ChatThread()
         let app = MyApp(

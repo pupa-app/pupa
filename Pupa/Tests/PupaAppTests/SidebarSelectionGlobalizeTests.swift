@@ -27,6 +27,18 @@ struct SidebarSelectionGlobalizeTests {
         #expect(sel == .memoryFile("orchestrator/journal.md"))
     }
 
+    /// Keying on the id removed the roster lookup that used to fail open — an
+    /// unresolvable id no longer passes the selection through unprefixed (which
+    /// left the global store reading a scope-relative path). Every id maps to a
+    /// folder, live app or not.
+    @Test("An id with no live app still globalizes")
+    func unknownAppIdStillGlobalized() {
+        let ghost = UUID()
+        let sel = SidebarSelection.myAppMemoryFile(ghost, "notes/x.md")
+            .globalizedMemoryPath()
+        #expect(sel == .myAppMemoryFile(ghost, "\(MemoryStore.myAppFolder(myAppId: ghost))/notes/x.md"))
+    }
+
     @Test("Non-memory selections pass through untouched")
     func nonMemoryPassesThrough() {
         let sel = SidebarSelection.myAppComponent(appId, "tracker-1")

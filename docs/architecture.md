@@ -929,8 +929,8 @@ both subtrees on every trigger.
 
 **Conflict-twin adoption.** Two devices that each seed a MyApp's
 `memories/<uuid>/` before the first sync collide on that path; iCloud keeps one
-and renames the other to `memories/<uuid> 2` (a space + digits — a uuid contains
-neither, so never app-addressable). `MemoryStore.foldConflictTwinDirs`
+and renames the other to `memories/<uuid> 2` (a space + digits — a uuid has no
+space, so never app-addressable). `MemoryStore.foldConflictTwinDirs`
 folds a `<base> N` twin back into `<base>` per-file (existing file wins; a
 differing twin copy goes to the local-only `conflicts/` tree) and removes the
 emptied twin; the mirror then propagates the cloud-side deletion. Top-level

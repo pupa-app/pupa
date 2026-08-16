@@ -3,7 +3,7 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
-## [0.0.249] — 2026-08-15
+## [0.0.249] — 2026-08-16
 
 ### Fixed
 
@@ -16,7 +16,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
 
   **Breaking:** existing memory folders are not migrated. Export your apps on
   `0.0.248` *before* updating, then import the bundles after — an export taken
-  after the update ships no memories.
+  after the update ships no memories. The old folders stay on disk under
+  `memories/`, named after the app they belonged to; nothing reads them any
+  more, so delete them by hand once you've confirmed the import.
 
 ## [0.0.247] — 2026-08-14
 

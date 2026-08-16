@@ -3288,14 +3288,18 @@ public final class MyAppStore {
         return true
     }
 
-    /// Whether a global-root memory `path` (e.g. `"my-fitness-app/notes/a.md"`)
-    /// falls under a locked MyApp — the leading segment is the app slug. Wired
-    /// into the global (sidebar) `MemoryStore.writeGuard` so the Memories UI
-    /// refuses edits to a locked app just like the agent's scoped store does.
+    /// Whether a global-root memory `path` (e.g. `"<app-uuid>/notes/a.md"`)
+    /// falls under a locked MyApp — the leading segment is the app's memory
+    /// folder, its id. Wired into the global (sidebar) `MemoryStore.writeGuard`
+    /// so the Memories UI refuses edits to a locked app just like the agent's
+    /// scoped store does. `orchestrator/` doesn't parse as a uuid, and has no
+    /// lock to honour.
     public func isMemoryLocked(forRootPath path: String) -> Bool {
-        let folder = path.split(separator: "/").first.map(String.init) ?? ""
-        guard !folder.isEmpty else { return false }
-        return myApps.contains { $0.isMemoryLocked && MemoryStore.myAppFolder(myAppId: $0.id) == folder }
+        // Parse the segment once rather than formatting every app's id per call
+        // — this runs before every mutating op on the sidebar store.
+        guard let folder = path.split(separator: "/").first,
+              let id = UUID(uuidString: String(folder)) else { return false }
+        return myApps.contains { $0.isMemoryLocked && $0.id == id }
     }
 
     // MARK: - Per-file persistence
@@ -4232,7 +4236,7 @@ public final class MyAppStore {
             fileCount: lost.reduce(0) { $0 + $1.1.count })
     }
 
-    /// Quarantined memory files for `appName` preserved since `since` whose path
+    /// Quarantined memory files for `appId` preserved since `since` whose path
     /// is no longer on disk. A live file always means no loss to report: the
     /// copy is a conflict loser or a folded twin, not something that went.
     private nonisolated static func missingMemoryFiles(
