@@ -21,6 +21,10 @@ backend (separate repo) over a single `POST /` SSE stream.
   recipe for landing a new canvas shape.
 - [docs/marketplace.md](docs/marketplace.md) — MyApp export/import bundle
   format, the unified reference model, and the import threat model.
+- [docs/testing-turn-recovery.md](docs/testing-turn-recovery.md) — by-hand
+  playbook for turn recovery (parked frontend-tool dispatch): env knobs to
+  shrink the clocks, files + log lines to watch, scenario matrix. For what the
+  suite can't reach — real kills, real drops, real clocks.
 - [docs/skills.md](docs/skills.md) — the per-MyApp `pupa/` config folder
   (AGENTS.md, subagent prompts) and how skills become slash commands +
   model-loadable playbooks (`app_skill_view`).
