@@ -9,11 +9,27 @@ import AGUIKit
 final class RelaunchMockURLProtocol: URLProtocol, @unchecked Sendable {
     /// SSE body served to `POST /`; nil → 204 No Content.
     nonisolated(unsafe) static var sseBody: Data?
+    /// Per-POST bodies, served by request index. Takes precedence over
+    /// `sseBody` when set — a multi-round flow (park → resume) needs a
+    /// different body per round. Past the end falls back to `sseBody`.
+    nonisolated(unsafe) static var sseBodies: [Data]?
     nonisolated(unsafe) static var postBodies: [Data] = []
+    /// Connect-time failure injector, keyed by 1-based POST index — mimics a
+    /// dropped socket so the session's retry ladder can be driven.
+    nonisolated(unsafe) static var failPostAt: (@Sendable (Int) -> URLError?)?
 
     static func reset() {
         sseBody = nil
+        sseBodies = nil
         postBodies = []
+        failPostAt = nil
+    }
+
+    /// Body for the POST being served (bodies are appended before this runs).
+    static func bodyForCurrentPost() -> Data? {
+        let idx = postBodies.count - 1
+        if let scripted = sseBodies, idx >= 0, idx < scripted.count { return scripted[idx] }
+        return sseBody
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -37,7 +53,12 @@ final class RelaunchMockURLProtocol: URLProtocol, @unchecked Sendable {
             }
             Self.postBodies.append(data)
 
-            guard let body = Self.sseBody else {
+            if let failer = Self.failPostAt, let err = failer(Self.postBodies.count) {
+                client?.urlProtocol(self, didFailWithError: err)
+                return
+            }
+
+            guard let body = Self.bodyForCurrentPost() else {
                 let resp = HTTPURLResponse(url: request.url!, statusCode: 204,
                                            httpVersion: nil, headerFields: [:])!
                 client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)

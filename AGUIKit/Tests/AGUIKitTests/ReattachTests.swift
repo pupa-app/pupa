@@ -238,10 +238,14 @@ struct Reattach {
         #expect(completed)
         // send(1) + resume-that-drops(2) + reattach-retry(3).
         #expect(MockURLProtocol.requestCount == 3)
-        // The recovery POST re-attaches (never re-sends the resume) — it carries
-        // command.reattach, not command.resume.
+        // A drop says nothing about whether the resume arrived, so the recovery
+        // POST probes the replay log first — here it serves a tail, proving the
+        // results landed and the turn ran on. Re-POSTing them would instead hit
+        // a session the backend has already retired (pupa#258). The re-send is
+        // reserved for an EMPTY tail; see `droppedResumePost_resendsResults`.
         let retry = try JSONDecoder().decode(RunAgentInput.self, from: MockURLProtocol.requestBodies[2])
         #expect(retry.forwardedProps["command"]?["reattach"] != nil)
+        #expect(retry.forwardedProps["command"]?["resume"] == nil)
     }
 }
 }
@@ -403,8 +407,12 @@ struct CursorPersistence {
 
         #expect(completed)
         #expect(MockURLProtocol.requestCount == 3)
+        // A 502 from a flaky edge doesn't say whether the origin got the resume,
+        // so the retry probes the replay log; the tail it serves shows the turn
+        // ran on. Only an empty tail triggers a re-send (pupa#258).
         let retry = try JSONDecoder().decode(RunAgentInput.self, from: MockURLProtocol.requestBodies[2])
         #expect(retry.forwardedProps["command"]?["reattach"] != nil)
+        #expect(retry.forwardedProps["command"]?["resume"] == nil)
     }
 
     @Test("reattach() whose first connect drops retries with backoff instead of erroring")

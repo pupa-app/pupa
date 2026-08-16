@@ -463,6 +463,7 @@ public final class MyAppStore {
         // Reap the deleted app's per-thread transcript caches before it leaves
         // the roster — `persist()` no longer has the body to enumerate.
         TranscriptCache.delete(myApps[idx].threads.map(\.id))
+        FrontendDispatchJournalStore.delete(myApps[idx].threads.map(\.id))
         // Restore point BEFORE the body goes — what Settings ▸ Recently deleted
         // restores from. Synchronous, unlike the debounced `scheduleSnapshot`
         // everywhere else: it must be durable before the body and the tombstone,
@@ -680,6 +681,7 @@ public final class MyAppStore {
             }
         }
         TranscriptCache.delete(threadId)
+        FrontendDispatchJournalStore.delete(threadId)
         persist()
     }
 
@@ -732,6 +734,7 @@ public final class MyAppStore {
             let kept = Self.threadsWithinCap(memoryThreads, current: memoryCurrentThreadId, capBytes: capBytes)
             guard kept.count != memoryThreads.count else { return false }
             TranscriptCache.delete(Self.droppedIds(memoryThreads, kept: kept))
+            FrontendDispatchJournalStore.delete(Self.droppedIds(memoryThreads, kept: kept))
             memoryThreads = kept
             return true
         case .myApp(let id):
@@ -739,6 +742,7 @@ public final class MyAppStore {
             let kept = Self.threadsWithinCap(myApps[idx].threads, current: myApps[idx].currentThreadId, capBytes: capBytes)
             guard kept.count != myApps[idx].threads.count else { return false }
             TranscriptCache.delete(Self.droppedIds(myApps[idx].threads, kept: kept))
+            FrontendDispatchJournalStore.delete(Self.droppedIds(myApps[idx].threads, kept: kept))
             myApps[idx].threads = kept
             return true
         }

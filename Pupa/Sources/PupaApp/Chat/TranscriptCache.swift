@@ -12,6 +12,11 @@ struct TranscriptSnapshot: Equatable, Sendable {
     /// catch up via reattach before treating the thread as settled.
     var turnInFlight: Bool
     var savedAt: Date
+    /// Replay cursor that re-delivers the `on_interrupt` frame the turn is
+    /// parked on, or nil when it isn't parked on one. A relaunch seeds this
+    /// instead of `lastEventSeq` so the backend re-sends the frontend calls and
+    /// the turn can be resumed rather than silently restarted (pupa#258).
+    var pendingDispatchAfterSeq: Int?
 }
 
 /// On-device cache of rendered chat transcripts, one JSON file per thread under
@@ -28,12 +33,19 @@ struct TranscriptSnapshot: Equatable, Sendable {
 enum TranscriptCache {
 
     /// On-disk envelope. Kept private — callers speak `TranscriptSnapshot`.
+    ///
+    /// Every field added here MUST be Optional: the decoder is synthesized and
+    /// all-or-nothing, so a required new key fails `decode(Envelope.self)` for
+    /// every file written before it existed, and the legacy bare-array fallback
+    /// can't read an object either — silently wiping the device's whole cached
+    /// history. A Swift default value does not help; only Optional does.
     private struct Envelope: Codable {
         var v: Int
         var bubbles: [ChatBubble]
         var lastEventSeq: Int?
         var turnInFlight: Bool
         var savedAt: Date
+        var pendingDispatchAfterSeq: Int?
     }
     private nonisolated static var dir: URL {
         PupaStorage.stateRoot.appendingPathComponent("transcripts", isDirectory: true)
@@ -57,12 +69,14 @@ enum TranscriptCache {
         if let env = try? dec.decode(Envelope.self, from: data) {
             return TranscriptSnapshot(
                 bubbles: env.bubbles, lastEventSeq: env.lastEventSeq,
-                turnInFlight: env.turnInFlight, savedAt: env.savedAt)
+                turnInFlight: env.turnInFlight, savedAt: env.savedAt,
+                pendingDispatchAfterSeq: env.pendingDispatchAfterSeq)
         }
         if let bubbles = try? dec.decode([ChatBubble].self, from: data) {
             return TranscriptSnapshot(
                 bubbles: bubbles, lastEventSeq: nil,
-                turnInFlight: false, savedAt: .distantPast)
+                turnInFlight: false, savedAt: .distantPast,
+                pendingDispatchAfterSeq: nil)
         }
         return nil
     }
@@ -72,7 +86,8 @@ enum TranscriptCache {
     nonisolated static func save(_ bubbles: [ChatBubble], threadId: String) {
         save(
             TranscriptSnapshot(
-                bubbles: bubbles, lastEventSeq: nil, turnInFlight: false, savedAt: Date()),
+                bubbles: bubbles, lastEventSeq: nil, turnInFlight: false, savedAt: Date(),
+                pendingDispatchAfterSeq: nil),
             threadId: threadId
         )
     }
@@ -97,8 +112,9 @@ enum TranscriptCache {
         let enc = JSONEncoder()
         enc.outputFormatting = [.sortedKeys]
         let env = Envelope(
-            v: 1, bubbles: stripped, lastEventSeq: snapshot.lastEventSeq,
-            turnInFlight: snapshot.turnInFlight, savedAt: snapshot.savedAt)
+            v: 2, bubbles: stripped, lastEventSeq: snapshot.lastEventSeq,
+            turnInFlight: snapshot.turnInFlight, savedAt: snapshot.savedAt,
+            pendingDispatchAfterSeq: snapshot.pendingDispatchAfterSeq)
         guard let data = try? enc.encode(env) else { return }
         try? CloudDocument.write(data, to: url(threadId))
     }

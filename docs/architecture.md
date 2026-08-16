@@ -255,10 +255,14 @@ history stays reachable.
 title, `createdAt`, per-thread LLM override). The message transcript is owned by
 the backend but also **cached on-device** by `TranscriptCache`
 (`state/transcripts/<threadId>.json`, one file per thread, riding the same
-`state/` iCloud mirror). The file is a v1 snapshot envelope — bubbles **plus**
-the applied SSE replay cursor (`lastEventSeq`) and a `turnInFlight` flag,
+`state/` iCloud mirror). The file is a v2 snapshot envelope — bubbles **plus**
+the applied SSE replay cursor (`lastEventSeq`), a `turnInFlight` flag, and
+`pendingDispatchAfterSeq` (the parked-dispatch rewind point, pupa#258),
 captured together on the main actor so they are always mutually consistent;
-legacy bare-array files still decode (no cursor). `ChatViewModel.persistTranscript`
+v1 files and legacy bare-array files still decode. **Every envelope field added
+here must be Optional** — the decoder is synthesized and all-or-nothing, so a
+required new key would fail every older file and silently wipe the device's
+cached history. `ChatViewModel.persistTranscript`
 writes the snapshot at turn boundaries (after send, per assistant-message end,
 at turn settle — not per token) and on scene-phase `.background` /
 background-task expiry via `ChatSessionCoordinator.persistAllForBackground`;
@@ -299,6 +303,88 @@ handler can tell a slow tool from a dead app; scene-phase background sends one
 `state: "background"` notice (backend falls back to its absolute wall) and
 foreground re-arms the short liveness grace
 (`ChatSessionCoordinator.setAllHostBackgrounded`).
+
+**Resuming a turn parked on a frontend tool (pupa#258).** While the client runs
+an on-device tool the backend has already closed its SSE and parked, so a kill
+before the resume POST leaves nothing to catch up on — the replay cursor is
+already past the interrupt, the tail comes back empty, and the turn used to be
+reported settled and lost. Two pieces recover it:
+
+- **The rewind point.** `AgentSession` yields `.frontendDispatchParked(afterSeq:)`
+  when it decodes an `on_interrupt` — the cursor value that re-delivers *that*
+  frame. The VM persists it in the snapshot immediately (a kill can follow at
+  any moment) and, on relaunch, seeds **it** instead of `lastEventSeq`, so the
+  backend re-sends the call list and the existing "found interrupt →
+  dispatching" path answers the parked run. The foreground path
+  (`reattachIfNeeded`) rewinds the same way — the live cursor sits past the
+  interrupt, so reattaching at it replays nothing — via
+  `rewindReplayCursor(to:)`, the one non-monotonic cursor setter, reserved for
+  exactly this. `.frontendDispatchResolved` clears the rewind point once the
+  resume lands; it is yielded from **inside** the round, on its first frame, so
+  it always precedes a *new* park announced later in that same round (a resolve
+  emitted after the round would wipe the fresh rewind point of a turn that parks
+  twice). A `RUN_ERROR` frame is the one exception — the backend answered but
+  rejected the resume, which proves nothing. Nothing new is persisted about the
+  calls themselves:
+  the backend's replay log outlives the park (~6h vs 300s), so it is always the
+  cheaper source of truth. An unstamped interrupt frame yields no rewind point
+  and degrades to the old restart behaviour.
+- **The dispatch journal.** `FrontendDispatchJournalStore`
+  (`dispatch/<threadId>.json` at `activeRoot`, deliberately **outside** the
+  mirrored `state/` — it records what *this device* did) marks each call
+  `started` before its handler runs and `finished` with the result after.
+  `runFrontendDispatch` reads it **once per batch** (before the parallel
+  pre-launch, so a recorded call never gets a `Task` spawned) and answers by
+  `toolCallId`: a stored result replays verbatim, a started-but-unfinished call
+  reports "did not complete", and only an unrecorded call runs. That is what
+  makes the rewind safe — re-running blind would double-apply `addComponent`
+  and calendar writes whose side effect may already have landed.
+
+The batch is answered in **one** resume carrying **every** result in submission
+order: the backend synthesises `missing_tool_result` for any batch call absent
+from the payload, so a partial answer would corrupt the others. Both harnesses
+key resume results by `toolCallId` (claude `registry.resolve_results`, langgraph
+`frontend_interrupt`), and that id is the model's own `tool_use` id, stable
+across a replay — which is what makes an id-keyed journal safe on both.
+
+A resume round whose socket dies is ambiguous — the results may have landed with
+only the *response* lost — so `reattachAfterDrop` **probes the replay log first**
+and re-POSTs only when the tail comes back empty. A parked backend emits nothing
+until it has the results, so an empty tail is proof they never arrived; a
+non-empty one means the turn ran on, and re-POSTing would instead hit a session
+the backend has already retired ("no parked session") while the finished turn sat
+unread in the log. With no cursor at all (a backend that never stamps seqs) the
+resume is re-POSTed directly: a bare re-attach carrying `after_seq: -1` and an
+empty message list isn't short-circuited by the replay middleware and would land
+on a real agent loop.
+
+The journal is cleared only once the resume's first frame arrives (a kill
+mid-POST must replay, not re-run), and reaped four ways: that confirmation,
+thread deletion, an explicit Stop, and a 24h launch sweep
+(`FrontendDispatchJournalStore.sweep`, well past the 300s park wall). An empty
+reattach tail deliberately does **not** reap it — the reattach may simply have
+started past the interrupt with the park still alive — and neither does a
+transport failure or a Stop mid-recovery. Past the wall the park is gone: the
+replay log outlives it, so the interrupt still replays and the resume is answered
+with a backend error; that error (not silence) is what the VM reads as "the park
+expired", reaping the rewind point and journal and writing an explicit "that turn
+timed out" notice instead of a generic failure banner that would reappear on
+every launch.
+
+Recovery advertises the **same gated tool surface** a live send would:
+`reattach(toolFilter:)` takes the filter `send` uses, because the resume's
+`tools_after_round` is what the backend exposes next. Advertising the unfiltered
+registry reads as a gate unlock on the claude harness, which answers by
+rebuilding its client with a widened surface — breaking the prompt cache (tool
+definitions sit ahead of system and messages in the request prefix, so the whole
+cached prefix is invalidated) and injecting a synthetic "the tools you just
+activated are now available" turn for a gate the user never touched, with fresh
+`toolCallId`s the journal cannot match.
+
+Note the effective window is often ~30s rather than 300s: the backend deadline
+is `min(wall, last_keepalive + grace)` unless the client reported itself
+backgrounded, so a foreground crash usually exceeds it while the common
+backgrounded-then-killed case gets the full wall.
 
 **Chat-storage cap.** An opt-in **Settings ▸ Account ▸ Chat storage** cap
 (`SettingsStore.threadCapEnabled` / `threadCapMB` — off by default, fractional MB)
