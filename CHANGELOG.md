@@ -26,6 +26,28 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   to recover no longer discards the record that would have made a later retry
   safe.
 
+## [0.0.250] — 2026-08-16
+
+### Added
+
+- **Search any tracker or kanban board.** A search box sits above the cards in
+  both views and matches every field, link URLs included. In kanban it hides
+  non-matching cards but keeps every column in place, so the board never
+  reflows out from under you; a column with nothing left reads "No matches".
+  The query lives only in the view — typing never writes to disk.
+- **Shrink cards to one line.** A new button next to the grid/kanban toggle
+  collapses every card to its title, for a whole-board view. The choice is
+  saved per component, so a board stays shrunk across relaunches.
+- **All of an item's links are reachable.** Cards used to show one link in
+  kanban and two in the grid, silently dropping the rest. They now show three
+  (grid) or two (kanban) plus a "+N" you can tap to see them all.
+
+### Fixed
+
+- **The kanban board ignored the tracker filter.** A filter set from grid mode
+  or by the agent had no effect once you switched to kanban. Both views now
+  select rows the same way, and the filter chips are reachable from kanban.
+
 ## [0.0.249] — 2026-08-16
 
 ### Fixed

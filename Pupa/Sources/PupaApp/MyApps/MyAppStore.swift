@@ -1567,6 +1567,26 @@ public final class MyAppStore {
         return result
     }
 
+    /// Toggle the tracker's one-line card rendering. View-only preference —
+    /// no `ItemEvent`, no frontend tool, same treatment as `setTrackerViewMode`.
+    /// Returns `true` when the flag actually changed.
+    @discardableResult
+    public func setTrackerCardsShrunk(
+        _ shrunk: Bool,
+        myAppId: UUID? = nil,
+        componentId: String? = nil
+    ) -> Bool {
+        var changed = false
+        mutate(myAppId, kind: "tracker", componentId: componentId) { canvas in
+            guard case .tracker(var t) = canvas, t.shrinkCards != shrunk else { return false }
+            t.shrinkCards = shrunk
+            canvas = .tracker(t)
+            changed = true
+            return true
+        }
+        return changed
+    }
+
     // MARK: - Calendar mutators
 
     /// Replace the calendar body of the first calendar component in

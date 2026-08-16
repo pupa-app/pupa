@@ -267,4 +267,22 @@ struct TrackerSchemaEvolutionTests {
         let f2 = try JSONDecoder().decode(FieldDef.self, from: encoded)
         #expect(f2.hidden == true)
     }
+
+    @Test("TrackerData.shrinkCards defaults to false on pre-shrink blobs and round-trips")
+    func shrinkCardsCodable() throws {
+        let legacy = """
+        {"title": "T", "fields": [{"name": "x", "type": "text"}], "items": []}
+        """.data(using: .utf8)!
+        #expect(try JSONDecoder().decode(TrackerData.self, from: legacy).shrinkCards == false)
+
+        let shrunk = TrackerData(title: "T", fields: [FieldDef(name: "x", type: .text)], shrinkCards: true)
+        let round = try JSONDecoder().decode(TrackerData.self, from: JSONEncoder().encode(shrunk))
+        #expect(round.shrinkCards == true)
+
+        // A blob written by a newer build still decodes here.
+        let future = """
+        {"title": "T", "fields": [], "items": [], "shrinkCards": true, "somethingNew": 3}
+        """.data(using: .utf8)!
+        #expect(try JSONDecoder().decode(TrackerData.self, from: future).shrinkCards == true)
+    }
 }

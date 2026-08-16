@@ -128,4 +128,36 @@ struct TrackerViewModeTests {
         #expect(tracker(store, id: id)?.viewMode == .kanban)
         #expect(tracker(store, id: id)?.columnField == "status")
     }
+
+    // MARK: - Shrink cards
+
+    @Test("setTrackerCardsShrunk flips the flag and leaves view config alone")
+    func shrinkTogglesWithoutTouchingOtherViewConfig() {
+        let (store, id) = makeStore(fields: [
+            FieldDef(name: "status", type: .select, options: ["todo", "done"]),
+        ])
+        _ = store.addItem(["status": "todo"], myAppId: id)
+        _ = store.setTrackerViewMode(.kanban, columnField: "status", myAppId: id)
+        #expect(tracker(store, id: id)?.shrinkCards == false)
+
+        #expect(store.setTrackerCardsShrunk(true, myAppId: id) == true)
+        let after = tracker(store, id: id)
+        #expect(after?.shrinkCards == true)
+        #expect(after?.viewMode == .kanban)
+        #expect(after?.columnField == "status")
+        #expect(after?.items.count == 1)
+
+        #expect(store.setTrackerCardsShrunk(false, myAppId: id) == true)
+        #expect(tracker(store, id: id)?.shrinkCards == false)
+    }
+
+    @Test("Setting the same shrink value is a no-op")
+    func shrinkIsIdempotent() {
+        // Returning false keeps `mutate` from persisting the whole app for a
+        // toggle that changed nothing.
+        let (store, id) = makeStore(fields: [FieldDef(name: "title", type: .text)])
+        #expect(store.setTrackerCardsShrunk(false, myAppId: id) == false)
+        #expect(store.setTrackerCardsShrunk(true, myAppId: id) == true)
+        #expect(store.setTrackerCardsShrunk(true, myAppId: id) == false)
+    }
 }

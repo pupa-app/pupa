@@ -15,7 +15,7 @@ import Foundation
 /// component-kind list is generated from `MyAppType.kinds` so it can't drift.
 enum GuideSkills {
     /// Bump when any guide body changes so existing installs re-seed.
-    static let version = "19"
+    static let version = "20"
 
     /// The plugin folder holding this guide's skills.
     static let pluginDir = "\(MemoryStore.pupaPluginsDir)/pupa-guide"
@@ -153,6 +153,13 @@ enum GuideSkills {
 
         **Views, not shapes.** Kanban is a tracker view mode (table ⇄ cards),
         not a separate component.
+
+        **Finding and scanning.** Both tracker views have a search box above
+        the cards — it matches any field, including link URLs, and in kanban it
+        narrows the cards without dropping columns. The shrink button next to
+        the view toggle collapses every card to its title for a whole-board
+        view; it sticks per component. Cards with several links show the first
+        few and a "+N" you can tap to see the rest.
         """
     }
 

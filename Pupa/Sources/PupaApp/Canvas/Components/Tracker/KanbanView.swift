@@ -11,6 +11,8 @@ public struct KanbanView: View {
     let myAppId: UUID
     let componentId: String?
     @State private var sheet: SheetTarget?
+    /// See `TrackerView.queryByComponent` — same structural-`@State` caveat.
+    @State private var queryByComponent: [String: String] = [:]
 
     public init(store: MyAppStore, data: TrackerData, myAppId: UUID, componentId: String? = nil) {
         self.store = store
@@ -24,9 +26,22 @@ public struct KanbanView: View {
             CanvasTitleBar(store: store, data: data, componentId: componentId)
 
             if let column = resolvedColumnField {
+                if !data.items.isEmpty {
+                    TrackerSearchField(initialText: query, onQueryChange: setQuery)
+                        .id(componentId)
+                }
+                // Kanban honours `data.filter` too, so the chips must be
+                // reachable from here — otherwise an agent- or grid-set filter
+                // hides cards with no visible cause and no way to clear it.
+                if hasAnyFilters {
+                    FiltersBar(store: store, fields: data.visibleFields, filter: data.filter, componentId: componentId)
+                }
                 GroupByBar(store: store, fields: data.visibleFields, currentColumn: column, componentId: componentId)
                 LanesScroller(
-                    data: data,
+                    entries: filtered,
+                    density: CardDensity.resolve(viewMode: .kanban, shrink: data.shrinkCards),
+                    isNarrowed: !query.isEmpty || data.filter.contains { !$0.value.isEmpty },
+                    visibleFields: data.visibleFields,
                     column: column,
                     onAdd: { prefilled in sheet = .add(prefilled: prefilled) },
                     onEdit: { itemId in sheet = .edit(itemId: itemId) },
@@ -65,6 +80,28 @@ public struct KanbanView: View {
         case .edit(let itemId):
             return data.items.first(where: { $0.id == itemId })?.linkedItems ?? []
         }
+    }
+
+    private var query: String { queryByComponent[componentId ?? ""] ?? "" }
+
+    private func setQuery(_ new: String) {
+        guard new != query else { return }
+        queryByComponent[componentId ?? ""] = new
+    }
+
+    private var hasAnyFilters: Bool {
+        data.visibleFields.contains { $0.type == .select && !($0.options ?? []).isEmpty }
+    }
+
+    /// Selected once here and passed down, so bucketing never re-runs the
+    /// filter per lane.
+    private var filtered: [TrackerFiltering.Entry] {
+        TrackerFiltering.visibleEntries(
+            items: data.items,
+            fields: data.visibleFields,
+            filter: data.filter,
+            query: query
+        )
     }
 
     /// Resolve the column field from `data.columnField`. Returns nil when
@@ -156,14 +193,19 @@ private struct GroupByBar: View {
 // MARK: - Lanes
 
 private struct LanesScroller: View {
-    let data: TrackerData
+    /// Already filtered and searched by `KanbanView`. Bucketing never sees
+    /// the raw item list, which is what stopped kanban ignoring `data.filter`.
+    let entries: [TrackerFiltering.Entry]
+    let density: CardDensity
+    /// A filter or query is active — switches empty lanes to "No matches".
+    let isNarrowed: Bool
+    let visibleFields: [FieldDef]
     let column: FieldDef
     let onAdd: ([String: String]) -> Void
     let onEdit: (UUID) -> Void
     let onMove: (UUID, String) -> Void
 
     private static let laneWidth: CGFloat = 260
-    private static let unsetLaneId = "__unset__"
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -174,9 +216,11 @@ private struct LanesScroller: View {
                         count: lane.entries.count,
                         items: lane.entries,
                         layout: cardLayout,
-                        accentTint: lane.tint,
+                        density: density,
+                        isNarrowed: isNarrowed,
+                        accentTint: tint(for: lane),
                         laneValue: lane.laneValue,
-                        onAdd: { onAdd(lane.prefill) },
+                        onAdd: { onAdd(prefill(for: lane)) },
                         onEdit: onEdit,
                         onMove: onMove
                     )
@@ -188,71 +232,36 @@ private struct LanesScroller: View {
     }
 
     private var cardLayout: CardLayout {
-        CardLayout.from(fields: data.visibleFields, excluding: column.name)
+        CardLayout.from(fields: visibleFields, excluding: column.name)
     }
 
-    private struct LaneBucket {
-        let id: String
-        /// Value written to the column field when a card is dropped on this
-        /// lane. Empty string for the implicit "(Unset)" lane — the
-        /// `lanes` grouping treats "" / missing / unrecognized as unset.
-        let laneValue: String
-        let title: String
-        let tint: Color
-        let prefill: [String: String]
-        let entries: [(item: TrackerItem, positionIndex: Int)]
+    /// Every option lane plus "(Unset)" — always, even when a lane is empty,
+    /// so searching narrows cards without reflowing the board.
+    private var lanes: [TrackerFiltering.LaneBucket] {
+        TrackerFiltering.lanes(entries: entries, column: column)
     }
 
-    private var lanes: [LaneBucket] {
-        let options = column.options ?? []
-        var buckets: [String: [(item: TrackerItem, positionIndex: Int)]] = [:]
-        var unset: [(item: TrackerItem, positionIndex: Int)] = []
-
-        for (idx, item) in data.items.enumerated() {
-            let value = (item.values[column.name] ?? "").trimmingCharacters(in: .whitespaces)
-            if value.isEmpty || !options.contains(value) {
-                unset.append((item: item, positionIndex: idx))
-            } else {
-                buckets[value, default: []].append((item: item, positionIndex: idx))
-            }
-        }
-
-        var lanes: [LaneBucket] = options.map { opt in
-            LaneBucket(
-                id: opt,
-                laneValue: opt,
-                title: opt,
-                tint: tint(for: opt),
-                prefill: [column.name: opt],
-                entries: buckets[opt] ?? []
-            )
-        }
-        // Always render the (Unset) lane so it stays available as a drop
-        // target even when no item is currently unset.
-        lanes.append(LaneBucket(
-            id: Self.unsetLaneId,
-            laneValue: "",
-            title: "(Unset)",
-            tint: Color.gray,
-            prefill: [:],
-            entries: unset
-        ))
-        return lanes
+    private func prefill(for lane: TrackerFiltering.LaneBucket) -> [String: String] {
+        lane.laneValue.isEmpty ? [:] : [column.name: lane.laneValue]
     }
 
     /// Stable per-option tint so lanes are visually distinguishable.
-    private func tint(for option: String) -> Color {
-        let seed = abs(option.hashValue)
+    private func tint(for lane: TrackerFiltering.LaneBucket) -> Color {
+        guard !lane.laneValue.isEmpty else { return Color.gray }
+        let seed = abs(lane.laneValue.hashValue)
         let hue = Double(seed % 360) / 360.0
         return Color(hue: hue, saturation: 0.55, brightness: 0.65)
     }
+
 }
 
 private struct Lane: View {
     let title: String
     let count: Int
-    let items: [(item: TrackerItem, positionIndex: Int)]
+    let items: [TrackerFiltering.Entry]
     let layout: CardLayout
+    let density: CardDensity
+    let isNarrowed: Bool
     let accentTint: Color
     /// Value written to the column field when an item is dropped here.
     /// Empty string for the "(Unset)" lane.
@@ -286,7 +295,9 @@ private struct Lane: View {
             .padding(.horizontal, 4)
 
             if items.isEmpty {
-                Text("Drop or add an item")
+                // Same frame either way: lane geometry must never depend on
+                // whether rows currently match.
+                Text(isNarrowed ? "No matches" : "Drop or add an item")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, minHeight: 60, alignment: .center)
@@ -306,13 +317,13 @@ private struct Lane: View {
                 // stack has no viewport to virtualize against there, builds
                 // every row anyway, and its placement/estimation pass is one
                 // half of the layout loop that froze the board (pupa#120).
-                VStack(spacing: 8) {
-                    ForEach(items, id: \.item.id) { entry in
+                VStack(spacing: density == .minimal ? 4 : 8) {
+                    ForEach(items) { entry in
                         TrackerItemCard(
                             item: entry.item,
                             layout: layout,
                             positionIndex: entry.positionIndex,
-                            compact: true,
+                            density: density,
                             onTap: { onEdit(entry.item.id) }
                         )
                         .draggable(entry.item.id.uuidString)
