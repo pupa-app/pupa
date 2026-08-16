@@ -13,6 +13,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   than what it points at. Each pill now reads the note name (`reading`,
   `journal`), and a link to a component reads that component's id. Links to
   the web are unchanged — they still show the site.
+- **The assistant now links notes from inside other notes, not just in chat.**
+  It was only ever told links work in a chat reply, so notes it wrote pointed
+  at each other in plain text. It can also link a canvas item from a note.
 - **Pairing instructions name the command you actually have.** The backend
   setup sheet told you to run `make pair`, which only works from a checkout of
   the backend repo; it now says `pupa-backend pair`, the installed command.
