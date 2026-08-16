@@ -97,7 +97,7 @@ struct DailyBriefingExampleTests {
         let global = MemoryStore(rootOverride: tmpBase)
         let appRoot = tmpBase.appendingPathComponent("example-daily-briefing", isDirectory: true)
 
-        DailyBriefingExample.seedAgentsMd(globalMemory: global, appRootOverride: appRoot)
+        DailyBriefingExample.seedAgentsMd(globalMemory: global, appRoot: appRoot)
         let appMemory = MemoryStore(rootOverride: appRoot)
         #expect(appMemory.fileExists(at: "pupa/AGENTS.md"))
         let appMd = try String(contentsOf: appRoot.appendingPathComponent("pupa/AGENTS.md"), encoding: .utf8)
@@ -106,7 +106,7 @@ struct DailyBriefingExampleTests {
 
         let url = appRoot.appendingPathComponent("pupa/AGENTS.md")
         try "# User-edited\n".write(to: url, atomically: true, encoding: .utf8)
-        DailyBriefingExample.seedAgentsMd(globalMemory: global, appRootOverride: appRoot)
+        DailyBriefingExample.seedAgentsMd(globalMemory: global, appRoot: appRoot)
         #expect(try String(contentsOf: url, encoding: .utf8) == "# User-edited\n")
     }
 

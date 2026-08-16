@@ -162,7 +162,7 @@ struct MyAppPolicyTests {
     func systemPromptWithAgentsMd() async {
         let app = MyApp(name: "TestApp", iconSystemName: "star", typeId: "tracker")
         let store = MyAppStore(initial: ([app], app.id))
-        let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: "TestApp"))
+        let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: app.id))
         _ = try? memory.writeFile(path: "pupa/AGENTS.md", content: "## Custom MyApp instructions\n\nTrack things carefully.")
         defer { _ = try? memory.delete(path: "pupa/AGENTS.md") }
         let desc = MyAppPolicy(myAppId: app.id).buildSystemPrompt(myApp: app, memory: memory)
@@ -175,7 +175,7 @@ struct MyAppPolicyTests {
         MyAppTypeRegistry.shared.registerBuiltins()
         let app = MyApp(name: "LayerApp", iconSystemName: "star", typeId: "tracker")
         let store = MyAppStore(initial: ([app], app.id))
-        let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: "LayerApp"))
+        let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: app.id))
         _ = try? memory.writeFile(path: "pupa/AGENTS.md", content: "## Custom\n\nBe terse.")
         defer { _ = try? memory.delete(path: "pupa/AGENTS.md") }
         let desc = MyAppPolicy(myAppId: app.id).buildSystemPrompt(myApp: app, memory: memory)
@@ -244,7 +244,7 @@ struct AgentPolicyScopingTests {
         let store = MyAppStore(initial: ([app], app.id))
 
         // Write myApp AGENTS.md with unique content
-        let myAppMem = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: "BleedTestApp2"))
+        let myAppMem = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: app.id))
         _ = try? myAppMem.writeFile(path: "pupa/AGENTS.md", content: "MYAPP UNIQUE MARKER ABC")
         defer { _ = try? myAppMem.delete(path: "pupa/AGENTS.md") }
 
@@ -259,8 +259,8 @@ struct AgentPolicyScopingTests {
         let appY = MyApp(name: "MyAppY", iconSystemName: "circle", typeId: "tracker")
         let store = MyAppStore(initial: ([appX, appY], appX.id))
 
-        let memX = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: "MyAppX"))
-        let memY = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: "MyAppY"))
+        let memX = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: appX.id))
+        let memY = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: appY.id))
         _ = try? memX.writeFile(path: "pupa/AGENTS.md", content: "Instructions for X only")
         _ = try? memY.writeFile(path: "pupa/AGENTS.md", content: "Instructions for Y only")
         defer {

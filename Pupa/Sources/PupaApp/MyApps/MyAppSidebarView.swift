@@ -184,7 +184,8 @@ public struct MyAppSidebarView: View {
                 // Refresh the example's AGENTS.md files so the
                 // user-triggered restore writes any that are
                 // missing (idempotent — user edits stick).
-                example.seedAgentsMd(globalMemory: memory, appRootOverride: nil)
+                example.seedAgentsMd(
+                    globalMemory: memory, appRoot: MemoryStore.appRoot(myAppId: id))
                 selection = .myAppHome(id)
                 onSelectionChange(.myAppHome(id))
                 settingsSheetPresented = false

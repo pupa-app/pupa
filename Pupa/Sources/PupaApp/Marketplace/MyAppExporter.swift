@@ -140,7 +140,7 @@ public enum MyAppExporter {
     /// the bundle *outside* its temp folder and hand the save panel a junk
     /// name. Fall back instead.
     public nonisolated static func exportBaseName(forAppName name: String) -> String {
-        let slug = MemoryStore.myAppFolder(myAppName: name)
+        let slug = MemoryStore.slugify(name)
         return slug.isEmpty ? "pupa-app" : slug
     }
 }

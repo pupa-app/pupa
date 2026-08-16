@@ -177,7 +177,7 @@ struct JobSearchExampleTests {
         ]
 
         // First run — all four files are absent → seeder writes all four.
-        JobSearchExample.seedAgentsMd(globalMemory: global, appRootOverride: appRoot)
+        JobSearchExample.seedAgentsMd(globalMemory: global, appRoot: appRoot)
         let appMemory = MemoryStore(rootOverride: appRoot)
         for path in agentsPaths {
             #expect(appMemory.fileExists(at: path), "\(path) missing after first seed")
@@ -201,7 +201,7 @@ struct JobSearchExampleTests {
         // second seed call.
         let coachUrl = appRoot.appendingPathComponent("pupa/agents/coach/AGENTS.md")
         try "# User-edited\n".write(to: coachUrl, atomically: true, encoding: .utf8)
-        JobSearchExample.seedAgentsMd(globalMemory: global, appRootOverride: appRoot)
+        JobSearchExample.seedAgentsMd(globalMemory: global, appRoot: appRoot)
         let coachAfter = try String(contentsOf: coachUrl, encoding: .utf8)
         #expect(coachAfter == "# User-edited\n", "Second seed clobbered the user edit")
     }

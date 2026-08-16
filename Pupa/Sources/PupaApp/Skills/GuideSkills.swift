@@ -65,10 +65,10 @@ enum GuideSkills {
         return wrote
     }
 
-    /// Seed a single app by name (constructs its own scope-rooted store).
+    /// Seed a single app (constructs its own scope-rooted store).
     @MainActor @discardableResult
-    static func seed(appName: String) -> Bool {
-        seed(into: MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: appName)))
+    static func seed(appId: UUID) -> Bool {
+        seed(into: MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: appId)))
     }
 
     /// Seed the orchestrator scope.

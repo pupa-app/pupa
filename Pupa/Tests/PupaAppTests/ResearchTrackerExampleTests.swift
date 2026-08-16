@@ -116,7 +116,7 @@ struct ResearchTrackerExampleTests {
         let global = MemoryStore(rootOverride: tmpBase)
         let appRoot = tmpBase.appendingPathComponent("example-research-tracker", isDirectory: true)
 
-        ResearchTrackerExample.seedAgentsMd(globalMemory: global, appRootOverride: appRoot)
+        ResearchTrackerExample.seedAgentsMd(globalMemory: global, appRoot: appRoot)
         let appMemory = MemoryStore(rootOverride: appRoot)
         for path in ["pupa/AGENTS.md", "pupa/agents/scout/AGENTS.md", "pupa/agents/analyst/AGENTS.md", "pupa/agents/digest/AGENTS.md"] {
             #expect(appMemory.fileExists(at: path), "\(path) missing after seed")
@@ -126,7 +126,7 @@ struct ResearchTrackerExampleTests {
 
         let scoutUrl = appRoot.appendingPathComponent("pupa/agents/scout/AGENTS.md")
         try "# User-edited\n".write(to: scoutUrl, atomically: true, encoding: .utf8)
-        ResearchTrackerExample.seedAgentsMd(globalMemory: global, appRootOverride: appRoot)
+        ResearchTrackerExample.seedAgentsMd(globalMemory: global, appRoot: appRoot)
         #expect(try String(contentsOf: scoutUrl, encoding: .utf8) == "# User-edited\n")
     }
 

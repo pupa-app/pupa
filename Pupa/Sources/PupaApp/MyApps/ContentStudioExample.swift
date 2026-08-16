@@ -18,8 +18,7 @@ enum ContentStudioExample: ExampleMyApp {
     }
 
     @MainActor
-    static func seedAgentsMd(globalMemory: MemoryStore?, appRootOverride: URL? = nil) {
-        let appRoot = appRootOverride ?? MemoryStore.appRoot(myAppName: name)
+    static func seedAgentsMd(globalMemory: MemoryStore?, appRoot: URL) {
         let appMemory = MemoryStore(rootOverride: appRoot)
         var wroteAny = false
         if !appMemory.fileExists(at: "pupa/AGENTS.md") {

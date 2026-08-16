@@ -31,15 +31,16 @@ struct MemoryLossNoticeTests {
         return (try? Data(contentsOf: url)).flatMap { String(data: $0, encoding: .utf8) }
     }
 
-    private func slug(_ name: String) -> String { MemoryStore.myAppFolder(myAppName: name) }
+    /// Memory folder = the app's immutable id (lowercased uuid).
+    private func folder(_ id: UUID) -> String { MemoryStore.myAppFolder(myAppId: id) }
 
     /// A live app whose `pupa/skills/warmup/` was taken by a sync: the folder's
     /// only file is in quarantine and nothing is left on disk under it.
     private func storeWithLostSkill() async -> (MyAppStore, String) {
         await MyAppStore.clearStorage()
         let store = MyAppStore()
-        _ = store.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
-        let s = slug("Fitness")
+        let id = store.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
+        let s = folder(id)
         quarantine("memories/\(s)/pupa/skills/warmup/SKILL.md", "warmup skill")
         return (store, s)
     }
@@ -73,9 +74,9 @@ struct MemoryLossNoticeTests {
     func partialDeleteIsSilent() async throws {
         await MyAppStore.clearStorage()
         let store = MyAppStore()
-        _ = store.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
-        let s = slug("Fitness")
-        let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: "Fitness"))
+        let id = store.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
+        let s = folder(id)
+        let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: id))
         _ = try? memory.writeFile(path: "pupa/skills/warmup/SKILL.md", content: "live")
         // A second file in the same unit went; the unit itself is still there.
         quarantine("memories/\(s)/pupa/skills/warmup/NOTES.md", "deleted elsewhere")
@@ -89,9 +90,9 @@ struct MemoryLossNoticeTests {
     func liveUnitIsNotLost() async throws {
         await MyAppStore.clearStorage()
         let store = MyAppStore()
-        _ = store.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
-        let s = slug("Fitness")
-        let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: "Fitness"))
+        let id = store.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
+        let s = folder(id)
+        let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: id))
         _ = try? memory.writeFile(path: "pupa/skills/warmup/SKILL.md", content: "live")
         quarantine("memories/\(s)/pupa/skills/warmup/SKILL.md", "older losing copy")
 
@@ -134,7 +135,8 @@ struct MemoryLossNoticeTests {
         await MyAppStore.clearStorage()
         let store = MyAppStore()
         _ = store.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
-        quarantine("memories/\(slug("Not in roster"))/pupa/skills/x/SKILL.md", "not mine")
+        // Some other app's folder (a different id) — never attributed here.
+        quarantine("memories/\(folder(UUID()))/pupa/skills/x/SKILL.md", "not mine")
 
         await store.reloadFromDisk()
 

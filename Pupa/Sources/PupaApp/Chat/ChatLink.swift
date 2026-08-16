@@ -7,7 +7,7 @@ import Foundation
 ///
 /// **Scope-relative by design.** The agent only ever sees note paths
 /// *relative to its own memory root* (the myApp's store is rooted at
-/// `appRoot(myAppName:)`), so it emits `pupa://memory/<that-same-path>`
+/// `appRoot(myAppId:)`), so it emits `pupa://memory/<that-same-path>`
 /// — no app id, no global-root knowledge. The resolver binds the path to
 /// the chat's current scope: a myApp chat → `.myAppMemoryFile`, the
 /// orchestrator → `.memoryFile`. The explicit `myapp/<uuid>/memory/…`

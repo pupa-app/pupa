@@ -1730,13 +1730,12 @@ public final class ChatViewModel {
                 let typeDescription = MyAppPolicy(myAppId: id).buildSystemPrompt(
                     myApp: myApp, memory: memory
                 )
+                // No `memoryFolder`: the agent's store is chroot'd to this app's
+                // root, so every memory path it uses is already relative to that
+                // root. Naming a folder here only invites a wrong prefix.
                 let typePayload: [String: String] = [
                     "typeId": myApp.typeId,
                     "myAppName": myApp.name,
-                    // The agent's memory store is chroot'd to this app's root, so
-                    // its memory paths are relative to "/". It must not know or
-                    // prefix the on-disk folder (the app's uuid).
-                    "memoryFolder": "/",
                 ]
                 let typeJSON = (try? JSONEncoder().encode(typePayload)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
                 return [

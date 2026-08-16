@@ -39,7 +39,7 @@ A template ships only when it meets all of:
 Templates close a learning loop so the agent gets better with use (adapted from
 Hermes' memory + skills + self-improvement pillars — **no new tools**; uses
 `writeMemoryFile` / `readMemoryFile` / `lsMemories` against the per-app memory
-root `MemoryStore.appRoot(myAppName:)`). Each app `AGENTS.md` embeds a
+root `MemoryStore.appRoot(myAppId:)`). Each app `AGENTS.md` embeds a
 **"## Keeping yourself updated"** section telling the agent to:
 
 - Maintain `MEMORY.md` (app/project facts) + `USER.md` (the user's preferences

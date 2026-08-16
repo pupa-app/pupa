@@ -126,7 +126,7 @@ struct MemoryRecoveryOnRestoreTests {
         let store = MyAppStore()
         let id = store.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
         let s = folder(id)
-        let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: "Fitness"))
+        let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: id))
         _ = try? memory.writeFile(path: "pupa/skills/warmup/SKILL.md", content: "live")
         store.removeMyApp(id)
         quarantine("memories/\(s)/pupa/skills/warmup/SKILL.md", "stale quarantined copy")

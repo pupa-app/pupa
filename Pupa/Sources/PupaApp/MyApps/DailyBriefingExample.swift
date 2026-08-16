@@ -21,8 +21,7 @@ enum DailyBriefingExample: ExampleMyApp {
     }
 
     @MainActor
-    static func seedAgentsMd(globalMemory: MemoryStore?, appRootOverride: URL? = nil) {
-        let appRoot = appRootOverride ?? MemoryStore.appRoot(myAppName: name)
+    static func seedAgentsMd(globalMemory: MemoryStore?, appRoot: URL) {
         let appMemory = MemoryStore(rootOverride: appRoot)
         if !appMemory.fileExists(at: "pupa/AGENTS.md") {
             _ = try? appMemory.writeFile(path: "pupa/AGENTS.md", content: appAgentsMd)

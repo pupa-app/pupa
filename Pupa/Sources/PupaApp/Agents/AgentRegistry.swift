@@ -34,7 +34,7 @@ public enum AgentRegistry {
     ) -> [AgentDescriptor] {
         var descriptors: [AgentDescriptor] = []
         descriptors.append(buildMainAgent(myApp: myApp, store: store, settings: settings, catalog: catalog))
-        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: myApp.name))
+        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myApp.id))
         for subagent in AgentStore(memory: appMemory).agents {
             descriptors.append(buildSubagent(
                 myApp: myApp,
@@ -56,8 +56,8 @@ public enum AgentRegistry {
         settings: SettingsStore,
         catalog: ModelCatalogStore
     ) -> AgentDescriptor {
-        let promptPath = "\(MemoryStore.pupaFolder(myAppName: myApp.name))/AGENTS.md"
-        let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: myApp.name))
+        let promptPath = "\(MemoryStore.pupaFolder(myAppId: myApp.id))/AGENTS.md"
+        let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myApp.id))
         let promptOnDisk = memory.fileExists(at: MemoryStore.pupaAgentsPath)
         let allowedTools = ChatViewModel.allowedToolNames(
             scope: .myApp(myApp.id),
@@ -195,7 +195,7 @@ public enum AgentRegistry {
         settings: SettingsStore,
         catalog: ModelCatalogStore
     ) -> AgentDescriptor {
-        let promptPath = "\(MemoryStore.pupaFolder(myAppName: myApp.name))/agents/\(subagent.name)/AGENTS.md"
+        let promptPath = "\(MemoryStore.pupaFolder(myAppId: myApp.id))/agents/\(subagent.name)/AGENTS.md"
 
         var properties: [AgentProperty] = []
         if !subagent.description.isEmpty {

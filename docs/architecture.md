@@ -110,7 +110,7 @@ sidebar, the Orchestrator's "can orchestrate" list, and the agent-facing
 sidebar-hidden **and** agent-off. Archiving also locks all its components
 (read-only) via `setAllComponentsLocked`; unarchiving un-hides it but leaves
 the lock on. Archived apps are browsed/restored/deleted from **Settings →
-Archive** (`ArchivedAppsView`). Memories are keyed on the app slug and untouched
+Archive** (`ArchivedAppsView`). Memories are keyed on the app id and untouched
 — they ride along, hidden with the app and back on restore. The Orchestrator opens the same home layout as a
 MyApp (`MyAppHomeView` with `subject: .orchestrator`) — an Outline explaining
 what it coordinates plus the myapps it can drive, and an empty Components panel
@@ -236,7 +236,7 @@ orchestrator → `.memoryFile`). But `SidebarSelection` memory paths are
 **global-root-relative** — the space the shared `memory` store, browse, and
 agent-prompt links all use — so `chatLinkAction` calls
 `SidebarSelection.globalizedMemoryPath` to prefix the scope folder (the myApp
-slug, or `orchestrator/`) before routing; otherwise the target note can't be
+id, or `orchestrator/`) before routing; otherwise the target note can't be
 read. `pupa://component/<id>` targets the current myApp; the explicit
 `pupa://myapp/<uuid>/memory/<path>` form is for cross-scope links. Distinct from
 Slack's `pupa-mention://` and the `.pupa` file type.
@@ -566,7 +566,7 @@ consulted (with the target path) before every mutating op; it throws
 - **Agent:** the per-session scoped store wired in `ChatSessionCoordinator`
   returns its MyApp's `isMemoryLocked`, so a locked app's memory-write tools
   echo `{ok:false, error:…}`.
-- **UI:** the global (sidebar) store's guard maps a path's leading slug to a
+- **UI:** the global (sidebar) store's guard maps a path's leading folder to a
   MyApp via `MyAppStore.isMemoryLocked(forRootPath:)`, so `MyAppMemoriesView`
   and `MemoryFileView` refuse edits too. The **Memories** page carries the
   lock toggle (`setMemoryLocked`) and hides its add/edit/rename/delete
@@ -776,7 +776,7 @@ model}` still rides `forwardedProps["llm"]`.
 ## Skills & the `pupa/` config folder
 
 Each MyApp keeps its driving config in a visible `pupa/` subfolder of its
-memory root (`memories/<slug>/pupa/`): `AGENTS.md` (main agent),
+memory root (`memories/<uuid>/pupa/`): `AGENTS.md` (main agent),
 `agents/<sub>/AGENTS.md` (subagents), and `skills/<name>/SKILL.md` (a
 playbook can be a skill — e.g. the Content Studio `setup` skill provides
 `/setup`).
@@ -888,7 +888,7 @@ resolves newest-wins with the losing side preserved under `conflicts/` — data
 is never dropped. Deletes propagate; a delete racing an edit keeps the edit.
 A remote delete **quarantines the local bytes under `conflicts/` before
 unlinking** — a "remote delete" can also be iCloud renaming a whole dir away
-(conflict twin, e.g. `memories/<slug> 2`), so deleted content stays
+(conflict twin, e.g. `memories/<uuid> 2`), so deleted content stays
 recoverable instead of being destroyed.
 The `conflicts/` tree is **local-only (never mirrored)** and **bounded**:
 losing sides are deduped by content, capped to the newest few per path, and
@@ -928,14 +928,14 @@ Provisioning runs that settle loop for `memories/` (parity with the forced
 both subtrees on every trigger.
 
 **Conflict-twin adoption.** Two devices that each seed a MyApp's
-`memories/<slug>/` before the first sync collide on that path; iCloud keeps one
-and renames the other to `memories/<slug> 2` (a space + digits — never valid
-`slugify` output, so never app-addressable). `MemoryStore.foldConflictTwinDirs`
-folds a `<slug> N` twin back into `<slug>` per-file (existing file wins; a
+`memories/<uuid>/` before the first sync collide on that path; iCloud keeps one
+and renames the other to `memories/<uuid> 2` (a space + digits — a uuid contains
+neither, so never app-addressable). `MemoryStore.foldConflictTwinDirs`
+folds a `<base> N` twin back into `<base>` per-file (existing file wins; a
 differing twin copy goes to the local-only `conflicts/` tree) and removes the
 emptied twin; the mirror then propagates the cloud-side deletion. Top-level
-twins fold when their base is a live app slug (or `orchestrator`). A
-conflict-rename can also hit a **nested** dir (`memories/<slug>/…/<x> N`);
+twins fold when their base is a live app id (or `orchestrator`). A
+conflict-rename can also hit a **nested** dir (`memories/<uuid>/…/<x> N`);
 inside an addressable subtree those fold too, but only when a sibling `<x>` dir
 survives — nested agent dirs may legitimately contain spaces, so the name alone
 isn't proof. Any twin whose cloud copy is still materializing is skipped (else
@@ -1077,24 +1077,23 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
   that comes back isn't listed as removed alongside itself. A surprise removal
   that *does* carry a tombstone is untouched — it already lists.
 - **Memory files come back with the app.** A `MyApp` carries no memory files (they
-  live in `memories/`, keyed by name slug), so no snapshot holds them and an app
+  live in `memories/`, keyed by app id), so no snapshot holds them and an app
   restored after iCloud dropped its data came back with empty `pupa/agents/` and
   `pupa/skills/` folders (#251). The bytes survive — `.deleteLocal` quarantines
   under `conflicts/<sub>/<rel>/<stamp>` before unlinking — only the read side was
-  missing. `clearDeleteMarkers(_:restoringAs:)`, which every un-delete already
-  goes through, now reads it back via `StorageMirror.preservedFiles`; pass
-  `restoringAs` and the app's memory subtree is re-materialized with it.
+  missing. `clearDeleteMarkers(_:recoveringMemories:)`, which every un-delete
+  already goes through, now reads it back via `StorageMirror.preservedFiles`; pass
+  `recoveringMemories` and the app's memory subtree is re-materialized with it.
   Quarantine can't tell a bad sync from a deliberate delete elsewhere, so three
-  guards: scoped to the app's slug, never overwrites a live path, and starts at
+  guards: scoped to the app's folder, never overwrites a live path, and starts at
   the loss instant. That anchor is the app body's own quarantine time (same
   `.deleteLocal` pass), falling back to the marker's `deletedAt` for a user
   delete, which quarantines nothing; recovery then drops the body copy, so a
   repaired loss stops anchoring a later one. `memoryRecoverySlack` (5 min) is
   jitter tolerance either side. There is no late bound — a deferred
   `.deleteLocal` is the same loss — so a file deleted on another device while the
-  app sits in Recently deleted does come back with it. Source folder is the
-  *marker's* name slug, destination the restored app's; they differ only when a
-  pin predating a rename revives the app under its old name. Nothing survives
+  app sits in Recently deleted does come back with it. Source and destination are
+  one folder — the app's id — whatever name it revives under. Nothing survives
   past `conflictMaxAge` (30 days), not the marker's 180.
 - **Memory loss without a removal.** The above only runs on an un-delete, so a
   sync that took a skill from an app still in the roster left an empty folder
@@ -1230,10 +1229,11 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
   plus a threads collection grouped by agent.
 - **Memories** → markdown files under `<storage root>/memories/`
   (per-agent namespaces under `agents/<agentId>/`). Survive "New session".
-  Each file syncs individually via iCloud. The per-app folder is keyed on
-  the app name's slug, so `MyAppStore.renameMyApp` migrates the subtree to
-  the new slug (via `MemoryStore.migrateAppFolder`; on a slug collision the
-  trees merge and existing destination files win). App-scoped stores from
+  Each file syncs individually via iCloud. The per-app folder is the app's
+  **immutable uuid** (`MemoryStore.myAppFolder(myAppId:)`), never its display
+  name — so a rename moves nothing and an import can't collide with the app it
+  was exported from. The Memories UI labels the folder with the live app
+  name. App-scoped stores from
   `appScopedStore` propagate their writes to the parent store's tree, so
   the sidebar / Memories tab refresh without a relaunch.
 - **Chat history** → owned by the *backend* checkpointer, keyed by

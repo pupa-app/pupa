@@ -321,14 +321,11 @@ public enum MyAppImporter {
         return (clean, dropped)
     }
 
-    /// First free name whose display name *and* memory slug don't collide with
-    /// an existing app (slug collision would clobber another app's memories).
+    /// First display name that doesn't collide with an existing app. Memory
+    /// folders are keyed on the app's uuid, so only the visible name can clash.
     private static func uniqueName(base: String, store: MyAppStore) -> String {
         let names = Set(store.myApps.map(\.name))
-        let slugs = Set(store.myApps.map { MemoryStore.myAppFolder(myAppName: $0.name) })
-        func free(_ candidate: String) -> Bool {
-            !names.contains(candidate) && !slugs.contains(MemoryStore.myAppFolder(myAppName: candidate))
-        }
+        func free(_ candidate: String) -> Bool { !names.contains(candidate) }
         if free(base) { return base }
         var n = 2
         while !free("\(base) \(n)") { n += 1 }

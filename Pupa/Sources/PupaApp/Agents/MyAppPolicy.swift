@@ -21,8 +21,7 @@ public struct MyAppPolicy: AgentPolicy {
     @MainActor
     public func payload(for scope: ChatScope, store: MyAppStore) async -> AgentPayload {
         let myApp = store.myApps.first(where: { $0.id == myAppId })
-        let name = myApp?.name ?? ""
-        let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppName: name))
+        let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myAppId))
         let systemPrompt = buildSystemPrompt(myApp: myApp, memory: memory)
         let toolNames = ChatViewModel.allowedToolNames(scope: .myApp(myAppId), store: store, toolGateState: ToolGateState())
         return AgentPayload(

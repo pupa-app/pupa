@@ -29,9 +29,9 @@ public final class MyAppStore {
 
     public private(set) var myApps: [MyApp]
     public private(set) var activeMyAppId: UUID
-    /// The global memory store, wired by `AppView` at startup. Memories are
-    /// keyed on the app-name slug, so `renameMyApp` must move the folder
-    /// through this store. Unset in previews/tests that never touch memories.
+    /// The global memory store, wired by `AppView` at startup. Used by the
+    /// snapshot / history views to read across every scope. Unset in
+    /// previews/tests that never touch memories.
     @ObservationIgnored public var globalMemory: MemoryStore?
     /// Provider of the per-scope chat-storage cap in bytes (from
     /// `SettingsStore.effectiveThreadCapBytes`), wired by `AppView`. `nil` — or a
@@ -163,7 +163,6 @@ public final class MyAppStore {
             // Injected apps carry no stored color slots — freeze them now so
             // colors are stable and `nextColorIndex()` doesn't collide.
             backfillColorIndices()
-            installMemoryResolver()
         } else {
             let loaded = Self.load()
             self.myApps = loaded.myApps
@@ -172,7 +171,6 @@ public final class MyAppStore {
             self.memoryCurrentThreadId = loaded.memoryCurrentThreadId
             self.itemEventLog = loaded.itemEventLog
             self.componentFolders = loaded.componentFolders
-            installMemoryResolver()
             // Seed disk on fresh install; otherwise prime hashes so the first
             // mutation only writes the app that actually changed. On fresh
             // install also ship default skills into the seeded app (app-birth
@@ -207,7 +205,7 @@ public final class MyAppStore {
                 // Genuinely fresh: iCloud off, or already established with no
                 // cloud data. Seed the default roster now and mark this install.
                 backfillColorIndices()
-                for app in myApps { seedBirthFiles(forAppNamed: app.name) }
+                for app in myApps { seedBirthFiles(for: app) }
                 persist()
                 PupaStorage.markRosterEstablished()
             }
@@ -430,10 +428,10 @@ public final class MyAppStore {
     /// persona AGENTS.md. Never run on plain launches, so user edits and
     /// deletions of these files survive. The chat coordinator rescans the
     /// global sidebar on the next app-scoped write, so no `globalMemory` here.
-    private func seedBirthFiles(forAppNamed name: String) {
-        DefaultSkills.seed(appName: name)
-        GuideSkills.seed(appName: name)
-        ExampleRegistry.seedAgentsMd(forAppNamed: name)
+    private func seedBirthFiles(for app: MyApp) {
+        DefaultSkills.seed(appId: app.id)
+        GuideSkills.seed(appId: app.id)
+        ExampleRegistry.seedAgentsMd(forAppNamed: app.name, id: app.id)
     }
 
     @discardableResult
@@ -445,31 +443,18 @@ public final class MyAppStore {
             colorIndex: nextColorIndex()
         )
         myApps.append(myApp)
-        seedBirthFiles(forAppNamed: myApp.name)
+        seedBirthFiles(for: myApp)
         activeMyAppId = myApp.id
         persist()
         return myApp.id
     }
 
-    /// Wire the memory layer's name→id resolver to this store, so the legacy
-    /// name-based folder helpers (`MemoryStore.appRoot(myAppName:)` etc.) key on
-    /// the immutable app id. Installed at init before any per-app store is built.
-    private func installMemoryResolver() {
-        MemoryStore.appIdForName = { [weak self] name in
-            self?.myApps.first { $0.name == name }?.id
-        }
-    }
-
     public func renameMyApp(_ id: UUID, to newName: String) {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let idx = myApps.firstIndex(where: { $0.id == id }) else { return }
-        let oldName = myApps[idx].name
-        guard oldName != trimmed else { return }
+        guard myApps[idx].name != trimmed else { return }
+        // Memories are keyed on the immutable app id, so a rename moves nothing.
         myApps[idx].name = trimmed
-        // Memories are keyed on the immutable app id (`MemoryStore.myAppFolder(myAppId:)`),
-        // so a rename never moves files — nothing to migrate. `oldName` retained
-        // only for the guard above.
-        _ = oldName
         persist()
     }
 
@@ -546,7 +531,7 @@ public final class MyAppStore {
         var myApp = example.make()
         if myApp.colorIndex == nil { myApp.colorIndex = nextColorIndex() }
         myApps.append(myApp)
-        seedBirthFiles(forAppNamed: myApp.name)
+        seedBirthFiles(for: myApp)
         activeMyAppId = myApp.id
         persist()
         return myApp.id
@@ -563,7 +548,7 @@ public final class MyAppStore {
         if myApp.colorIndex == nil { myApp.colorIndex = nextColorIndex() }
         // Re-importing a previously-deleted id is a deliberate un-delete — clear
         // its markers or union-load would suppress it again on relaunch. No
-        // `restoringAs`: the importer writes the bundle's own memories, and
+        // No memory recovery: the importer writes the bundle's own memories, and
         // recovering over them would mix in a previous install's files.
         Self.clearDeleteMarkers(myApp.id)
         myApps.append(myApp)
@@ -3308,9 +3293,9 @@ public final class MyAppStore {
     /// into the global (sidebar) `MemoryStore.writeGuard` so the Memories UI
     /// refuses edits to a locked app just like the agent's scoped store does.
     public func isMemoryLocked(forRootPath path: String) -> Bool {
-        let slug = path.split(separator: "/").first.map(String.init) ?? ""
-        guard !slug.isEmpty else { return false }
-        return myApps.contains { $0.isMemoryLocked && MemoryStore.myAppFolder(myAppId: $0.id) == slug }
+        let folder = path.split(separator: "/").first.map(String.init) ?? ""
+        guard !folder.isEmpty else { return false }
+        return myApps.contains { $0.isMemoryLocked && MemoryStore.myAppFolder(myAppId: $0.id) == folder }
     }
 
     // MARK: - Per-file persistence
@@ -3533,7 +3518,7 @@ public final class MyAppStore {
         // Retire the markers that just did their job — before `record` below,
         // so the new `.restored` never diffs off a record on its way out. Also
         // brings back the memory files, if a sync took them.
-        Self.clearDeleteMarkers(id, restoringAs: app.name)
+        Self.clearDeleteMarkers(id, recoveringMemories: true)
         // No longer a delete this user made: a later sync that drops the id is
         // now a surprise and must raise the notice.
         userInitiatedRemovals.remove(id)
@@ -3583,24 +3568,15 @@ public final class MyAppStore {
     /// — so a file dropped elsewhere while the app sits in Recently deleted
     /// does come back with it.
     ///
-    /// Read and write sides are keyed by different names. Quarantined paths
-    /// carry the slug the app had when it was removed (a rename migrates the
-    /// memory folder); the restored app reads its *own*, which a pin predating
-    /// the rename makes older. So recover from the marker's slug into
-    /// `liveName`'s — one folder on every ordinary path, where they agree.
-    private nonisolated static func recoverMemoryFiles(
-        _ id: UUID, for marker: Tombstone?, appNamed liveName: String
-    ) {
+    /// Memory is keyed on the app's immutable id, so the removed app and the
+    /// revived one address the same folder — read and write sides always agree.
+    private nonisolated static func recoverMemoryFiles(_ id: UUID, for marker: Tombstone?) {
         let root = PupaStorage.activeRoot
         guard let since = lossTime(id, marker: marker, root: root) else { return }
-        // Memory is keyed on the immutable app id, so the removed app and the
-        // revived app share one folder — no rename bridge needed.
-        _ = (marker, liveName)
-        let from = "memories/\(MemoryStore.myAppFolder(myAppId: id))"
-        let to = from
+        let prefix = "memories/\(MemoryStore.myAppFolder(myAppId: id))"
         for (rel, src) in StorageMirror.preservedFiles(
-            underPrefix: from, since: since, localRoot: root) {
-            let dst = root.appendingPathComponent(to + rel.dropFirst(from.count))
+            underPrefix: prefix, since: since, localRoot: root) {
+            let dst = root.appendingPathComponent(rel)
             guard !FileManager.default.fileExists(atPath: dst.path),
                   let data = CloudDocument.read(src) else { continue }
             try? CloudDocument.write(data, to: dst)
@@ -3632,23 +3608,23 @@ public final class MyAppStore {
     /// this clears. Clearing alone strands a full base (the whole serialized
     /// MyApp, chats included) permanently, mirrored to iCloud.
     ///
-    /// Pass `restoringAs` — the name the app comes back under — when the
-    /// un-delete should also bring back the memory files a sync took with it
-    /// (`recoverMemoryFiles`). It lives here because the marker it reads is the
-    /// one this clears: doing it at the call site is an ordering the next
-    /// un-delete path can silently get wrong. Nil for an app whose body simply
-    /// reappeared, which brings its own memories back with it.
+    /// Pass `recoveringMemories` on an un-delete that should also bring back the
+    /// memory files a sync took with it (`recoverMemoryFiles`). It lives here
+    /// because the marker it reads is the one this clears: doing it at the call
+    /// site is an ordering the next un-delete path can silently get wrong. False
+    /// for an app whose body simply reappeared, which brings its own memories
+    /// back with it.
     ///
     /// Callers resolve what they're restoring BEFORE, and record any new
     /// snapshot AFTER, so nothing reads or diffs off a record on its way out.
-    nonisolated static func clearDeleteMarkers(_ id: UUID, restoringAs liveName: String? = nil) {
-        // Read before the clear: the marker carries the name the memory folder
-        // is keyed by, and the removal time the recovery window falls back on.
-        let marker = liveName == nil ? nil : deleteMarker(id)
+    nonisolated static func clearDeleteMarkers(_ id: UUID, recoveringMemories: Bool = false) {
+        // Read before the clear: the marker carries the removal time the
+        // recovery window falls back on.
+        let marker = recoveringMemories ? deleteMarker(id) : nil
         clearTombstone(id)
         CloudDocument.delete(lostURL(id))
         SnapshotStore.dropRecords(id, reasons: [.deleted])
-        if let liveName { recoverMemoryFiles(id, for: marker, appNamed: liveName) }
+        if recoveringMemories { recoverMemoryFiles(id, for: marker) }
     }
 
     /// UUIDs of every `tombstones/<uuid>.json` on disk. Ids come from filenames
@@ -3990,7 +3966,7 @@ public final class MyAppStore {
         // A lost app whose body came back (the other device pushed it up again)
         // is not lost any more — retire its marker so it stops being listed
         // under Recently deleted alongside the live copy. One listing, normally
-        // empty. No `restoringAs`: the sync that returned the body returns the
+        // empty. No memory recovery: the sync that returned the body returns the
         // memory tree with it, so there is nothing to recover from quarantine.
         for id in Self.diskLostIds() where loaded.myApps.contains(where: { $0.id == id }) {
             Self.clearDeleteMarkers(id)
@@ -4046,7 +4022,7 @@ public final class MyAppStore {
             // install's roster and must persist.
             unadoptedPlaceholderIds = []
             backfillColorIndices()
-            for app in myApps { seedBirthFiles(forAppNamed: app.name) }
+            for app in myApps { seedBirthFiles(for: app) }
             persist()
             PupaStorage.markRosterEstablished()
         } else {
@@ -4213,8 +4189,8 @@ public final class MyAppStore {
                 // a remote delete) so it isn't re-suppressed on relaunch. After
                 // `restoredApp` above: that may have resolved off the very
                 // `.deleted` record this drops. The same sync that took the app
-                // usually took its memory tree, hence `restoringAs`.
-                Self.clearDeleteMarkers(id, restoringAs: app.name)
+                // usually took its memory tree, hence `recoveringMemories`.
+                Self.clearDeleteMarkers(id, recoveringMemories: true)
             }
         }
         pendingSyncRemoval = nil
@@ -4448,7 +4424,7 @@ public final class MyAppStore {
         // restored body on the next relaunch. After `restoredApp` above; the pin
         // itself survives, only `.deleted` is dropped. `revived.name` is the
         // name at pin time, which recovery bridges to the marker's.
-        Self.clearDeleteMarkers(revived.id, restoringAs: revived.name)
+        Self.clearDeleteMarkers(revived.id, recoveringMemories: true)
         myApps.append(revived)
         activeMyAppId = revived.id
         historyRevision += 1

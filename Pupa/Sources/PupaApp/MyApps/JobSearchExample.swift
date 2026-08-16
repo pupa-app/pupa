@@ -51,18 +51,16 @@ enum JobSearchExample: ExampleMyApp {
     /// subsequent app launch and every Settings → "Restore example
     /// MyApp" tap.
     ///
-    /// `appRootOverride` is for tests only — when nil, writes land at
-    /// `MemoryStore.appRoot(myAppName: JobSearchExample.name)` under
-    /// the user's ApplicationSupport tree. Passing a tmp URL lets a
-    /// unit test exercise the writer without touching real memory.
+    /// `appRoot` is the app's memory root (`MemoryStore.appRoot(myAppId:)`);
+    /// tests pass a tmp URL to exercise the writer without touching real
+    /// memory.
     ///
     /// `@MainActor` because `MemoryStore` is main-actor-isolated;
     /// every call site is already on the main actor (`AppView.init`,
     /// `SettingsSheet` callback) so this isn't a constraint in
     /// practice.
     @MainActor
-    static func seedAgentsMd(globalMemory: MemoryStore?, appRootOverride: URL? = nil) {
-        let appRoot = appRootOverride ?? MemoryStore.appRoot(myAppName: name)
+    static func seedAgentsMd(globalMemory: MemoryStore?, appRoot: URL) {
         let appMemory = MemoryStore(rootOverride: appRoot)
         var wroteAny = false
         if !appMemory.fileExists(at: "pupa/AGENTS.md") {

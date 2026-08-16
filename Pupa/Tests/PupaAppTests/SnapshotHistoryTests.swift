@@ -288,10 +288,9 @@ struct SnapshotHistoryTests {
         let (store, id) = freshTrackerStore()
         let mem = tempMemory()
         store.globalMemory = mem
-        let appName = app(store, id).name
-        try mem.appScopedStore(forAppNamed: appName)
+        try mem.appScopedStore(forAppId: id)
             .writeFile(path: "notes/scratch.md", content: "user note")
-        try mem.appScopedStore(forAppNamed: appName)
+        try mem.appScopedStore(forAppId: id)
             .writeFile(path: "pupa/agents/coach/AGENTS.md", content: "persona")
 
         store.addItem(["title": "secret"], myAppId: id)

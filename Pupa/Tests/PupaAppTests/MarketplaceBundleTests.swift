@@ -319,7 +319,7 @@ struct MarketplaceBundleTests {
         #expect(try scoped.readFile(path: "notes/scratch.md").content == "user note")
     }
 
-    @Test("Rename before export keeps memories attached (slug migration)")
+    @Test("Rename before export keeps memories attached (folder is the app id)")
     func renameThenExportKeepsMemories() throws {
         let mem = tempMemory()
         let app = fixtureApp()
@@ -331,9 +331,8 @@ struct MarketplaceBundleTests {
         store.renameMyApp(app.id, to: "Demo Renamed")
         let renamed = try #require(store.myApp(withId: app.id))
         #expect(renamed.name == "Demo Renamed")
-        // The folder followed the rename…
-        #expect(mem.appScopedStore(forAppNamed: "Demo Renamed").fileExists(at: "notes/scratch.md"))
-        #expect(!mem.folderExists(at: MemoryStore.myAppFolder(myAppName: "Demo")))
+        // The rename moved nothing — the folder is the app's id…
+        #expect(mem.appScopedStore(forAppId: app.id).fileExists(at: "notes/scratch.md"))
         // …so the export still ships the user memory.
         let bundle = MyAppExporter.makeBundle(app: renamed, options: allSelected(renamed), memory: mem)
         #expect(bundle.memories.contains { $0.path == "notes/scratch.md" })
@@ -343,7 +342,7 @@ struct MarketplaceBundleTests {
     func importRefreshesGlobalTree() throws {
         let mem = tempMemory()
         let app = fixtureApp()
-        // "Demo" already exists, so the import lands under a fresh slug.
+        // "Demo" already exists, so the import lands under a fresh name + id.
         let store = MyAppStore(initial: ([app], app.id))
         try mem.appScopedStore(forAppId: app.id)
             .writeFile(path: "notes/scratch.md", content: "user note")
@@ -351,10 +350,10 @@ struct MarketplaceBundleTests {
         let bundle = MyAppExporter.makeBundle(app: app, options: allSelected(app), memory: mem)
         let result = try MyAppImporter.importBundle(try bundle.encoded(), into: store, memory: mem)
         let imported = try #require(store.myApps.first { $0.id == result.myAppId })
-        let slug = MemoryStore.myAppFolder(myAppName: imported.name)
-        #expect(slug != MemoryStore.myAppFolder(myAppName: app.name))
+        let folder = MemoryStore.myAppFolder(myAppId: imported.id)
+        #expect(folder != MemoryStore.myAppFolder(myAppId: app.id))
         // The *live* tree (what the Memories tab renders) has the new files.
-        #expect(treePaths(mem).contains("\(slug)/notes/scratch.md"))
+        #expect(treePaths(mem).contains("\(folder)/notes/scratch.md"))
     }
 
     @Test("Every supported component kind has an export policy")
