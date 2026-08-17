@@ -157,3 +157,21 @@ via Xcode Organizer. Invoke through Claude Code's
 [CONTRIBUTING.md](CONTRIBUTING.md) covers the branching workflow (`dev`
 integration, fast-forward release to `main`) and the hard rules for AI
 assistants. [CLAUDE.md](CLAUDE.md) is the in-repo agent guide.
+
+## License
+
+Two licenses, split by role:
+
+| Path | License | Why |
+|---|---|---|
+| `AGUIKit/` | **MIT** — [AGUIKit/LICENSE](AGUIKit/LICENSE) | A library is only useful if anyone can embed it, including in closed-source apps. |
+| Everything else (`Pupa/`, `PupaHost/`, `docs/`, tooling) | **MPL-2.0** — [LICENSE](LICENSE) | File-level copyleft: improvements to Pupa's own files come back, but the app still combines with proprietary code and ships on the App Store without the GPL conflict. |
+
+MPL-2.0 is *file-level* copyleft. If you modify a Mozilla-licensed file
+you publish that file's changes under MPL-2.0; you may combine it with
+proprietary or differently-licensed code, and larger works carry no
+copyleft obligation. Per-file Exhibit A headers are omitted in favour of
+the directory-level notice MPL-2.0 explicitly permits — these two
+`LICENSE` files are the notice.
+
+Copyright © 2026 Pupa.
