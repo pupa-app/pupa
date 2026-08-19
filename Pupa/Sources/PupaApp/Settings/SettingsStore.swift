@@ -103,6 +103,10 @@ public final class SettingsStore {
     public nonisolated static let defaultThreadCapMB: Double = 5.0
     public static let threadCapMBRange: ClosedRange<Double> = 0.1...20
 
+    /// Default for `autoContinueOnReconnectFail` — off, so recovery behaviour
+    /// only changes when the user opts in.
+    public nonisolated static let defaultAutoContinueOnReconnectFail = false
+
     public private(set) var disabledBackendTools: Set<String>
     /// Harness-specific permission-control values, keyed by harness id, then by
     /// the control `key` the backend advertised (e.g. `claude_loop_native`).
@@ -158,6 +162,14 @@ public final class SettingsStore {
     /// `threadCapEnabled`. Clamped to `threadCapMBRange` and rounded to one
     /// decimal on write.
     public private(set) var threadCapMB: Double
+    /// When true, a foreground reattach whose own stream errors out — a dead
+    /// socket, or the backend reporting the run failed — fires one templated
+    /// "continue" send to restart the dropped turn. A reattach that settles
+    /// without an error (replayed the tail, or had nothing buffered) does not
+    /// trigger it. One-shot per reattach, per chat; every backgrounded chat arms
+    /// independently. See `ChatViewModel.autoReconnectContinueText`. Off by
+    /// default; opt-in from Settings → Connection recovery.
+    public private(set) var autoContinueOnReconnectFail: Bool
 
     /// The cap actually handed to `AgentSession`: `nil` (no limit) when the
     /// breaker is off, else `maxToolRounds`.
@@ -240,6 +252,7 @@ public final class SettingsStore {
         self.toolRoundsUnlimited = snapshot.toolRoundsUnlimited
         self.threadCapEnabled = snapshot.threadCapEnabled
         self.threadCapMB = snapshot.threadCapMB
+        self.autoContinueOnReconnectFail = snapshot.autoContinueOnReconnectFail
         self.credentials = credentials ?? KeychainCredentialStore()
 
         // Init override (tests + previews) edits the *active* backend's URL.
@@ -371,6 +384,14 @@ public final class SettingsStore {
     public func setShellApprovalDisabled(_ disabled: Bool) {
         guard disabled != shellApprovalDisabled else { return }
         shellApprovalDisabled = disabled
+        persist()
+    }
+
+    // MARK: - Connection recovery
+
+    public func setAutoContinueOnReconnectFail(_ enabled: Bool) {
+        guard enabled != autoContinueOnReconnectFail else { return }
+        autoContinueOnReconnectFail = enabled
         persist()
     }
 
@@ -529,7 +550,8 @@ public final class SettingsStore {
             maxToolRounds: maxToolRounds,
             toolRoundsUnlimited: toolRoundsUnlimited,
             threadCapEnabled: threadCapEnabled,
-            threadCapMB: threadCapMB
+            threadCapMB: threadCapMB,
+            autoContinueOnReconnectFail: autoContinueOnReconnectFail
         )
         guard let data = try? JSONEncoder().encode(snap) else { return }
         try? CloudDocument.write(data, to: Self.settingsURL)
@@ -572,6 +594,8 @@ public final class SettingsStore {
         // Optional so pre-thread-cap blobs decode; `load()` substitutes defaults.
         var threadCapEnabled: Bool?
         var threadCapMB: Double?
+        // Optional so pre-existing blobs decode; `load()` substitutes the default.
+        var autoContinueOnReconnectFail: Bool?
         // Legacy single-backend field. Decoded for migration; never re-encoded.
         var backendURL: String?
     }
@@ -592,6 +616,7 @@ public final class SettingsStore {
         let toolRoundsUnlimited: Bool
         let threadCapEnabled: Bool
         let threadCapMB: Double
+        let autoContinueOnReconnectFail: Bool
     }
 
     private nonisolated static func load() -> Loaded {
@@ -614,7 +639,8 @@ public final class SettingsStore {
                 maxToolRounds: defaultMaxToolRounds,
                 toolRoundsUnlimited: defaultToolRoundsUnlimited,
                 threadCapEnabled: false,
-                threadCapMB: defaultThreadCapMB
+                threadCapMB: defaultThreadCapMB,
+                autoContinueOnReconnectFail: defaultAutoContinueOnReconnectFail
             )
         }
         let (backends, activeID) = resolveBackends(snap)
@@ -633,7 +659,8 @@ public final class SettingsStore {
             maxToolRounds: snap.maxToolRounds ?? defaultMaxToolRounds,
             toolRoundsUnlimited: snap.toolRoundsUnlimited ?? defaultToolRoundsUnlimited,
             threadCapEnabled: snap.threadCapEnabled ?? false,
-            threadCapMB: snap.threadCapMB ?? defaultThreadCapMB
+            threadCapMB: snap.threadCapMB ?? defaultThreadCapMB,
+            autoContinueOnReconnectFail: snap.autoContinueOnReconnectFail ?? defaultAutoContinueOnReconnectFail
         )
     }
 
@@ -675,6 +702,7 @@ public final class SettingsStore {
         toolRoundsUnlimited = loaded.toolRoundsUnlimited
         threadCapEnabled = loaded.threadCapEnabled
         threadCapMB = loaded.threadCapMB
+        autoContinueOnReconnectFail = loaded.autoContinueOnReconnectFail
     }
 }
 

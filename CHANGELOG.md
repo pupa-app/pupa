@@ -3,6 +3,19 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.253] — 2026-08-19
+
+### Added
+
+- **Optionally let a dropped chat restart itself.** When you reopen the app it
+  tries to reconnect any chat that was mid-answer; if that reconnect errors out,
+  the turn just sat there and you had to nudge it by hand. Settings ▸ Connection
+  recovery has a new **Auto-continue on reconnect fail** switch (off by default)
+  that sends a single "continue" for you instead. One attempt per chat, and it
+  stands down when it isn't the right answer: it never speaks over something you
+  had queued (that gets sent instead), never interrupts a turn waiting on an
+  on-device action, and never fires twice.
+
 ## [0.0.252] — 2026-08-16
 
 ### Fixed

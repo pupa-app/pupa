@@ -239,6 +239,11 @@ public final class ChatViewModel {
     /// settle path can tell "resumed the turn" from "the park was already
     /// gone" and surface a notice for the latter.
     private var isRecoveringParkedDispatch = false
+    /// Set when a foreground reattach is launched with the auto-continue setting
+    /// on, so the settle path can fire one templated "continue" if that reattach
+    /// still failed to reconnect. One-shot: consumed on the next settle whether
+    /// or not it fires (pupa auto-continue-on-reconnect-fail).
+    private var autoContinueArmed = false
     /// True when a turn finished while this thread was not on screen — drives
     /// the "unviewed answer" badge on the pupa circle / thread lists. Set when
     /// a real turn settles (see `setStreaming`); cleared by `markViewed()` when
@@ -1128,6 +1133,9 @@ public final class ChatViewModel {
         guard connectionIssue != nil else { return }   // nothing was interrupted
         AGUIKitLog.session("foreground reattach: thread=\(threadId)")
         connectionIssue = nil
+        // Arm the one-shot auto-continue fallback: if this replay reattach still
+        // ends in a connection error, the settle path sends one "continue".
+        autoContinueArmed = settings.autoContinueOnReconnectFail
         setStreaming(true)
         // A turn parked on a frontend tool needs the same rewind as the relaunch
         // path (pupa#258): the live cursor sits PAST the `on_interrupt` frame, so
@@ -1190,10 +1198,22 @@ public final class ChatViewModel {
             self?.finishParkedDispatchRecovery()
             // Turn settled — persist the full transcript (assistant + tool bubbles).
             self?.persistTranscript()
-            // Turn settled. Auto-send the next queued message unless the stream
-            // was torn down by an explicit Stop (`cancel`), which clears the
-            // queue anyway. `drainQueue` re-checks error / interrupt state.
-            if !cancelled { self?.drainQueue() }
+            if cancelled {
+                // Torn down rather than settled — an explicit Stop (`cancel`,
+                // which clears the queue anyway) or a newer stream taking over.
+                // The auto-continue arm must still be consumed here: left set it
+                // would outlive this turn and fire a stray "continue" on the
+                // next unrelated failure.
+                self?.disarmAutoContinue()
+            } else {
+                // A foreground reattach that still failed → fire the one-shot
+                // "continue" fallback before draining, so genuinely queued input
+                // takes precedence over the template.
+                self?.maybeAutoContinueAfterReattach()
+                // Turn settled. Auto-send the next queued message. `drainQueue`
+                // re-checks error / interrupt state.
+                self?.drainQueue()
+            }
         }
     }
 
@@ -1226,6 +1246,46 @@ public final class ChatViewModel {
         pendingDispatchAfterSeq = nil
         FrontendDispatchJournalStore.delete(threadId)
         appendBubble(ChatBubble(role: .system, text: Self.abandonedParkedTurnMessage))
+    }
+
+    /// Templated message sent by the one-shot auto-continue fallback. Plain
+    /// "continue" — the dropped turn is resumed, not re-explained.
+    static let autoReconnectContinueText = "continue"
+
+    /// One-shot fallback for `reattachIfNeeded`: the foreground replay reattach
+    /// was armed (`autoContinueArmed`) and still settled on a connection error,
+    /// so send one templated "continue" to restart the dropped turn. Consumes
+    /// the arm regardless — never loops, and a Stop, a human interrupt, an
+    /// unanswered parked dispatch or genuinely queued input all take precedence.
+    private func maybeAutoContinueAfterReattach() {
+        guard autoContinueArmed else { return }
+        autoContinueArmed = false                       // one-shot: consumed
+        guard !didUserStop else { return }              // user pressed Stop
+        guard connectionIssue != nil else { return }    // reattach reconnected — nothing to do
+        guard !isAwaitingHumanInput else { return }     // parked on a human interrupt
+        // A frontend-tool dispatch is still unanswered — the rewind point was
+        // deliberately kept (see `finishParkedDispatchRecovery`) so the next
+        // foreground can retry. A fresh run here would drop the backend's
+        // pending command and leave the stale cursor to re-dispatch on the next
+        // launch (pupa#258). Let that path own the recovery.
+        guard pendingDispatchAfterSeq == nil else { return }
+        // Real queued input beats the template. Clearing the banner is what
+        // releases it: `drainQueue` (called right after us) refuses to run while
+        // a `connectionIssue` is set, so returning without this would strand the
+        // queued message *and* send nothing.
+        guard queuedMessages.isEmpty else {
+            connectionIssue = nil
+            return
+        }
+        AGUIKitLog.session("auto-continue after failed reattach: thread=\(threadId)")
+        send(Self.autoReconnectContinueText)            // `send` clears the banner
+    }
+
+    /// Drop the one-shot auto-continue arm without firing it. For stream ends
+    /// that say nothing about the reattach — an explicit Stop, or a newer stream
+    /// replacing this one. The arm must never outlive its own turn.
+    private func disarmAutoContinue() {
+        autoContinueArmed = false
     }
 
     /// Shown when a turn parked on an on-device tool couldn't be resumed
@@ -1275,6 +1335,9 @@ public final class ChatViewModel {
         // would re-dispatch a batch the user explicitly stopped (pupa#258).
         pendingDispatchAfterSeq = nil
         isRecoveringParkedDispatch = false
+        // Stop also disowns a pending auto-continue — synchronously, so it can't
+        // race the torn-down stream's settle path.
+        disarmAutoContinue()
         FrontendDispatchJournalStore.delete(threadId)
         setStreaming(false)
     }

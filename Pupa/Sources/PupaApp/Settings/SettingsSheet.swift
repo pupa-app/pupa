@@ -453,6 +453,22 @@ public struct SettingsSheet: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+        Section {
+            Toggle(isOn: Binding(
+                get: { settings.autoContinueOnReconnectFail },
+                set: { settings.setAutoContinueOnReconnectFail($0) }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Auto-continue on reconnect fail")
+                    Text("If reopening the app hits an error reconnecting a dropped turn, send one \u{201C}continue\u{201D} to restart it. One attempt per chat — several chats left mid-answer each get one.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        } header: {
+            Text("Connection recovery")
+        }
     }
 
     @ViewBuilder

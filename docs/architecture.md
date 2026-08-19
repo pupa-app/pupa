@@ -295,7 +295,10 @@ drops — including mid-stream socket death and edge 5xx/408/429 (flaky
 tunnel/proxy) — re-attach in-flight with backoff (`command.reattach.after_seq`);
 (2) short backgrounds ride a ~30s UIKit background task, then foreground
 re-attach (`reattachIfNeeded`) resumes any turn that surfaced a
-`connectionIssue`; (3) an **app kill** mid-turn is recovered at next open:
+`connectionIssue`; (2b) opt-in, when that foreground re-attach *itself* errors
+(dead socket, or the backend reporting the run failed), one templated
+`"continue"` restarts the turn — see below; (3) an **app kill** mid-turn is
+recovered at next open:
 `loadHistoryIfNeeded` reads the cached snapshot, and when `turnInFlight` is set
 it seeds the session cursor (`seedReplayCursor`) and fires a catch-up reattach
 that streams the missed tail into the hydrated transcript. A reattach answered
@@ -308,6 +311,22 @@ handler can tell a slow tool from a dead app; scene-phase background sends one
 `state: "background"` notice (backend falls back to its absolute wall) and
 foreground re-arms the short liveness grace
 (`ChatSessionCoordinator.setAllHostBackgrounded`).
+
+**Auto-continue on reconnect fail (opt-in).** The
+`autoContinueOnReconnectFail` setting (off by default, Settings ▸ Connection
+recovery) arms a one-shot fallback: `reattachIfNeeded` records it in
+`autoContinueArmed`
+and, if that re-attach settles with a `connectionIssue` still set, the settle
+path sends one `ChatViewModel.autoReconnectContinueText` (`"continue"`). The arm
+is consumed on the next settle whichever way it ends — including a torn-down
+stream (`disarmAutoContinue`) — so it can never fire on a later turn or loop. It
+stands down for: an explicit Stop, a pending human interrupt, an unresolved
+`pendingDispatchAfterSeq` (that recovery owns the turn, and a fresh run would
+drop the backend's parked command), and a non-empty queue — there it only clears
+the banner so `drainQueue` sends what the user actually typed. A re-attach that
+settles *without* an error (replayed tail, or `204` nothing buffered) is not a
+failure and triggers nothing. Every backgrounded chat arms independently, so one
+foreground can restart several turns.
 
 **Resuming a turn parked on a frontend tool (pupa#258).** While the client runs
 an on-device tool the backend has already closed its SSE and parked, so a kill

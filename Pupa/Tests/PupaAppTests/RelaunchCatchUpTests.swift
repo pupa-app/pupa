@@ -17,12 +17,22 @@ final class RelaunchMockURLProtocol: URLProtocol, @unchecked Sendable {
     /// Connect-time failure injector, keyed by 1-based POST index — mimics a
     /// dropped socket so the session's retry ladder can be driven.
     nonisolated(unsafe) static var failPostAt: (@Sendable (Int) -> URLError?)?
+    /// HTTP status to answer a POST with (empty body), keyed by 1-based index.
+    /// A non-5xx code is *not* reattachable, so the error surfaces at once
+    /// instead of walking the ~7.5s retry ladder.
+    nonisolated(unsafe) static var statusPostAt: (@Sendable (Int) -> Int?)?
+    /// Seconds to hold a POST open before answering it. Lets a test act while a
+    /// request is genuinely in flight (queue a message, hit Stop); a delay past
+    /// the test's own lifetime is an outright hang.
+    nonisolated(unsafe) static var postDelay: TimeInterval?
 
     static func reset() {
         sseBody = nil
         sseBodies = nil
         postBodies = []
         failPostAt = nil
+        statusPostAt = nil
+        postDelay = nil
     }
 
     /// Body for the POST being served (bodies are appended before this runs).
@@ -52,24 +62,38 @@ final class RelaunchMockURLProtocol: URLProtocol, @unchecked Sendable {
                 data = request.httpBody ?? Data()
             }
             Self.postBodies.append(data)
+            let index = Self.postBodies.count
 
-            if let failer = Self.failPostAt, let err = failer(Self.postBodies.count) {
-                client?.urlProtocol(self, didFailWithError: err)
+            if let failer = Self.failPostAt, let err = failer(index) {
+                respond { self.client?.urlProtocol(self, didFailWithError: err) }
+                return
+            }
+            if let statuser = Self.statusPostAt, let code = statuser(index) {
+                respond {
+                    let resp = HTTPURLResponse(url: self.request.url!, statusCode: code,
+                                               httpVersion: nil, headerFields: [:])!
+                    self.client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
+                    self.client?.urlProtocolDidFinishLoading(self)
+                }
                 return
             }
 
             guard let body = Self.bodyForCurrentPost() else {
-                let resp = HTTPURLResponse(url: request.url!, statusCode: 204,
-                                           httpVersion: nil, headerFields: [:])!
-                client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
-                client?.urlProtocolDidFinishLoading(self)
+                respond {
+                    let resp = HTTPURLResponse(url: self.request.url!, statusCode: 204,
+                                               httpVersion: nil, headerFields: [:])!
+                    self.client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
+                    self.client?.urlProtocolDidFinishLoading(self)
+                }
                 return
             }
-            let resp = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
-                                       headerFields: ["Content-Type": "text/event-stream"])!
-            client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: body)
-            client?.urlProtocolDidFinishLoading(self)
+            respond {
+                let resp = HTTPURLResponse(url: self.request.url!, statusCode: 200, httpVersion: nil,
+                                           headerFields: ["Content-Type": "text/event-stream"])!
+                self.client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
+                self.client?.urlProtocol(self, didLoad: body)
+                self.client?.urlProtocolDidFinishLoading(self)
+            }
             return
         }
         // GET transcript fetch → empty list (never clobbers the cache).
@@ -80,7 +104,20 @@ final class RelaunchMockURLProtocol: URLProtocol, @unchecked Sendable {
         client?.urlProtocolDidFinishLoading(self)
     }
 
-    override func stopLoading() {}
+    override func stopLoading() { stopped = true }
+
+    /// Set once the client tore the request down — a delayed answer must not
+    /// fire afterwards.
+    private var stopped = false
+
+    /// Deliver now, or after `postDelay` when one is set.
+    private func respond(_ body: @escaping @Sendable () -> Void) {
+        guard let delay = Self.postDelay else { return body() }
+        DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, !self.stopped else { return }
+            body()
+        }
+    }
 }
 
 /// Launch-time catch-up after an app kill (pupa#103): a thread whose cached

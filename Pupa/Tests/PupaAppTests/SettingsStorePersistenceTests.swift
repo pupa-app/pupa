@@ -387,6 +387,41 @@ struct SettingsStorePersistenceTests {
         #expect(store.effectiveThreadCapBytes == 500_000)
     }
 
+    // MARK: - Auto-continue on reconnect fail
+
+    @Test("autoContinueOnReconnectFail defaults off")
+    func autoContinue_default() {
+        let store = freshStore()
+        #expect(store.autoContinueOnReconnectFail == SettingsStore.defaultAutoContinueOnReconnectFail)
+        #expect(store.autoContinueOnReconnectFail == false)
+    }
+
+    @Test("setAutoContinueOnReconnectFail round-trips across instances")
+    func autoContinue_roundtrip() {
+        SettingsStore.clearStorage()
+        let writer = SettingsStore(credentials: InMemoryCredentialStore())
+        writer.setAutoContinueOnReconnectFail(true)
+
+        let reader = SettingsStore(credentials: InMemoryCredentialStore())
+        #expect(reader.autoContinueOnReconnectFail == true)
+    }
+
+    @Test("Pre-existing settings blob without the auto-continue field decodes to default")
+    func autoContinue_absentDecodesToDefault() throws {
+        SettingsStore.clearStorage()
+        let id = UUID()
+        let legacy: [String: Any] = [
+            "disabledBackendTools": [],
+            "backends": [["id": id.uuidString, "label": "L", "url": "https://x.example.com/"]],
+            "activeBackendID": id.uuidString,
+        ]
+        let data = try JSONSerialization.data(withJSONObject: legacy)
+        try CloudDocument.write(data, to: SettingsStore.settingsURL)
+
+        let store = SettingsStore(credentials: InMemoryCredentialStore())
+        #expect(store.autoContinueOnReconnectFail == false)
+    }
+
     @Test("Pre-existing settings blob without threadCap fields decodes to defaults")
     func threadCap_absentDecodesToDefault() throws {
         SettingsStore.clearStorage()
