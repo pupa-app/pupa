@@ -309,6 +309,16 @@ handler can tell a slow tool from a dead app; scene-phase background sends one
 foreground re-arms the short liveness grace
 (`ChatSessionCoordinator.setAllHostBackgrounded`).
 
+Layer (4) is the user: both connection banners in `ChatPanel` carry a
+**Continue** button (`ChatViewModel.continueDroppedTurn`) that sends a plain
+`"continue"` to pick the turn back up — including on `.reconnecting`, where a
+dropped send otherwise parks until a foreground reattach. It is deliberately
+user-initiated: the client can't tell a backend run that is still alive from one
+that is gone, so spending a new turn is the user's call. It is inert unless
+something is stuck (nothing in flight, no pending interrupt, a live
+`connectionIssue`), and a pending `pendingDispatchAfterSeq` re-attaches instead
+of sending — a fresh run would drop the backend's parked command (pupa#258).
+
 **Resuming a turn parked on a frontend tool (pupa#258).** While the client runs
 an on-device tool the backend has already closed its SSE and parked, so a kill
 before the resume POST leaves nothing to catch up on — the replay cursor is

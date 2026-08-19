@@ -3,6 +3,17 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.253] — 2026-08-19
+
+### Added
+
+- **A Continue button on a dropped chat.** When a turn's connection dies, the
+  chat shows "Reconnecting…" or an error and then just sits there — you had to
+  retype something to get the assistant moving again. Both now carry a
+  **Continue** button that picks the turn back up. It appears only when nothing
+  is in flight, and a turn that stopped mid on-device action reconnects to
+  finish that action rather than starting over.
+
 ## [0.0.252] — 2026-08-16
 
 ### Fixed

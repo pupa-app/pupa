@@ -173,20 +173,26 @@ public struct ChatPanel: View {
                         }
                         switch viewModel.connectionIssue {
                         case .reconnecting:
-                            HStack(spacing: 6) {
-                                ProgressView().controlSize(.small)
-                                Text("Reconnecting…")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 6) {
+                                    ProgressView().controlSize(.small)
+                                    Text("Reconnecting…")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                continueDroppedTurnButton
                             }
                             .padding(.horizontal, 12)
                             .transition(.opacity)
                         case .failed(let message):
-                            Text(message)
-                                .font(.caption)
-                                .foregroundStyle(.red)
-                                .lineLimit(3)
-                                .padding(.horizontal, 12)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(message)
+                                    .font(.caption)
+                                    .foregroundStyle(.red)
+                                    .lineLimit(3)
+                                continueDroppedTurnButton
+                            }
+                            .padding(.horizontal, 12)
                         case nil:
                             EmptyView()
                         }
@@ -408,6 +414,21 @@ public struct ChatPanel: View {
         guard isAtBottom else { return }
         withAnimation(.easeOut(duration: 0.15)) {
             proxy.scrollTo(Self.bottomMarkerID, anchor: .bottom)
+        }
+    }
+
+    /// Restarts a turn whose stream died, from either connection banner. Hidden
+    /// while something is in flight — a live reattach is already doing this, and
+    /// mid-turn there is nothing stuck to continue. Offered on `.reconnecting`
+    /// too: a dropped send parks there and only foreground reattach clears it,
+    /// so that state strands the user just as much as an outright failure.
+    @ViewBuilder
+    private var continueDroppedTurnButton: some View {
+        if !viewModel.isStreaming {
+            Button("Continue") { viewModel.continueDroppedTurn() }
+                .font(.caption.weight(.medium))
+                .buttonStyle(.plain)
+                .foregroundStyle(.tint)
         }
     }
 

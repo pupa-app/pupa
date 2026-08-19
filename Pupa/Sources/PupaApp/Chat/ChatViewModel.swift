@@ -1234,6 +1234,26 @@ public final class ChatViewModel {
         appendBubble(ChatBubble(role: .system, text: Self.abandonedParkedTurnMessage))
     }
 
+    /// Sent by the connection banner's Continue affordance. Plain "continue" —
+    /// the dropped turn is picked up, not re-explained.
+    static let continueDroppedTurnText = "continue"
+
+    /// Restart a turn whose stream died, from the banner's Continue button.
+    /// User-initiated on purpose: the client can't tell a backend run that is
+    /// still alive from one that is gone, so *whether* to spend a new turn is
+    /// the user's call, not a guess made on their behalf.
+    ///
+    /// No-op unless something is actually stuck — nothing in flight, no pending
+    /// interrupt (that resolves through its own bubble), and a live
+    /// `connectionIssue`. A turn parked on a frontend tool is answered by
+    /// re-attaching instead: a fresh run would drop the backend's pending
+    /// command and strand the rewind point (pupa#258).
+    public func continueDroppedTurn() {
+        guard connectionIssue != nil, !isStreaming, !isAwaitingHumanInput else { return }
+        guard pendingDispatchAfterSeq == nil else { return reattachIfNeeded() }
+        send(Self.continueDroppedTurnText)
+    }
+
     /// Shown when a turn parked on an on-device tool couldn't be resumed
     /// because the backend stopped waiting while the app was away.
     static let abandonedParkedTurnMessage =
