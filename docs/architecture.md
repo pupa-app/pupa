@@ -818,6 +818,17 @@ that `ChatViewModel` conforms to). The backend forwards their schemas to
 the model and the client executes the calls — the backend owns no
 canvas logic.
 
+**Tool gates are per session.** Kind tools, the memory filesystem and
+notifications sit behind `get_tools_<kind>` / `get_tools_memories` /
+`get_tools_notifications`; calling one flips a `ToolGateState`, and the next
+round's filter (`ChatViewModel.allowedToolNames`) swaps the gate for the group
+it unlocks. That state is built per session — one per `(scope, threadId)`
+ChatViewModel, one per sub-run (`runOneShot`, `runSubagent`, Slack invoke) —
+and captured by the gate handlers registered next to it, so an unlock never
+reaches a sibling thread, a sibling MyApp, or a concurrent run, and "New
+session" starts closed (new thread → new session key → fresh gate). Covered by
+[ToolGateIsolationTests](../Pupa/Tests/PupaAppTests/ToolGateIsolationTests.swift).
+
 **Agent harnesses.** Each backend can serve several agent loops ("harnesses" —
 LangGraph, Claude Code, …) at once, mounted at `POST /harnesses/{id}`.
 `BackendEntry.harnessID` selects which one this connection talks to (chosen in

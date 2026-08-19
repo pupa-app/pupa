@@ -391,6 +391,12 @@ public final class ChatViewModel {
     /// tool-gate logic in `allowedToolNames(scope:store:toolGateState:)`.
     private let toolGateState: ToolGateState
 
+    /// Tool names the model is advertised on the next round: this session's
+    /// scope + store surface, narrowed by this session's own gate activations.
+    var currentAllowedToolNames: Set<String> {
+        Self.allowedToolNames(scope: pinnedScope, store: store, toolGateState: toolGateState)
+    }
+
     /// Client-side slash commands (e.g. `/help`, `/tools`). Built lazily so
     /// the closures can capture `self`. See [SlashCommands.swift].
     /// `@ObservationIgnored` so the `@Observable` macro doesn't try to
@@ -656,7 +662,7 @@ public final class ChatViewModel {
     private func appendToolsBubble() {
         let placeholderId = UUID().uuidString
         appendBubble(ChatBubble(id: placeholderId, role: .system, text: "Loading tools…"))
-        let allowed = Self.allowedToolNames(scope: pinnedScope, store: store, toolGateState: toolGateState)
+        let allowed = currentAllowedToolNames
         let frontendDescriptors = registry.descriptors
             .filter { allowed.contains($0.name) }
             .sorted { $0.name < $1.name }
