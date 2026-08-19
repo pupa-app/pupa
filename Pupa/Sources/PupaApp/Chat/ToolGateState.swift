@@ -6,9 +6,11 @@ import Foundation
 /// be captured in the @Sendable toolFilter closure — all access at the call
 /// sites remains under `await MainActor.run { … }`.
 ///
-/// Lifetime: owned by ChatViewModel, discarded with the session.
-/// ChatViewModel.newThread() calls reset() so gates don't survive a session
-/// reset, consistent with canvas state behaviour.
+/// Lifetime: one instance per session — a `(scope, threadId)` ChatViewModel,
+/// or a single sub-run (runOneShot / runSubagent / Slack invoke). Never
+/// shared: a new thread means a new session key, hence a new VM and a new
+/// gate state, so activations can't survive a "New session" or leak between
+/// concurrent runs. See [ToolGateIsolationTests].
 @MainActor
 public final class ToolGateState: @unchecked Sendable {
     private var activated: Set<String> = []
@@ -34,11 +36,4 @@ public final class ToolGateState: @unchecked Sendable {
 
     /// Whether the notifications tools have been activated this session.
     public var isNotificationsActivated: Bool { notificationsActivated }
-
-    /// Reset all activations — called by ChatViewModel.newThread().
-    public func reset() {
-        activated.removeAll()
-        memoriesActivated = false
-        notificationsActivated = false
-    }
 }
