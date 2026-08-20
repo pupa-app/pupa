@@ -132,7 +132,7 @@ public final class ChatSessionCoordinator {
 
     /// Refresh the A2A gate's limits from the current `SettingsStore` values.
     /// Called right before each gate decision so changes made in
-    /// Settings → Agent-to-agent take effect on the next invocation without
+    /// Settings → Agents take effect on the next invocation without
     /// an app restart.
     private func syncGateLimitsFromSettings() {
         agentInvocationGate.maxChainDepth = settings.a2aMaxChainDepth

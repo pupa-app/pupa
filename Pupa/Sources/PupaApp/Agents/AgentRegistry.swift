@@ -77,7 +77,6 @@ public enum AgentRegistry {
         if let thinking = thinkingProperty(currentLevel: store.myAppThinking(for: myApp.id), catalog: catalog) {
             properties.append(thinking)
         }
-        properties.append(permissionsProperty(settings: settings))
         properties.append(AgentProperty(
             id: "prompt",
             label: "Prompt",
@@ -90,12 +89,6 @@ public enum AgentRegistry {
                 : "Falls back to the MyAppType fragment — no AGENTS.md on disk yet. Open the link to create one."
         ))
         properties.append(AgentProperty(
-            id: "components",
-            label: "Components",
-            value: .list(myApp.components.map { "\($0.name) (\($0.kindString))" }),
-            note: nil
-        ))
-        properties.append(AgentProperty(
             id: "tools",
             label: "Tool surface",
             value: .toolToggles(
@@ -103,7 +96,7 @@ public enum AgentRegistry {
                 groups: toolGroups,
                 disabled: disabled
             ),
-            note: "Resolved from the MyApp type and the components currently on the canvas. Toggle a tool off to hide it from this agent (unioned with the global Settings → Tools set)."
+            note: "Resolved from the MyApp type and the components currently on the canvas. Toggle a tool off to hide it from this agent."
         ))
 
         return AgentDescriptor(
@@ -149,7 +142,6 @@ public enum AgentRegistry {
         if let thinking = thinkingProperty(currentLevel: settings.orchestratorThinking, catalog: catalog) {
             properties.append(thinking)
         }
-        properties.append(permissionsProperty(settings: settings))
         properties.append(AgentProperty(
             id: "prompt",
             label: "Prompt",
@@ -218,7 +210,6 @@ public enum AgentRegistry {
         let disabled = Set(subagent.disabledTools ?? [])
 
         properties.append(modelProperty(currentSelection: agentSelection, catalog: catalog))
-        properties.append(permissionsProperty(settings: settings))
         properties.append(AgentProperty(
             id: "prompt",
             label: "Prompt",
@@ -340,10 +331,7 @@ public enum AgentRegistry {
         return AgentProperty(
             id: "model",
             label: "Model",
-            value: .modelPicker(selectedId: selectedId, options: catalog.models),
-            note: selectedId == KnownLLMModelCatalog.backendDefaultId
-                ? "Inherits the model the backend was started with (LLM_PROVIDER env var)."
-                : nil
+            value: .modelPicker(selectedId: selectedId, options: catalog.models)
         )
     }
 

@@ -424,7 +424,7 @@ public struct MyAppHomeView: View {
     private func orchestratorOutlinePanel() -> some View {
         DisclosureGroup(isExpanded: $outlineExpanded) {
             VStack(alignment: .leading, spacing: 12) {
-                Text("The orchestrator is a global agent with its own chat and shared memory that spans every myapp. Use it to plan, delegate work to a myapp's agent, or spin up a new myapp — without opening any single canvas. Each delegation runs as a fresh sub-agent against the target myapp, and it can fan out to several at once.")
+                Text("The orchestrator is a global agent with its own chat and shared memory that spans every myapp. Use it to plan, delegate work to a myapp's agent, or spin up a new myapp, without opening any single canvas.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
 
@@ -482,7 +482,7 @@ public struct MyAppHomeView: View {
     /// panel, empty, so the page reads like any other myapp home.
     private func orchestratorComponentsPanel() -> some View {
         DisclosureGroup(isExpanded: $componentsExpanded) {
-            Text("None — the orchestrator coordinates your myapps rather than holding its own canvas.")
+            Text("None. The orchestrator coordinates your myapps rather than holding its own canvas.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)

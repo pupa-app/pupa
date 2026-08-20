@@ -32,7 +32,7 @@ struct RecentlyDeletedAppsView: View {
                     }
                 }
             } footer: {
-                Text("Deleted apps — and apps a sync removed on its own — are listed here for 180 days. Restoring brings back the last saved state, chats and components included, and clears the delete on your other devices. Deleting permanently erases that saved state everywhere.")
+                Text("Deleted apps, including apps a sync removed on its own, are listed here for 180 days. Restoring brings back the last saved state, chats and components included, and clears the delete on your other devices. Deleting permanently erases that saved state everywhere.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

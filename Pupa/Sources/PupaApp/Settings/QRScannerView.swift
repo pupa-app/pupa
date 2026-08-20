@@ -26,7 +26,7 @@ struct PairingQRResult {
 /// Accepts both:
 /// - A bare 8-char alphanumeric code matching the pairing alphabet.
 /// - A URL like `pupa-pair://?url=https://…&code=ABCDEFGH&fp=<sha256>`
-///   (emitted by `make pair` when setup extras are installed).
+///   (emitted by `pupa-backend pair` when setup extras are installed).
 struct QRScannerView: UIViewControllerRepresentable {
     let onScan: (String) -> Void
 

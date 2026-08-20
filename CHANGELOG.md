@@ -57,7 +57,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   It was only ever told links work in a chat reply, so notes it wrote pointed
   at each other in plain text. It can also link a canvas item from a note.
 - **Pairing instructions name the command you actually have.** The backend
-  setup sheet told you to run `make pair`, which only works from a checkout of
+  setup sheet told you to run `pupa-backend pair`, which only works from a checkout of
   the backend repo; it now says `pupa-backend pair`, the installed command.
 
 ## [0.0.250] — 2026-08-16

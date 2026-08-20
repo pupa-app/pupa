@@ -18,7 +18,7 @@ struct SharingSettingsView: View {
                 } label: {
                     hubRow(icon: "square.and.arrow.up",
                            title: "Share an app",
-                           caption: "Send one MyApp — or all of them — as a .\(MyAppBundle.fileExtension) bundle")
+                           caption: "Send one MyApp, or all of them, as a .\(MyAppBundle.fileExtension) bundle")
                 }
                 NavigationLink {
                     ImportAppScreen(store: store, memory: memory, onImported: onImported)
