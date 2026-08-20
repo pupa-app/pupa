@@ -906,7 +906,11 @@ public final class ChatViewModel {
         sessionAuthHeaders = headers
     }
 
-    public func send(_ raw: String, images: [PickedImage] = []) {
+    /// - Parameter echoBubble: whether to render a user bubble for this send.
+    ///   `false` re-sends something already on screen (`continueDroppedTurn`
+    ///   retrying a dropped message) — the bubble and the thread title are
+    ///   already there, and a second copy of both would be wrong.
+    public func send(_ raw: String, images: [PickedImage] = [], echoBubble: Bool = true) {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         // `text` is what reaches the backend; `displayText` is what the user
         // bubble shows. They diverge only for `/skill`-style rewrites, where
@@ -954,12 +958,14 @@ public final class ChatViewModel {
             break
         }
 
-        appendBubble(ChatBubble(role: .user, text: displayText, imagesData: images.map(\.data)))
+        if echoBubble {
+            appendBubble(ChatBubble(role: .user, text: displayText, imagesData: images.map(\.data)))
 
-        // Capture the first user message as the thread title (set-once).
-        let isFirstUserMessage = !bubbles.dropLast().contains(where: { $0.role == .user })
-        if isFirstUserMessage {
-            store.setThreadTitle(Self.deriveTitle(displayText), threadId: threadId, for: pinnedScope)
+            // Capture the first user message as the thread title (set-once).
+            let isFirstUserMessage = !bubbles.dropLast().contains(where: { $0.role == .user })
+            if isFirstUserMessage {
+                store.setThreadTitle(Self.deriveTitle(displayText), threadId: threadId, for: pinnedScope)
+            }
         }
 
         setStreaming(true)
@@ -1232,6 +1238,45 @@ public final class ChatViewModel {
         pendingDispatchAfterSeq = nil
         FrontendDispatchJournalStore.delete(threadId)
         appendBubble(ChatBubble(role: .system, text: Self.abandonedParkedTurnMessage))
+    }
+
+    /// Last-resort text for the banner's Continue button: sent only when the
+    /// dropped turn left no message of its own to retry (a hydrated transcript
+    /// with no user bubble). Everything else re-attaches or re-sends.
+    static let continueDroppedTurnText = "continue"
+
+    /// Pick a turn whose stream died back up, from the banner's Continue button.
+    /// User-initiated on purpose: recovery spends a turn (or reveals that the
+    /// backend already answered), so it is the user's call, not a guess made on
+    /// their behalf.
+    ///
+    /// No-op unless something is actually stuck — nothing in flight, no pending
+    /// interrupt (also guarded inside `send`), and a live `connectionIssue`.
+    /// What "continue" means then depends on what the backend is holding:
+    ///
+    /// - **A parked frontend-tool dispatch, or a replay tail we already started
+    ///   consuming** → re-attach. The backend has state for us — a rewind point
+    ///   (pupa#258) or buffered events (pupa#103) — and a fresh run would
+    ///   advance the cursor past that tail, stranding an answer it may already
+    ///   have produced.
+    /// - **Nothing streamed at all** → the run never started, so re-send the
+    ///   message that was dropped. It must be *that* message, not a template:
+    ///   `AgentSession` replaces a trailing user message that never settled, so
+    ///   sending anything else here would erase what the user actually asked.
+    public func continueDroppedTurn() {
+        guard connectionIssue != nil, !isStreaming, !isAwaitingHumanInput else { return }
+        guard pendingDispatchAfterSeq == nil, appliedEventSeq == nil else {
+            return reattachIfNeeded()
+        }
+        guard let dropped = bubbles.last(where: { $0.role == .user }) else {
+            return send(Self.continueDroppedTurnText)
+        }
+        // Attachments are re-encoded on the way in, so the stored bytes are
+        // always `ImagePreparer.mimeType`. A hydrated post-relaunch bubble has
+        // none (the cache strips them) and re-sends as text.
+        send(dropped.text,
+             images: dropped.imagesData.map { PickedImage(data: $0, mimeType: ImagePreparer.mimeType) },
+             echoBubble: false)
     }
 
     /// Shown when a turn parked on an on-device tool couldn't be resumed

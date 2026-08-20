@@ -18,6 +18,10 @@ enum ImagePreparer {
     /// source PNG but the simplicity is worth it.
     static let jpegQuality: CGFloat = 0.8
 
+    /// What `prepare` always emits — every attachment is re-encoded, so this is
+    /// the mime type of any image byte-blob the app holds.
+    static let mimeType = "image/jpeg"
+
     /// Decode `source`, downscale (preserving aspect) so the long edge is at
     /// most `maxLongEdge`, and re-encode as JPEG. Returns the encoded bytes
     /// plus the canonical mime type, or nil if the bytes couldn't be decoded
@@ -49,6 +53,6 @@ enum ImagePreparer {
         ]
         CGImageDestinationAddImage(dest, cgImage, destOptions as CFDictionary)
         guard CGImageDestinationFinalize(dest) else { return nil }
-        return (data: outputData as Data, mimeType: "image/jpeg")
+        return (data: outputData as Data, mimeType: mimeType)
     }
 }
