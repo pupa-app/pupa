@@ -1,0 +1,33 @@
+import Foundation
+import Testing
+@testable import PupaApp
+
+/// `enumerateAgents` runs from the Agents pane, which is keep-alive and so
+/// mounts fresh on every MyApp switch. Each `MemoryStore` it builds is a full
+/// recursive scan, so the count matters.
+@MainActor
+@Suite("Agent registry scanning")
+struct AgentRegistryScanTests {
+
+    init() { TestStorage.activate() }
+
+    @Test("enumerating agents scans the app memory root once")
+    func enumerateScansOnce() {
+        MyAppTypeRegistry.shared.registerBuiltins()
+        let myApp = MyApp(name: "A", iconSystemName: "list.bullet", typeId: MyAppType.tracker.id)
+        let store = MyAppStore(initial: ([myApp], myApp.id))
+        let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myApp.id))
+        _ = try? memory.writeFile(
+            path: "\(MemoryStore.pupaAgentsDir)/helper/AGENTS.md",
+            content: "---\nname: Helper\ndescription: d\n---\n\nbody")
+
+        DiskIO.reset()
+        let descriptors = AgentRegistry.enumerateAgents(
+            myApp: myApp, store: store, settings: SettingsStore(),
+            catalog: ModelCatalogStore())
+
+        // Main agent + the one subagent, from a single scan (was two).
+        #expect(descriptors.count == 2)
+        #expect(DiskIO.scans == 1, "scanned the memory root \(DiskIO.scans) times")
+    }
+}

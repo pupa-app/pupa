@@ -173,21 +173,23 @@ public struct AppView: View {
     /// highlight in sync, and routes the chat scope. Re-entrant safe — the
     /// sidebar's selection `onChange` calls back into here.
     private func setRoot(_ sel: SidebarSelection) {
-        if rootPage != sel || !detailPath.isEmpty {
-            var tx = Transaction()
-            tx.disablesAnimations = true
-            withTransaction(tx) {
-                rootPage = sel
-                detailPath = []
+        PerfTrace.interaction("setRoot." + PerfTrace.label(sel)) {
+            if rootPage != sel || !detailPath.isEmpty {
+                var tx = Transaction()
+                tx.disablesAnimations = true
+                withTransaction(tx) {
+                    rootPage = sel
+                    detailPath = []
+                }
             }
+            #if os(macOS)
+            // iOS deliberately skips this: `selection` is cleared to nil after
+            // every drawer tap so a re-tap of the same row re-fires — writing it
+            // back here would defeat that.
+            if selection != sel { selection = sel }
+            #endif
+            dispatchSelection(sel)
         }
-        #if os(macOS)
-        // iOS deliberately skips this: `selection` is cleared to nil after
-        // every drawer tap so a re-tap of the same row re-fires — writing it
-        // back here would defeat that.
-        if selection != sel { selection = sel }
-        #endif
-        dispatchSelection(sel)
     }
 
     /// Drain a pending notification tap: navigate to the scope that scheduled it
@@ -818,7 +820,9 @@ public struct AppView: View {
                         .toolbar {
                             ToolbarItem(placement: .topBarLeading) {
                                 Button {
-                                    showSidebar.toggle()
+                                    PerfTrace.interaction(showSidebar ? "drawerClose" : "drawerOpen") {
+                                        showSidebar.toggle()
+                                    }
                                 } label: {
                                     Image(systemName: "line.3.horizontal")
                                 }
@@ -830,7 +834,9 @@ public struct AppView: View {
                                 .toolbar {
                                     ToolbarItem(placement: .topBarLeading) {
                                         Button {
-                                            showSidebar.toggle()
+                                            PerfTrace.interaction(showSidebar ? "drawerClose" : "drawerOpen") {
+                                                showSidebar.toggle()
+                                            }
                                         } label: {
                                             Image(systemName: "line.3.horizontal")
                                         }
@@ -1226,7 +1232,12 @@ public struct AppView: View {
                 // Root swap handles both a tab switch and a re-tap (which just
                 // pops any drill-in pushes back to the tab's own page).
                 onSelect: setRoot,
-                onShowHistory: { id in detailPath.append(.myAppHistory(id)) },
+                onShowHistory: { id in
+                    let dest = SidebarSelection.myAppHistory(id)
+                    PerfTrace.interaction("pushHistory." + PerfTrace.label(dest)) {
+                        detailPath.append(dest)
+                    }
+                },
                 onToggleChat: {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                         chatOpen.toggle()

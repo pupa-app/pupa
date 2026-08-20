@@ -97,6 +97,11 @@ public struct SettingsSheet: View {
     /// `body`: it reads the filesystem.
     @State private var hasDeletedApps = false
 
+    /// Whether to offer the Pinned snapshots row. Same rule, same reason: the
+    /// gate walks every app's snapshot directory. Reading it inline made
+    /// presenting Settings wait on the whole snapshot corpus.
+    @State private var hasPinnedSnapshots = false
+
     /// Off-main tombstone scan feeding `hasDeletedApps`. `hasTombstones()`, not
     /// `deletedMyApps()` — the row needs only "any?", and the full listing's
     /// per-entry resolve belongs on the screen itself, not on a gate re-run on
@@ -152,7 +157,7 @@ public struct SettingsSheet: View {
                                     caption: "Share or load a MyApp bundle")
                     }
                 }
-                if let store, store.hasAnyPinnedSnapshots {
+                if store != nil, hasPinnedSnapshots {
                     NavigationLink(value: SettingsCategory.pinned) {
                         categoryRow(icon: "pin", title: "Pinned snapshots",
                                     caption: "Saved states per app")
@@ -192,6 +197,12 @@ public struct SettingsSheet: View {
                 categoryDetail(category)
             }
             .task { await refreshHasDeletedApps() }
+            // Keyed on `historyRevision` so pinning or unpinning re-runs the
+            // gate — the observation dependency the removed synchronous
+            // accessor used to establish with a bare `_ = historyRevision`.
+            .task(id: store?.historyRevision) {
+                hasPinnedSnapshots = await SnapshotStore.hasAnyPins()
+            }
             // Re-check on the pop, so restoring the last deleted app drops the
             // row. A push can't have changed what's on disk.
             .onChange(of: path) { _, new in

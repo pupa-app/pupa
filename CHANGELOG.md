@@ -3,6 +3,47 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.257] — 2026-08-20
+
+### Performance
+
+- **Switching apps from the menu is immediate.** The Agents page stays mounted
+  for the app you're on, so picking a different app in the menu built it fresh
+  — and it worked out the agent list by walking that app's memory folder from
+  inside the view, before the screen could change. It now loads just after the
+  page appears, behind a placeholder, so the tap lands straight away.
+- **Reading a memory folder got ~10× cheaper.** Scanning asked the filesystem
+  about every entry three separate times; it now asks once per folder and
+  reads the answers it already has. Building an app's memory tree: 11.2ms →
+  1.1ms p50 on a 40-file fixture. This sits under the Memories tab, the agent
+  list, and every scoped agent session, so it is felt broadly. Listing agents
+  also stopped scanning the same folder twice.
+
+App `0.0.256` → `0.0.257`.
+
+## [0.0.256] — 2026-08-20
+
+### Performance
+
+- **Settings opens without the pause.** The Settings list decided whether to
+  show the *Pinned snapshots* row by walking every app's snapshot directory
+  and reading each record — from inside the view body, on the main thread, so
+  presenting the sheet waited on the entire snapshot corpus first. The row is
+  a gate that only needs "any?", so it now loads on appear like *Recently
+  deleted* beside it, and the underlying scan reads a small derived index
+  instead of the history. Gate: 8.0ms → 2.5ms p50 on an 8-app fixture, and it
+  no longer grows with how much history you keep.
+- **Editing no longer re-reads your whole snapshot history.** Recording the
+  debounced restore point after an edit asked for the current head, which
+  listed the history — and listing meant reading and parsing every snapshot
+  file, each one a full serialized app. History listings now come from a
+  derived local index that never syncs and rebuilds itself if it ever
+  disagrees with what's on disk. An edit on an app at the history cap: 31.3ms
+  → 20.1ms p50; below the cap, 6.3ms. (The remainder at the cap is eviction
+  re-basing the chain, which is untouched here.)
+
+App `0.0.255` → `0.0.256`.
+
 ## [0.0.254] — 2026-08-20
 
 ### Fixed

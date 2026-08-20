@@ -124,6 +124,30 @@ keep-alive detail panes): open/close slides by `.offset` under a single scoped
 transaction measured ~90–135ms tap→frame warm (and ~1.1s on first open) and made
 the hamburger feel slow next to the animation-free page switches.
 
+### Measuring interaction latency
+
+`PerfTrace` (`App/PerfTrace.swift`) times navigation interactions when
+`PUPA_PERF=1`; it is inert otherwise. Each interaction logs two numbers to
+`com.pupa-app.client`/`perf`, plus an `os_signpost` interval:
+
+- **main** — the runloop turn the tap kicks off (state write + body + layout).
+  Moves when synchronous work leaves a `body`.
+- **frame** — render-server ack for the resulting CoreAnimation commit.
+  Catches render-side cost (offscreen rasterization) that *main* misses.
+
+Lines carry `cold`/`warm`, so "first open slow" is a column, not an anecdote.
+Wired at `setRoot`, the drawer toggle, Settings open, and the History push.
+
+`PupaDemo` doubles as the harness. `PUPA_PERF_DRIVE=1` measures the
+store-level work a tap performs (p50/p90 over 20 reps) and exits without a
+window; `PUPA_PERF_SEED=1` first writes a fixed corpus under a temp
+`PupaStorage.overrideRoot` so numbers compare across runs and machines:
+
+```
+PUPA_PERF=1 PUPA_PERF_DRIVE=1 PUPA_PERF_SEED=1 \
+  swift run -c release --package-path Pupa PupaDemo
+```
+
 The chat lives in a user-resizable `ChatOverlay` card anchored bottom-trailing
 of the detail pane. Its launcher lives in the per-MyApp bottom bar (below); on
 pages without that bar (screen share, settings) `ChatOverlay` shows
@@ -214,6 +238,12 @@ active component canvas) stay mounted in a `ZStack` and switch by opacity
 ~3× faster click→frame than rebuilding the page tree per tap. `selection` is
 only the sidebar's row highlight + tap signal (iOS clears it to nil after each
 tap so re-taps re-fire); navigation state lives in `rootPage` + `detailPath`.
+
+Keep-alive protects against *re-evaluation*, not *first mount*: switching MyApp
+changes the whole `keepAlivePages` set, so those panes build fresh for the new
+app inside the tap's runloop turn. Panes must therefore keep expensive work out
+of `body` — the Agents pane loads its descriptors in `.task` behind a redacted
+placeholder, because enumerating agents walks the app's memory root off disk.
 Because the bar owns the
 chat launcher on these pages, `ChatOverlay` hides its fallback circle there
 (`launcherVisible`). `MyAppMemoriesView` + `MemoryLandingRow` are
@@ -600,11 +630,27 @@ identical edits dedup by content hash; `prune` bounds each app (cap + TTL,
 mirroring `ItemEventLog.prune`) and re-bases the oldest *non-base* survivor so
 eviction never breaks a chain.
 
-Listing is header-only: `metas` decodes just the `SnapshotMeta` fields and
-never materialises `base`/`diff` (the whole serialized MyApp). Full records are
-decoded only on `resolve` / `restoredApp`. `ChangeHistoryView` reads the
-listing once per body pass and passes it down, so rendering history is
-independent of how much state it holds.
+Listing comes from a **derived index**, not from the records. `metas` reads
+`<active>/cache/snapshots/<appId>.json` — a `[SnapshotMeta]` cache kept current
+by `writeRecord` / `deleteRecords`. It validates on every read by comparing the
+index's id set against the directory's own filenames (one listing, no file
+reads); on any mismatch — a missing index, a schema bump, a record an iCloud
+merge landed behind its back — it rebuilds from headers and rewrites. The index
+is never authoritative, so the worst failure is a rebuild.
+
+The index exists because "header-only" was only half true: `readHeader` reads
+the *entire* file and `JSONDecoder` parses all of it before discarding
+`base`/`diff`. Listing therefore pulled and parsed every byte of history, and
+`head` → `metas` put that on the debounced edit path as well as on Settings.
+Full records are still decoded only on `resolve` / `restoredApp`.
+
+It lives under `PupaStorage.cacheRoot`, deliberately **outside**
+`mirroredSubtrees`: a derived cache must never sync, conflict, or need a merge
+story (same reasoning as the local-only `rosterEstablishedURL`). Nothing
+migrates — the first `metas` per app after an update pays one rebuild.
+
+`ChangeHistoryView` reads the listing once per body pass and passes it down, so
+rendering history is independent of how much state it holds.
 
 **Pinned snapshots (permanent).** A user can **Take snapshot** from the
 History page to capture a labelled `.pinned` restore point — a "keep this
@@ -985,7 +1031,9 @@ file with frontmatter (`name`, `description`, `when_to_use`, `tools`,
 subagent exists — `AgentStore`
 ([Pupa/Sources/PupaApp/Agents/AgentStore.swift](../Pupa/Sources/PupaApp/Agents/AgentStore.swift))
 discovers them per scope by walking `pupa/agents/*/AGENTS.md`, exactly mirroring
-`SkillStore`. `AgentStore.createAgent` is the canonical writer (used by the Slack
+`SkillStore`. `AgentRegistry.enumerateAgents` builds **one** `MemoryStore` for
+the whole enumeration and passes it down: every `MemoryStore.init` is a full
+recursive scan of the app's memory root, and this runs on the MyApp-switch path. `AgentStore.createAgent` is the canonical writer (used by the Slack
 create-agent UI and any future `create_agent` tool); an agent can also author one
 by hand-writing the file with the memory tools.
 

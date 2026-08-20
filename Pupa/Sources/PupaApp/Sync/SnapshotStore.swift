@@ -47,6 +47,14 @@ public struct Snapshot: Codable, Sendable {
     /// legacy records.
     public let label: String?
 
+    /// Listing view of this record — what the derived index stores.
+    var meta: SnapshotMeta {
+        SnapshotMeta(
+            id: id, contentHash: contentHash, appId: appId, timestamp: timestamp,
+            device: device, parentId: parentId, reason: reason,
+            isBase: base != nil, label: label)
+    }
+
     public init(
         id: UUID, contentHash: String, appId: UUID, timestamp: Date,
         device: String, parentId: UUID?, reason: SnapshotReason,
@@ -66,7 +74,7 @@ public struct Snapshot: Codable, Sendable {
 }
 
 /// Lightweight listing entry (no resolved state) for the History timeline.
-public struct SnapshotMeta: Sendable, Identifiable, Hashable {
+public struct SnapshotMeta: Codable, Sendable, Identifiable, Hashable {
     public let id: UUID
     public let contentHash: String
     public let appId: UUID
@@ -153,15 +161,118 @@ public enum SnapshotStore {
     /// each record's header — never its `base`/`diff` payload, which is the
     /// whole serialized MyApp and dwarfs everything else on disk.
     public static func metas(_ appId: UUID) -> [SnapshotMeta] {
+        let ids = recordIDs(appId)
+        guard !ids.isEmpty else {
+            try? FileManager.default.removeItem(at: indexURL(appId))
+            return []
+        }
+        // Validate against the directory's own id set — one listing, no file
+        // reads. A record that landed behind the index's back (an iCloud
+        // merge) costs a rebuild, never a wrong answer.
+        if let cached = readIndex(appId), Set(cached.metas.map(\.id)) == ids {
+            return cached.metas
+        }
+        let rebuilt = rebuildMetas(appId, ids: ids)
+        writeIndex(appId, metas: rebuilt)
+        return rebuilt
+    }
+
+    // MARK: - Derived listing index
+
+    /// Local, never-synced listing cache for one app's history — a pure
+    /// function of `dir(appId)`. Reading every record just to list them meant
+    /// `metas` (and so `head`, and so every debounced edit) pulled and parsed
+    /// the whole history off disk: `readHeader` reads the entire file and
+    /// `JSONDecoder` parses all of it before discarding `base`/`diff`.
+    ///
+    /// Kept current by `writeRecord` / `deleteRecords`, validated on every
+    /// read, and never authoritative — the worst failure is a rebuild, which
+    /// is what the old code did every time.
+    private struct SnapshotIndex: Codable {
+        static let currentSchema = 1
+        var schema: Int
+        var metas: [SnapshotMeta]
+    }
+
+    /// `<active>/cache/snapshots/<appId>.json`. Under `cacheRoot`, outside
+    /// `PupaStorage.mirroredSubtrees`: a derived cache must never sync,
+    /// conflict, or need a merge story.
+    static func indexURL(_ appId: UUID) -> URL {
+        PupaStorage.cacheRoot
+            .appendingPathComponent("snapshots", isDirectory: true)
+            .appendingPathComponent("\(appId.uuidString).json")
+    }
+
+    /// Record ids present on disk, from the filenames alone — no file reads.
+    private static func recordIDs(_ appId: UUID) -> Set<UUID> {
         guard let files = try? FileManager.default.contentsOfDirectory(
             at: dir(appId), includingPropertiesForKeys: nil) else { return [] }
-        var out: [SnapshotMeta] = []
-        out.reserveCapacity(files.count)
+        var out: Set<UUID> = []
         for file in files where file.pathExtension == "json" {
-            guard let h = readHeader(at: file) else { continue }
+            if let id = UUID(uuidString: file.deletingPathExtension().lastPathComponent) {
+                out.insert(id)
+            }
+        }
+        return out
+    }
+
+    private static func readIndex(_ appId: UUID) -> SnapshotIndex? {
+        guard let data = CloudDocument.read(indexURL(appId)),
+              let idx = try? JSONDecoder().decode(SnapshotIndex.self, from: data),
+              idx.schema == SnapshotIndex.currentSchema else { return nil }
+        return idx
+    }
+
+    private static func writeIndex(_ appId: UUID, metas: [SnapshotMeta]) {
+        let idx = SnapshotIndex(schema: SnapshotIndex.currentSchema, metas: metas)
+        guard let data = try? JSONEncoder().encode(idx) else { return }
+        // Written directly, not via `CloudDocument`: that schedules a mirror
+        // pass, and this tree is deliberately unmirrored.
+        let url = indexURL(appId)
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: url, options: .atomic)
+    }
+
+    private static func rebuildMetas(_ appId: UUID, ids: Set<UUID>) -> [SnapshotMeta] {
+        var out: [SnapshotMeta] = []
+        out.reserveCapacity(ids.count)
+        for id in ids {
+            guard let h = readHeader(at: url(appId, id)) else { continue }
             out.append(h.meta)
         }
         return out.sorted { $0.timestamp > $1.timestamp }
+    }
+
+    /// Fold one written record into the index. A no-op when the index is
+    /// absent — the next `metas` builds it from scratch.
+    private static func upsertIndex(_ meta: SnapshotMeta) {
+        guard var idx = readIndex(meta.appId) else { return }
+        idx.metas.removeAll { $0.id == meta.id }
+        idx.metas.append(meta)
+        idx.metas.sort { $0.timestamp > $1.timestamp }
+        writeIndex(meta.appId, metas: idx.metas)
+    }
+
+    /// Delete records and drop them from the index in one pass — the loops
+    /// that evict history can retire dozens at a time.
+    private static func deleteRecords(_ appId: UUID, _ ids: [UUID]) {
+        guard !ids.isEmpty else { return }
+        for id in ids { CloudDocument.delete(url(appId, id)) }
+        guard var idx = readIndex(appId) else { return }
+        let dropped = Set(ids)
+        idx.metas.removeAll { dropped.contains($0.id) }
+        writeIndex(appId, metas: idx.metas)
+    }
+
+    /// True when any app — live or deleted — has at least one permanent pin.
+    /// `async` on purpose: this reads the filesystem, and a SwiftUI `body` is
+    /// a synchronous context, so the compiler now refuses the call that used
+    /// to run this scan inline while presenting Settings.
+    public static func hasAnyPins() async -> Bool {
+        await Task.detached(priority: .userInitiated) {
+            allAppIds().contains { pinnedCount($0) > 0 }
+        }.value
     }
 
     /// The current head (most recent snapshot) for `appId`, if any.
@@ -225,6 +336,7 @@ public enum SnapshotStore {
     /// Drop all history for `appId` (called when the MyApp is deleted).
     public static func deleteAll(_ appId: UUID) {
         try? FileManager.default.removeItem(at: dir(appId))
+        try? FileManager.default.removeItem(at: indexURL(appId))
     }
 
     /// Reasons whose records outlive the MyApp: the user's permanent pins, and
@@ -247,9 +359,7 @@ public enum SnapshotStore {
         guard all.contains(where: { keeping.contains($0.reason) }) else {
             deleteAll(appId); return
         }
-        for m in all where !keeping.contains(m.reason) {
-            CloudDocument.delete(url(appId, m.id))
-        }
+        deleteRecords(appId, all.filter { !keeping.contains($0.reason) }.map(\.id))
     }
 
     /// Whether `appId` has a snapshot directory at all. One `stat` — the cheap
@@ -284,7 +394,7 @@ public enum SnapshotStore {
                 reason: s.reason, base: state, diff: nil, label: s.label),
                 to: url(appId, s.id))
         }
-        for loser in losers { CloudDocument.delete(url(appId, loser.id)) }
+        deleteRecords(appId, losers.map(\.id))
         if survivors.isEmpty { deleteAll(appId) }   // don't leave an empty dir
     }
 
@@ -388,7 +498,7 @@ public enum SnapshotStore {
                 reason: oldest.reason, base: state, diff: nil, label: oldest.label)
             try? writeRecord(rebased, to: url(appId, oldest.id))
         }
-        for loser in losers { CloudDocument.delete(url(appId, loser.id)) }
+        deleteRecords(appId, losers.map(\.id))
     }
 
     // MARK: - IO helpers
@@ -430,5 +540,6 @@ public enum SnapshotStore {
 
     private static func writeRecord(_ record: Snapshot, to url: URL) throws {
         try CloudDocument.write(JSONEncoder().encode(record), to: url)
+        upsertIndex(record.meta)
     }
 }
