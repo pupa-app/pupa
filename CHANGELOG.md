@@ -3,6 +3,19 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.254] — 2026-08-20
+
+### Fixed
+
+- **Chatting in an app got cheaper, and stays cheap as the chat gets longer.**
+  Every turn, the app re-describes itself to the assistant — your canvas, your
+  memories, your skills and subagents. That description was being written out in
+  a different field order each time, so even when nothing had changed the
+  assistant had to be re-told everything, including the whole conversation so
+  far. It's now written in a stable order, so an unchanged app costs nothing to
+  re-describe. Roughly half the cost of a short reply, and it was growing with
+  the length of the conversation.
+
 ## [0.0.253] — 2026-08-19
 
 ### Added

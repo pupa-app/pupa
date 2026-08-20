@@ -1841,10 +1841,10 @@ public final class ChatViewModel {
     ) async -> [AgentContextEntry] {
         await MainActor.run {
             let memoriesPayload: [String: [String]] = ["paths": memory.snapshotPaths()]
-            let memoriesJSON = (try? JSONEncoder().encode(memoriesPayload)).flatMap { String(data: $0, encoding: .utf8) } ?? "{\"paths\":[]}"
             let memoriesEntry = AgentContextEntry(
                 description: "User memories — sandboxed markdown FileSystem persisted across sessions. Lives app-side (on the client device), not on this backend host — reach it only via the memory tools, never as a host path. Payload: flat list of paths relative to memories root. Explore via ls/read/grepMemories; write/append/editMemoryFile to save user-volunteered facts (e.g. diet.md, notes/goals.md); move/delete/createMemoryFolder for organisation.",
-                value: memoriesJSON
+                encoding: memoriesPayload,
+                fallback: "{\"paths\":[]}"
             )
             // Skills available in this scope (pupa/skills/). Always present so
             // the agent knows it can use AND create skills, even with none yet.
@@ -1876,7 +1876,6 @@ public final class ChatViewModel {
                         .object(dict.mapValues { .string($0) })
                     }),
                 ]
-                let modeJSON = (try? JSONEncoder().encode(modePayload)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
                 // System prompt via OrchestratorPolicy — reads
                 // orchestrator/pupa/AGENTS.md; falls back to hardcoded text.
                 let orchDescription = OrchestratorPolicy().buildSystemPrompt(memory: memory)
@@ -1884,7 +1883,7 @@ public final class ChatViewModel {
                     memoriesEntry,
                     AgentContextEntry(
                         description: orchDescription,
-                        value: modeJSON
+                        encoding: modePayload
                     ),
                 ] + skillsEntry
 
@@ -1908,14 +1907,13 @@ public final class ChatViewModel {
                     "typeId": myApp.typeId,
                     "myAppName": myApp.name,
                 ]
-                let typeJSON = (try? JSONEncoder().encode(typePayload)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
                 return [
                     AgentContextEntry(
                         description: "Live canvas state — thin enum. This canvas lives app-side (on the client device), not on this backend host; you touch it only through the frontend tools below. Shape: {components: [{id, name, kind, size, summary}]}. `size` is a coarse bucket (empty/1-9/10-99/100+), not an exact count — fetch exact counts via list/search/get per-kind (they return totalItems). `summary` is YOUR slot — set via the kind's render tool with only `summary` arg; rides every turn until overwritten (record field names, select-option meanings, user intent, data state). Every tool targets a component by explicit `componentId` (omit only when exactly one of that kind exists) — there is NO active/view fallback; call `getActiveComponent` to resolve \"the one I'm looking at\". `getCanvasState` = full-dump escape hatch.",
                         value: canvasJSON
                     ),
                     memoriesEntry,
-                    AgentContextEntry(description: typeDescription, value: typeJSON),
+                    AgentContextEntry(description: typeDescription, encoding: typePayload),
                 ] + skillsEntry + [agentsContextEntry(AgentStore(memory: memory))]
             }
         }
@@ -1935,8 +1933,6 @@ public final class ChatViewModel {
             if let w = agent.whenToUse, !w.isEmpty { dict["when_to_use"] = w }
             return dict
         }
-        let json = (try? JSONEncoder().encode(["agents": payload]))
-            .flatMap { String(data: $0, encoding: .utf8) } ?? "{\"agents\":[]}"
         return AgentContextEntry(
             description: "Subagents —  Delegates in the Memories folder pupa/agents/ (the `agents` list "
                 + "below is the roster; empty means none yet). These live app-side (on the client "
@@ -1949,7 +1945,8 @@ public final class ChatViewModel {
                 + "(comma-separated allowlist; omit to inherit this myApp's surface), "
                 + "`disabled_tools`, `model`, `provider`. Only names + descriptions ride context; "
                 + "the persona loads when the subagent runs.",
-            value: json
+            encoding: ["agents": payload],
+            fallback: "{\"agents\":[]}"
         )
     }
 
@@ -1969,8 +1966,6 @@ public final class ChatViewModel {
             if let a = skill.argumentHint, !a.isEmpty { dict["argument_hint"] = a }
             return dict
         }
-        let json = (try? JSONEncoder().encode(["skills": payload]))
-            .flatMap { String(data: $0, encoding: .utf8) } ?? "{\"skills\":[]}"
         return AgentContextEntry(
             description: "Skills — reusable `/command` playbooks in pupa/skills/ and bundled "
                 + "plugins (the `skills` list below is the catalogue; empty means none yet). "
@@ -1983,7 +1978,8 @@ public final class ChatViewModel {
                 + "`when_to_use`, `disable-model-invocation: true` (user-only, hidden from you), "
                 + "`user-invocable: false` (you-only, no slash command). Only descriptions ride "
                 + "context; bodies load on view.",
-            value: json
+            encoding: ["skills": payload],
+            fallback: "{\"skills\":[]}"
         )
     }
 }
