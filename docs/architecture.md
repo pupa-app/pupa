@@ -310,14 +310,22 @@ foreground re-arms the short liveness grace
 (`ChatSessionCoordinator.setAllHostBackgrounded`).
 
 Layer (4) is the user: both connection banners in `ChatPanel` carry a
-**Continue** button (`ChatViewModel.continueDroppedTurn`) that sends a plain
-`"continue"` to pick the turn back up — including on `.reconnecting`, where a
-dropped send otherwise parks until a foreground reattach. It is deliberately
-user-initiated: the client can't tell a backend run that is still alive from one
-that is gone, so spending a new turn is the user's call. It is inert unless
-something is stuck (nothing in flight, no pending interrupt, a live
-`connectionIssue`), and a pending `pendingDispatchAfterSeq` re-attaches instead
-of sending — a fresh run would drop the backend's parked command (pupa#258).
+**Continue** button (`ChatViewModel.continueDroppedTurn`) that picks the turn
+back up — including on `.reconnecting`, where a dropped send otherwise parks
+until a foreground reattach. It is deliberately user-initiated (recovery spends
+a turn, or reveals the backend already answered) and inert unless something is
+stuck: nothing in flight, no pending interrupt, a live `connectionIssue`.
+
+What it *does* is decided by what the backend still holds. A parked dispatch
+(`pendingDispatchAfterSeq`) or a replay tail already being consumed
+(`appliedEventSeq`) means re-attach: a fresh run would drop the parked command
+(pupa#258) or advance the cursor past a tail the backend may already have
+answered (pupa#103). Nothing streamed at all means the run never started, so the
+*dropped message itself* is re-sent (`send(…, echoBubble: false)` — the bubble
+is already on screen). It must be that message and not a template: `AgentSession`
+replaces a trailing user message that never settled, so sending anything else
+would erase what the user asked. `continueDroppedTurnText` ("continue") is the
+last resort, for a hydrated transcript with no user bubble to retry.
 
 **Resuming a turn parked on a frontend tool (pupa#258).** While the client runs
 an on-device tool the backend has already closed its SSE and parked, so a kill

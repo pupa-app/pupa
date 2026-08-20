@@ -10,9 +10,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
 - **A Continue button on a dropped chat.** When a turn's connection dies, the
   chat shows "Reconnecting…" or an error and then just sits there — you had to
   retype something to get the assistant moving again. Both now carry a
-  **Continue** button that picks the turn back up. It appears only when nothing
-  is in flight, and a turn that stopped mid on-device action reconnects to
-  finish that action rather than starting over.
+  **Continue** button that picks the turn back up, and it works out what that
+  means: if the assistant had started answering, it reconnects and collects the
+  rest rather than asking again from scratch; if the message never got out, it
+  re-sends that message; and a turn that stopped mid on-device action reconnects
+  to finish that action. Shown only when nothing is in flight.
 
 ## [0.0.252] — 2026-08-16
 

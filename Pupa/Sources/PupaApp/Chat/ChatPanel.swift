@@ -427,8 +427,14 @@ public struct ChatPanel: View {
         if !viewModel.isStreaming {
             Button("Continue") { viewModel.continueDroppedTurn() }
                 .font(.caption.weight(.medium))
-                .buttonStyle(.plain)
+                // `.borderless` keeps the caption-sized look but, unlike
+                // `.plain`, presses give feedback. The frame + contentShape lift
+                // the hit area off the glyph box to a HIG-sized target.
+                .buttonStyle(.borderless)
                 .foregroundStyle(.tint)
+                .frame(minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+                .accessibilityLabel("Continue the interrupted turn")
         }
     }
 
