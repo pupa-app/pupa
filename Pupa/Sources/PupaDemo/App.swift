@@ -32,6 +32,15 @@ struct DemoApp: App {
     @NSApplicationDelegateAdaptor(DemoAppDelegate.self) var delegate
     #endif
 
+    init() {
+        // `PUPA_PERF_DRIVE=1` turns the demo into the latency harness: measure,
+        // report, exit. No window — it must not race the UI for the main actor.
+        if PerfDriver.isRequested {
+            PerfDriver.run()
+            exit(0)
+        }
+    }
+
     var body: some Scene {
         WindowGroup("Pupa") {
             RootView()

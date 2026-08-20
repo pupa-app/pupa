@@ -158,7 +158,9 @@ public struct MyAppSidebarView: View {
             Spacer()
 
             Button {
-                settingsSheetPresented = true
+                PerfTrace.interaction("settingsOpen") {
+                    settingsSheetPresented = true
+                }
             } label: {
                 Label("Settings", systemImage: "gearshape")
                     .font(.system(size: 18))

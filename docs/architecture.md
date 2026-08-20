@@ -124,6 +124,30 @@ keep-alive detail panes): open/close slides by `.offset` under a single scoped
 transaction measured ~90–135ms tap→frame warm (and ~1.1s on first open) and made
 the hamburger feel slow next to the animation-free page switches.
 
+### Measuring interaction latency
+
+`PerfTrace` (`App/PerfTrace.swift`) times navigation interactions when
+`PUPA_PERF=1`; it is inert otherwise. Each interaction logs two numbers to
+`com.pupa-app.client`/`perf`, plus an `os_signpost` interval:
+
+- **main** — the runloop turn the tap kicks off (state write + body + layout).
+  Moves when synchronous work leaves a `body`.
+- **frame** — render-server ack for the resulting CoreAnimation commit.
+  Catches render-side cost (offscreen rasterization) that *main* misses.
+
+Lines carry `cold`/`warm`, so "first open slow" is a column, not an anecdote.
+Wired at `setRoot`, the drawer toggle, Settings open, and the History push.
+
+`PupaDemo` doubles as the harness. `PUPA_PERF_DRIVE=1` measures the
+store-level work a tap performs (p50/p90 over 20 reps) and exits without a
+window; `PUPA_PERF_SEED=1` first writes a fixed corpus under a temp
+`PupaStorage.overrideRoot` so numbers compare across runs and machines:
+
+```
+PUPA_PERF=1 PUPA_PERF_DRIVE=1 PUPA_PERF_SEED=1 \
+  swift run -c release --package-path Pupa PupaDemo
+```
+
 The chat lives in a user-resizable `ChatOverlay` card anchored bottom-trailing
 of the detail pane. Its launcher lives in the per-MyApp bottom bar (below); on
 pages without that bar (screen share, settings) `ChatOverlay` shows
