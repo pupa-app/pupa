@@ -33,9 +33,15 @@ public final class ToolRegistry: @unchecked Sendable {
     }
 
     /// Snapshot of every registered tool's descriptor — what to send in
-    /// `RunAgentInput.tools` on each round.
+    /// `RunAgentInput.tools` on each round, **sorted by name**.
+    ///
+    /// `Dictionary` iteration order is randomised per instance, and the tool
+    /// block sits at the very front of the provider's cache prefix, so an
+    /// unsorted array re-charges the whole prompt behind it every time a fresh
+    /// registry is built (every sub-run, every launch). Sorting keys inside the
+    /// schemas — `AgentClient`'s `.sortedKeys` — cannot reach the array itself.
     public var descriptors: [ToolDescriptor] {
         lock.lock(); defer { lock.unlock() }
-        return byName.values.map(\.descriptor)
+        return byName.values.map(\.descriptor).sorted { $0.name < $1.name }
     }
 }

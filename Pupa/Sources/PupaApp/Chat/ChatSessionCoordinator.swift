@@ -673,14 +673,12 @@ public final class ChatSessionCoordinator {
                 "persona": subagent.body,
                 "memorySubfolder": subfolder,
             ]
-            let json = (try? JSONEncoder().encode(personaPayload))
-                .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
             entries.append(AgentContextEntry(
                 description: "Your subagent persona for this invocation. Adopt this role for your "
                     + "reply. Your private memory subfolder is `\(subfolder)` — keep notes there "
                     + "(e.g. `\(subfolder)/notes.md`); edit `\(subfolder)/AGENTS.md` to update your "
                     + "own instructions. You may delegate to sibling subagents via `invoke_agent`.",
-                value: json
+                encoding: personaPayload
             ))
             return entries
         }
@@ -697,11 +695,10 @@ public final class ChatSessionCoordinator {
     ) async -> [AgentContextEntry] {
         await MainActor.run {
             let memoriesPayload: [String: [String]] = ["paths": memory.snapshotPaths()]
-            let memoriesJSON = (try? JSONEncoder().encode(memoriesPayload))
-                .flatMap { String(data: $0, encoding: .utf8) } ?? "{\"paths\":[]}"
             let memoriesEntry = AgentContextEntry(
                 description: "User memories — markdown filesystem (paths only), app-side on the client device, not on your backend host. Use the memory tools to read or update — never as host paths.",
-                value: memoriesJSON
+                encoding: memoriesPayload,
+                fallback: "{\"paths\":[]}"
             )
             // Skills under pupa/skills/ — the sub-run / Slack agent can load any
             // via app_skill_view (and create new ones). Same entry as main chat.
@@ -726,15 +723,13 @@ public final class ChatSessionCoordinator {
                 "myAppName": myApp.name,
                 "subRun": "true",
             ]
-            let typeJSON = (try? JSONEncoder().encode(typePayload))
-                .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
             return [
                 AgentContextEntry(
                     description: "Live canvas state for this sub-run's target myApp — thin enumeration. This canvas lives app-side (on the client device), not on this backend host; touch it only through the frontend tools. {components: [{id, name, kind, size, summary}]}. `size` is a coarse cache-stable bucket (empty/1-9/10-99/100+), not an exact count. `summary` is the LLM-authored content-summary slot (null until you write to it via the kind's render tool with only `summary` populated). Tools target a component by explicit `componentId` (omit only when exactly one of that kind exists); there is no active/view fallback — use `getActiveComponent` for \"the one I'm looking at\". Drill into items with the kind's discovery tools (`listTrackerItems` / `searchTrackerItems` / `getTrackerItem`, plus the other components equivalents) or `getCanvasState` for a full dump.",
                     value: canvasJSON
                 ),
                 memoriesEntry,
-                AgentContextEntry(description: typeDescription, value: typeJSON),
+                AgentContextEntry(description: typeDescription, encoding: typePayload),
             ] + skillsEntry + agentsEntry
         }
     }
@@ -1183,15 +1178,13 @@ public final class ChatSessionCoordinator {
                 "messageCount": String(history.count),
                 "memorySubfolder": memorySubfolder,
             ]
-            let personaJSON = (try? JSONEncoder().encode(personaPayload))
-                .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
             entries.append(AgentContextEntry(
                 description: "Your Slack persona for this invocation. Adopt this role for your reply. " +
                     "You're posting back into the named channel, so use `slackPostMessage` only if you " +
                     "need to send additional messages — your single direct reply is auto-posted by the host. " +
                     "Your private memory subfolder is `\(memorySubfolder)` — write your notes there " +
                     "(e.g. `\(memorySubfolder)/notes.md`). Edit `\(memorySubfolder)/AGENTS.md` to update your instructions.",
-                value: personaJSON
+                encoding: personaPayload
             ))
             return entries
         }

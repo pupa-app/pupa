@@ -10,6 +10,29 @@ public struct AgentContextEntry: Codable, Hashable, Sendable {
         self.description = description
         self.value = value
     }
+
+    /// Build an entry by JSON-encoding `payload` with **sorted keys**.
+    ///
+    /// Prefer this over hand-rolling a `JSONEncoder`: `value` is an opaque
+    /// string by the time it reaches the wire, so the outer request encoder
+    /// cannot sort it, and Swift `Dictionary` iteration order is randomised.
+    /// An unchanged snapshot encoded twice would otherwise differ only in key
+    /// order — same meaning, same length, different bytes — which lands in the
+    /// agent's system prompt and re-charges the model for the whole
+    /// conversation behind it on every turn.
+    ///
+    /// `fallback` is used verbatim if encoding throws.
+    public init<Payload: Encodable>(
+        description: String,
+        encoding payload: Payload,
+        fallback: String = "{}"
+    ) {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let json = (try? encoder.encode(payload))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? fallback
+        self.init(description: description, value: json)
+    }
 }
 
 /// The body POSTed to the AG-UI endpoint to run one round of the agent.
