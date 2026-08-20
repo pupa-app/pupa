@@ -624,11 +624,27 @@ identical edits dedup by content hash; `prune` bounds each app (cap + TTL,
 mirroring `ItemEventLog.prune`) and re-bases the oldest *non-base* survivor so
 eviction never breaks a chain.
 
-Listing is header-only: `metas` decodes just the `SnapshotMeta` fields and
-never materialises `base`/`diff` (the whole serialized MyApp). Full records are
-decoded only on `resolve` / `restoredApp`. `ChangeHistoryView` reads the
-listing once per body pass and passes it down, so rendering history is
-independent of how much state it holds.
+Listing comes from a **derived index**, not from the records. `metas` reads
+`<active>/cache/snapshots/<appId>.json` — a `[SnapshotMeta]` cache kept current
+by `writeRecord` / `deleteRecords`. It validates on every read by comparing the
+index's id set against the directory's own filenames (one listing, no file
+reads); on any mismatch — a missing index, a schema bump, a record an iCloud
+merge landed behind its back — it rebuilds from headers and rewrites. The index
+is never authoritative, so the worst failure is a rebuild.
+
+The index exists because "header-only" was only half true: `readHeader` reads
+the *entire* file and `JSONDecoder` parses all of it before discarding
+`base`/`diff`. Listing therefore pulled and parsed every byte of history, and
+`head` → `metas` put that on the debounced edit path as well as on Settings.
+Full records are still decoded only on `resolve` / `restoredApp`.
+
+It lives under `PupaStorage.cacheRoot`, deliberately **outside**
+`mirroredSubtrees`: a derived cache must never sync, conflict, or need a merge
+story (same reasoning as the local-only `rosterEstablishedURL`). Nothing
+migrates — the first `metas` per app after an update pays one rebuild.
+
+`ChangeHistoryView` reads the listing once per body pass and passes it down, so
+rendering history is independent of how much state it holds.
 
 **Pinned snapshots (permanent).** A user can **Take snapshot** from the
 History page to capture a labelled `.pinned` restore point — a "keep this

@@ -20,7 +20,12 @@ import os
 public enum CloudDocument {
     /// Read. Returns `nil` if the file is absent or unreadable.
     public static func read(_ url: URL) -> Data? {
-        try? Data(contentsOf: url)
+        let data = try? Data(contentsOf: url)
+        #if DEBUG
+        DiskIO.reads += 1
+        DiskIO.bytesRead += data?.count ?? 0
+        #endif
+        return data
     }
 
     /// Atomic write; creates intermediate directories.

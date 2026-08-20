@@ -169,6 +169,14 @@ public enum PupaStorage {
         activeRoot.appendingPathComponent("memories", isDirectory: true)
     }
 
+    /// Derived local caches: `<active>/cache`. Deliberately **outside**
+    /// `mirroredSubtrees` — everything here is a pure function of the synced
+    /// tree, so it must never sync, conflict, or need a merge story. Same
+    /// reasoning as the local-only `rosterEstablishedURL`.
+    public static var cacheRoot: URL {
+        activeRoot.appendingPathComponent("cache", isDirectory: true)
+    }
+
     /// Structured app state root: `<active>/state` (index.json, apps/, settings.json).
     public static var stateRoot: URL {
         activeRoot.appendingPathComponent("state", isDirectory: true)

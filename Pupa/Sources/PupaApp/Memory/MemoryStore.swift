@@ -495,6 +495,9 @@ public final class MemoryStore {
     }
 
     private nonisolated static func scan(root: URL) -> MemoryNode {
+        #if DEBUG
+        DiskIO.scans += 1
+        #endif
         let children = readChildren(at: root, prefix: "")
         return MemoryNode(name: "", path: "", kind: .folder, children: children)
     }
@@ -507,6 +510,9 @@ public final class MemoryStore {
         for name in names where !name.hasPrefix(".") {
             let child = url.appendingPathComponent(name)
             var isDir: ObjCBool = false
+            #if DEBUG
+            DiskIO.statCalls += 1
+            #endif
             guard fm.fileExists(atPath: child.path, isDirectory: &isDir) else { continue }
             let relPath = prefix.isEmpty ? name : "\(prefix)/\(name)"
             if isDir.boolValue {
@@ -517,6 +523,9 @@ public final class MemoryStore {
                     children: readChildren(at: child, prefix: relPath)
                 ))
             } else {
+                #if DEBUG
+                DiskIO.statCalls += 1
+                #endif
                 let size = (try? fm.attributesOfItem(atPath: child.path)[.size] as? Int) ?? 0
                 files.append(MemoryNode(
                     name: name,

@@ -3,6 +3,28 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.256] — 2026-08-20
+
+### Performance
+
+- **Settings opens without the pause.** The Settings list decided whether to
+  show the *Pinned snapshots* row by walking every app's snapshot directory
+  and reading each record — from inside the view body, on the main thread, so
+  presenting the sheet waited on the entire snapshot corpus first. The row is
+  a gate that only needs "any?", so it now loads on appear like *Recently
+  deleted* beside it, and the underlying scan reads a small derived index
+  instead of the history. Gate: 8.0ms → 2.5ms p50 on an 8-app fixture, and it
+  no longer grows with how much history you keep.
+- **Editing no longer re-reads your whole snapshot history.** Recording the
+  debounced restore point after an edit asked for the current head, which
+  listed the history — and listing meant reading and parsing every snapshot
+  file, each one a full serialized app. History listings now come from a
+  derived local index that never syncs and rebuilds itself if it ever
+  disagrees with what's on disk. An edit on an app at the history cap: 31.3ms
+  → 20.1ms p50; below the cap, 6.3ms. (The remainder at the cap is eviction
+  re-basing the chain, which is untouched here.)
+
+App `0.0.255` → `0.0.256`.
 ## [0.0.254] — 2026-08-20
 
 ### Fixed

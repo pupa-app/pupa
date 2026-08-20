@@ -4402,12 +4402,6 @@ public final class MyAppStore {
         public var id: UUID { appId }
     }
 
-    /// True when any app (live or deleted) has at least one permanent pin.
-    public var hasAnyPinnedSnapshots: Bool {
-        _ = historyRevision
-        return SnapshotStore.allAppIds().contains { SnapshotStore.pinnedCount($0) > 0 }
-    }
-
     /// All permanent pins grouped by MyApp, newest-first within a group and
     /// sorted by app name. Includes deleted apps whose pins survived.
     public func pinnedSnapshotGroups() -> [PinnedSnapshotGroup] {

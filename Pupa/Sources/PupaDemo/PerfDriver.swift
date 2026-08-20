@@ -61,13 +61,21 @@ enum PerfDriver {
         print("path,p50ms,p90ms")
         // RC2 — every one of these reads and JSON-parses whole snapshot files.
         measure("SnapshotStore.metas") { _ = SnapshotStore.metas(target.id) }
-        measure("hasAnyPinnedSnapshots (Settings gate)") {
-            _ = MyAppStore(initial: (apps, target.id)).hasAnyPinnedSnapshots
-        }
-        measure("SnapshotStore.record(.edit)") { i in
+        measureAsync("hasAnyPins (Settings gate)") { await SnapshotStore.hasAnyPins() }
+        // Two record rows: the fixture's main apps sit exactly at
+        // `defaultCap`, so every rep there also pays prune's evict + re-base.
+        // The short-history app isolates the listing cost from that.
+        measure("SnapshotStore.record(.edit) — at cap") { i in
             var edited = target
             edited.name = "edit-\(i)"
             _ = SnapshotStore.record(edited, reason: .edit)
+        }
+        if let small = apps.last, small.id != target.id {
+            measure("SnapshotStore.record(.edit) — under cap") { i in
+                var edited = small
+                edited.name = "edit-\(i)"
+                _ = SnapshotStore.record(edited, reason: .edit)
+            }
         }
         // RC1 — what mounting the Agents pane costs on a MyApp switch.
         measure("MemoryStore(appRoot) init — recursive scan") {
@@ -97,6 +105,16 @@ enum PerfDriver {
 
     private static func measure(_ name: String, _ body: @escaping () -> Void) {
         measure(name) { _ in body() }
+    }
+
+    /// Same shape for a now-`async` path. Blocks the caller per rep, which is
+    /// what we want: we are timing the work, not the concurrency.
+    private static func measureAsync(_ name: String, _ body: @escaping @Sendable () async -> Void) {
+        measure(name) { _ in
+            let sem = DispatchSemaphore(value: 0)
+            Task.detached { await body(); sem.signal() }
+            sem.wait()
+        }
     }
 
     private static func percentile(_ sorted: [Double], _ p: Double) -> Double {
@@ -159,6 +177,16 @@ enum PerfDriver {
                         """)
             }
         }
+        // A deliberately short history, so the report can separate listing
+        // cost from prune's at-cap re-base.
+        let small = MyApp(name: "Perf App small", iconSystemName: "square",
+                          typeId: "tracker")
+        for s in 0..<10 {
+            var edited = small
+            edited.name = "small rev \(s)"
+            _ = SnapshotStore.record(edited, reason: .edit)
+        }
+        apps.append(small)
         return apps
     }
 
