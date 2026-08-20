@@ -238,6 +238,12 @@ active component canvas) stay mounted in a `ZStack` and switch by opacity
 ~3× faster click→frame than rebuilding the page tree per tap. `selection` is
 only the sidebar's row highlight + tap signal (iOS clears it to nil after each
 tap so re-taps re-fire); navigation state lives in `rootPage` + `detailPath`.
+
+Keep-alive protects against *re-evaluation*, not *first mount*: switching MyApp
+changes the whole `keepAlivePages` set, so those panes build fresh for the new
+app inside the tap's runloop turn. Panes must therefore keep expensive work out
+of `body` — the Agents pane loads its descriptors in `.task` behind a redacted
+placeholder, because enumerating agents walks the app's memory root off disk.
 Because the bar owns the
 chat launcher on these pages, `ChatOverlay` hides its fallback circle there
 (`launcherVisible`). `MyAppMemoriesView` + `MemoryLandingRow` are
@@ -1025,7 +1031,9 @@ file with frontmatter (`name`, `description`, `when_to_use`, `tools`,
 subagent exists — `AgentStore`
 ([Pupa/Sources/PupaApp/Agents/AgentStore.swift](../Pupa/Sources/PupaApp/Agents/AgentStore.swift))
 discovers them per scope by walking `pupa/agents/*/AGENTS.md`, exactly mirroring
-`SkillStore`. `AgentStore.createAgent` is the canonical writer (used by the Slack
+`SkillStore`. `AgentRegistry.enumerateAgents` builds **one** `MemoryStore` for
+the whole enumeration and passes it down: every `MemoryStore.init` is a full
+recursive scan of the app's memory root, and this runs on the MyApp-switch path. `AgentStore.createAgent` is the canonical writer (used by the Slack
 create-agent UI and any future `create_agent` tool); an agent can also author one
 by hand-writing the file with the memory tools.
 

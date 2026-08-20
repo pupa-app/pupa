@@ -3,6 +3,24 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.257] — 2026-08-20
+
+### Performance
+
+- **Switching apps from the menu is immediate.** The Agents page stays mounted
+  for the app you're on, so picking a different app in the menu built it fresh
+  — and it worked out the agent list by walking that app's memory folder from
+  inside the view, before the screen could change. It now loads just after the
+  page appears, behind a placeholder, so the tap lands straight away.
+- **Reading a memory folder got ~10× cheaper.** Scanning asked the filesystem
+  about every entry three separate times; it now asks once per folder and
+  reads the answers it already has. Building an app's memory tree: 11.2ms →
+  1.1ms p50 on a 40-file fixture. This sits under the Memories tab, the agent
+  list, and every scoped agent session, so it is felt broadly. Listing agents
+  also stopped scanning the same folder twice.
+
+App `0.0.256` → `0.0.257`.
+
 ## [0.0.256] — 2026-08-20
 
 ### Performance
@@ -25,6 +43,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   re-basing the chain, which is untouched here.)
 
 App `0.0.255` → `0.0.256`.
+
 ## [0.0.254] — 2026-08-20
 
 ### Fixed

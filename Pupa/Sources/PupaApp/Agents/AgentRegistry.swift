@@ -33,8 +33,12 @@ public enum AgentRegistry {
         catalog: ModelCatalogStore
     ) -> [AgentDescriptor] {
         var descriptors: [AgentDescriptor] = []
-        descriptors.append(buildMainAgent(myApp: myApp, store: store, settings: settings, catalog: catalog))
+        // One store for the whole enumeration: each `MemoryStore.init` runs a
+        // full recursive scan of the app's memory root, and this ran on the
+        // MyApp-switch path.
         let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myApp.id))
+        descriptors.append(buildMainAgent(
+            myApp: myApp, memory: appMemory, store: store, settings: settings, catalog: catalog))
         for subagent in AgentStore(memory: appMemory).agents {
             descriptors.append(buildSubagent(
                 myApp: myApp,
@@ -52,12 +56,12 @@ public enum AgentRegistry {
     @MainActor
     private static func buildMainAgent(
         myApp: MyApp,
+        memory: MemoryStore,
         store: MyAppStore,
         settings: SettingsStore,
         catalog: ModelCatalogStore
     ) -> AgentDescriptor {
         let promptPath = "\(MemoryStore.pupaFolder(myAppId: myApp.id))/AGENTS.md"
-        let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myApp.id))
         let promptOnDisk = memory.fileExists(at: MemoryStore.pupaAgentsPath)
         let allowedTools = ChatViewModel.allowedToolNames(
             scope: .myApp(myApp.id),

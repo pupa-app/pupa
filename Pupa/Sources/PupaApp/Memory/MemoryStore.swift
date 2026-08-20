@@ -19,6 +19,11 @@ public final class MemoryStore {
 
     private let root: URL
 
+    /// Bumped on every tree rebuild. A cheap `.task(id:)` key for views that
+    /// derive expensive state from the tree — diffing the tree itself would
+    /// cost more than the work being guarded.
+    public private(set) var revision = 0
+
     /// Consulted before every mutating call with the target path (relative to
     /// this store's root). Returning `true` throws `MemoryError.locked`; reads
     /// stay open. Scoped app stores ignore the path and return their MyApp's
@@ -480,6 +485,7 @@ public final class MemoryStore {
 
     func rescan() {
         tree = Self.scan(root: root)
+        revision &+= 1
         onDidMutate?()
     }
 
@@ -491,6 +497,7 @@ public final class MemoryStore {
         let root = self.root
         let rebuilt = await Task.detached(priority: .utility) { Self.scan(root: root) }.value
         tree = rebuilt
+        revision &+= 1
         onDidMutate?()
     }
 
@@ -502,20 +509,30 @@ public final class MemoryStore {
         return MemoryNode(name: "", path: "", kind: .folder, children: children)
     }
 
+    /// One directory listing per folder, with the metadata prefetched.
+    ///
+    /// The previous shape cost three syscalls per entry — a `contentsOfDirectory`,
+    /// then a `fileExists` per child, then an `attributesOfItem` per file —
+    /// which showed up on the MyApp-switch path, where the Agents pane builds
+    /// a `MemoryStore` (and so a full recursive scan) inside a view body.
+    /// Asking for the resource values up front lets the listing populate them
+    /// in bulk, so `resourceValues` below reads what is already cached.
+    ///
+    /// Hidden entries are filtered by name rather than `.skipsHiddenFiles`:
+    /// that option also drops files carrying the hidden *flag*, which would
+    /// change what the Memories tree shows.
     private nonisolated static func readChildren(at url: URL, prefix: String) -> [MemoryNode] {
-        let fm = FileManager.default
-        guard let names = try? fm.contentsOfDirectory(atPath: url.path) else { return [] }
+        let keys: [URLResourceKey] = [.isDirectoryKey, .fileSizeKey]
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: url, includingPropertiesForKeys: keys) else { return [] }
         var folders: [MemoryNode] = []
         var files: [MemoryNode] = []
-        for name in names where !name.hasPrefix(".") {
-            let child = url.appendingPathComponent(name)
-            var isDir: ObjCBool = false
-            #if DEBUG
-            DiskIO.statCalls += 1
-            #endif
-            guard fm.fileExists(atPath: child.path, isDirectory: &isDir) else { continue }
+        for child in entries {
+            let name = child.lastPathComponent
+            guard !name.hasPrefix(".") else { continue }
+            let values = try? child.resourceValues(forKeys: Set(keys))
             let relPath = prefix.isEmpty ? name : "\(prefix)/\(name)"
-            if isDir.boolValue {
+            if values?.isDirectory == true {
                 folders.append(MemoryNode(
                     name: name,
                     path: relPath,
@@ -523,14 +540,10 @@ public final class MemoryStore {
                     children: readChildren(at: child, prefix: relPath)
                 ))
             } else {
-                #if DEBUG
-                DiskIO.statCalls += 1
-                #endif
-                let size = (try? fm.attributesOfItem(atPath: child.path)[.size] as? Int) ?? 0
                 files.append(MemoryNode(
                     name: name,
                     path: relPath,
-                    kind: .file(sizeBytes: size),
+                    kind: .file(sizeBytes: values?.fileSize ?? 0),
                     children: nil
                 ))
             }

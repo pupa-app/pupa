@@ -36,9 +36,37 @@ public struct AgentsListView: View {
         Color.color(atIndex: store.colorIndex(for: myAppId))
     }
 
-    private var descriptors: [AgentDescriptor] {
-        guard let app = myApp else { return [] }
-        return AgentRegistry.enumerateAgents(myApp: app, store: store, settings: settings, catalog: modelCatalog)
+    /// Loaded in `.task`, never in `body`: enumerating agents walks the app's
+    /// memory root off disk. This pane is keep-alive, so it mounts on every
+    /// MyApp switch — doing the walk inline put it inside the tap's runloop
+    /// turn and was what made switching apps from the menu feel slow.
+    @State private var descriptors: [AgentDescriptor] = []
+    @State private var descriptorsLoaded = false
+
+    /// Everything a descriptor is derived from: the memory tree (subagent
+    /// files) and the MyApp itself (model choice, disabled tools, components).
+    /// The old computed property re-derived on every body pass and so picked
+    /// these up for free — at the cost of a disk walk each time. Comparing the
+    /// inputs instead is strictly cheaper than reading them.
+    private struct DescriptorKey: Hashable {
+        let myAppId: UUID
+        let memoryRevision: Int
+        let app: MyApp?
+    }
+
+    private var descriptorKey: DescriptorKey {
+        DescriptorKey(myAppId: myAppId, memoryRevision: memory.revision, app: myApp)
+    }
+
+    private func loadDescriptors() {
+        guard let app = myApp else {
+            descriptors = []
+            descriptorsLoaded = true
+            return
+        }
+        descriptors = AgentRegistry.enumerateAgents(
+            myApp: app, store: store, settings: settings, catalog: modelCatalog)
+        descriptorsLoaded = true
     }
 
     public var body: some View {
@@ -58,6 +86,7 @@ public struct AgentsListView: View {
             .frame(maxWidth: .infinity, alignment: .center)
         }
         .background(Color.canvasBackground)
+        .task(id: descriptorKey) { loadDescriptors() }
     }
 
     private func header(_ app: MyApp) -> some View {
@@ -65,20 +94,21 @@ public struct AgentsListView: View {
     }
 
     private var agentsPanel: some View {
-        // Bind once: the getter enumerates agents off disk — don't run it
-        // per subview.
-        let descriptors = self.descriptors
-        return VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 Text("Agents")
                     .font(.subheadline)
                     .fontWeight(.semibold)
                 Spacer()
-                Text("\(descriptors.count)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if descriptorsLoaded {
+                    Text("\(descriptors.count)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
-            if descriptors.isEmpty {
+            if !descriptorsLoaded {
+                placeholderRows
+            } else if descriptors.isEmpty {
                 Text("No agents yet.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -97,6 +127,28 @@ public struct AgentsListView: View {
             RoundedRectangle(cornerRadius: 10)
                 .fill(Color.secondary.opacity(0.06))
         )
+    }
+
+    /// Holds the pane's shape for the frame or two before `.task` lands, so
+    /// mounting it doesn't jump the page.
+    private var placeholderRows: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(0..<3, id: \.self) { _ in
+                HStack(spacing: 10) {
+                    Image(systemName: "person.circle")
+                        .frame(width: 22)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Agent name")
+                        Text("What this agent does")
+                            .font(.caption)
+                    }
+                    Spacer()
+                }
+                .padding(.vertical, 4)
+            }
+        }
+        .redacted(reason: .placeholder)
+        .accessibilityHidden(true)
     }
 
     private func agentRow(_ descriptor: AgentDescriptor) -> some View {
