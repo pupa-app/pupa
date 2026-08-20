@@ -236,10 +236,6 @@ struct BackendEditSheet: View {
                     #endif
                     .font(.caption.monospaced())
             }
-        } footer: {
-            Text("Label is a free-form display name. URL must include a scheme (http:// or https://). For self-signed HTTPS backends, paste the SHA-256 cert fingerprint printed by `pupa-backend pair`. Authentication is per-device — complete the pairing below.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
     }
 

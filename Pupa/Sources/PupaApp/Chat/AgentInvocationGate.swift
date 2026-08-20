@@ -144,7 +144,7 @@ public final class AgentInvocationGate {
     /// Max depth of any single ancestor chain. Reaching it blocks
     /// further nested calls with `.maxDepthExceeded`. 4 is plenty —
     /// most useful chains are 1–2 deep. Loops produce 5+ very
-    /// quickly. Mutable so Settings → Agent-to-agent can retune it live
+    /// quickly. Mutable so Settings → Agents can retune it live
     /// (the coordinator syncs it from `SettingsStore` before each decision).
     public var maxChainDepth: Int
 

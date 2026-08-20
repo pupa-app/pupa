@@ -62,7 +62,7 @@ struct PinnedSnapshotsView: View {
                         }
                     }
                 } footer: {
-                    Text("Pins are grouped by app and kept forever — even after you delete the app. Tap an app to see its snapshots, then Export or Restore one.")
+                    Text("Pins are grouped by app and kept forever, even after you delete the app. Tap an app to see its snapshots, then Export or Restore one.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }

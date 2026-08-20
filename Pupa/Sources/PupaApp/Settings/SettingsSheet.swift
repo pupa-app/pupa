@@ -13,8 +13,6 @@ import SwiftUI
 ///   - **Tools** — all tool permissions in one place: the global
 ///     shell-command approval toggle and per-tool backend toggles fetched
 ///     live from `GET /backend-tools`.
-///   - **Agent-to-agent** — A2A guardrails (`AgentInvocationGate`):
-///     conversation rounds per agent pair + max chain depth.
 ///   - **Notifications** — lists pending scheduled notifications and lets
 ///     the user cancel them (`NotificationCenterCoordinator`).
 ///   - **Examples** — add a sample workspace to the sidebar.
@@ -92,7 +90,7 @@ public struct SettingsSheet: View {
     /// category's real controls (the existing section builders, re-hosted in
     /// their own `Form`).
     private enum SettingsCategory: Hashable {
-        case profile, backend, tools, agents, agentsOverview, notifications, examples, sharing, pinned, archive, recentlyDeleted
+        case profile, backend, tools, agentsOverview, notifications, examples, sharing, pinned, archive, recentlyDeleted
     }
 
     /// Whether to offer the Recently deleted row. Loaded on appear, never in
@@ -132,10 +130,6 @@ public struct SettingsSheet: View {
                     categoryRow(icon: "wrench.and.screwdriver", title: "Tools",
                                 caption: "Shell approval & tool permissions")
                 }
-                NavigationLink(value: SettingsCategory.agents) {
-                    categoryRow(icon: "point.3.connected.trianglepath.dotted", title: "Agent-to-agent",
-                                caption: "Conversation rounds & chain depth")
-                }
                 if canShowAgents {
                     NavigationLink(value: SettingsCategory.agentsOverview) {
                         categoryRow(icon: "person.3.sequence", title: "Agents",
@@ -161,7 +155,7 @@ public struct SettingsSheet: View {
                 if let store, store.hasAnyPinnedSnapshots {
                     NavigationLink(value: SettingsCategory.pinned) {
                         categoryRow(icon: "pin", title: "Pinned snapshots",
-                                    caption: "Saved states per app — survive deletion")
+                                    caption: "Saved states per app")
                     }
                 }
                 if let store, !store.archivedMyApps.isEmpty {
@@ -321,8 +315,6 @@ public struct SettingsSheet: View {
                 // from its own `@State` — a parent `@State` mutated here is not
                 // reliably re-observed by the destination closure.
                 ToolsSettingsView(settings: settings)
-            case .agents:
-                Form { agentsSection }.navigationTitle("Agent-to-agent")
             case .agentsOverview:
                 if let store, let memory, let stats, let modelCatalog {
                     AgentsOverviewView(store: store, settings: settings, memory: memory, stats: stats, modelCatalog: modelCatalog, coordinator: coordinator)
@@ -449,85 +441,7 @@ public struct SettingsSheet: View {
         } header: {
             Text("Backend")
         } footer: {
-            Text("Tap a backend to activate it; tap the active one again (or use the context menu) to edit. Each backend keeps its own URL + optional API key. Stored in UserDefaults — fine for personal testing, not for shared secrets.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    @ViewBuilder
-    private var agentsSection: some View {
-        Section {
-            Stepper(
-                value: Binding(
-                    get: { settings.a2aMaxTurnsPerPair },
-                    set: { settings.setA2AMaxTurnsPerPair($0) }
-                ),
-                in: SettingsStore.a2aMaxTurnsPerPairRange
-            ) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Conversation rounds: \(settings.a2aMaxTurnsPerPair)")
-                    Text("How many back-and-forth turns one agent may have with another before the gate cuts it off.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            Stepper(
-                value: Binding(
-                    get: { settings.a2aMaxChainDepth },
-                    set: { settings.setA2AMaxChainDepth($0) }
-                ),
-                in: SettingsStore.a2aMaxChainDepthRange
-            ) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Max chain depth: \(settings.a2aMaxChainDepth)")
-                    Text("How deep a chain of agents-calling-agents can go before further nested calls are blocked.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        } header: {
-            Text("Agent-to-agent limits")
-        } footer: {
-            Text("Guardrails for when one agent delegates to another — the orchestrator fanning out to myApp agents, or a Slack room. Changes take effect on the next agent call.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        Section {
-            Toggle(isOn: Binding(
-                get: { settings.toolRoundsUnlimited },
-                set: { settings.setToolRoundsUnlimited($0) }
-            )) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("No limit")
-                    Text("On by default: a turn runs as many tool rounds as it needs. Turn this off to add a client-side breaker for turns you want cut short.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            Stepper(
-                value: Binding(
-                    get: { settings.maxToolRounds },
-                    set: { settings.setMaxToolRounds($0) }
-                ),
-                in: SettingsStore.maxToolRoundsRange
-            ) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Tool rounds per turn: \(settings.maxToolRounds)")
-                    Text("How many tool round-trips one turn may take before the client stops it. Each on-device tool call (adding a component, editing a memory…) uses one. Raise it for long multi-step turns.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .disabled(settings.toolRoundsUnlimited)
-        } header: {
-            Text("Turn limits")
-        } footer: {
-            Text("A turn that hits this limit finishes the tool calls already in flight, then stops with a note in the chat. Applies on the next message.")
+            Text("Tap a backend to activate it; tap the active one again (or use the context menu) to edit. Each backend keeps its own URL; the paired-device token is stored in the Keychain.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -536,6 +450,15 @@ public struct SettingsSheet: View {
     @ViewBuilder
     private var examplesSection: some View {
         Section {
+            Link(destination: MarketplaceInstallLink.browseURL) {
+                HStack {
+                    Label("Browse the marketplace", systemImage: "bag")
+                    Spacer()
+                    Image(systemName: "arrow.up.right")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
             ForEach(ExampleRegistry.all.indices, id: \.self) { i in
                 exampleRow(ExampleRegistry.all[i])
             }
@@ -543,7 +466,7 @@ public struct SettingsSheet: View {
         } header: {
             Text("Examples")
         } footer: {
-            Text("Adds an example workspace to the sidebar. Idempotent — if it's already present, this just makes it the active workspace.")
+            Text("Adds an example MyApp. Browse the marketplace for more.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -591,7 +514,7 @@ public struct SettingsSheet: View {
                     Label("Needs pairing", systemImage: "lock.fill")
                         .labelStyle(.iconOnly)
                         .foregroundStyle(.orange)
-                        .accessibilityLabel("Requires login — run `make pair` and complete pairing in Edit")
+                        .accessibilityLabel("Requires login — run `pupa-backend pair` and complete pairing in Edit")
                 }
             case .unreachable:
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -868,7 +791,7 @@ private struct ArchivedAppsView: View {
                     }
                 }
             } footer: {
-                Text("Archived apps are hidden from the sidebar and every agent, and their components are locked. Unarchive to bring one back — it stays locked until you unlock it from its home page.")
+                Text("Archived apps are hidden from the sidebar and every agent, and their components are locked. Unarchive to bring one back.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -954,7 +877,7 @@ private struct PendingNotificationsList: View {
                     }
                 }
             } footer: {
-                Text("Scheduled notifications that haven't fired yet — from the agent or created by you. Swipe (or use the context menu) to cancel one.")
+                Text("Scheduled notifications that haven't fired yet. Swipe (or use the context menu) to cancel one.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

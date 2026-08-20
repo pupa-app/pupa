@@ -12,10 +12,10 @@ import Observation
 ///
 /// Auth shape: the only client-side credential is a paired-device token in
 /// the Keychain. The pre-#163 `apiKey` field has been dropped — operators
-/// who used to paste `PUPA_API_KEY` into Settings now run `make pair`
+/// who used to paste `PUPA_API_KEY` into Settings now run `pupa-backend pair`
 /// and pair instead. The server-side `PUPA_API_KEY` is still accepted
 /// by the backend middleware but is server-side bootstrap only (used by
-/// `make pair` to mint the first code) and is never exposed to clients.
+/// `pupa-backend pair` to mint the first code) and is never exposed to clients.
 public struct BackendEntry: Identifiable, Codable, Equatable, Sendable {
     public let id: UUID
     public var label: String
@@ -133,7 +133,7 @@ public final class SettingsStore {
     /// every `.memory`-scope turn — never an override. Stored globally (the
     /// orchestrator has no MyApp parent).
     public private(set) var orchestratorDisabledTools: Set<String>
-    /// A2A guardrails surfaced in Settings → Agent-to-agent and fed into
+    /// A2A guardrails surfaced in Settings → Agents and fed into
     /// `AgentInvocationGate`. `a2aMaxTurnsPerPair` is the number of back-and-forth
     /// rounds one agent may have with another before the gate cuts it off;
     /// `a2aMaxChainDepth` caps how deep a chain of agents-calling-agents can go.
@@ -469,7 +469,7 @@ public final class SettingsStore {
     /// backend hasn't been paired yet. The only client-side credential is the
     /// paired-device token in the Keychain (per [#163](https://github.com/*/issues/163)
     /// Phase 3b). The server-side `PUPA_API_KEY` still works as a
-    /// bootstrap credential for `make pair`, but it's never given to clients.
+    /// bootstrap credential for `pupa-backend pair`, but it's never given to clients.
     public var authHeaders: [String: String] {
         let active = activeBackend
         guard let deviceToken = credentials.token(for: active.id), !deviceToken.isEmpty else {
