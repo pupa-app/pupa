@@ -82,4 +82,85 @@ struct DeterministicRequestTests {
         #expect(bodies.count == 1)
         #expect(bodies.first?.contains(#""properties":{"componentId""#) == true)
     }
+
+    // MARK: - The advertised tool list
+
+    private func stubTool(_ name: String) -> ClientTool {
+        ClientTool(
+            descriptor: ToolDescriptor(name: name, description: "d", parameters: .object([:]))
+        ) { _ in .null }
+    }
+
+    @Test func descriptorsAreNameSortedAcrossRegistries() throws {
+        // `.sortedKeys` sorts keys *inside* each schema, not the tools array —
+        // that order comes from `Dictionary.values`, which is randomised per
+        // *instance*, not just per process. Every sub-run and Slack invocation
+        // builds a fresh registry, and the tool block sits at the very front of
+        // the cache prefix, so an unsorted array re-charges everything behind it.
+        let names = [
+            "renderTracker", "addComponent", "writeMemoryFile", "getCanvasState",
+            "invoke_agent", "lsMemories", "app_skill_view", "embedComponent",
+        ]
+        let orders = Set((0..<20).map { _ -> [String] in
+            let registry = ToolRegistry()
+            for name in names.shuffled() { registry.register(stubTool(name)) }
+            return registry.descriptors.map(\.name)
+        })
+        #expect(orders.count == 1)
+        #expect(orders.first == names.sorted())
+    }
+}
+
+// MARK: - The bytes AgentClient actually POSTs
+
+/// Nested under `AgentSessionTests` (`.serialized`) because `MockURLProtocol`
+/// is process-global — the same reason the keepalive and re-attach suites live
+/// there.
+extension AgentSessionTests {
+@Suite("Deterministic request bytes on the wire", .serialized)
+struct DeterministicWire {
+
+    @Test func theClientEncodesEveryBodyIdentically() async throws {
+        MockURLProtocol.reset()
+        MockURLProtocol.responder = { _ in
+            (200, sseBody([
+                #"{"type":"RUN_STARTED","threadId":"t","runId":"r"}"#,
+                #"{"type":"RUN_FINISHED","threadId":"t","runId":"r"}"#,
+            ]), ["Content-Type": "text/event-stream"])
+        }
+        let client = AgentClient(
+            endpoint: URL(string: "http://mock.test/agent")!, session: makeMockSession())
+
+        for _ in 0..<20 {
+            // A fresh input each round: the shuffle is per `Dictionary`
+            // instance, so re-POSTing one input would pass even unsorted.
+            let input = RunAgentInput(
+                threadId: "t",
+                runId: "r",  // pinned — the default is a fresh UUID
+                messages: [],
+                tools: [ToolDescriptor(
+                    name: "addComponent",
+                    description: "d",
+                    parameters: [
+                        "type": "object",
+                        "properties": [
+                            "componentId": ["type": "string"],
+                            "name": ["type": "string"],
+                            "summary": ["type": "string"],
+                        ],
+                        "required": ["componentId"],
+                    ]
+                )],
+                context: [AgentContextEntry(
+                    description: "myApp type",
+                    encoding: ["typeId": "tracker", "myAppName": "WebExplorer"]
+                )]
+            )
+            for try await _ in client.run(input) {}
+        }
+
+        #expect(MockURLProtocol.requestBodies.count == 20)
+        #expect(Set(MockURLProtocol.requestBodies).count == 1)
+    }
+}
 }

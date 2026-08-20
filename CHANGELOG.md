@@ -14,7 +14,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   assistant had to be re-told everything, including the whole conversation so
   far. It's now written in a stable order, so an unchanged app costs nothing to
   re-describe. Roughly half the cost of a short reply, and it was growing with
-  the length of the conversation.
+  the length of the conversation. The list of actions the assistant can take is
+  now listed in a stable order too — it was being shuffled every time a
+  subagent, a Slack reply, or a relaunched app rebuilt it, which threw away the
+  same savings.
 
 ## [0.0.253] — 2026-08-19
 
