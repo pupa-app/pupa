@@ -167,23 +167,25 @@ public struct AppView: View {
         self._chatScope = State(initialValue: .myApp(store.activeMyAppId))
     }
 
+    /// Record `sel` as visited, so its pane stays mounted.
+    ///
+    /// Called only from `setRoot`, which is the only writer of the lazy
+    /// keep-alive set. Opening the drawer or presenting Settings does not
+    /// route through here, so neither costs a re-mount of the pages already
+    /// visited — see `KeepAlive.visited`.
+    private func noteMounted(_ sel: SidebarSelection) {
+        (mountedSubject, mountedPages) = KeepAlive.visited(
+            sel,
+            subject: barSubject(for: sel),
+            mounted: mountedPages,
+            mountedSubject: mountedSubject)
+    }
+
     /// Single entry point for top-level navigation: swaps the detail root in
     /// place with animations disabled (instant page switch, no push
     /// transition), clears any drill-in pushes, keeps the macOS sidebar
     /// highlight in sync, and routes the chat scope. Re-entrant safe — the
     /// sidebar's selection `onChange` calls back into here.
-    /// Record `sel` as mounted. Switching subject drops the previous
-    /// subject's set — those panes are gone from `keepAlivePages` anyway, and
-    /// keeping them would grow without bound across apps.
-    private func noteMounted(_ sel: SidebarSelection) {
-        if barSubject(for: sel) != mountedSubject {
-            mountedSubject = barSubject(for: sel)
-            mountedPages = [sel]
-        } else {
-            mountedPages.insert(sel)
-        }
-    }
-
     private func setRoot(_ sel: SidebarSelection) {
         PerfTrace.interaction("setRoot." + PerfTrace.label(sel)) {
             if rootPage != sel || !detailPath.isEmpty {
@@ -1691,5 +1693,23 @@ extension EnvironmentValues {
     var paneIsActive: Bool {
         get { self[PaneIsActiveKey.self] }
         set { self[PaneIsActiveKey.self] = newValue }
+    }
+}
+
+/// The lazy keep-alive bookkeeping, as a pure function so its rules are
+/// testable rather than argued about.
+enum KeepAlive {
+    /// Fold a visit into the mounted set. Staying within a subject accumulates
+    /// (so a tab visited once stays alive); changing subject starts over,
+    /// because the previous subject's pages leave `keepAlivePages` anyway and
+    /// retaining them would grow without bound across apps.
+    static func visited(
+        _ sel: SidebarSelection,
+        subject: MyAppHomeView.Subject?,
+        mounted: Set<SidebarSelection>,
+        mountedSubject: MyAppHomeView.Subject?
+    ) -> (MyAppHomeView.Subject?, Set<SidebarSelection>) {
+        guard subject == mountedSubject else { return (subject, [sel]) }
+        return (subject, mounted.union([sel]))
     }
 }
