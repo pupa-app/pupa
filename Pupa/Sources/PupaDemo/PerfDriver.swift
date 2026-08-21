@@ -21,6 +21,70 @@ enum PerfDriver {
         ProcessInfo.processInfo.environment["PUPA_PERF_DRIVE"] == "1"
     }
 
+    /// UI mode: bring the real window up, then drive interactions through the
+    /// same state writes a tap performs and report tap→frame. The store-level
+    /// mode above can't reach these — sidebar rebuild and chat mount are view
+    /// cost, not store cost.
+    static var isUIRequested: Bool {
+        ProcessInfo.processInfo.environment["PUPA_PERF_UI"] == "1"
+    }
+
+    /// Seed if asked, then hand back so the window can come up.
+    static func prepareUI() {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pupa-perf-fixture", isDirectory: true)
+        PupaStorage.overrideRoot = root
+        if ProcessInfo.processInfo.environment["PUPA_PERF_SEED"] == "1" {
+            try? FileManager.default.removeItem(at: root)
+            PerfFixture.seedUI()
+        }
+    }
+
+    /// Post each interaction repeatedly with enough gap to settle, then report.
+    /// Runs on the main queue alongside the live UI, which is the point.
+    static func runUI() {
+        let sequence: [PerfTrace.Drive] = [.nextApp, .toggleChat, .toggleChat]
+        let settle = 0.45
+        let warmups = 2
+        let reps = 12
+
+        var step = 0.0
+        func schedule(_ drive: PerfTrace.Drive, at t: Double) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + t) { PerfTrace.post(drive) }
+        }
+
+        // Let the first frame land before anything is timed.
+        step = 2.0
+        for _ in 0..<warmups {
+            for d in sequence { schedule(d, at: step); step += settle }
+        }
+        // Drop everything the warmups recorded, including their cold rows.
+        DispatchQueue.main.asyncAfter(deadline: .now() + step) { PerfTrace.resetSamples() }
+        step += settle
+
+        for _ in 0..<reps {
+            for d in sequence { schedule(d, at: step); step += settle }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + step + 1.0) {
+            report()
+            exit(0)
+        }
+    }
+
+    private static func report() {
+        var byKey: [String: [Double]] = [:]
+        for s in PerfTrace.samples {
+            byKey["\(s.name),\(s.kind)", default: []].append(s.ms)
+        }
+        print("\ninteraction,kind,n,p50ms,p90ms")
+        for key in byKey.keys.sorted() {
+            let v = byKey[key]!.sorted()
+            print(String(format: "%@,%d,%.1f,%.1f",
+                         key, v.count, percentile(v, 0.5), percentile(v, 0.9)))
+        }
+    }
+
+
     private static let warmups = 3
     private static let reps = 20
 

@@ -278,6 +278,7 @@ public struct AppView: View {
 
     public var body: some View {
         platformBody
+            .onReceive(PerfTrace.drivePublisher) { handleDrive($0) }
             .safeAreaInset(edge: .top) {
                 VStack(spacing: 0) {
                     if let warning = store.rosterWarning { unsavedRosterBanner(warning) }
@@ -599,6 +600,7 @@ public struct AppView: View {
                 onDeleteMyApp: deleteMyApp,
                 onArchiveMyApp: archiveMyApp
             )
+            .equatable()
             .frame(width: 260)
             Divider()
             detail
@@ -891,6 +893,7 @@ public struct AppView: View {
                     onDeleteMyApp: deleteMyApp,
                     onArchiveMyApp: archiveMyApp
                 )
+                .equatable()
                 .frame(width: sidebarWidth)
                 // Bleed only the background behind the status bar / home
                 // indicator; the content keeps its safe-area insets so the
@@ -1238,12 +1241,38 @@ public struct AppView: View {
                         detailPath.append(dest)
                     }
                 },
-                onToggleChat: {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                        chatOpen.toggle()
-                    }
-                }
+                onToggleChat: { toggleChat() }
             )
+        }
+    }
+
+    private func toggleChat() {
+        PerfTrace.interaction(chatOpen ? "chatClose" : "chatOpen") {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                chatOpen.toggle()
+            }
+        }
+    }
+
+    /// Harness channel: drives the same state writes a tap would, so the
+    /// measured interaction is the real one. Inert unless `PUPA_PERF=1`.
+    private func handleDrive(_ note: Notification) {
+        switch PerfTrace.drive(from: note) {
+        case .toggleChat:
+            toggleChat()
+        case .nextApp:
+            let apps = store.visibleMyApps
+            guard apps.count > 1 else { return }
+            let current = apps.firstIndex { $0.id == store.activeMyAppId } ?? 0
+            setRoot(.myAppHome(apps[(current + 1) % apps.count].id))
+        case .toggleSidebar:
+            #if os(iOS)
+            PerfTrace.interaction(showSidebar ? "drawerClose" : "drawerOpen") {
+                showSidebar.toggle()
+            }
+            #endif
+        case nil:
+            break
         }
     }
 

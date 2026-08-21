@@ -124,6 +124,16 @@ keep-alive detail panes): open/close slides by `.offset` under a single scoped
 transaction measured ~90–135ms tap→frame warm (and ~1.1s on first open) and made
 the hamburger feel slow next to the animation-free page switches.
 
+Chat bubbles are `Equatable` and their markdown is parsed once, not per body
+pass. `Markdown(String)` runs cmark **inside its initializer**, i.e. inside
+`body`; with no equality gate above it, any `AppView` state write re-parsed the
+whole visible transcript, and one tap causes ~4 passes. `MarkdownCache`
+(`Chat/ChatPanel.swift`) keys parsed content by bubble id and invalidates on a
+content-hash change, so a streaming bubble replaces its own entry.
+`MyAppSidebarView` is `Equatable` for the same reason — the stores it reads are
+`@Observable`, so real data changes still invalidate it from within; the gate
+only suppresses the redundant passes.
+
 ### Measuring interaction latency
 
 `PerfTrace` (`App/PerfTrace.swift`) times navigation interactions when
@@ -138,6 +148,9 @@ the hamburger feel slow next to the animation-free page switches.
 Lines carry `cold`/`warm`, so "first open slow" is a column, not an anecdote.
 Wired at `setRoot`, the drawer toggle, Settings open, and the History push.
 
+`PerfTrace.region` times a synchronous span *inside* an interaction, to
+attribute cost to a block rather than guess at it.
+
 `PupaDemo` doubles as the harness. `PUPA_PERF_DRIVE=1` measures the
 store-level work a tap performs (p50/p90 over 20 reps) and exits without a
 window; `PUPA_PERF_SEED=1` first writes a fixed corpus under a temp
@@ -147,6 +160,17 @@ window; `PUPA_PERF_SEED=1` first writes a fixed corpus under a temp
 PUPA_PERF=1 PUPA_PERF_DRIVE=1 PUPA_PERF_SEED=1 \
   swift run -c release --package-path Pupa PupaDemo
 ```
+
+`PUPA_PERF_UI=1` instead of `PUPA_PERF_DRIVE=1` keeps the window up and drives
+real interactions (app switch, chat open/close) through `PerfTrace.Drive`, a
+notification channel `AppView` subscribes to — the sidebar rebuild and chat
+mount are view cost, so they need a live view tree. `PerfFixture.seedUI` writes
+the roster and transcripts it measures against.
+
+Caveat when reading chat numbers: `PerfTrace` reports the first CoreAnimation
+ack, which lands *before* the transcript loads and before the two re-pins from
+#245. Chat-open figures are the empty panel, a floor rather than the settled
+cost.
 
 The chat lives in a user-resizable `ChatOverlay` card anchored bottom-trailing
 of the detail pane. Its launcher lives in the per-MyApp bottom bar (below); on

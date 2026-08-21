@@ -1,6 +1,6 @@
 import SwiftUI
 
-public struct MyAppSidebarView: View {
+public struct MyAppSidebarView: View, Equatable {
     @Bindable var store: MyAppStore
     @Bindable var memory: MemoryStore
     @Bindable var settings: SettingsStore
@@ -52,6 +52,23 @@ public struct MyAppSidebarView: View {
         self.onSelectionChange = onSelectionChange
         self.onDeleteMyApp = onDeleteMyApp
         self.onArchiveMyApp = onArchiveMyApp
+    }
+
+    /// Value inputs and store identity only — the closures are stable action
+    /// handlers and can't be compared. The stores are `@Observable`, so a real
+    /// data change still invalidates this view from within; what this skips is
+    /// the *other* three `AppView` body passes a single drawer tap causes
+    /// (write `selection`, `setRoot`, close the drawer, clear `selection`),
+    /// each of which rebuilt the whole `List`.
+    nonisolated public static func == (a: MyAppSidebarView, b: MyAppSidebarView) -> Bool {
+        a.selection == b.selection
+            && a.busyMyApps == b.busyMyApps
+            && a.store === b.store
+            && a.memory === b.memory
+            && a.settings === b.settings
+            && a.stats === b.stats
+            && a.modelCatalog === b.modelCatalog
+            && a.coordinator === b.coordinator
     }
 
     public var body: some View {

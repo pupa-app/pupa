@@ -39,6 +39,12 @@ struct DemoApp: App {
             PerfDriver.run()
             exit(0)
         }
+        // UI mode keeps the window: the interactions being measured are view
+        // cost, so they need a live view tree.
+        if PerfDriver.isUIRequested {
+            PerfDriver.prepareUI()
+            PerfDriver.runUI()
+        }
     }
 
     var body: some Scene {

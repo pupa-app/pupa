@@ -3,6 +3,29 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.258] — 2026-08-21
+
+### Performance
+
+- **Opening the menu and picking an app are much quicker, and the chat no
+  longer stutters when you do.** Every time the app re-rendered — opening the
+  hamburger, picking a MyApp, closing the drawer — it re-formatted every
+  message visible in the chat from scratch, because formatting happened while
+  drawing rather than once per message. A single tap causes about four
+  re-renders, so it did that work four times over. Messages are now formatted
+  once and reused until their text actually changes, and an unchanged message
+  is skipped entirely. Picking a MyApp from the sidebar: 451ms → 197ms average
+  (worst case 987ms → 388ms). Opening the chat: 239ms → 172ms typical, and the
+  slow openings that took over a second now take about 210ms.
+- **The sidebar stops rebuilding itself four times per tap.** One tap wrote
+  four pieces of state in turn and the whole app list was rebuilt for each;
+  it now rebuilds only when something it shows has actually changed.
+
+Opening a long chat is still not instant — the panel lays out every message
+in the thread when it mounts. That is tracked separately (#184).
+
+App `0.0.257` → `0.0.258`.
+
 ## [0.0.257] — 2026-08-20
 
 ### Performance
