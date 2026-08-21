@@ -164,6 +164,9 @@ PUPA_PERF=1 PUPA_PERF_DRIVE=1 PUPA_PERF_SEED=1 \
   swift run -c release --package-path Pupa PupaDemo
 ```
 
+`PUPA_PERF_SEQ=nextApp,tabAgents` drives an arbitrary order of interactions —
+how the "first tab tap after an app switch" figure in the changelog is derived.
+
 `PUPA_PERF_UI=1` instead of `PUPA_PERF_DRIVE=1` keeps the window up and drives
 real interactions (app switch, chat open/close) through `PerfTrace.Drive`, a
 notification channel `AppView` subscribes to — the sidebar rebuild and chat

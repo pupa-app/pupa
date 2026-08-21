@@ -157,12 +157,6 @@ public struct AppView: View {
         self._screenShare = State(initialValue: ScreenShareViewModel(settings: settings))
         self._selection = State(initialValue: .myAppHome(store.activeMyAppId))
         self._nav = State(initialValue: NavState(rootPage: .myAppHome(store.activeMyAppId)))
-        // Seed the lazy keep-alive bookkeeping to match `rootPage`. Without
-        // this the launch page renders (it is `rootPage`) but is never
-        // recorded, so the first move to another tab of the same subject took
-        // the subject-changed branch, reset the set, and tore Home down —
-        // losing its expanded-folder state and paying a full rebuild on
-        // return.
         self._chatScope = State(initialValue: .myApp(store.activeMyAppId))
     }
 
@@ -182,8 +176,6 @@ public struct AppView: View {
                     nav.setRoot(sel)
                     detailPath = []
                 }
-            } else {
-                nav.setRoot(sel)
             }
             #if os(macOS)
             // iOS deliberately skips this: `selection` is cleared to nil after
@@ -290,6 +282,7 @@ public struct AppView: View {
                 MarkdownCache.purge()
             }
             #endif
+
             .safeAreaInset(edge: .top) {
                 VStack(spacing: 0) {
                     if let warning = store.rosterWarning { unsavedRosterBanner(warning) }
@@ -433,6 +426,9 @@ public struct AppView: View {
             startSyncPoll()
         case .background:
             stopSyncPoll()
+            // macOS gets no memory warning, so without this it never releases
+            // the parsed-markdown cache at all.
+            MarkdownCache.purge()
         default:
             break
         }
@@ -1040,7 +1036,7 @@ public struct AppView: View {
     /// files, agent details) build on demand as before.
     @ViewBuilder
     private var content: some View {
-        let mounted = nav.panes(from: keepAlivePages(for: rootPage))
+        let mounted = keepAlivePages(for: rootPage)
         ZStack {
             ForEach(mounted, id: \.self) { page in
                 DetailPane(
@@ -1076,12 +1072,22 @@ public struct AppView: View {
         }
     }
 
-    /// The always-mounted tab pages for the subject `root` belongs to: the
-    /// bar's fixed tabs plus the app's active component canvas (the page users
-    /// bounce to most). Other component canvases can be numerous and heavy, so
-    /// they stay build-on-demand; switching the active component swaps the
-    /// pane's identity and rebuilds once.
+    /// The panes to mount for `root` — the subject's tabs, **already limited
+    /// to those visited**. The filter lives here rather than at the call site
+    /// on purpose: when `content` did the filtering itself, dropping it
+    /// silently restored eager mounting and every test stayed green. There is
+    /// no accessor for the unfiltered list.
     private func keepAlivePages(for root: SidebarSelection) -> [SidebarSelection] {
+        nav.panes(from: subjectTabs(for: root))
+    }
+
+    /// Every tab of `root`'s subject, visited or not: the bar's fixed tabs
+    /// plus the app's active component canvas (the page users bounce to
+    /// most). Other component canvases can be numerous and heavy, so they stay
+    /// build-on-demand; switching the active component swaps the pane's
+    /// identity and rebuilds once. Private to the function above — callers
+    /// must go through the filtered list.
+    private func subjectTabs(for root: SidebarSelection) -> [SidebarSelection] {
         switch barSubject(for: root) {
         case .myApp(let id):
             var pages: [SidebarSelection] = [.myAppHome(id), .myAppAgents(id), .myAppMemories(id)]
@@ -1111,13 +1117,13 @@ public struct AppView: View {
                 settings: settings,
                 modelCatalog: modelCatalog,
                 subject: .myApp(id),
-                onNavigate: { nav in
+                onNavigate: { dest in
                     // Push onto the navigation stack instead of replacing
                     // selection — Back from the destination returns to the
                     // landing page. dispatchSelection still runs so the
                     // active component and chat scope follow the user.
-                    dispatchSelection(nav)
-                    detailPath.append(nav)
+                    dispatchSelection(dest)
+                    detailPath.append(dest)
                 }
             )
         case .myApp, .myAppComponent:
@@ -1134,9 +1140,9 @@ public struct AppView: View {
                 settings: settings,
                 modelCatalog: modelCatalog,
                 myAppId: id,
-                onNavigate: { nav in
-                    dispatchSelection(nav)
-                    detailPath.append(nav)
+                onNavigate: { dest in
+                    dispatchSelection(dest)
+                    detailPath.append(dest)
                 }
             )
         case .myAppAgentDetail(let id, let agentId):
@@ -1147,9 +1153,9 @@ public struct AppView: View {
                 modelCatalog: modelCatalog,
                 myAppId: id,
                 agentId: agentId,
-                onNavigate: { nav in
-                    dispatchSelection(nav)
-                    detailPath.append(nav)
+                onNavigate: { dest in
+                    dispatchSelection(dest)
+                    detailPath.append(dest)
                 }
             )
         case .myAppMemories(let id):
@@ -1157,9 +1163,9 @@ public struct AppView: View {
                 store: store,
                 memory: memory,
                 subject: .myApp(id),
-                onNavigate: { nav in
-                    dispatchSelection(nav)
-                    detailPath.append(nav)
+                onNavigate: { dest in
+                    dispatchSelection(dest)
+                    detailPath.append(dest)
                 }
             )
         case .myAppHistory(let id):
@@ -1169,9 +1175,9 @@ public struct AppView: View {
                 store: store,
                 memory: memory,
                 subject: .orchestrator,
-                onNavigate: { nav in
-                    dispatchSelection(nav)
-                    detailPath.append(nav)
+                onNavigate: { dest in
+                    dispatchSelection(dest)
+                    detailPath.append(dest)
                 }
             )
         case .myAppMemoryFile(let id, let path):
@@ -1197,9 +1203,9 @@ public struct AppView: View {
                 settings: settings,
                 modelCatalog: modelCatalog,
                 subject: .orchestrator,
-                onNavigate: { nav in
-                    dispatchSelection(nav)
-                    detailPath.append(nav)
+                onNavigate: { dest in
+                    dispatchSelection(dest)
+                    detailPath.append(dest)
                 }
             )
         case .orchestratorAgentDetail:
@@ -1210,9 +1216,9 @@ public struct AppView: View {
                 modelCatalog: modelCatalog,
                 myAppId: nil,
                 agentId: AgentRegistry.orchestratorAgentId,
-                onNavigate: { nav in
-                    dispatchSelection(nav)
-                    detailPath.append(nav)
+                onNavigate: { dest in
+                    dispatchSelection(dest)
+                    detailPath.append(dest)
                 }
             )
         case .screenShare:
@@ -1291,6 +1297,12 @@ public struct AppView: View {
             guard apps.count > 1 else { return }
             let current = apps.firstIndex { $0.id == store.activeMyAppId } ?? 0
             setRoot(.myAppHome(apps[(current + 1) % apps.count].id))
+        case .tabAgents:
+            // The first tab tap after a switch — what the lazy keep-alive
+            // trade-off costs, so the claim can be re-measured.
+            if let id = store.visibleMyApps.first(where: { $0.id == store.activeMyAppId })?.id {
+                setRoot(.myAppAgents(id))
+            }
         case .toggleSidebar:
             #if os(iOS)
             PerfTrace.interaction(showSidebar ? "drawerClose" : "drawerOpen") {
@@ -1711,7 +1723,6 @@ struct NavState: Equatable {
     mutating func setRoot(_ sel: SidebarSelection) {
         let next = Self.subject(for: sel)
         if next == subject {
-            guard rootPage != sel || !mounted.contains(sel) else { return }
             rootPage = sel
             mounted.insert(sel)
         } else {

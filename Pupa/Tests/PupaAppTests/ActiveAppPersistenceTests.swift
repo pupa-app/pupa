@@ -8,13 +8,17 @@ import Testing
 /// that the shortcut still persists it — a regression reads as "relaunch
 /// reopens the wrong app".
 @MainActor
-@Suite("Active app persistence")
+@Suite("Active app persistence", .serialized)
 struct ActiveAppPersistenceTests {
 
     init() { TestStorage.activate() }
 
     @Test("picking a MyApp survives a relaunch")
     func setActiveSurvivesReload() async {
+        // Disk suites share one process-global root; without this the reload
+        // below can pick up another suite's roster. Observed as a rare
+        // spurious failure under load.
+        await MyAppStore.clearStorage()
         MyAppTypeRegistry.shared.registerBuiltins()
         let store = MyAppStore(initial: nil)
         let first = store.addMyApp(

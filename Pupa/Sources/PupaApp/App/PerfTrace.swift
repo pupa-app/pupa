@@ -88,7 +88,7 @@ public enum PerfTrace {
     /// recognition was never the problem; the runloop turn the state write
     /// kicks off is, so the harness writes the state directly.
     public enum Drive: String, Sendable {
-        case toggleSidebar, toggleChat, nextApp
+        case toggleSidebar, toggleChat, nextApp, tabAgents
     }
 
     static let driveNotification = Notification.Name("pupa.perf.drive")

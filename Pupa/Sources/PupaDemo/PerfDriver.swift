@@ -45,8 +45,15 @@ enum PerfDriver {
     static func runUI() {
         // `PUPA_PERF_FOCUS=nextApp` drives one interaction on a tight loop, so
         // a `sample` of the process attributes that interaction and not a mix.
-        let focus = ProcessInfo.processInfo.environment["PUPA_PERF_FOCUS"]
-        let sequence: [PerfTrace.Drive] = focus.flatMap { PerfTrace.Drive(rawValue: $0) }.map { [$0] }
+        let env = ProcessInfo.processInfo.environment
+        let focus = env["PUPA_PERF_FOCUS"]
+        // `PUPA_PERF_SEQ=nextApp,tabAgents` drives an arbitrary order — how the
+        // "first tab tap after a switch" figure in the CHANGELOG is derived.
+        let explicit = env["PUPA_PERF_SEQ"]?
+            .split(separator: ",")
+            .compactMap { PerfTrace.Drive(rawValue: String($0).trimmingCharacters(in: .whitespaces)) }
+        let sequence: [PerfTrace.Drive] = explicit?.isEmpty == false ? explicit!
+            : focus.flatMap { PerfTrace.Drive(rawValue: $0) }.map { [$0] }
             ?? [.nextApp, .toggleChat, .toggleChat]
         let settle = focus == nil ? 0.45 : 0.30
         let uiWarmups = 2
@@ -75,11 +82,14 @@ enum PerfDriver {
     }
 
     private static func report() {
+        // Keyed on phase too: without it each per-app row mixed its cold
+        // first visit with its warm repeats, which inflated every median and
+        // made the published before/after ratios larger than they are.
         var byKey: [String: [Double]] = [:]
         for s in PerfTrace.samples {
-            byKey["\(s.name),\(s.kind)", default: []].append(s.ms)
+            byKey["\(s.name),\(s.kind),\(s.phase)", default: []].append(s.ms)
         }
-        print("\ninteraction,kind,n,p50ms,p90ms")
+        print("\ninteraction,kind,phase,n,p50ms,p90ms")
         for key in byKey.keys.sorted() {
             let v = byKey[key]!.sorted()
             print(String(format: "%@,%d,%.1f,%.1f",
