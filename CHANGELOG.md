@@ -3,6 +3,56 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.258] — 2026-08-21
+
+### Performance
+
+- **Opening the menu, picking an app, and opening the chat are all quicker.**
+  Every re-render re-formatted every message visible in the chat from scratch,
+  because formatting happened while drawing rather than once per message. A
+  single tap causes about four re-renders, so it did that work four times
+  over. Messages are now formatted once and reused until their text actually
+  changes, and an unchanged message is skipped entirely.
+- **Switching MyApp builds one page, not four.** A subject's tabs (home,
+  agents, memories, the active canvas) were all built the moment you picked a
+  different app, including the ones you hadn't asked for. They are now built
+  on first visit and kept alive after that, so repeat tab clicks stay as quick
+  as they were.
+- **Smaller waste removed:** the app mark was decoded from disk on every
+  redraw; the agents page enumerated agents off disk while hidden behind
+  another tab; picking an app re-encoded every app to discover that only the
+  active-app pointer had changed.
+
+Measured on a 13-app fixture with 60-message threads, release build, median
+main-thread time from tap to the UI catching up. Both columns come from the
+same harness on the same machine, run alternately to cancel thermal drift; the
+"before" column is this branch with only its **behavioural** changes reverted.
+
+| | before | after | |
+|---|---|---|---|
+| picking a MyApp (no chat open) | 127ms | 69ms | 1.85× |
+| picking a MyApp (chat in use) | 194ms | 89ms | 2.2× |
+| opening the chat | 193ms | 103ms | 1.9× |
+| closing the chat | 84ms | 52ms | 1.6× |
+
+Earlier revisions of this entry quoted larger multipliers — up to 3.4× — drawn
+from best-case runs and from baselines measured hours apart under different
+thermal conditions. They did not reproduce under alternating runs. The table
+above supersedes them. Per-interaction dispersion is wide (individual app rows
+span tens of milliseconds either way), so treat these as indicative.
+
+Trade-off worth knowing: the first tap on Agents, Memories, or a component
+canvas after switching app now builds that page, where previously it was
+pre-built. Every later tap is unchanged, and switching apps — much the more
+common action — is roughly twice as quick. Measured, that first tap is not
+actually slower (54ms against 83ms before), because the page it builds is no
+longer competing with three others being built alongside it.
+
+Opening a long chat is still not instant: the panel lays out every message in
+the thread when it mounts. That is tracked separately (#184).
+
+App `0.0.257` → `0.0.258`.
+
 ## [0.0.257] — 2026-08-20
 
 ### Performance

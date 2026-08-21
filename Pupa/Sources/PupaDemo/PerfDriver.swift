@@ -21,6 +21,83 @@ enum PerfDriver {
         ProcessInfo.processInfo.environment["PUPA_PERF_DRIVE"] == "1"
     }
 
+    /// UI mode: bring the real window up, then drive interactions through the
+    /// same state writes a tap performs and report tap→frame. The store-level
+    /// mode above can't reach these — sidebar rebuild and chat mount are view
+    /// cost, not store cost.
+    static var isUIRequested: Bool {
+        ProcessInfo.processInfo.environment["PUPA_PERF_UI"] == "1"
+    }
+
+    /// Seed if asked, then hand back so the window can come up.
+    static func prepareUI() {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pupa-perf-fixture", isDirectory: true)
+        PupaStorage.overrideRoot = root
+        if ProcessInfo.processInfo.environment["PUPA_PERF_SEED"] == "1" {
+            try? FileManager.default.removeItem(at: root)
+            PerfFixture.seedUI()
+        }
+    }
+
+    /// Post each interaction repeatedly with enough gap to settle, then report.
+    /// Runs on the main queue alongside the live UI, which is the point.
+    static func runUI() {
+        // `PUPA_PERF_FOCUS=nextApp` drives one interaction on a tight loop, so
+        // a `sample` of the process attributes that interaction and not a mix.
+        let env = ProcessInfo.processInfo.environment
+        let focus = env["PUPA_PERF_FOCUS"]
+        // `PUPA_PERF_SEQ=nextApp,tabAgents` drives an arbitrary order — how the
+        // "first tab tap after a switch" figure in the CHANGELOG is derived.
+        let explicit = env["PUPA_PERF_SEQ"]?
+            .split(separator: ",")
+            .compactMap { PerfTrace.Drive(rawValue: String($0).trimmingCharacters(in: .whitespaces)) }
+        let sequence: [PerfTrace.Drive] = explicit?.isEmpty == false ? explicit!
+            : focus.flatMap { PerfTrace.Drive(rawValue: $0) }.map { [$0] }
+            ?? [.nextApp, .toggleChat, .toggleChat]
+        let settle = focus == nil ? 0.45 : 0.30
+        let uiWarmups = 2
+        let uiReps = focus == nil ? 12 : 60
+
+        func schedule(_ drive: PerfTrace.Drive, at t: Double) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + t) { PerfTrace.post(drive) }
+        }
+
+        // Let the first frame land before anything is timed.
+        var step = 2.0
+        for _ in 0..<uiWarmups {
+            for d in sequence { schedule(d, at: step); step += settle }
+        }
+        // Drop everything the warmups recorded, including their cold rows.
+        DispatchQueue.main.asyncAfter(deadline: .now() + step) { PerfTrace.resetSamples() }
+        step += settle
+
+        for _ in 0..<uiReps {
+            for d in sequence { schedule(d, at: step); step += settle }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + step + 1.0) {
+            report()
+            exit(0)
+        }
+    }
+
+    private static func report() {
+        // Keyed on phase too: without it each per-app row mixed its cold
+        // first visit with its warm repeats, which inflated every median and
+        // made the published before/after ratios larger than they are.
+        var byKey: [String: [Double]] = [:]
+        for s in PerfTrace.samples {
+            byKey["\(s.name),\(s.kind),\(s.phase)", default: []].append(s.ms)
+        }
+        print("\ninteraction,kind,phase,n,p50ms,p90ms")
+        for key in byKey.keys.sorted() {
+            let v = byKey[key]!.sorted()
+            print(String(format: "%@,%d,%.1f,%.1f",
+                         key, v.count, percentile(v, 0.5), percentile(v, 0.9)))
+        }
+    }
+
+
     private static let warmups = 3
     private static let reps = 20
 
@@ -61,7 +138,7 @@ enum PerfDriver {
         print("path,p50ms,p90ms")
         // RC2 — every one of these reads and JSON-parses whole snapshot files.
         measure("SnapshotStore.metas") { _ = SnapshotStore.metas(target.id) }
-        measureAsync("hasAnyPins (Settings gate)") { await SnapshotStore.hasAnyPins() }
+        measureAsync("hasAnyPins (Settings gate)") { _ = await SnapshotStore.hasAnyPins() }
         // Two record rows: the fixture's main apps sit exactly at
         // `defaultCap`, so every rep there also pays prune's evict + re-base.
         // The short-history app isolates the listing cost from that.

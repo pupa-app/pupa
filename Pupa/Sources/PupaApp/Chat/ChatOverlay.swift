@@ -175,7 +175,12 @@ struct ChatOverlay: View {
             : sizing.resolvedSize(user: userSize, in: containerSize)
 
         let currentId = store.currentThreadId(for: scope)
-        let vm = coordinator.session(for: scope, threadId: currentId)
+        // Cold on the first open of a scope: tool registry, memory stores,
+        // skill scan, agent session. Attributed so the open cost can be split
+        // between building this and laying the panel out.
+        let vm = PerfTrace.region("sessionBuild") {
+            coordinator.session(for: scope, threadId: currentId)
+        }
 
         return ZStack(alignment: .topLeading) {
             VStack(spacing: 0) {

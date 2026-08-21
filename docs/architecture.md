@@ -124,6 +124,16 @@ keep-alive detail panes): open/close slides by `.offset` under a single scoped
 transaction measured ~90–135ms tap→frame warm (and ~1.1s on first open) and made
 the hamburger feel slow next to the animation-free page switches.
 
+Chat bubbles are `Equatable` and their markdown is parsed once, not per body
+pass. `Markdown(String)` runs cmark **inside its initializer**, i.e. inside
+`body`; with no equality gate above it, any `AppView` state write re-parsed the
+whole visible transcript, and one tap causes ~4 passes. `MarkdownCache`
+(`Chat/ChatPanel.swift`) keys parsed content by bubble id and invalidates on a
+content-hash change, so a streaming bubble replaces its own entry.
+`MyAppSidebarView` is `Equatable` for the same reason — the stores it reads are
+`@Observable`, so real data changes still invalidate it from within; the gate
+only suppresses the redundant passes.
+
 ### Measuring interaction latency
 
 `PerfTrace` (`App/PerfTrace.swift`) times navigation interactions when
@@ -138,6 +148,12 @@ the hamburger feel slow next to the animation-free page switches.
 Lines carry `cold`/`warm`, so "first open slow" is a column, not an anecdote.
 Wired at `setRoot`, the drawer toggle, Settings open, and the History push.
 
+`PerfTrace.region` times a synchronous span *inside* an interaction, to
+attribute cost to a block rather than guess at it. `PUPA_PERF_FOCUS=<drive>`
+loops one interaction so `sample <pid>` attributes that interaction and not a
+mix — how the four-panes-per-switch cost was found, after `region` had ruled
+out the app-code suspects.
+
 `PupaDemo` doubles as the harness. `PUPA_PERF_DRIVE=1` measures the
 store-level work a tap performs (p50/p90 over 20 reps) and exits without a
 window; `PUPA_PERF_SEED=1` first writes a fixed corpus under a temp
@@ -147,6 +163,20 @@ window; `PUPA_PERF_SEED=1` first writes a fixed corpus under a temp
 PUPA_PERF=1 PUPA_PERF_DRIVE=1 PUPA_PERF_SEED=1 \
   swift run -c release --package-path Pupa PupaDemo
 ```
+
+`PUPA_PERF_SEQ=nextApp,tabAgents` drives an arbitrary order of interactions —
+how the "first tab tap after an app switch" figure in the changelog is derived.
+
+`PUPA_PERF_UI=1` instead of `PUPA_PERF_DRIVE=1` keeps the window up and drives
+real interactions (app switch, chat open/close) through `PerfTrace.Drive`, a
+notification channel `AppView` subscribes to — the sidebar rebuild and chat
+mount are view cost, so they need a live view tree. `PerfFixture.seedUI` writes
+the roster and transcripts it measures against.
+
+Caveat when reading chat numbers: `PerfTrace` reports the first CoreAnimation
+ack, which lands *before* the transcript loads and before the two re-pins from
+#245. Chat-open figures are the empty panel, a floor rather than the settled
+cost.
 
 The chat lives in a user-resizable `ChatOverlay` card anchored bottom-trailing
 of the detail pane. Its launcher lives in the per-MyApp bottom bar (below); on
@@ -238,6 +268,24 @@ active component canvas) stay mounted in a `ZStack` and switch by opacity
 ~3× faster click→frame than rebuilding the page tree per tap. `selection` is
 only the sidebar's row highlight + tap signal (iOS clears it to nil after each
 tap so re-taps re-fire); navigation state lives in `rootPage` + `detailPath`.
+
+Keep-alive is populated **lazily**. `NavState` holds the `NavigationStack`
+root and the visited-tab set together — `setRoot` moves the root *and* records
+the visit, so the recording cannot be dropped, and the subject is derived from
+the root rather than passed in. `content` mounts `nav.panes(from:)`: the
+current root plus tabs already visited, reset when the subject changes. Mounting all of a subject's tabs on a MyApp switch
+measured ~45% of the switch's cost, for pages the user hadn't asked for; a tab
+now pays its mount on first visit and stays alive after, which is what made
+repeat tab clicks free in the first place. Cost moves from every switch to the
+first visit of each tab.
+
+A pane learns whether it is the visible one through the `paneIsActive`
+environment value, which `DetailPane` sets. Anything expensive a keep-alive
+pane runs in `.task` must gate on it, or it runs for pages nobody is looking
+at — put the flag in the task **id** so becoming visible re-fires the skipped
+run, but keep it out of whatever key decides the work is already done, or
+every tab switch looks like new work (`AgentsListView`'s `TaskKey` vs
+`DescriptorKey`).
 
 Keep-alive protects against *re-evaluation*, not *first mount*: switching MyApp
 changes the whole `keepAlivePages` set, so those panes build fresh for the new
