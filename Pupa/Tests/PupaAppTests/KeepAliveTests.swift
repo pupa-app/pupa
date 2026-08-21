@@ -13,92 +13,59 @@ struct KeepAliveTests {
     private let appA = UUID()
     private let appB = UUID()
 
+    /// What `AppView.init` builds. `KeepAliveState` has no empty initialiser,
+    /// so the launch page cannot be left unrecorded — the previous version of
+    /// this suite seeded the set by hand in the test body and therefore passed
+    /// even with the seed deleted from `init`.
+    private func atLaunch(_ id: UUID) -> KeepAliveState {
+        KeepAliveState(rootPage: .myAppHome(id), subject: .myApp(id))
+    }
+
+    @Test("the launch page is recorded, so the first navigation keeps it")
+    func launchPageSurvivesFirstNavigation() {
+        var state = atLaunch(appA)
+        state.visit(.myAppAgents(appA), subject: .myApp(appA))
+
+        #expect(state.pages.contains(.myAppHome(appA)), "launch page was torn down")
+        #expect(state.pages == [.myAppHome(appA), .myAppAgents(appA)])
+    }
+
     @Test("navigating within one app accumulates visited tabs")
     func accumulatesWithinSubject() {
-        let subject = MyAppHomeView.Subject.myApp(appA)
-        var mounted: Set<SidebarSelection> = []
-        var current: MyAppHomeView.Subject?
-
-        for page in [SidebarSelection.myAppHome(appA),
-                     .myAppAgents(appA),
-                     .myAppMemories(appA)] {
-            (current, mounted) = KeepAlive.visited(
-                page, subject: subject, mounted: mounted, mountedSubject: current)
+        var state = atLaunch(appA)
+        for page in [SidebarSelection.myAppAgents(appA), .myAppMemories(appA)] {
+            state.visit(page, subject: .myApp(appA))
         }
-
-        #expect(mounted == [.myAppHome(appA), .myAppAgents(appA), .myAppMemories(appA)])
-        #expect(current == subject)
-    }
-
-    @Test("the launch page survives the first navigation away from it")
-    func launchPageSurvivesFirstNavigation() {
-        // `AppView.init` seeds the bookkeeping to match the launch `rootPage`.
-        // Without that seed the subject read as "changed" on the very first
-        // move, the set reset, and Home was torn down — losing its expanded
-        // folders. The original test missed it by making Home the first visit,
-        // the one ordering where the reset is invisible.
-        let subject = MyAppHomeView.Subject.myApp(appA)
-        var mounted: Set<SidebarSelection> = [.myAppHome(appA)]
-        var current: MyAppHomeView.Subject? = subject
-
-        (current, mounted) = KeepAlive.visited(
-            .myAppAgents(appA), subject: subject, mounted: mounted, mountedSubject: current)
-
-        #expect(mounted.contains(.myAppHome(appA)), "launch page was torn down")
-        #expect(mounted == [.myAppHome(appA), .myAppAgents(appA)])
-    }
-
-    @Test("an unseeded subject starts the set from the visited page")
-    func unseededSubjectStartsFresh() {
-        var mounted: Set<SidebarSelection> = []
-        var current: MyAppHomeView.Subject?
-        (current, mounted) = KeepAlive.visited(
-            .myAppAgents(appA), subject: .myApp(appA),
-            mounted: mounted, mountedSubject: current)
-        #expect(mounted == [.myAppAgents(appA)])
-        #expect(current == .myApp(appA))
+        #expect(state.pages == [.myAppHome(appA), .myAppAgents(appA), .myAppMemories(appA)])
     }
 
     @Test("re-visiting a tab keeps the set intact — no re-mount")
     func revisitIsIdempotent() {
-        let subject = MyAppHomeView.Subject.myApp(appA)
-        var mounted: Set<SidebarSelection> = [.myAppHome(appA), .myAppAgents(appA)]
-        var current: MyAppHomeView.Subject? = subject
-
-        (current, mounted) = KeepAlive.visited(
-            .myAppHome(appA), subject: subject, mounted: mounted, mountedSubject: current)
-
-        #expect(mounted == [.myAppHome(appA), .myAppAgents(appA)])
+        var state = atLaunch(appA)
+        state.visit(.myAppAgents(appA), subject: .myApp(appA))
+        let before = state.pages
+        state.visit(.myAppHome(appA), subject: .myApp(appA))
+        #expect(state.pages == before)
     }
 
     @Test("switching app starts over, so the set can't grow without bound")
     func subjectChangeResets() {
-        var mounted: Set<SidebarSelection> = [.myAppHome(appA), .myAppAgents(appA)]
-        var current: MyAppHomeView.Subject? = .myApp(appA)
+        var state = atLaunch(appA)
+        state.visit(.myAppAgents(appA), subject: .myApp(appA))
+        state.visit(.myAppHome(appB), subject: .myApp(appB))
 
-        (current, mounted) = KeepAlive.visited(
-            .myAppHome(appB), subject: .myApp(appB),
-            mounted: mounted, mountedSubject: current)
-
-        #expect(mounted == [.myAppHome(appB)])
-        #expect(current == .myApp(appB))
-        // App A's pages leave `keepAlivePages` on the switch anyway.
-        #expect(!mounted.contains(.myAppAgents(appA)))
+        #expect(state.pages == [.myAppHome(appB)])
+        #expect(state.subject == .myApp(appB))
+        #expect(!state.pages.contains(.myAppAgents(appA)))
     }
 
     @Test("the orchestrator is its own subject")
     func orchestratorIsSeparate() {
-        var mounted: Set<SidebarSelection> = [.myAppHome(appA)]
-        var current: MyAppHomeView.Subject? = .myApp(appA)
+        var state = atLaunch(appA)
+        state.visit(.orchestrator, subject: .orchestrator)
+        #expect(state.pages == [.orchestrator])
 
-        (current, mounted) = KeepAlive.visited(
-            .orchestrator, subject: .orchestrator,
-            mounted: mounted, mountedSubject: current)
-        #expect(mounted == [.orchestrator])
-
-        (current, mounted) = KeepAlive.visited(
-            .orchestratorMemories, subject: .orchestrator,
-            mounted: mounted, mountedSubject: current)
-        #expect(mounted == [.orchestrator, .orchestratorMemories])
+        state.visit(.orchestratorMemories, subject: .orchestrator)
+        #expect(state.pages == [.orchestrator, .orchestratorMemories])
     }
 }

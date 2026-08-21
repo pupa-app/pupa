@@ -170,8 +170,9 @@ public struct AppView: View {
         // the subject-changed branch, reset the set, and tore Home down —
         // losing its expanded-folder state and paying a full rebuild on
         // return.
-        self._mountedSubject = State(initialValue: .myApp(store.activeMyAppId))
-        self._mountedPages = State(initialValue: [.myAppHome(store.activeMyAppId)])
+        self._keepAlive = State(initialValue: KeepAliveState(
+            rootPage: .myAppHome(store.activeMyAppId),
+            subject: .myApp(store.activeMyAppId)))
         self._chatScope = State(initialValue: .myApp(store.activeMyAppId))
     }
 
@@ -182,11 +183,7 @@ public struct AppView: View {
     /// route through here, so neither costs a re-mount of the pages already
     /// visited — see `KeepAlive.visited`.
     private func noteMounted(_ sel: SidebarSelection) {
-        (mountedSubject, mountedPages) = KeepAlive.visited(
-            sel,
-            subject: barSubject(for: sel),
-            mounted: mountedPages,
-            mountedSubject: mountedSubject)
+        keepAlive.visit(sel, subject: barSubject(for: sel))
     }
 
     /// Single entry point for top-level navigation: swaps the detail root in
@@ -1036,29 +1033,33 @@ public struct AppView: View {
     /// click→frame even in release; an opacity flip is near-free. Pages
     /// outside that set (component canvas, history, screen share, memory
     /// files, agent details) build on demand as before.
-    /// Tabs of the current subject that have actually been visited, and so
-    /// stay mounted. Keep-alive is populated **lazily**: mounting every tab of
-    /// a subject on a MyApp switch measured ~45% of the switch's cost, for
-    /// pages the user hadn't asked for. The first visit to a tab pays its
-    /// mount once; after that it stays alive and repeat tab clicks are still
-    /// free — which is the win #154 bought.
-    @State private var mountedPages: Set<SidebarSelection> = []
-    /// Subject the set above belongs to.
-    @State private var mountedSubject: MyAppHomeView.Subject?
+    /// Which of the current subject's tabs have been visited, and so stay
+    /// mounted. `KeepAliveState` has no empty initialiser on purpose: it must
+    /// be seeded from the launch `rootPage` in `init`, and making that a
+    /// compile error is the only way to stop the seed being dropped again.
+    @State private var keepAlive: KeepAliveState
 
+    /// The `NavigationStack` root. The current subject's bar tabs (home /
+    /// agents / memories / the active component canvas) stay mounted in a
+    /// `ZStack` and switch by opacity — rebuilding a page tree on every tab
+    /// click measured 100–145ms click→frame even in release; an opacity flip
+    /// is near-free. Populated lazily: mounting every tab of a subject on a
+    /// MyApp switch measured ~45% of the switch's cost, for pages the user
+    /// hadn't asked for. Pages outside the set (history, screen share, memory
+    /// files, agent details) build on demand as before.
     @ViewBuilder
     private var content: some View {
-        let keepAlive = keepAlivePages(for: rootPage)
-            .filter { $0 == rootPage || mountedPages.contains($0) }
+        let mounted = keepAlivePages(for: rootPage)
+            .filter { $0 == rootPage || keepAlive.pages.contains($0) }
         ZStack {
-            ForEach(keepAlive, id: \.self) { page in
+            ForEach(mounted, id: \.self) { page in
                 DetailPane(
                     page: page,
                     isActive: page == rootPage,
                     content: AnyView(detailView(for: page))
                 )
             }
-            if !keepAlive.contains(rootPage) {
+            if !mounted.contains(rootPage) {
                 detailView(for: rootPage)
             }
         }
@@ -1704,20 +1705,33 @@ extension EnvironmentValues {
     }
 }
 
-/// The lazy keep-alive bookkeeping, as a pure function so its rules are
-/// testable rather than argued about.
-enum KeepAlive {
-    /// Fold a visit into the mounted set. Staying within a subject accumulates
-    /// (so a tab visited once stays alive); changing subject starts over,
-    /// because the previous subject's pages leave `keepAlivePages` anyway and
-    /// retaining them would grow without bound across apps.
-    static func visited(
-        _ sel: SidebarSelection,
-        subject: MyAppHomeView.Subject?,
-        mounted: Set<SidebarSelection>,
-        mountedSubject: MyAppHomeView.Subject?
-    ) -> (MyAppHomeView.Subject?, Set<SidebarSelection>) {
-        guard subject == mountedSubject else { return (subject, [sel]) }
-        return (subject, mounted.union([sel]))
+/// Lazy keep-alive bookkeeping.
+///
+/// Deliberately has **no** empty initialiser. The launch page renders because
+/// it is `rootPage`, but it must also be *recorded*, or the first navigation
+/// to another tab of the same subject reads as a subject change, resets the
+/// set and tears the launch page down — losing its `@State`. That seed was
+/// once missing and the tests could not see it, so the type now refuses to be
+/// constructed without one.
+struct KeepAliveState: Equatable {
+    private(set) var subject: MyAppHomeView.Subject?
+    private(set) var pages: Set<SidebarSelection>
+
+    init(rootPage: SidebarSelection, subject: MyAppHomeView.Subject?) {
+        self.subject = subject
+        self.pages = [rootPage]
+    }
+
+    /// Fold a visit in. Staying within a subject accumulates, so a tab visited
+    /// once stays alive; changing subject starts over, because the previous
+    /// subject's pages leave `keepAlivePages` anyway and retaining them would
+    /// grow without bound across apps.
+    mutating func visit(_ sel: SidebarSelection, subject newSubject: MyAppHomeView.Subject?) {
+        if newSubject == subject {
+            pages.insert(sel)
+        } else {
+            subject = newSubject
+            pages = [sel]
+        }
     }
 }

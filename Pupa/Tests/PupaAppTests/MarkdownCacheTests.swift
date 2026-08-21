@@ -48,6 +48,34 @@ struct MarkdownCacheTests {
         #expect(MarkdownCache.parses == 50)
     }
 
+    @Test("a thread larger than the cap still gets cache hits")
+    func oversizeThreadStillHits() {
+        // Nothing windows the message list (#184), so every bubble renders on
+        // every pass. A full flush at the cap meant the next pass missed on
+        // everything — worse than no cache. Dropping half must leave a real
+        // hit rate.
+        MarkdownCache.reset()
+        let n = 1500
+        for i in 0..<n { _ = MarkdownCache.content(id: "b\(i)", text: "\(text) \(i)") }
+        let afterFirstPass = MarkdownCache.parses
+
+        for i in 0..<n { _ = MarkdownCache.content(id: "b\(i)", text: "\(text) \(i)") }
+        let secondPassParses = MarkdownCache.parses - afterFirstPass
+
+        // Random eviction is scan-resistant, so a second sweep should still
+        // hit on a large fraction. FIFO/LRU would score exactly zero here.
+        #expect(secondPassParses < n, "second pass re-parsed everything — cache is useless at size")
+        #expect(secondPassParses < Int(Double(n) * 0.75), "hit rate too low: \(n - secondPassParses)/\(n)")
+        #expect(MarkdownCache.count <= 1200)
+    }
+
+    @Test("the cap bounds the table")
+    func capBoundsTable() {
+        MarkdownCache.reset()
+        for i in 0..<3000 { _ = MarkdownCache.content(id: "b\(i)", text: "body \(i)") }
+        #expect(MarkdownCache.count <= 1200)
+    }
+
     @Test("edited text re-parses")
     func editedTextReparses() {
         MarkdownCache.reset()

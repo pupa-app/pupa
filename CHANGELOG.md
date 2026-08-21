@@ -7,42 +7,45 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
 
 ### Performance
 
-- **Opening the menu and picking an app are much quicker, and the chat no
-  longer stutters when you do.** Every time the app re-rendered — opening the
-  hamburger, picking a MyApp, closing the drawer — it re-formatted every
-  message visible in the chat from scratch, because formatting happened while
-  drawing rather than once per message. A single tap causes about four
-  re-renders, so it did that work four times over. Messages are now formatted
-  once and reused until their text actually changes, and an unchanged message
-  is skipped entirely. Picking a MyApp from the sidebar: 451ms → 197ms average
-  (worst case 987ms → 388ms). Opening the chat: 239ms → 172ms typical, and the
-  slow openings that took over a second now take about 210ms.
-- **The sidebar rebuilds less per tap.** One tap writes four pieces of state
-  in turn and the whole app list was rebuilt for each. Two of those passes
-  change nothing the sidebar shows and are now skipped. (The other two carry
-  the row-highlight change, which it does have to redraw.)
-
-- **Switching MyApp mounts one page, not four.** A subject's tabs (home,
+- **Opening the menu, picking an app, and opening the chat are all quicker.**
+  Every re-render re-formatted every message visible in the chat from scratch,
+  because formatting happened while drawing rather than once per message. A
+  single tap causes about four re-renders, so it did that work four times
+  over. Messages are now formatted once and reused until their text actually
+  changes, and an unchanged message is skipped entirely.
+- **Switching MyApp builds one page, not four.** A subject's tabs (home,
   agents, memories, the active canvas) were all built the moment you picked a
-  different app, including the ones you hadn't asked for — about 45% of the
-  cost of the switch. They are now built on first visit and kept alive after
-  that, so repeat tab clicks stay as quick as they were. Switching apps:
-  141ms → 68ms typical measured on its own; 197ms → 151ms with chat traffic
-  interleaved. Opening the chat also came down to 105ms (from 172ms), and
-  closing it to 28ms.
-- **The app mark is decoded once instead of on every redraw**, the agents page
-  no longer enumerates agents off disk while it's hidden behind another tab,
-  and picking an app writes only the index file rather than re-encoding every
-  app to discover nothing else changed. Individually small; each was work done
-  for nothing.
+  different app, including the ones you hadn't asked for. They are now built
+  on first visit and kept alive after that, so repeat tab clicks stay as quick
+  as they were.
+- **Smaller waste removed:** the app mark was decoded from disk on every
+  redraw; the agents page enumerated agents off disk while hidden behind
+  another tab; picking an app re-encoded every app to discover that only the
+  active-app pointer had changed.
 
-Trade-off worth knowing: the first tap on Agents or Memories after switching
-app now builds that page, where previously it was pre-built. Every later tap
-is unchanged, and switching apps — much the more common action — is twice as
-quick.
+Measured on a 13-app fixture with 60-message threads, release build, median
+main-thread time from tap to the UI catching up:
 
-Opening a long chat is still not instant — the panel lays out every message
-in the thread when it mounts. That is tracked separately (#184).
+| | before | after |
+|---|---|---|
+| picking a MyApp (no chat open) | 141ms | 49–70ms |
+| picking a MyApp (chat in use) | 197ms | 85–110ms |
+| opening the chat | 239ms | 71–106ms |
+| closing the chat | 167ms | 19–25ms |
+
+Both columns come from the same harness and fixture. Ranges span every run
+after the final fix rather than the best one — this machine varies by roughly
+±15% run to run. The two "picking a MyApp" rows are different scenarios, not a
+chain of improvements. These are main-thread figures; the render-side numbers
+are higher.
+
+Trade-off worth knowing: the first tap on Agents, Memories, or a component
+canvas after switching app now builds that page, where previously it was
+pre-built. Every later tap is unchanged, and switching apps — much the more
+common action — is roughly twice as quick.
+
+Opening a long chat is still not instant: the panel lays out every message in
+the thread when it mounts. That is tracked separately (#184).
 
 App `0.0.257` → `0.0.258`.
 

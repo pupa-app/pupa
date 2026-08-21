@@ -991,19 +991,36 @@ public struct ChatPanel: View {
 @MainActor
 enum MarkdownCache {
     private static var entries: [String: (hash: Int, content: MarkdownContent)] = [:]
+    /// Comfortably above any realistic thread; the cap only exists so a
+    /// long-lived process that has visited many threads can't grow forever.
+    private static let cap = 1200
 
-    /// Parses on a miss. Bounded by a hard cap: switching threads for the life
-    /// of the process would otherwise accumulate ids nothing renders any more.
+    /// Parses on a miss.
+    ///
+    /// Eviction is **random**, which looks odd and is deliberate. Nothing
+    /// windows the message list (#184), so a thread longer than the cap
+    /// re-renders every bubble on every pass — a cyclic scan larger than the
+    /// cache. That is the pathological case for both FIFO and LRU: each pass
+    /// evicts precisely the entries the next pass asks for first, so the hit
+    /// rate pins at zero and the cache costs hashing on top of the original
+    /// parse — worse than no cache, for exactly the users with the longest
+    /// transcripts. Random eviction is scan-resistant: it keeps roughly
+    /// `cap / thread` of the entries useful instead of none.
     static func content(id: String, text: String) -> MarkdownContent {
         let hash = text.hashValue
         if let hit = entries[id], hit.hash == hash { return hit.content }
-        if entries.count > 600 { entries.removeAll() }
+        if entries[id] == nil, entries.count >= cap { evictSome() }
         let parsed = MarkdownContent(text)
         entries[id] = (hash, parsed)
         #if DEBUG
         parses += 1
         #endif
         return parsed
+    }
+
+    /// Drop a random quarter, so eviction amortises over many inserts.
+    private static func evictSome() {
+        for id in entries.keys.shuffled().prefix(cap / 4) { entries[id] = nil }
     }
 
     #if DEBUG
@@ -1014,6 +1031,10 @@ enum MarkdownCache {
         entries.removeAll()
         parses = 0
     }
+
+    /// Entries currently held — lets a test observe the cap without reaching
+    /// into storage.
+    static var count: Int { entries.count }
     #endif
 }
 

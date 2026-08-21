@@ -4,7 +4,7 @@ import Foundation
 /// machines. Lives here rather than in PupaDemo because seeding transcripts
 /// needs `TranscriptCache`, which is internal to this module.
 ///
-/// Only ever called behind `PUPA_PERF_SEED=1`.
+/// Refuses to run unless storage is redirected — see `seedUI`.
 public enum PerfFixture {
     /// A roster wide enough for the sidebar list to cost something, each app
     /// carrying a long markdown transcript — the two things the drawer / app
@@ -13,10 +13,12 @@ public enum PerfFixture {
     public static func seedUI(apps appCount: Int = 12, bubbles bubbleCount: Int = 60) {
         // This writes a roster and transcripts through the normal persistence
         // path, so against a real root it would create junk apps on the user's
-        // device and mirror them to their other ones. Refuse unless tracing is
-        // on AND storage is redirected — the two things the harness sets up.
-        guard PerfTrace.isEnabled, PupaStorage.overrideRoot != nil else {
-            assertionFailure("PerfFixture.seedUI called outside the perf harness")
+        // device and mirror them to their other ones. The hazard is the root,
+        // not the trace flag, so that is what gets checked — gating on
+        // `PerfTrace.isEnabled` too would have made `PUPA_PERF_SEED=1` alone
+        // trip this instead of seeding.
+        guard PupaStorage.overrideRoot != nil else {
+            assertionFailure("PerfFixture.seedUI needs PupaStorage.overrideRoot — refusing to seed real storage")
             return
         }
         MyAppTypeRegistry.shared.registerBuiltins()
