@@ -360,7 +360,8 @@ public final class MyAppStore {
     public func setActive(_ id: UUID) {
         guard myApps.contains(where: { $0.id == id }), id != activeMyAppId else { return }
         activeMyAppId = id
-        persist()
+        // Index-only: nothing but the active pointer changed.
+        persistIndex()
     }
 
     /// Palette slot for a myApp's accent color, resolved via
@@ -3735,6 +3736,21 @@ public final class MyAppStore {
         // `load()` only reaches its union-of-disk-bodies recovery *inside* the
         // "index decoded" branch, so skipping the write would hide apps the
         // user made here until a roster arrives.
+        writeIndex(enc, unadopted: unadopted)
+    }
+
+    /// Write `index.json` only.
+    ///
+    /// `setActive` moves the active-app pointer, which lives in the index — no
+    /// app body changes. Going through `persist()` re-encoded **every** app to
+    /// discover exactly that, and it showed up as roughly half the synchronous
+    /// work of picking a MyApp from the sidebar once a roster gets real.
+    private func persistIndex() {
+        guard !isProvisioning else { return }
+        writeIndex(Self.stateEncoder(), unadopted: unadoptedPlaceholderIds)
+    }
+
+    private func writeIndex(_ enc: JSONEncoder, unadopted: Set<UUID>) {
         let index = IndexFile(
             order: myApps.map(\.id).filter { !unadopted.contains($0) },
             activeId: activeMyAppId,

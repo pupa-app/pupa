@@ -172,6 +172,18 @@ public struct AppView: View {
     /// transition), clears any drill-in pushes, keeps the macOS sidebar
     /// highlight in sync, and routes the chat scope. Re-entrant safe — the
     /// sidebar's selection `onChange` calls back into here.
+    /// Record `sel` as mounted. Switching subject drops the previous
+    /// subject's set — those panes are gone from `keepAlivePages` anyway, and
+    /// keeping them would grow without bound across apps.
+    private func noteMounted(_ sel: SidebarSelection) {
+        if barSubject(for: sel) != mountedSubject {
+            mountedSubject = barSubject(for: sel)
+            mountedPages = [sel]
+        } else {
+            mountedPages.insert(sel)
+        }
+    }
+
     private func setRoot(_ sel: SidebarSelection) {
         PerfTrace.interaction("setRoot." + PerfTrace.label(sel)) {
             if rootPage != sel || !detailPath.isEmpty {
@@ -189,6 +201,7 @@ public struct AppView: View {
             if selection != sel { selection = sel }
             #endif
             dispatchSelection(sel)
+            noteMounted(sel)
         }
     }
 
@@ -1013,9 +1026,20 @@ public struct AppView: View {
     /// click→frame even in release; an opacity flip is near-free. Pages
     /// outside that set (component canvas, history, screen share, memory
     /// files, agent details) build on demand as before.
+    /// Tabs of the current subject that have actually been visited, and so
+    /// stay mounted. Keep-alive is populated **lazily**: mounting every tab of
+    /// a subject on a MyApp switch measured ~45% of the switch's cost, for
+    /// pages the user hadn't asked for. The first visit to a tab pays its
+    /// mount once; after that it stays alive and repeat tab clicks are still
+    /// free — which is the win #154 bought.
+    @State private var mountedPages: Set<SidebarSelection> = []
+    /// Subject the set above belongs to.
+    @State private var mountedSubject: MyAppHomeView.Subject?
+
     @ViewBuilder
     private var content: some View {
         let keepAlive = keepAlivePages(for: rootPage)
+            .filter { $0 == rootPage || mountedPages.contains($0) }
         ZStack {
             ForEach(keepAlive, id: \.self) { page in
                 DetailPane(
@@ -1047,6 +1071,7 @@ public struct AppView: View {
                 .opacity(isActive ? 1 : 0)
                 .allowsHitTesting(isActive)
                 .accessibilityHidden(!isActive)
+                .environment(\.paneIsActive, isActive)
         }
     }
 
@@ -1651,5 +1676,20 @@ private struct ImportConfirmSheet: View {
             }
         }
         .presentationDetents([.medium])
+    }
+}
+
+/// Whether the enclosing keep-alive pane is the visible one. Default `true`,
+/// so views used outside a pane behave normally. Panes stay mounted across a
+/// MyApp switch, so anything expensive in `.task` must gate on this or it runs
+/// for pages the user isn't looking at.
+private struct PaneIsActiveKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    var paneIsActive: Bool {
+        get { self[PaneIsActiveKey.self] }
+        set { self[PaneIsActiveKey.self] = newValue }
     }
 }

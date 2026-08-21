@@ -43,10 +43,14 @@ enum PerfDriver {
     /// Post each interaction repeatedly with enough gap to settle, then report.
     /// Runs on the main queue alongside the live UI, which is the point.
     static func runUI() {
-        let sequence: [PerfTrace.Drive] = [.nextApp, .toggleChat, .toggleChat]
-        let settle = 0.45
+        // `PUPA_PERF_FOCUS=nextApp` drives one interaction on a tight loop, so
+        // a `sample` of the process attributes that interaction and not a mix.
+        let focus = ProcessInfo.processInfo.environment["PUPA_PERF_FOCUS"]
+        let sequence: [PerfTrace.Drive] = focus.flatMap { PerfTrace.Drive(rawValue: $0) }.map { [$0] }
+            ?? [.nextApp, .toggleChat, .toggleChat]
+        let settle = focus == nil ? 0.45 : 0.30
         let warmups = 2
-        let reps = 12
+        let reps = focus == nil ? 12 : 60
 
         var step = 0.0
         func schedule(_ drive: PerfTrace.Drive, at t: Double) {

@@ -16,7 +16,11 @@ public enum AppIcon {
     /// shipped asset-catalog icon without recolouring the sidebar mark.
     private static let dockResourceName = "AppIconDock"
 
-    public static var swiftUIImage: Image? {
+    /// Decoded once. This was a computed `var` reading the PNG off disk and
+    /// decoding it on **every access** — and it is read from `body` in the
+    /// bottom bar and the chat launcher, so every render of either paid a file
+    /// read plus an image decode.
+    public static let swiftUIImage: Image? = {
         guard let url = Bundle.module.url(forResource: resourceName, withExtension: "png") else {
             return nil
         }
@@ -29,13 +33,12 @@ public enum AppIcon {
         #else
         return nil
         #endif
-    }
+    }()
 
     #if canImport(AppKit)
-    public static var nsImage: NSImage? {
+    public static let nsImage: NSImage? =
         Bundle.module.url(forResource: resourceName, withExtension: "png")
             .flatMap { NSImage(contentsOf: $0) }
-    }
 
     /// The brand art masked into Apple's macOS icon grid: a
     /// continuous-curvature superellipse with ~10% transparent inset. Use for

@@ -40,6 +40,11 @@ public struct AgentsListView: View {
     /// memory root off disk. This pane is keep-alive, so it mounts on every
     /// MyApp switch — doing the walk inline put it inside the tap's runloop
     /// turn and was what made switching apps from the menu feel slow.
+    /// This pane is keep-alive: it stays mounted across a MyApp switch, so
+    /// without this gate the enumeration ran on every switch for a page the
+    /// user isn't looking at.
+    @Environment(\.paneIsActive) private var paneIsActive
+
     @State private var descriptors: [AgentDescriptor] = []
     @State private var descriptorsLoaded = false
 
@@ -52,10 +57,17 @@ public struct AgentsListView: View {
         let myAppId: UUID
         let memoryRevision: Int
         let app: MyApp?
+        /// In the key so becoming visible re-fires the task that the gate
+        /// above skipped while hidden.
+        let isActive: Bool
     }
 
     private var descriptorKey: DescriptorKey {
-        DescriptorKey(myAppId: myAppId, memoryRevision: memory.revision, app: myApp)
+        DescriptorKey(
+            myAppId: myAppId,
+            memoryRevision: memory.revision,
+            app: myApp,
+            isActive: paneIsActive)
     }
 
     private func loadDescriptors() {
@@ -86,7 +98,10 @@ public struct AgentsListView: View {
             .frame(maxWidth: .infinity, alignment: .center)
         }
         .background(Color.canvasBackground)
-        .task(id: descriptorKey) { loadDescriptors() }
+        .task(id: descriptorKey) {
+            guard paneIsActive else { return }
+            loadDescriptors()
+        }
     }
 
     private func header(_ app: MyApp) -> some View {

@@ -21,6 +21,25 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   four pieces of state in turn and the whole app list was rebuilt for each;
   it now rebuilds only when something it shows has actually changed.
 
+- **Switching MyApp mounts one page, not four.** A subject's tabs (home,
+  agents, memories, the active canvas) were all built the moment you picked a
+  different app, including the ones you hadn't asked for — about 45% of the
+  cost of the switch. They are now built on first visit and kept alive after
+  that, so repeat tab clicks stay as quick as they were. Switching apps:
+  141ms → 68ms typical measured on its own; 197ms → 151ms with chat traffic
+  interleaved. Opening the chat also came down to 105ms (from 172ms), and
+  closing it to 28ms.
+- **The app mark is decoded once instead of on every redraw**, the agents page
+  no longer enumerates agents off disk while it's hidden behind another tab,
+  and picking an app writes only the index file rather than re-encoding every
+  app to discover nothing else changed. Individually small; each was work done
+  for nothing.
+
+Trade-off worth knowing: the first tap on Agents or Memories after switching
+app now builds that page, where previously it was pre-built. Every later tap
+is unchanged, and switching apps — much the more common action — is twice as
+quick.
+
 Opening a long chat is still not instant — the panel lays out every message
 in the thread when it mounts. That is tracked separately (#184).
 

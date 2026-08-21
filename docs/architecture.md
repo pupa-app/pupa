@@ -149,7 +149,10 @@ Lines carry `cold`/`warm`, so "first open slow" is a column, not an anecdote.
 Wired at `setRoot`, the drawer toggle, Settings open, and the History push.
 
 `PerfTrace.region` times a synchronous span *inside* an interaction, to
-attribute cost to a block rather than guess at it.
+attribute cost to a block rather than guess at it. `PUPA_PERF_FOCUS=<drive>`
+loops one interaction so `sample <pid>` attributes that interaction and not a
+mix — how the four-panes-per-switch cost was found, after `region` had ruled
+out the app-code suspects.
 
 `PupaDemo` doubles as the harness. `PUPA_PERF_DRIVE=1` measures the
 store-level work a tap performs (p50/p90 over 20 reps) and exits without a
@@ -262,6 +265,14 @@ active component canvas) stay mounted in a `ZStack` and switch by opacity
 ~3× faster click→frame than rebuilding the page tree per tap. `selection` is
 only the sidebar's row highlight + tap signal (iOS clears it to nil after each
 tap so re-taps re-fire); navigation state lives in `rootPage` + `detailPath`.
+
+Keep-alive is populated **lazily**. `content` renders a `DetailPane` only for
+the current `rootPage` plus tabs already visited (`mountedPages`, reset when
+the subject changes). Mounting all of a subject's tabs on a MyApp switch
+measured ~45% of the switch's cost, for pages the user hadn't asked for; a tab
+now pays its mount on first visit and stays alive after, which is what made
+repeat tab clicks free in the first place. Cost moves from every switch to the
+first visit of each tab.
 
 Keep-alive protects against *re-evaluation*, not *first mount*: switching MyApp
 changes the whole `keepAlivePages` set, so those panes build fresh for the new
