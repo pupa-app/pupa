@@ -24,25 +24,28 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   active-app pointer had changed.
 
 Measured on a 13-app fixture with 60-message threads, release build, median
-main-thread time from tap to the UI catching up:
+main-thread time from tap to the UI catching up. Both columns were taken in
+the same session on the same machine, from the same harness: the "before"
+column is this branch with only its **behavioural** changes reverted, so the
+comparison is not against numbers captured hours earlier under different
+thermal conditions. Ranges span three runs each; this machine is noisy, and
+the chat figures especially so.
 
 | | before | after |
 |---|---|---|
-| picking a MyApp (no chat open) | 141ms | 49–70ms |
-| picking a MyApp (chat in use) | 197ms | 85–110ms |
-| opening the chat | 239ms | 71–106ms |
-| closing the chat | 167ms | 19–25ms |
+| picking a MyApp (no chat open) | 187–282ms | 66–70ms |
+| picking a MyApp (chat in use) | 276–402ms | 98–112ms |
+| opening the chat | 91–302ms | 77–109ms |
+| closing the chat | 150–199ms | 62–100ms |
 
-Both columns come from the same harness and fixture. Ranges span every run
-after the final fix rather than the best one — this machine varies by roughly
-±15% run to run. The two "picking a MyApp" rows are different scenarios, not a
-chain of improvements. These are main-thread figures; the render-side numbers
-are higher.
+Earlier revisions of this entry quoted a tighter, more flattering set of
+figures drawn from the best runs and from baselines measured hours apart. The
+table above supersedes them.
 
 Trade-off worth knowing: the first tap on Agents, Memories, or a component
 canvas after switching app now builds that page, where previously it was
 pre-built. Every later tap is unchanged, and switching apps — much the more
-common action — is roughly twice as quick.
+common action — is roughly three times as quick.
 
 Opening a long chat is still not instant: the panel lays out every message in
 the thread when it mounts. That is tracked separately (#184).

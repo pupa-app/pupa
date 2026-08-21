@@ -62,13 +62,6 @@ public struct AppView: View {
     /// Which chat session is shown in the overlay. Decoupled from `selection`
     /// so the agent dropdown can switch chat context without moving the canvas.
     @State private var chatScope: ChatScope
-    /// The detail pane's `NavigationStack` root — the current top-level page
-    /// (bottom-bar tab, sidebar pick, orchestrator, screen share). Replaced in
-    /// place (never pushed) with animations disabled; combined with the
-    /// keep-alive panes in `content`, a page switch is an opacity flip instead
-    /// of the 100–200ms click→frame teardown/rebuild it used to be. All
-    /// writers go through `setRoot`.
-    @State private var rootPage: SidebarSelection
     /// Navigation stack pushed on top of `rootPage` — true drill-ins only
     /// (component card from the landing page, memory file, agent detail,
     /// history), so Back returns to the page the user came from.
@@ -163,27 +156,14 @@ public struct AppView: View {
         ))
         self._screenShare = State(initialValue: ScreenShareViewModel(settings: settings))
         self._selection = State(initialValue: .myAppHome(store.activeMyAppId))
-        self._rootPage = State(initialValue: .myAppHome(store.activeMyAppId))
+        self._nav = State(initialValue: NavState(rootPage: .myAppHome(store.activeMyAppId)))
         // Seed the lazy keep-alive bookkeeping to match `rootPage`. Without
         // this the launch page renders (it is `rootPage`) but is never
         // recorded, so the first move to another tab of the same subject took
         // the subject-changed branch, reset the set, and tore Home down —
         // losing its expanded-folder state and paying a full rebuild on
         // return.
-        self._keepAlive = State(initialValue: KeepAliveState(
-            rootPage: .myAppHome(store.activeMyAppId),
-            subject: .myApp(store.activeMyAppId)))
         self._chatScope = State(initialValue: .myApp(store.activeMyAppId))
-    }
-
-    /// Record `sel` as visited, so its pane stays mounted.
-    ///
-    /// Called only from `setRoot`, which is the only writer of the lazy
-    /// keep-alive set. Opening the drawer or presenting Settings does not
-    /// route through here, so neither costs a re-mount of the pages already
-    /// visited — see `KeepAlive.visited`.
-    private func noteMounted(_ sel: SidebarSelection) {
-        keepAlive.visit(sel, subject: barSubject(for: sel))
     }
 
     /// Single entry point for top-level navigation: swaps the detail root in
@@ -197,9 +177,13 @@ public struct AppView: View {
                 var tx = Transaction()
                 tx.disablesAnimations = true
                 withTransaction(tx) {
-                    rootPage = sel
+                    // Moves the root AND records the visit — one operation, so
+                    // the recording cannot be dropped independently.
+                    nav.setRoot(sel)
                     detailPath = []
                 }
+            } else {
+                nav.setRoot(sel)
             }
             #if os(macOS)
             // iOS deliberately skips this: `selection` is cleared to nil after
@@ -208,7 +192,6 @@ public struct AppView: View {
             if selection != sel { selection = sel }
             #endif
             dispatchSelection(sel)
-            noteMounted(sel)
         }
     }
 
@@ -299,6 +282,14 @@ public struct AppView: View {
     public var body: some View {
         platformBody
             .onReceive(PerfTrace.drivePublisher) { handleDrive($0) }
+            #if os(iOS)
+            // Parsed markdown is held for the process lifetime otherwise —
+            // there is no release path on thread switch or backgrounding.
+            .onReceive(NotificationCenter.default.publisher(
+                for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+                MarkdownCache.purge()
+            }
+            #endif
             .safeAreaInset(edge: .top) {
                 VStack(spacing: 0) {
                     if let warning = store.rosterWarning { unsavedRosterBanner(warning) }
@@ -1027,30 +1018,29 @@ public struct AppView: View {
         chatScope = scope
     }
 
-    /// The `NavigationStack` root. The current subject's bar tabs (home /
-    /// agents / memories) stay mounted in a `ZStack` and switch by opacity —
-    /// rebuilding a page tree on every tab click measured 100–145ms
-    /// click→frame even in release; an opacity flip is near-free. Pages
-    /// outside that set (component canvas, history, screen share, memory
-    /// files, agent details) build on demand as before.
-    /// Which of the current subject's tabs have been visited, and so stay
-    /// mounted. `KeepAliveState` has no empty initialiser on purpose: it must
-    /// be seeded from the launch `rootPage` in `init`, and making that a
-    /// compile error is the only way to stop the seed being dropped again.
-    @State private var keepAlive: KeepAliveState
+    /// Navigation root plus the lazily-populated keep-alive set. One value
+    /// because they must move together — see `NavState`.
+    @State private var nav: NavState
 
-    /// The `NavigationStack` root. The current subject's bar tabs (home /
-    /// agents / memories / the active component canvas) stay mounted in a
-    /// `ZStack` and switch by opacity — rebuilding a page tree on every tab
-    /// click measured 100–145ms click→frame even in release; an opacity flip
-    /// is near-free. Populated lazily: mounting every tab of a subject on a
-    /// MyApp switch measured ~45% of the switch's cost, for pages the user
+    /// The detail pane's `NavigationStack` root — the current top-level page
+    /// (bottom-bar tab, sidebar pick, orchestrator, screen share). Replaced in
+    /// place (never pushed) with animations disabled; combined with the
+    /// keep-alive panes in `content`, a page switch is an opacity flip instead
+    /// of the 100–200ms click→frame teardown/rebuild it used to be. All
+    /// writers go through `setRoot`.
+    private var rootPage: SidebarSelection { nav.rootPage }
+
+    /// The `NavigationStack` root's content. The current subject's bar tabs
+    /// (home / agents / memories / the active component canvas) stay mounted
+    /// in a `ZStack` and switch by opacity — rebuilding a page tree on every
+    /// tab click measured 100–145ms click→frame even in release; an opacity
+    /// flip is near-free. Populated lazily: mounting every tab of a subject on
+    /// a MyApp switch measured ~45% of the switch's cost, for pages the user
     /// hadn't asked for. Pages outside the set (history, screen share, memory
     /// files, agent details) build on demand as before.
     @ViewBuilder
     private var content: some View {
-        let mounted = keepAlivePages(for: rootPage)
-            .filter { $0 == rootPage || keepAlive.pages.contains($0) }
+        let mounted = nav.panes(from: keepAlivePages(for: rootPage))
         ZStack {
             ForEach(mounted, id: \.self) { page in
                 DetailPane(
@@ -1315,18 +1305,7 @@ public struct AppView: View {
     /// The bar's subject for a selection, or `nil` for pages that shouldn't
     /// show the bar (agents, agent detail, screen share, settings).
     private func barSubject(for sel: SidebarSelection) -> MyAppHomeView.Subject? {
-        switch sel {
-        case .myAppHome(let id), .myApp(let id), .myAppComponent(let id, _),
-             .myAppMemories(let id), .myAppMemoryFile(let id, _),
-             .myAppHistory(let id),
-             .myAppAgents(let id), .myAppAgentDetail(let id, _):
-            return .myApp(id)
-        case .orchestrator, .orchestratorMemories, .memoryFile,
-             .orchestratorAgentDetail:
-            return .orchestrator
-        default:
-            return nil
-        }
+        NavState.subject(for: sel)
     }
 
     private func barColor(for subject: MyAppHomeView.Subject) -> Color {
@@ -1705,33 +1684,61 @@ extension EnvironmentValues {
     }
 }
 
-/// Lazy keep-alive bookkeeping.
+/// Navigation root plus the lazily-populated keep-alive set.
 ///
-/// Deliberately has **no** empty initialiser. The launch page renders because
-/// it is `rootPage`, but it must also be *recorded*, or the first navigation
-/// to another tab of the same subject reads as a subject change, resets the
-/// set and tears the launch page down — losing its `@State`. That seed was
-/// once missing and the tests could not see it, so the type now refuses to be
-/// constructed without one.
-struct KeepAliveState: Equatable {
+/// These live in one value because they must move together: the root page has
+/// to be *recorded* as mounted, or the next navigation reads as a subject
+/// change and tears it down. Two earlier attempts kept them as separate state
+/// and both regressed — first by never seeding the launch page, then by
+/// leaving the recording call deletable with every test still green. Here
+/// `setRoot` does both, `init` requires a root page, and the subject is
+/// derived rather than passed in, so there is nothing left to forget.
+struct NavState: Equatable {
+    private(set) var rootPage: SidebarSelection
     private(set) var subject: MyAppHomeView.Subject?
-    private(set) var pages: Set<SidebarSelection>
+    private(set) var mounted: Set<SidebarSelection>
 
-    init(rootPage: SidebarSelection, subject: MyAppHomeView.Subject?) {
-        self.subject = subject
-        self.pages = [rootPage]
+    init(rootPage: SidebarSelection) {
+        self.rootPage = rootPage
+        self.subject = Self.subject(for: rootPage)
+        self.mounted = [rootPage]
     }
 
-    /// Fold a visit in. Staying within a subject accumulates, so a tab visited
-    /// once stays alive; changing subject starts over, because the previous
-    /// subject's pages leave `keepAlivePages` anyway and retaining them would
-    /// grow without bound across apps.
-    mutating func visit(_ sel: SidebarSelection, subject newSubject: MyAppHomeView.Subject?) {
-        if newSubject == subject {
-            pages.insert(sel)
+    /// Move the root and record the visit. Staying within a subject
+    /// accumulates, so a tab visited once stays alive; changing subject starts
+    /// over, because the previous subject's pages leave `keepAlivePages`
+    /// anyway and retaining them would grow without bound across apps.
+    mutating func setRoot(_ sel: SidebarSelection) {
+        let next = Self.subject(for: sel)
+        if next == subject {
+            guard rootPage != sel || !mounted.contains(sel) else { return }
+            rootPage = sel
+            mounted.insert(sel)
         } else {
-            subject = newSubject
-            pages = [sel]
+            rootPage = sel
+            subject = next
+            mounted = [sel]
+        }
+    }
+
+    /// Which of `all` to mount: the visible root, plus tabs already visited.
+    func panes(from all: [SidebarSelection]) -> [SidebarSelection] {
+        all.filter { $0 == rootPage || mounted.contains($0) }
+    }
+
+    /// The bottom bar's subject for a selection, or nil for pages with no bar.
+    static func subject(for sel: SidebarSelection) -> MyAppHomeView.Subject? {
+        switch sel {
+        case .myAppHome(let id), .myApp(let id), .myAppComponent(let id, _),
+             .myAppMemories(let id), .myAppMemoryFile(let id, _),
+             .myAppHistory(let id),
+             .myAppAgents(let id), .myAppAgentDetail(let id, _):
+            return .myApp(id)
+        case .orchestrator, .orchestratorMemories, .memoryFile,
+             .orchestratorAgentDetail:
+            return .orchestrator
+        default:
+            return nil
         }
     }
 }

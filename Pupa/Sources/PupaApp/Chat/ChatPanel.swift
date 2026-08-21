@@ -997,15 +997,18 @@ enum MarkdownCache {
 
     /// Parses on a miss.
     ///
-    /// Eviction is **random**, which looks odd and is deliberate. Nothing
-    /// windows the message list (#184), so a thread longer than the cap
-    /// re-renders every bubble on every pass — a cyclic scan larger than the
-    /// cache. That is the pathological case for both FIFO and LRU: each pass
-    /// evicts precisely the entries the next pass asks for first, so the hit
-    /// rate pins at zero and the cache costs hashing on top of the original
+    /// Eviction is **random**, which looks odd and is deliberate. The list is
+    /// a `LazyVStack`, so steady-state scrolling touches only visible rows —
+    /// but `defaultScrollAnchor(.bottom)` forces the whole thread to be laid
+    /// out at **mount**, i.e. once per chat open (#184). For a thread longer
+    /// than the cap that sweep is a cyclic scan larger than the cache, which
+    /// is the pathological case for FIFO and LRU alike: each sweep evicts
+    /// precisely what the next one asks for first, pinning the hit rate at
+    /// zero and leaving the cache costing hashing on top of the original
     /// parse — worse than no cache, for exactly the users with the longest
     /// transcripts. Random eviction is scan-resistant: it keeps roughly
-    /// `cap / thread` of the entries useful instead of none.
+    /// `cap / thread` of the entries useful instead of none. LRU would win in
+    /// the scrolling regime; it loses badly in the one that hurts.
     static func content(id: String, text: String) -> MarkdownContent {
         let hash = text.hashValue
         if let hit = entries[id], hit.hash == hash { return hit.content }
@@ -1020,8 +1023,13 @@ enum MarkdownCache {
 
     /// Drop a random quarter, so eviction amortises over many inserts.
     private static func evictSome() {
-        for id in entries.keys.shuffled().prefix(cap / 4) { entries[id] = nil }
+        for id in entries.keys.shuffled().prefix(max(1, cap / 4)) { entries[id] = nil }
     }
+
+    /// Drop everything. Wired to memory-warning notifications: up to `cap`
+    /// parsed cmark ASTs would otherwise be held for the process lifetime,
+    /// with no release path on thread switch, app switch, or backgrounding.
+    static func purge() { entries.removeAll() }
 
     #if DEBUG
     /// Cache misses — what the tests assert on. Deterministic where timings

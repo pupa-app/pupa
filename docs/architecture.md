@@ -266,9 +266,11 @@ active component canvas) stay mounted in a `ZStack` and switch by opacity
 only the sidebar's row highlight + tap signal (iOS clears it to nil after each
 tap so re-taps re-fire); navigation state lives in `rootPage` + `detailPath`.
 
-Keep-alive is populated **lazily**. `content` renders a `DetailPane` only for
-the current `rootPage` plus tabs already visited (`mountedPages`, reset when
-the subject changes). Mounting all of a subject's tabs on a MyApp switch
+Keep-alive is populated **lazily**. `NavState` holds the `NavigationStack`
+root and the visited-tab set together — `setRoot` moves the root *and* records
+the visit, so the recording cannot be dropped, and the subject is derived from
+the root rather than passed in. `content` mounts `nav.panes(from:)`: the
+current root plus tabs already visited, reset when the subject changes. Mounting all of a subject's tabs on a MyApp switch
 measured ~45% of the switch's cost, for pages the user hadn't asked for; a tab
 now pays its mount on first visit and stays alive after, which is what made
 repeat tab clicks free in the first place. Cost moves from every switch to the
