@@ -49,24 +49,23 @@ enum PerfDriver {
         let sequence: [PerfTrace.Drive] = focus.flatMap { PerfTrace.Drive(rawValue: $0) }.map { [$0] }
             ?? [.nextApp, .toggleChat, .toggleChat]
         let settle = focus == nil ? 0.45 : 0.30
-        let warmups = 2
-        let reps = focus == nil ? 12 : 60
+        let uiWarmups = 2
+        let uiReps = focus == nil ? 12 : 60
 
-        var step = 0.0
         func schedule(_ drive: PerfTrace.Drive, at t: Double) {
             DispatchQueue.main.asyncAfter(deadline: .now() + t) { PerfTrace.post(drive) }
         }
 
         // Let the first frame land before anything is timed.
-        step = 2.0
-        for _ in 0..<warmups {
+        var step = 2.0
+        for _ in 0..<uiWarmups {
             for d in sequence { schedule(d, at: step); step += settle }
         }
         // Drop everything the warmups recorded, including their cold rows.
         DispatchQueue.main.asyncAfter(deadline: .now() + step) { PerfTrace.resetSamples() }
         step += settle
 
-        for _ in 0..<reps {
+        for _ in 0..<uiReps {
             for d in sequence { schedule(d, at: step); step += settle }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + step + 1.0) {
@@ -129,7 +128,7 @@ enum PerfDriver {
         print("path,p50ms,p90ms")
         // RC2 — every one of these reads and JSON-parses whole snapshot files.
         measure("SnapshotStore.metas") { _ = SnapshotStore.metas(target.id) }
-        measureAsync("hasAnyPins (Settings gate)") { await SnapshotStore.hasAnyPins() }
+        measureAsync("hasAnyPins (Settings gate)") { _ = await SnapshotStore.hasAnyPins() }
         // Two record rows: the fixture's main apps sit exactly at
         // `defaultCap`, so every rep there also pays prune's evict + re-base.
         // The short-history app isolates the listing cost from that.

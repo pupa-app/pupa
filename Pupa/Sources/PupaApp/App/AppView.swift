@@ -164,6 +164,14 @@ public struct AppView: View {
         self._screenShare = State(initialValue: ScreenShareViewModel(settings: settings))
         self._selection = State(initialValue: .myAppHome(store.activeMyAppId))
         self._rootPage = State(initialValue: .myAppHome(store.activeMyAppId))
+        // Seed the lazy keep-alive bookkeeping to match `rootPage`. Without
+        // this the launch page renders (it is `rootPage`) but is never
+        // recorded, so the first move to another tab of the same subject took
+        // the subject-changed branch, reset the set, and tore Home down —
+        // losing its expanded-folder state and paying a full rebuild on
+        // return.
+        self._mountedSubject = State(initialValue: .myApp(store.activeMyAppId))
+        self._mountedPages = State(initialValue: [.myAppHome(store.activeMyAppId)])
         self._chatScope = State(initialValue: .myApp(store.activeMyAppId))
     }
 

@@ -36,15 +36,14 @@ public struct AgentsListView: View {
         Color.color(atIndex: store.colorIndex(for: myAppId))
     }
 
-    /// Loaded in `.task`, never in `body`: enumerating agents walks the app's
-    /// memory root off disk. This pane is keep-alive, so it mounts on every
-    /// MyApp switch — doing the walk inline put it inside the tap's runloop
-    /// turn and was what made switching apps from the menu feel slow.
     /// This pane is keep-alive: it stays mounted across a MyApp switch, so
-    /// without this gate the enumeration ran on every switch for a page the
-    /// user isn't looking at.
+    /// without this gate the enumeration below ran for a page nobody was
+    /// looking at.
     @Environment(\.paneIsActive) private var paneIsActive
 
+    /// Loaded in `.task`, never in `body`: enumerating agents walks the app's
+    /// memory root off disk. Doing that inline put it inside the tap's runloop
+    /// turn, which is what made switching apps from the menu feel slow.
     @State private var descriptors: [AgentDescriptor] = []
     @State private var descriptorsLoaded = false
 
@@ -57,20 +56,27 @@ public struct AgentsListView: View {
         let myAppId: UUID
         let memoryRevision: Int
         let app: MyApp?
-        /// In the key so becoming visible re-fires the task that the gate
-        /// above skipped while hidden.
-        let isActive: Bool
     }
 
     private var descriptorKey: DescriptorKey {
-        DescriptorKey(
-            myAppId: myAppId,
-            memoryRevision: memory.revision,
-            app: myApp,
-            isActive: paneIsActive)
+        DescriptorKey(myAppId: myAppId, memoryRevision: memory.revision, app: myApp)
     }
 
+    /// `paneIsActive` belongs in the task *id* — becoming visible has to
+    /// re-fire the run the gate skipped — but NOT in `DescriptorKey`, or every
+    /// tab switch would look like new work and re-walk the disk. Keeping them
+    /// apart is what makes a repeat visit free.
+    private struct TaskKey: Hashable {
+        let content: DescriptorKey
+        let isActive: Bool
+    }
+
+    /// The key whose descriptors are already loaded, so a reveal that changed
+    /// nothing re-runs the task and then does nothing.
+    @State private var loadedKey: DescriptorKey?
+
     private func loadDescriptors() {
+        loadedKey = descriptorKey
         guard let app = myApp else {
             descriptors = []
             descriptorsLoaded = true
@@ -98,8 +104,8 @@ public struct AgentsListView: View {
             .frame(maxWidth: .infinity, alignment: .center)
         }
         .background(Color.canvasBackground)
-        .task(id: descriptorKey) {
-            guard paneIsActive else { return }
+        .task(id: TaskKey(content: descriptorKey, isActive: paneIsActive)) {
+            guard paneIsActive, loadedKey != descriptorKey else { return }
             loadDescriptors()
         }
     }

@@ -30,6 +30,35 @@ struct KeepAliveTests {
         #expect(current == subject)
     }
 
+    @Test("the launch page survives the first navigation away from it")
+    func launchPageSurvivesFirstNavigation() {
+        // `AppView.init` seeds the bookkeeping to match the launch `rootPage`.
+        // Without that seed the subject read as "changed" on the very first
+        // move, the set reset, and Home was torn down — losing its expanded
+        // folders. The original test missed it by making Home the first visit,
+        // the one ordering where the reset is invisible.
+        let subject = MyAppHomeView.Subject.myApp(appA)
+        var mounted: Set<SidebarSelection> = [.myAppHome(appA)]
+        var current: MyAppHomeView.Subject? = subject
+
+        (current, mounted) = KeepAlive.visited(
+            .myAppAgents(appA), subject: subject, mounted: mounted, mountedSubject: current)
+
+        #expect(mounted.contains(.myAppHome(appA)), "launch page was torn down")
+        #expect(mounted == [.myAppHome(appA), .myAppAgents(appA)])
+    }
+
+    @Test("an unseeded subject starts the set from the visited page")
+    func unseededSubjectStartsFresh() {
+        var mounted: Set<SidebarSelection> = []
+        var current: MyAppHomeView.Subject?
+        (current, mounted) = KeepAlive.visited(
+            .myAppAgents(appA), subject: .myApp(appA),
+            mounted: mounted, mountedSubject: current)
+        #expect(mounted == [.myAppAgents(appA)])
+        #expect(current == .myApp(appA))
+    }
+
     @Test("re-visiting a tab keeps the set intact — no re-mount")
     func revisitIsIdempotent() {
         let subject = MyAppHomeView.Subject.myApp(appA)

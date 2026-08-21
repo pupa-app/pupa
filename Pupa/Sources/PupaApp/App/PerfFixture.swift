@@ -11,6 +11,14 @@ public enum PerfFixture {
     /// switch / chat-open interactions are actually paying for.
     @MainActor
     public static func seedUI(apps appCount: Int = 12, bubbles bubbleCount: Int = 60) {
+        // This writes a roster and transcripts through the normal persistence
+        // path, so against a real root it would create junk apps on the user's
+        // device and mirror them to their other ones. Refuse unless tracing is
+        // on AND storage is redirected — the two things the harness sets up.
+        guard PerfTrace.isEnabled, PupaStorage.overrideRoot != nil else {
+            assertionFailure("PerfFixture.seedUI called outside the perf harness")
+            return
+        }
         MyAppTypeRegistry.shared.registerBuiltins()
         // Built through `addMyApp`, not `MyAppStore(initial:)` — only the
         // mutating path persists, and the roster has to survive into the run

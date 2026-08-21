@@ -274,6 +274,14 @@ now pays its mount on first visit and stays alive after, which is what made
 repeat tab clicks free in the first place. Cost moves from every switch to the
 first visit of each tab.
 
+A pane learns whether it is the visible one through the `paneIsActive`
+environment value, which `DetailPane` sets. Anything expensive a keep-alive
+pane runs in `.task` must gate on it, or it runs for pages nobody is looking
+at — put the flag in the task **id** so becoming visible re-fires the skipped
+run, but keep it out of whatever key decides the work is already done, or
+every tab switch looks like new work (`AgentsListView`'s `TaskKey` vs
+`DescriptorKey`).
+
 Keep-alive protects against *re-evaluation*, not *first mount*: switching MyApp
 changes the whole `keepAlivePages` set, so those panes build fresh for the new
 app inside the tap's runloop turn. Panes must therefore keep expensive work out

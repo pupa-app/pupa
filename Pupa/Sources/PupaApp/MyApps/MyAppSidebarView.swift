@@ -61,14 +61,20 @@ public struct MyAppSidebarView: View, Equatable {
     /// (write `selection`, `setRoot`, close the drawer, clear `selection`),
     /// each of which rebuilt the whole `List`.
     nonisolated public static func == (a: MyAppSidebarView, b: MyAppSidebarView) -> Bool {
-        a.selection == b.selection
-            && a.busyMyApps == b.busyMyApps
-            && a.store === b.store
-            && a.memory === b.memory
-            && a.settings === b.settings
-            && a.stats === b.stats
-            && a.modelCatalog === b.modelCatalog
-            && a.coordinator === b.coordinator
+        // SwiftUI evaluates view equality on the main actor, but `Equatable`
+        // is `nonisolated`, and `@Binding`/`@Bindable` accessors are
+        // main-actor-isolated — so reading them here needs the invariant
+        // stated rather than eight isolation warnings.
+        MainActor.assumeIsolated {
+            a.selection == b.selection
+                && a.busyMyApps == b.busyMyApps
+                && a.store === b.store
+                && a.memory === b.memory
+                && a.settings === b.settings
+                && a.stats === b.stats
+                && a.modelCatalog === b.modelCatalog
+                && a.coordinator === b.coordinator
+        }
     }
 
     public var body: some View {

@@ -17,9 +17,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   is skipped entirely. Picking a MyApp from the sidebar: 451ms → 197ms average
   (worst case 987ms → 388ms). Opening the chat: 239ms → 172ms typical, and the
   slow openings that took over a second now take about 210ms.
-- **The sidebar stops rebuilding itself four times per tap.** One tap wrote
-  four pieces of state in turn and the whole app list was rebuilt for each;
-  it now rebuilds only when something it shows has actually changed.
+- **The sidebar rebuilds less per tap.** One tap writes four pieces of state
+  in turn and the whole app list was rebuilt for each. Two of those passes
+  change nothing the sidebar shows and are now skipped. (The other two carry
+  the row-highlight change, which it does have to redraw.)
 
 - **Switching MyApp mounts one page, not four.** A subject's tabs (home,
   agents, memories, the active canvas) were all built the moment you picked a
