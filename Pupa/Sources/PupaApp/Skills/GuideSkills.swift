@@ -15,7 +15,7 @@ import Foundation
 /// component-kind list is generated from `MyAppType.kinds` so it can't drift.
 enum GuideSkills {
     /// Bump when any guide body changes so existing installs re-seed.
-    static let version = "20"
+    static let version = "21"
 
     /// The plugin folder holding this guide's skills.
     static let pluginDir = "\(MemoryStore.pupaPluginsDir)/pupa-guide"
@@ -292,8 +292,9 @@ enum GuideSkills {
       `{{item.title}}`, `{{item.<field>}}`, `{{field}}`, `{{toColumn}}`,
       `{{fromColumn}}`, substituted literally (no code).
     - `confirm` — `true` (default) proposes a Start/Dismiss bubble; `false`
-      auto-fires with no prompt. Only ship `confirm:false` in bundles you
-      trust — it invokes the model on a plain canvas move.
+      auto-fires with no prompt. `false` only survives in rules the user wrote
+      locally: **import rewrites every rule to `confirm: true`**, so shipping
+      it in a bundle has no effect.
 
     **Guards (automatic — you don't configure them).**
     - **Self-mutation** — the reaction's own edits don't re-trigger the rule.

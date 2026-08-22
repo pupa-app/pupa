@@ -22,6 +22,23 @@ struct TrackerLinkURLTests {
         #expect(TrackerLinkURL.parse("github.com/foo")?.absoluteString == "https://github.com/foo")
     }
 
+    @Test("In-app pupa:// links still work")
+    func inAppSchemeAllowed() {
+        // `chatLinkAction` intercepts these to open a note or component in-app;
+        // the scheme is unregistered, so it never reaches the OS. Tracker cards
+        // linking to a note is a built feature — see `LinkPill.displayText`.
+        #expect(TrackerLinkURL.parse("pupa://memory/notes/a.md") != nil)
+        #expect(TrackerLinkURL.parse("pupa://component/abc") != nil)
+    }
+
+    @Test("The registered install scheme is still refused")
+    func installSchemeRefused() {
+        // `pupa-install` IS registered in Info.plist, so unlike `pupa` it
+        // reaches the OS and comes back into the app's own import flow.
+        #expect(TrackerLinkURL.parse("pupa-install://import?url=x&sha256=y") == nil)
+        #expect(TrackerLinkURL.parse("pupa-pair://x") == nil)
+    }
+
     @Test(
         "Non-web schemes are refused",
         arguments: [
@@ -31,10 +48,6 @@ struct TrackerLinkURLTests {
             "mailto:a@b.c",
             "javascript:alert(1)",
             "data:text/html,<script>alert(1)</script>",
-            // Pupa's own handlers. `pupa-install` is registered, so a card
-            // could otherwise drive the app's own import flow from a tap.
-            "pupa-install://import?url=x&sha256=y",
-            "pupa-pair://x",
             "shortcuts://run-shortcut?name=wipe",
         ]
     )

@@ -6,11 +6,6 @@ updates:
     schedule:
       interval: weekly
     target-branch: dev
-  - package-ecosystem: swift
-    directory: /AGUIKit
-    schedule:
-      interval: weekly
-    target-branch: dev
   - package-ecosystem: github-actions
     directory: /
     schedule:

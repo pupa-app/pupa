@@ -48,13 +48,17 @@ struct ImportedAutomationTests {
         #expect(AutomationConfig.parse(cleaned).first?.confirm == true)
     }
 
-    @Test("An omitted confirm stays defaulted to true")
-    func omittedConfirmStaysTrue() throws {
+    @Test("A rule without confirm keeps its action and gains the flag")
+    func omittedConfirmIsStamped() throws {
+        // Asserting the parsed default alone would pass even if the sanitiser
+        // returned its input untouched, so check the written text itself.
         let json = """
         {"automations":{"item.moved":[{"id":"r1",
         "action":{"startThread":{"prompt":"hi"}}}]}}
         """
-        #expect(AutomationConfig.parse(try #require(MyAppImporter.sanitizeAutomations(json))).first?.confirm == true)
+        let cleaned = try #require(MyAppImporter.sanitizeAutomations(json))
+        #expect(cleaned.contains("\"confirm\":true"), "the flag wasn't written")
+        #expect(AutomationConfig.parse(cleaned).first?.action.startThreadPrompt == "hi")
     }
 
     @Test("Every rule is forced, not just the first")
@@ -108,6 +112,43 @@ struct ImportedAutomationTests {
         #expect(rules[0].confirm, "imported bundle installed an auto-firing rule")
     }
 
+    @Test(
+        "Every spelling that lands on the rules file is sanitised",
+        arguments: [
+            "pupa/automations.json",
+            "/pupa/automations.json",          // MemoryStore strips leading slashes
+            "///pupa/automations.json",
+            "./pupa/automations.json",
+            "././pupa/automations.json",
+            ".//pupa/automations.json",
+            "pupa//automations.json",          // empty components collapse
+            "pupa/./automations.json",
+            "pupa/x/../automations.json",      // resolve() standardises this away
+            " pupa/automations.json",          // leading / trailing whitespace is trimmed
+            "pupa/automations.json ",
+            "pupa/Automations.JSON",           // the filesystem is case-insensitive
+        ]
+    )
+    func everyPathSpellingIsSanitised(path: String) throws {
+        // The guard has to agree with `MemoryStore`'s own normalisation about
+        // which file a path names. Where they disagree the file lands at the
+        // canonical path — the one `AutomationStore` reads — while the guard
+        // says "not the automations file", and the rewrite is skipped.
+        let mem = tempMemory()
+        let store = MyAppStore(initial: ([], UUID()))
+        let data = try bundleCarrying(MemoryFile(path: path, content: rulesJSON(confirm: "false")))
+
+        let result = try MyAppImporter.importBundle(data, into: store, memory: mem)
+        let scoped = mem.appScopedStore(forAppId: result.myAppId)
+        let landed = scoped.snapshotPaths().first {
+            $0.caseInsensitiveCompare(MemoryStore.pupaAutomationsPath) == .orderedSame
+        }
+        guard let landed else { return }   // never written at all is also safe
+        let rules = AutomationConfig.parse(try scoped.readFile(path: landed).content)
+        let allConfirm = rules.allSatisfy { $0.confirm }
+        #expect(allConfirm, "\(path) bypassed the confirm rewrite")
+    }
+
     @Test("A case-variant path is sanitised too")
     func caseVariantPathIsSanitised() throws {
         // iOS/macOS filesystems are case-insensitive by default, so
@@ -132,14 +173,31 @@ struct ImportedAutomationTests {
 
     @Test("Rules the user writes locally are untouched")
     func locallyAuthoredRulesKeepAutoFire() throws {
-        // The constraint is on imported authorship, not on the feature. A user
-        // writing their own rule can still opt into auto-fire.
+        // The constraint is on imported authorship, not on the feature: the
+        // sanitiser runs on the import path only, so a rule the user writes
+        // through the ordinary memory API can still opt into auto-fire.
         let mem = tempMemory()
         let scoped = mem.appScopedStore(forAppId: UUID())
         _ = try scoped.writeFile(path: MemoryStore.pupaAutomationsPath,
                                  content: rulesJSON(confirm: "false"))
         let onDisk = try scoped.readFile(path: MemoryStore.pupaAutomationsPath).content
         #expect(AutomationConfig.parse(onDisk).first?.confirm == false)
+    }
+
+    @Test("canonicalise agrees with where the file actually lands")
+    func canonicaliseMatchesWriteDestination() throws {
+        // The bypass that made the first version of this guard useless was the
+        // importer and the store disagreeing about which path names which file.
+        // Pin them together: whatever the store writes, canonicalise predicts.
+        let mem = tempMemory()
+        let scoped = mem.appScopedStore(forAppId: UUID())
+        for spelling in ["/pupa/notes/a.md", "./pupa/notes/a.md", "pupa//notes/a.md",
+                         "pupa/x/../notes/a.md", " pupa/notes/a.md"] {
+            _ = try scoped.writeFile(path: spelling, content: "x")
+            #expect(MemoryStore.canonicalise(spelling) == "pupa/notes/a.md",
+                    "\(spelling) canonicalised elsewhere")
+        }
+        #expect(scoped.snapshotPaths().filter { $0 == "pupa/notes/a.md" }.count == 1)
     }
 }
 
@@ -170,8 +228,13 @@ struct ImportedRemoteImageTests {
     }
 
     @Test("An app the user built themselves loads remote images")
-    func locallyAuthoredAppUnchanged() {
-        let app = MyApp(name: "Mine", iconSystemName: "square", typeId: "tracker")
+    func locallyAuthoredAppUnchanged() throws {
+        // Through the store, not a struct literal — the point is that ordinary
+        // app creation doesn't pick up the imported stamp.
+        let store = MyAppStore(initial: ([], UUID()))
+        let id = store.importMyApp(
+            MyApp(name: "Mine", iconSystemName: "square", typeId: "tracker"))
+        let app = try #require(store.myApps.first { $0.id == id })
         #expect(app.allowsRemoteImages, "existing apps changed behaviour")
     }
 
@@ -197,11 +260,38 @@ struct ImportedRemoteImageTests {
     }
 
     @Test("The user can turn it on afterwards")
-    func userCanOptIn() {
-        var app = MyApp(name: "Imported", iconSystemName: "square", typeId: "tracker",
-                        settings: [MyAppStore.remoteImagesSettingsKey: .bool(false)])
-        #expect(!app.allowsRemoteImages)
-        app.settings[MyAppStore.remoteImagesSettingsKey] = .bool(true)
-        #expect(app.allowsRemoteImages)
+    func userCanOptIn() throws {
+        // Through the setter the placeholder's button calls, so the affordance
+        // and the flag are pinned together rather than each half separately.
+        let store = MyAppStore(initial: ([], UUID()))
+        let result = try MyAppImporter.importBundle(
+            try bundle(settings: [:]), into: store, memory: tempMemory())
+        #expect(store.myApps.first { $0.id == result.myAppId }?.allowsRemoteImages == false)
+
+        store.setRemoteImages(true, for: result.myAppId)
+        #expect(store.myApps.first { $0.id == result.myAppId }?.allowsRemoteImages == true)
+    }
+
+    @Test("The withheld provider does not fetch; the allowed one does")
+    func gatedProviderSwitches() {
+        // GatedImageProvider had no test at all. It can't be rendered headlessly,
+        // but the branch it takes is the whole contract.
+        #expect(GatedImageProvider(allowed: false).allowed == false)
+        #expect(GatedImageProvider(allowed: true).allowed == true)
+    }
+}
+
+extension ImportedAutomationTests {
+    @Test("An unreadable rules file is reported, not silently dropped")
+    func unreadableRulesWarn() throws {
+        // Dropping them without a word looks like the feature is broken.
+        let mem = tempMemory()
+        let store = MyAppStore(initial: ([], UUID()))
+        let data = try bundleCarrying(
+            MemoryFile(path: MemoryStore.pupaAutomationsPath, content: "{not json"))
+
+        let result = try MyAppImporter.importBundle(data, into: store, memory: mem)
+        let mentionsRules = result.warnings.contains { $0.lowercased().contains("automation") }
+        #expect(mentionsRules, "rules vanished with no warning: \(result.warnings)")
     }
 }

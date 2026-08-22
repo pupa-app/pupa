@@ -864,6 +864,11 @@ public struct AppView: View {
                     isOpen: $chatOpen,
                     launcherVisible: !bottomBarVisible
                 )
+                // Chat bubbles render markdown, so an image URL the model was
+                // steered into emitting fetches on render. Same gate as the
+                // canvas: an imported app's prompts are its author's.
+                .environment(\.remoteImagesAllowed, remoteImagesAllowed(for: chatScope.myAppId))
+                .environment(\.enableRemoteImages, enableRemoteImages(for: chatScope.myAppId))
             }
             // Inset on the ZStack (not the NavigationStack) so the bar reserves
             // space for the content AND lifts the floating `ChatOverlay` above
@@ -968,6 +973,8 @@ public struct AppView: View {
                 isOpen: $chatOpen,
                 launcherVisible: !bottomBarVisible
             )
+            .environment(\.remoteImagesAllowed, remoteImagesAllowed(for: chatScope.myAppId))
+            .environment(\.enableRemoteImages, enableRemoteImages(for: chatScope.myAppId))
             // Intercept `pupa://` links the agent embeds in chat markdown —
             // route them in-app instead of to the browser. Scoped to the
             // overlay subtree so it doesn't hijack the canvas's own openURL
@@ -1107,8 +1114,33 @@ public struct AppView: View {
     /// destinations (driven by `detailPath`). Keeping a single source of
     /// truth means a landing-page push of `.myAppComponent` shows the same
     /// `CanvasView` as a direct sidebar tap on that component.
-    @ViewBuilder
+    /// Every detail route, with the per-app remote-image gate applied.
+    ///
+    /// Applied here rather than inside each screen because the routes that show
+    /// imported content are siblings, not a tree: `CanvasView` and
+    /// `MemoryFileView` are separate cases of the switch below, so injecting in
+    /// one left the other reading the default. One place, all routes.
     private func detailView(for sel: SidebarSelection) -> some View {
+        detailContent(for: sel)
+            .environment(\.remoteImagesAllowed, remoteImagesAllowed(for: sel.myAppId))
+            .environment(\.enableRemoteImages, enableRemoteImages(for: sel.myAppId))
+    }
+
+    /// `allowsRemoteImages` for an app id, defaulting to allowed when there
+    /// isn't one (the orchestrator's own notes aren't imported content).
+    private func remoteImagesAllowed(for myAppId: UUID?) -> Bool {
+        guard let myAppId else { return true }
+        return store.myApps.first { $0.id == myAppId }?.allowsRemoteImages ?? true
+    }
+
+    /// Action a withheld image offers, or nil when there's no app to enable.
+    private func enableRemoteImages(for myAppId: UUID?) -> (@MainActor () -> Void)? {
+        guard let myAppId else { return nil }
+        return { store.setRemoteImages(true, for: myAppId) }
+    }
+
+    @ViewBuilder
+    private func detailContent(for sel: SidebarSelection) -> some View {
         switch sel {
         case .myAppHome(let id):
             MyAppHomeView(
@@ -1571,13 +1603,6 @@ public struct AppView: View {
     /// Slack workspace agents in a bundle — the privacy review surface. Agent
     /// slugs referenced by the rooms; their persona text ships as
     /// `pupa/agents/<slug>/AGENTS.md` memory files (shown in the memory review).
-    /// Rules in the bundle's `pupa/automations.json`, if it ships one.
-    private func automationRuleCount(in memories: [MemoryFile]) -> Int {
-        memories
-            .filter { $0.path.caseInsensitiveCompare(MemoryStore.pupaAutomationsPath) == .orderedSame }
-            .reduce(0) { $0 + AutomationConfig.parse($1.content).count }
-    }
-
     private func agentPrompts(in app: MyApp) -> [String] {
         var slugs: Set<String> = []
         for comp in app.components {
@@ -1586,6 +1611,13 @@ public struct AppView: View {
             }
         }
         return slugs.sorted()
+    }
+
+    /// Rules in the bundle's `pupa/automations.json`, if it ships one.
+    private func automationRuleCount(in memories: [MemoryFile]) -> Int {
+        memories
+            .filter { MyAppImporter.isAutomationsPath($0.path) }
+            .reduce(0) { $0 + AutomationConfig.parse($1.content).count }
     }
 
     /// Run the real import after the user confirms, then navigate to the new
@@ -1731,10 +1763,23 @@ private struct RemoteImagesAllowedKey: EnvironmentKey {
     static let defaultValue = true
 }
 
+/// Turns remote images on for the app being shown. Nil where there's no app to
+/// turn them on for. Set alongside `remoteImagesAllowed` so a withheld image
+/// can offer the switch in place, rather than sending the user to look for a
+/// setting that would otherwise have to exist somewhere.
+private struct EnableRemoteImagesKey: EnvironmentKey {
+    static let defaultValue: (@MainActor () -> Void)? = nil
+}
+
 extension EnvironmentValues {
     var remoteImagesAllowed: Bool {
         get { self[RemoteImagesAllowedKey.self] }
         set { self[RemoteImagesAllowedKey.self] = newValue }
+    }
+
+    var enableRemoteImages: (@MainActor () -> Void)? {
+        get { self[EnableRemoteImagesKey.self] }
+        set { self[EnableRemoteImagesKey.self] = newValue }
     }
 }
 

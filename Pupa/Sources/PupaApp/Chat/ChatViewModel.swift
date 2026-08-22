@@ -257,6 +257,12 @@ public struct QueuedMessage: Identifiable, Equatable, Sendable {
 public enum ChatScope: Equatable, Hashable, Sendable {
     case myApp(UUID)
     case memory
+
+    /// The myApp this chat belongs to, or nil for the orchestrator.
+    public var myAppId: UUID? {
+        if case .myApp(let id) = self { return id }
+        return nil
+    }
 }
 
 /// Health of a thread's SSE stream, surfaced as the inline banner under the

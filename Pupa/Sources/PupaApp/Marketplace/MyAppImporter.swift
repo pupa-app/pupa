@@ -221,7 +221,7 @@ public enum MyAppImporter {
         // the source app's memory subtree. Every write goes through
         // `MemoryStore.writeFile`, whose `resolve` blocks `..`, absolute paths and
         // any extension outside the `.md` / `.json` allowlist.
-        writeMemories(bundle.memories, appId: id, memory: memory)
+        warnings += writeMemories(bundle.memories, appId: id, memory: memory)
 
         return ImportResult(myAppId: id, warnings: warnings)
     }
@@ -341,22 +341,12 @@ public enum MyAppImporter {
 
     /// Force `confirm: true` on every rule in imported automation text.
     ///
-    /// An automation rule with `confirm: false` starts a chat turn with **no
-    /// bubble** — see `RuleEngine.pendingAutoFire`. In a bundle that means an
-    /// attacker-authored prompt reaching the model with the victim's tools, on
-    /// a canvas event, with nothing shown first. `docs/marketplace.md` named
-    /// this as the residual vector of the import threat model; this closes it.
-    ///
-    /// Rewrites the JSON rather than filtering at read time so the file on disk
-    /// *is* the enforced truth — nothing downstream has to remember where the
-    /// rules came from, and the Memories UI shows the user what actually runs.
-    /// The action survives: a shared MyApp can still ship automations, they
-    /// just always propose. Rules the user writes locally are untouched, since
-    /// this runs only on the import path.
-    ///
-    /// Returns nil when the text can't be understood — unreadable rules aren't
-    /// written at all, rather than trusting that a future parser will read them
-    /// the same way this one does.
+    /// `confirm: false` starts a chat turn with no bubble
+    /// (`RuleEngine.pendingAutoFire`) — from a bundle, that's someone else's
+    /// prompt reaching the model with the user's tools. Rewrites the JSON so
+    /// the file on disk *is* the enforced truth and nothing downstream has to
+    /// track provenance. Nil when unreadable: unparseable rules aren't written.
+    /// See `docs/marketplace.md`.
     static func sanitizeAutomations(_ content: String) -> String? {
         guard let data = content.data(using: .utf8),
               var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -383,23 +373,33 @@ public enum MyAppImporter {
 
     /// Whether a bundle path lands on the automation rules file.
     ///
-    /// Case-insensitive on purpose: iOS and macOS filesystems are
-    /// case-insensitive by default, so `pupa/Automations.JSON` resolves to the
-    /// same file `AutomationStore` reads. Matching exactly would make the
-    /// guard a one-character bypass.
-    private static func isAutomationsPath(_ path: String) -> Bool {
-        let normalised = path.hasPrefix("./") ? String(path.dropFirst(2)) : path
-        return normalised.caseInsensitiveCompare(MemoryStore.pupaAutomationsPath) == .orderedSame
+    /// Canonicalised by `MemoryStore` — the same function that decides where
+    /// the file is written — so the two can't disagree. They did: this used to
+    /// strip one leading `./` and compare, while the store also strips leading
+    /// slashes, collapses empty components and folds `..`, so
+    /// `/pupa/automations.json` landed on the rules file while this said it
+    /// hadn't. Case-insensitive because the filesystem is.
+    static func isAutomationsPath(_ path: String) -> Bool {
+        MemoryStore.canonicalise(path)
+            .caseInsensitiveCompare(MemoryStore.pupaAutomationsPath) == .orderedSame
     }
 
-    private static func writeMemories(_ files: [MemoryFile], appId: UUID, memory: MemoryStore) {
+    /// Returns any user-facing warnings (an unreadable rules file is dropped,
+    /// and silently losing a bundle's automations would look like a bug).
+    private static func writeMemories(
+        _ files: [MemoryFile], appId: UUID, memory: MemoryStore
+    ) -> [String] {
+        var warnings: [String] = []
         let capped = files.prefix(maxMemoryFiles)
         let scoped = memory.appScopedStore(forAppId: appId)
         for file in capped {
             guard file.content.utf8.count <= maxMemoryFileBytes else { continue }
             var content = file.content
             if isAutomationsPath(file.path) {
-                guard let safe = sanitizeAutomations(content) else { continue }
+                guard let safe = sanitizeAutomations(content) else {
+                    warnings.append("Couldn't read this app's automation rules, so they were skipped.")
+                    continue
+                }
                 content = safe
             }
             // writeFile's resolve() rejects `..`, absolute paths and any
@@ -407,6 +407,7 @@ public enum MyAppImporter {
             // simply fails to write rather than escaping.
             _ = try? scoped.writeFile(path: file.path, content: content)
         }
+        return warnings
     }
 
     /// Compare dotted numeric versions ("0.0.103"). Returns true when `lhs`

@@ -23,13 +23,10 @@ public struct MyApp: Codable, Hashable, Identifiable, Sendable {
     /// The threadId of the currently-selected conversation.
     public var currentThreadId: String
     public let createdAt: Date
-    /// Whether this app may fetch images from the network.
-    ///
-    /// Default **true** — apps the user assembled themselves are unchanged.
-    /// Imported apps are stamped `false` at import: their content is
-    /// attacker-authored, and an image URL is fetched on render with no tap,
-    /// which makes it a zero-click beacon (and, since ATS permits local
-    /// networking, a way to probe the LAN). The user can turn it on per app.
+    /// Whether this app may fetch images from the network. Default **true**;
+    /// imported apps are stamped `false` because images load on render, so a
+    /// bundle's URL would call out with no interaction. See
+    /// `docs/marketplace.md`.
     public var allowsRemoteImages: Bool {
         if case .bool(let allowed)? = settings[MyAppStore.remoteImagesSettingsKey] {
             return allowed

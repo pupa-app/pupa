@@ -1050,6 +1050,10 @@ enum MarkdownCache {
 private struct MessageBubbleView: View, Equatable {
     let bubble: ChatBubble
     let verbose: Bool
+    /// False inside an imported app until the user allows it. Read here rather
+    /// than passed in so it stays out of `==` — it changes with the app, which
+    /// already re-renders the whole transcript.
+    @Environment(\.remoteImagesAllowed) private var remoteImagesAllowed
     /// The in-progress answers for the live interrupt, indexed by question
     /// row — empty for every bubble but the one that owns it, so a historic
     /// card never renders the live question's state and never invalidates on
@@ -1160,6 +1164,9 @@ private struct MessageBubbleView: View, Equatable {
                                 id: bubble.id,
                                 text: bubble.text.isEmpty ? "…" : bubble.text))
                                 .markdownTheme(Self.bubbleTheme)
+                                // Markdown images fetch on render, and an
+                                // imported app's own prompts steer this output.
+                                .markdownImageProvider(.gated(allowed: remoteImagesAllowed))
                                 .textSelection(.enabled)
                         } else {
                             Text(bubble.text.isEmpty ? "…" : bubble.text)

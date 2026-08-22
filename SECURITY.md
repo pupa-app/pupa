@@ -30,11 +30,14 @@ properties shape what is and isn't a vulnerability here:
 - **No secrets ship in the app.** It holds one credential — the paired-device
   token — in the Keychain (`kSecAttrAccessibleAfterFirstUnlock`). LLM and cloud
   keys live in the operator's backend environment and never reach a client.
-- **The client only talks to its configured backend**, plus two named hosts:
-  `raw.githubusercontent.com` for marketplace bundle downloads (allow-listed by
-  path and checksum-verified) and a public STUN server during screen-share.
-- **No web view.** Nothing renders untrusted HTML or JavaScript; markdown is
-  parsed to attributed text, so there is no script execution surface.
+- **The client talks to its configured backend**, plus `raw.githubusercontent.com`
+  for marketplace bundle downloads (allow-listed by path and checksum-verified)
+  and a public STUN server during screen-share. It will also load images by URL
+  from card and markdown content — that content is normally the user's own or
+  their agent's, and for **imported** apps it's off until the user allows it.
+- **No web view.** Nothing renders untrusted HTML or JavaScript — markdown is
+  parsed and rendered as SwiftUI views, never as a web document — so there is
+  no script execution surface.
 - **App Transport Security forbids arbitrary loads.** A public backend must be
   HTTPS; plaintext is permitted only for loopback and local networking, so a
   LAN or offline self-host still works.

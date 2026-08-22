@@ -40,15 +40,6 @@ public struct CanvasView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.canvasBackground)
         .linkedItemPopupHost(store: store, myAppId: resolvedMyAppId)
-        // Imported apps don't fetch images until the user allows it — their
-        // content is attacker-authored and image loads happen on render.
-        .environment(\.remoteImagesAllowed, resolvedMyAppAllowsRemoteImages)
-    }
-
-    /// `allowsRemoteImages` for the app being rendered. Defaults to true when
-    /// no app resolves, matching the environment default.
-    private var resolvedMyAppAllowsRemoteImages: Bool {
-        store.myApps.first { $0.id == resolvedMyAppId }?.allowsRemoteImages ?? true
     }
 
     @ViewBuilder

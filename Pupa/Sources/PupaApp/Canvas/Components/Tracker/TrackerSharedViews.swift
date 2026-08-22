@@ -790,10 +790,7 @@ struct TrackerItemCard: View {
     /// geometry, so growing the card cannot feed back into a measurement.
     @State private var linksExpanded = false
 
-    /// False inside an imported app until the user opts in. A hero image is
-    /// fetched on render, so the URL alone is a zero-click callout; the card
-    /// falls back to `initialBadge`, which is what a card without an image
-    /// already shows.
+    /// False inside an imported app until the user opts in.
     @Environment(\.remoteImagesAllowed) private var remoteImagesAllowed
 
     init(
@@ -977,7 +974,14 @@ struct TrackerItemCard: View {
     @ViewBuilder
     private var hero: some View {
         let value = heroValue
-        if let url = heroURL(value), remoteImagesAllowed {
+        if let url = heroURL(value), !remoteImagesAllowed {
+            // Same placeholder (and the same in-place switch) as a withheld
+            // markdown image, so the two read as one behaviour.
+            WithheldImage(host: url.host)
+                .frame(maxWidth: .infinity)
+                .frame(height: Self.heroHeight)
+                .background(heroBackdropTint)
+        } else if let url = heroURL(value) {
             AsyncImage(url: url) { phase in
                 switch phase {
                 case .success(let image):
@@ -1200,14 +1204,15 @@ private struct LinkPill: View {
 
 /// Turns a tracker link-field value into a URL safe to hand `Link(destination:)`.
 ///
-/// **Web schemes only.** These values are content — the agent writes them and
-/// an imported bundle ships them — and `Link` hands whatever it's given to the
-/// OS, which routes by scheme. Accepting any scheme meant a card could carry
-/// `file:`, `tel:`, or a custom scheme (including Pupa's own registered
-/// `pupa-install://`) and have one tap drive it. The sibling `heroURL` already
-/// restricted itself this way; this is the same rule for the link pills.
+/// These values are content — the agent writes them, an imported bundle ships
+/// them — and `Link` hands what it's given to the OS, which routes by scheme.
+/// So the set is closed: `http`/`https`, plus `pupa`, which never reaches the
+/// OS (`AppView`'s `chatLinkAction` intercepts it to open a note or component
+/// in-app, and the scheme is deliberately unregistered). Notably excluded are
+/// `file:`, `tel:`, and Pupa's *registered* `pupa-install://`, any of which
+/// would otherwise let one tap on a shared card drive something else.
 enum TrackerLinkURL {
-    private static let allowedSchemes: Set<String> = ["http", "https"]
+    private static let allowedSchemes: Set<String> = ["http", "https", ChatLink.scheme]
 
     static func parse(_ value: String) -> URL? {
         if let url = URL(string: value), let scheme = url.scheme {

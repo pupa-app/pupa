@@ -648,7 +648,10 @@ later re-entry fires again; the field in the key keeps a two-select
 patch from collapsing to one event). A match
 with `confirm: true` (default) surfaces a Start/Dismiss confirm bubble
 reusing the notification "propose a chat" path; `confirm: false`
-auto-fires. The action (`startThread`) opens a fresh thread and
+auto-fires. **Imported rules can't auto-fire**: `MyAppImporter` rewrites
+`pupa/automations.json` on the way in to force `confirm: true`, matching
+the path through `MemoryStore.canonicalise` so a differently-spelled path
+can't sidestep it. Locally authored rules keep the flag. The action (`startThread`) opens a fresh thread and
 auto-sends a `{{item.title}}`-templated prompt. Config shape mirrors
 Claude Code hook ergonomics — an `automations` map keyed by event name,
 each a list of rules — but the events are Pupa **domain** events, not
@@ -1558,6 +1561,25 @@ unified model on `CanvasApp` (`componentReferences` / `remapReferences`) shared
 with the delete cascade; each kind registers a `ComponentExportPolicy`. Import
 treats the bundle as untrusted (settings allow-list, size/count caps,
 slug-safe rename, traversal-safe memory writes).
+
+Three further guards keep an imported app from acting on its own:
+
+- **Automation rules can't auto-fire.** `pupa/automations.json` is rewritten
+  to force `confirm: true`. The path is matched through
+  `MemoryStore.canonicalise` — the same normalisation that decides where the
+  file lands — so a differently-spelled path can't reach the file while
+  dodging the rewrite.
+- **No remote images until the user says so.** Imported apps are stamped
+  `media.remoteImages: false` (`MyApp.allowsRemoteImages`). `AppView` puts the
+  answer in `\.remoteImagesAllowed` for every detail route and the chat
+  overlay; the tracker hero and both markdown surfaces (chat bubbles, memory
+  notes) render `WithheldImage` instead of fetching, which carries the button
+  that turns loading on for that app. Card and markdown images load on render,
+  so without this a bundle beacons the moment its app is opened — and reaches
+  LAN hosts, which ATS permits.
+- **Link fields are scheme-limited.** `TrackerLinkURL.parse` accepts
+  `http`/`https` and in-app `pupa://` only; `pupa-install://` and everything
+  the OS would route elsewhere are refused.
 
 `onOpenURL` also takes the marketplace page's iOS path: a
 `pupa-install://import?url=…&sha256=…` link, whose bundle URL

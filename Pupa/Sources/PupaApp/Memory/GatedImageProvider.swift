@@ -1,20 +1,14 @@
 import MarkdownUI
 import SwiftUI
 
-/// Markdown image provider that fetches only when the surrounding app allows it.
+/// Markdown image provider that fetches only when the app allows it.
 ///
-/// MarkdownUI's `DefaultImageProvider` is network-backed and loads **on
-/// render**, so a markdown image in attacker-authored content — an imported
-/// memory file, a bundle's notes — is a zero-click callout to a host of its
-/// choosing. Because ATS permits local networking, it can also probe the LAN.
-/// Inside an app whose content arrived in a bundle that has to be the user's
-/// decision, so `MyApp.allowsRemoteImages` gates it.
+/// MarkdownUI's `DefaultImageProvider` loads on render, so an image URL in
+/// attacker-authored content is a callout with no interaction. Imported apps
+/// start with `MyApp.allowsRemoteImages` off; see `docs/marketplace.md`.
 ///
-/// One type with a flag rather than two providers, because `markdownImageProvider`
-/// takes a concrete type — a ternary between two provider types doesn't compile.
-///
-/// The withheld branch says why the image is missing rather than rendering
-/// nothing, so a blank space isn't mistaken for a broken file.
+/// One type with a flag rather than two providers, because
+/// `markdownImageProvider` takes a concrete type.
 struct GatedImageProvider: ImageProvider {
     let allowed: Bool
 
@@ -23,16 +17,41 @@ struct GatedImageProvider: ImageProvider {
         if allowed {
             DefaultImageProvider.default.makeImage(url: url)
         } else {
-            Label("Image not loaded", systemImage: "eye.slash")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.vertical, 4)
-                .help(url?.host.map { "Didn't contact \($0) — remote images are off for this app" }
-                      ?? "Remote images are off for this app")
+            WithheldImage(host: url?.host)
         }
     }
 }
 
 extension ImageProvider where Self == GatedImageProvider {
     static func gated(allowed: Bool) -> Self { .init(allowed: allowed) }
+}
+
+/// Placeholder for an image that wasn't fetched — and the switch to fetch it.
+///
+/// The control lives here rather than in a settings screen because this is
+/// where the user notices: they see a missing picture and can turn loading on
+/// for this app in place. Says which host it would contact, so the choice is
+/// informed.
+struct WithheldImage: View {
+    let host: String?
+    @Environment(\.enableRemoteImages) private var enableRemoteImages
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "photo")
+            if let enableRemoteImages {
+                Button("Load images", action: enableRemoteImages)
+                    .buttonStyle(.plain)
+                    .underline()
+            } else {
+                Text("Image not loaded")
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(.vertical, 4)
+        .help(host.map { "Hasn't contacted \($0). Imported apps don't load remote images until you allow it." }
+              ?? "Imported apps don't load remote images until you allow it.")
+        .accessibilityLabel(host.map { "Image from \($0) not loaded" } ?? "Image not loaded")
+    }
 }
