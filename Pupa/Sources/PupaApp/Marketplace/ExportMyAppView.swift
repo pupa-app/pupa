@@ -16,14 +16,14 @@ struct SharingSettingsView: View {
                 NavigationLink {
                     ExportShareScreen(store: store, memory: memory)
                 } label: {
-                    hubRow(icon: "square.and.arrow.up",
+                    SettingsHubRow(icon: "square.and.arrow.up",
                            title: "Share an app",
                            caption: "Send one MyApp, or all of them, as a .\(MyAppBundle.fileExtension) bundle")
                 }
                 NavigationLink {
                     ImportAppScreen(store: store, memory: memory, onImported: onImported)
                 } label: {
-                    hubRow(icon: "square.and.arrow.down",
+                    SettingsHubRow(icon: "square.and.arrow.down",
                            title: "Import an app",
                            caption: "Load a .\(MyAppBundle.fileExtension) someone shared, or browse the marketplace")
                 }
@@ -37,16 +37,6 @@ struct SharingSettingsView: View {
         #endif
     }
 
-    private func hubRow(icon: String, title: String, caption: String) -> some View {
-        Label {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                Text(caption).font(.caption).foregroundStyle(.secondary)
-            }
-        } icon: {
-            Image(systemName: icon)
-        }
-    }
 }
 
 /// One-off alert payload shared by both screens.

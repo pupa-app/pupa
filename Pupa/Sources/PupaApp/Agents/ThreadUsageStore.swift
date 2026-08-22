@@ -81,3 +81,38 @@ public final class ThreadUsageStore {
         }
     }
 }
+
+// MARK: - Display formatting
+
+/// Shared by the Agents roster and threads screens, which each own their own
+/// store instance — one definition of how tokens and cost render.
+extension ThreadUsageStore {
+    /// One-line `"12.3k tok · $0.04"` for a thread, or `nil` when the backend
+    /// reports no usage for it.
+    public func line(for threadId: String) -> String? {
+        usage(for: threadId).flatMap(Self.compose)
+    }
+
+    /// Same line, summed across `threadIds` — the MyApp-wide and per-agent
+    /// aggregate captions.
+    public func caption(threadIds: [String]) -> String? {
+        rollup(threadIds: threadIds).flatMap(Self.compose)
+    }
+
+    private static func compose(_ u: ThreadUsage) -> String? {
+        var parts: [String] = []
+        if let tokens = u.totalTokens { parts.append(formatTokens(tokens) + " tok") }
+        if let cost = u.costUSD { parts.append(formatCost(cost)) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    public static func formatTokens(_ tokens: Int) -> String {
+        if tokens < 1000 { return "\(tokens)" }
+        return String(format: "%.1fk", Double(tokens) / 1000.0)
+    }
+
+    public static func formatCost(_ cost: Double) -> String {
+        // Sub-dollar costs need more precision than two decimals.
+        cost < 1 ? String(format: "$%.4f", cost) : String(format: "$%.2f", cost)
+    }
+}

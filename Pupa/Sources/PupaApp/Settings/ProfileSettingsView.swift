@@ -9,7 +9,7 @@ import SwiftUI
 struct ProfileSettingsView: View {
     @Bindable var settings: SettingsStore
     /// Optional so the screen degrades in previews (matches SettingsSheet's
-    /// `canShare` / `canShowAgents` pattern). When nil the Data section hides.
+    /// `canShare` pattern). When nil the Data section hides.
     var store: MyAppStore?
     var memory: MemoryStore?
 

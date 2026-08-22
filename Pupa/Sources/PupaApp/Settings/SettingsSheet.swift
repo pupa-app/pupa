@@ -10,9 +10,9 @@ import SwiftUI
 ///     `PUPA_API_KEY` env var). Both are persisted via `SettingsStore`
 ///     and take effect on the next message — no app restart needed (see
 ///     `ChatViewModel.rebuildSessionIfSettingsChanged`).
-///   - **Tools** — all tool permissions in one place: the global
-///     shell-command approval toggle and per-tool backend toggles fetched
-///     live from `GET /backend-tools`.
+///   - **Agents** — hub for everything agent-governing: the roster, the
+///     tools agents may call (shell approval + per-tool backend toggles),
+///     the A2A / turn limits, and the conversation threads.
 ///   - **Notifications** — lists pending scheduled notifications and lets
 ///     the user cancel them (`NotificationCenterCoordinator`).
 ///   - **Examples** — add a sample workspace to the sidebar.
@@ -29,13 +29,13 @@ public struct SettingsSheet: View {
     /// these three is nil the Sharing row is hidden (e.g. previews).
     var store: MyAppStore?
     var memory: MemoryStore?
-    /// Lifetime per-agent activity counters backing the Agents overview.
-    /// When nil (e.g. previews) the Agents row is hidden.
+    /// Lifetime per-agent activity counters backing the Agents roster.
+    /// When nil (e.g. previews) the hub's Roster row is hidden; Tools and
+    /// Limits still render.
     var stats: AgentStatsStore?
-    /// Live LLM model registry backing the Agents overview's model pickers.
-    /// When nil (e.g. previews) the Agents row is hidden.
+    /// Live LLM model registry backing the Agents roster. Same nil rule.
     var modelCatalog: ModelCatalogStore?
-    /// Live session owner, for the Agents overview's per-thread status dots.
+    /// Live session owner, for the Agents threads screen's status dots.
     var coordinator: ChatSessionCoordinator?
     /// Called after a successful import with the new app's id (select + dismiss).
     var onImported: ((UUID) -> Void)?
@@ -90,7 +90,7 @@ public struct SettingsSheet: View {
     /// category's real controls (the existing section builders, re-hosted in
     /// their own `Form`).
     private enum SettingsCategory: Hashable {
-        case profile, backend, tools, agentsOverview, notifications, examples, sharing, pinned, archive, recentlyDeleted
+        case profile, backend, agents, notifications, examples, sharing, pinned, archive, recentlyDeleted
     }
 
     /// Whether to offer the Recently deleted row. Loaded on appear, never in
@@ -115,57 +115,48 @@ public struct SettingsSheet: View {
     /// True when the Import & Export screen can be shown (stores wired in).
     private var canShare: Bool { store != nil && memory != nil && onImported != nil }
 
-    /// True when the Agents overview can be shown (stores wired in).
-    private var canShowAgents: Bool { store != nil && memory != nil && stats != nil && modelCatalog != nil }
-
     public var body: some View {
         NavigationStack(path: $path) {
             List {
                 Section {
                     NavigationLink(value: SettingsCategory.profile) {
-                        categoryRow(icon: "person.crop.circle", title: "Account",
+                        SettingsHubRow(icon: "person.crop.circle", title: "Account",
                                     caption: "iCloud sync & device")
                     }
                 }
                 NavigationLink(value: SettingsCategory.backend) {
-                    categoryRow(icon: "network", title: "Backend",
+                    SettingsHubRow(icon: "network", title: "Backend",
                                 caption: "Server URL, API key, pairing")
                 }
-                NavigationLink(value: SettingsCategory.tools) {
-                    categoryRow(icon: "wrench.and.screwdriver", title: "Tools",
-                                caption: "Shell approval & tool permissions")
-                }
-                if canShowAgents {
-                    NavigationLink(value: SettingsCategory.agentsOverview) {
-                        categoryRow(icon: "person.3.sequence", title: "Agents",
-                                    caption: "Overview, nesting & activity")
-                    }
+                NavigationLink(value: SettingsCategory.agents) {
+                    SettingsHubRow(icon: "person.3.sequence", title: "Agents",
+                                caption: "Roster, tools, limits & threads")
                 }
                 NavigationLink(value: SettingsCategory.notifications) {
-                    categoryRow(icon: "bell.badge", title: "Notifications",
+                    SettingsHubRow(icon: "bell.badge", title: "Notifications",
                                 caption: "Pending scheduled notifications")
                 }
                 if onRestoreExample != nil {
                     NavigationLink(value: SettingsCategory.examples) {
-                        categoryRow(icon: "sparkles", title: "Examples",
+                        SettingsHubRow(icon: "sparkles", title: "Examples",
                                     caption: "Add a sample workspace")
                     }
                 }
                 if canShare {
                     NavigationLink(value: SettingsCategory.sharing) {
-                        categoryRow(icon: "square.and.arrow.up.on.square", title: "Import & Export",
+                        SettingsHubRow(icon: "square.and.arrow.up.on.square", title: "Import & Export",
                                     caption: "Share or load a MyApp bundle")
                     }
                 }
                 if store != nil, hasPinnedSnapshots {
                     NavigationLink(value: SettingsCategory.pinned) {
-                        categoryRow(icon: "pin", title: "Pinned snapshots",
+                        SettingsHubRow(icon: "pin", title: "Pinned snapshots",
                                     caption: "Saved states per app")
                     }
                 }
                 if let store, !store.archivedMyApps.isEmpty {
                     NavigationLink(value: SettingsCategory.archive) {
-                        categoryRow(icon: "archivebox", title: "Archive",
+                        SettingsHubRow(icon: "archivebox", title: "Archive",
                                     caption: "Hidden apps")
                     }
                 }
@@ -173,7 +164,7 @@ public struct SettingsSheet: View {
                     NavigationLink(value: SettingsCategory.recentlyDeleted) {
                         // `arrow.up.trash`, not `trash.arrow.circlepath` — the
                         // latter isn't an SF Symbol and rendered as a blank gap.
-                        categoryRow(icon: "arrow.up.trash", title: "Recently deleted",
+                        SettingsHubRow(icon: "arrow.up.trash", title: "Recently deleted",
                                     caption: "Restore a deleted app")
                     }
                 }
@@ -182,7 +173,7 @@ public struct SettingsSheet: View {
                         Button {
                             onStartTour()
                         } label: {
-                            categoryRow(icon: "figure.walk.motion", title: "Getting started tour",
+                            SettingsHubRow(icon: "figure.walk.motion", title: "Getting started tour",
                                         caption: "Replay the interactive walkthrough")
                         }
                         .buttonStyle(.plain)
@@ -294,22 +285,6 @@ public struct SettingsSheet: View {
         .task(id: probeKey) { await probeAllBackends() }
     }
 
-    /// One row in the top-level category list: icon + title + one-line caption.
-    private func categoryRow(icon: String, title: String, caption: String) -> some View {
-        Label {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .foregroundStyle(.primary)
-                Text(caption)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        } icon: {
-            Image(systemName: icon)
-                .foregroundStyle(.secondary)
-        }
-    }
-
     /// Pushed detail screen for a category — re-hosts the matching section
     /// builder in its own `Form` so the existing controls/logic are unchanged.
     @ViewBuilder
@@ -320,16 +295,14 @@ public struct SettingsSheet: View {
                 ProfileSettingsView(settings: settings, store: store, memory: memory)
             case .backend:
                 Form { backendSection }.navigationTitle("Backend")
-            case .tools:
-                // Self-contained screen that owns its own `toolsLoad` state.
-                // Pushed via `navigationDestination`, so it must load + render
-                // from its own `@State` — a parent `@State` mutated here is not
-                // reliably re-observed by the destination closure.
-                ToolsSettingsView(settings: settings)
-            case .agentsOverview:
-                if let store, let memory, let stats, let modelCatalog {
-                    AgentsOverviewView(store: store, settings: settings, memory: memory, stats: stats, modelCatalog: modelCatalog, coordinator: coordinator)
-                }
+            case .agents:
+                // Hub. Its sub-screens own their own state and are pushed with
+                // closure links, so they stay out of `SettingsCategory` — the
+                // tour's deep-link map only needs the top-level pages.
+                AgentsSettingsView(
+                    settings: settings, store: store, memory: memory,
+                    stats: stats, modelCatalog: modelCatalog, coordinator: coordinator
+                )
             case .notifications:
                 PendingNotificationsList().navigationTitle("Notifications")
             case .examples:
@@ -580,206 +553,6 @@ public struct SettingsSheet: View {
         }
     }
 
-}
-
-/// Settings ▸ Tools detail. Self-contained: owns the shell-approval toggle and
-/// the backend-tool list, loading the list into its **own** `@State` on appear
-/// and on backend switch. Lives as its own `View` (not an inline section on
-/// `SettingsSheet`) because it's pushed via `navigationDestination`, where a
-/// parent's `@State` mutated from the destination is not reliably re-observed.
-/// Settings → Tools. The controls shown depend on the **active backend
-/// harness**: they're rendered from the harness's permission schema advertised
-/// by `GET /harnesses`, so Deep Agents shows its shell-approval toggle + backend
-/// tool mutes while Claude Code shows its host-tool scope + auto-approve. No
-/// hardcoded fallback: an unreachable backend shows an explicit error row.
-private struct ToolsSettingsView: View {
-    @Bindable var settings: SettingsStore
-
-    @State private var load: LoadState = .loading
-
-    private enum LoadState: Equatable {
-        case loading
-        case loaded(HarnessDescriptor)
-        case failed(String)
-    }
-
-    var body: some View {
-        Form {
-            switch load {
-            case .loading:
-                Section {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text("Loading harness controls…").foregroundStyle(.secondary)
-                    }
-                }
-            case .failed(let message):
-                Section {
-                    Label("Backend unreachable", systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                    Text(message).font(.caption).foregroundStyle(.secondary)
-                }
-            case .loaded(let harness):
-                controls(for: harness)
-            }
-        }
-        .navigationTitle("Tools")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-        .task(id: settings.activeBackendID) { await loadHarness() }
-    }
-
-    @ViewBuilder
-    private func controls(for harness: HarnessDescriptor) -> some View {
-        if harness.permissions.isEmpty {
-            Section {
-                Text("This harness exposes no permission controls.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-        }
-        ForEach(harness.permissions, id: \.key) { control in
-            controlSection(control, harness: harness)
-        }
-    }
-
-    @ViewBuilder
-    private func controlSection(_ control: HarnessPermissionControl, harness: HarnessDescriptor) -> some View {
-        switch control.type {
-        case .toolset:
-            toolsetSection(control, tools: harness.tools)
-        case .bool:
-            boolSection(control, harnessID: harness.id)
-        case .choice:
-            choiceSection(control, harnessID: harness.id)
-        }
-    }
-
-    // MARK: toolset (backend tool mute list — Deep Agents `disabled_tools`)
-
-    @ViewBuilder
-    private func toolsetSection(_ control: HarnessPermissionControl, tools: [BackendToolDescriptor]) -> some View {
-        Section {
-            if tools.isEmpty {
-                Text("No backend tools registered on the server.")
-                    .font(.caption).foregroundStyle(.secondary)
-            } else {
-                ForEach(tools) { tool in toolRow(tool) }
-            }
-        } header: {
-            Text(control.label)
-        } footer: {
-            Text("Disabling a tool removes it from the model's tool list per turn. Re-enabling restores it on the next message — no restart needed.")
-                .font(.caption).foregroundStyle(.secondary)
-        }
-    }
-
-    @ViewBuilder
-    private func toolRow(_ tool: BackendToolDescriptor) -> some View {
-        Toggle(isOn: Binding(
-            get: { settings.isEnabled(tool.name) },
-            set: { settings.setEnabled(tool.name, to: $0) }
-        )) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(tool.name).font(.body.monospaced())
-                Text(tool.description)
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if !tool.enabledByEnv {
-                    Text("Unavailable. Server is missing the required API key.")
-                        .font(.caption2).foregroundStyle(.orange)
-                }
-            }
-        }
-        .disabled(!tool.enabledByEnv)
-    }
-
-    // MARK: bool control
-
-    @ViewBuilder
-    private func boolSection(_ control: HarnessPermissionControl, harnessID: String) -> some View {
-        // `shell_approval_disabled` keeps its dedicated storage + inverted label
-        // ("Require approval"); other bools use the generic per-harness store.
-        if control.key == "shell_approval_disabled" {
-            Section("Shell commands") {
-                Toggle(isOn: Binding(
-                    get: { !settings.shellApprovalDisabled },
-                    set: { settings.setShellApprovalDisabled(!$0) }
-                )) {
-                    labelStack("Require shell approval",
-                               "Show an Approve / Deny card before every shell command. When off, commands run unattended.")
-                }
-            }
-        } else {
-            Section {
-                Toggle(isOn: Binding(
-                    get: { boolValue(control, harnessID: harnessID) },
-                    set: { settings.setHarnessControl(harnessID: harnessID, key: control.key, value: .bool($0)) }
-                )) {
-                    Text(control.label)
-                }
-            }
-        }
-    }
-
-    private func boolValue(_ control: HarnessPermissionControl, harnessID: String) -> Bool {
-        if case .bool(let v)? = settings.harnessControl(harnessID: harnessID, key: control.key) { return v }
-        return control.defaultBool ?? false
-    }
-
-    // MARK: choice control (e.g. Claude host-tool scope)
-
-    @ViewBuilder
-    private func choiceSection(_ control: HarnessPermissionControl, harnessID: String) -> some View {
-        Section(control.label) {
-            Picker(control.label, selection: Binding(
-                get: { choiceValue(control, harnessID: harnessID) },
-                set: { settings.setHarnessControl(harnessID: harnessID, key: control.key, value: .string($0)) }
-            )) {
-                ForEach(control.options ?? [], id: \.self) { option in
-                    Text(option).tag(option)
-                }
-            }
-            .pickerStyle(.menu)
-        }
-    }
-
-    private func choiceValue(_ control: HarnessPermissionControl, harnessID: String) -> String {
-        if case .string(let v)? = settings.harnessControl(harnessID: harnessID, key: control.key) { return v }
-        return control.defaultString ?? control.options?.first ?? ""
-    }
-
-    @ViewBuilder
-    private func labelStack(_ title: String, _ subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-            Text(subtitle)
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private func loadHarness() async {
-        load = .loading
-        let client = BackendHarnessesClient(
-            backendURL: settings.backendURL,
-            extraHeaders: settings.authHeaders,
-            session: settings.backendSession
-        )
-        do {
-            let harnesses = try await client.list()
-            let active = harnesses.first(where: { $0.id == settings.activeHarnessID })
-                ?? harnesses.first(where: { $0.isDefault })
-                ?? harnesses.first
-            if let active {
-                load = .loaded(active)
-            } else {
-                load = .failed("No harnesses advertised by the backend.")
-            }
-        } catch {
-            load = .failed(FriendlyBackendError.message(for: error))
-        }
-    }
 }
 
 /// Settings → Archive screen: the apps hidden from the sidebar. Each row
