@@ -256,8 +256,8 @@ enum TourContent {
 }
 
 /// Shared, app-wide store driving the interactive guided tour. Mirrors the
-/// `OnboardingHandoff.shared` / `OtherInteractionStore.shared` singleton
-/// pattern: a single `@Observable` instance holds the step list + current
+/// `OnboardingHandoff.shared` singleton pattern: a single `@Observable`
+/// instance holds the step list + current
 /// index and exposes the *desired UI state* for the active step. Host views
 /// reconcile to it declaratively (`AppView.applyTourStep()` for navigation +
 /// the sidebar; `.onChange` on the intent flags in `MyAppSidebarView` /

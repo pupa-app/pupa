@@ -55,9 +55,12 @@ enum OnboardingMigration {
 /// first action is a single tap away. Consume-once semantics mean ordinary
 /// chat opens (after the value is taken) are unaffected.
 ///
-/// Mirrors the `OtherInteractionStore.shared` pattern already used in
-/// `ChatPanel` for transient UI state that must survive `LazyVStack` recycling
-/// without threading a binding through `ChatOverlay` → `ConversationPager`.
+/// Holds transient UI state outside SwiftUI so it survives `LazyVStack`
+/// recycling, without threading a binding through `ChatOverlay` →
+/// `ConversationPager`. Note the limit: this type is not `@Observable`, so
+/// writing to it does not by itself invalidate a view — only use it for state
+/// read alongside an observable change (the trap that made `ask_user_questions`
+/// cards ignore the first "Other…" tap).
 @MainActor
 final class OnboardingHandoff {
     static let shared = OnboardingHandoff()

@@ -138,11 +138,11 @@ public struct ChatPanel: View {
                                 bubble: bubble,
                                 verbose: viewModel.verbose,
                                 pendingAnswers: viewModel.pendingAnswers,
-                                pendingBubbleId: viewModel.hasPendingQuestion ? bubble.id : nil,
+                                pendingBubbleId: viewModel.pendingBubbleId,
                                 pendingComplete: viewModel.pendingAnswersComplete,
                                 shellApprovalBubbleId: viewModel.hasPendingShellApproval ? bubble.id : nil,
-                                onSetAnswer: { rowIndex, value in
-                                    viewModel.setPendingAnswer(rowIndex: rowIndex, value: value)
+                                onAnswerIntent: { rowIndex, intent in
+                                    viewModel.applyAnswerIntent(rowIndex: rowIndex, intent: intent)
                                 },
                                 onSubmitAnswers: {
                                     viewModel.submitInterruptAnswers()
@@ -1053,9 +1053,9 @@ private struct MessageBubbleView: View, Equatable {
     /// The viewmodel's in-progress answers for the currently-pending
     /// interrupt, indexed by question row. The bubble reads its own row's
     /// value from this array (matched against `pendingBubbleId`); writes
-    /// flow through `onSetAnswer` so the viewmodel stays the source of
+    /// flow through `onAnswerIntent` so the viewmodel stays the source of
     /// truth and SwiftUI re-renders cleanly when the user interacts.
-    let pendingAnswers: [String]
+    let pendingAnswers: [PendingAnswer]
     /// The bubble id that owns the currently-pending interrupt, or `nil`
     /// when no interrupt is active. The `humanQuestion` bubble reads this
     /// to decide whether its inputs are live or locked: bubbles from
@@ -1067,9 +1067,9 @@ private struct MessageBubbleView: View, Equatable {
     /// The bubble id that owns the currently-pending shell approval interrupt,
     /// or `nil` when no approval is pending. Mirrors `pendingBubbleId`.
     let shellApprovalBubbleId: String?
-    /// Tapped when the user picks an option or types into a row's inline
-    /// "Other" field. The viewmodel updates `pendingAnswers[rowIndex]`.
-    let onSetAnswer: (Int, String) -> Void
+    /// Fired when the user picks an option, taps "Other…", or types into a
+    /// row's inline field. The viewmodel updates `pendingAnswers[rowIndex]`.
+    let onAnswerIntent: (Int, QuestionAnswerIntent) -> Void
     /// Tapped when the user hits the bubble's Submit button. The
     /// viewmodel resumes the parked graph with the collected answers.
     let onSubmitAnswers: () -> Void
@@ -1138,7 +1138,7 @@ private struct MessageBubbleView: View, Equatable {
                 isLive: pendingBubbleId == bubble.id,
                 pendingAnswers: pendingAnswers,
                 pendingComplete: pendingComplete,
-                onSetAnswer: onSetAnswer,
+                onAnswerIntent: onAnswerIntent,
                 onSubmitAnswers: onSubmitAnswers
             )
         case .user, .assistant:
@@ -1328,9 +1328,9 @@ private struct ShellApprovalBubbleView: View {
 private struct HumanQuestionBubbleView: View {
     let bubble: ChatBubble
     let isLive: Bool
-    let pendingAnswers: [String]
+    let pendingAnswers: [PendingAnswer]
     let pendingComplete: Bool
-    let onSetAnswer: (Int, String) -> Void
+    let onAnswerIntent: (Int, QuestionAnswerIntent) -> Void
     let onSubmitAnswers: () -> Void
 
     var body: some View {
@@ -1371,142 +1371,16 @@ private struct HumanQuestionBubbleView: View {
         .frame(maxWidth: 460, alignment: .leading)
     }
 
-    /// One question row: question text, then either tappable options (when
-    /// the agent supplied any) or a single inline TextField for an
-    /// open-ended question. The "Other…" affordance is rendered when there
-    /// ARE options; tapping it reveals an inline TextField below them so
-    /// the user can type a custom answer that still counts toward this
-    /// row's answer.
+    /// One question row, rendered by the shared `QuestionRowView` so the
+    /// chat card and the Slack pane's card stay identical.
     @ViewBuilder
     private func questionRow(rowIdx: Int, row: HumanQuestionRow) -> some View {
-        let currentAnswer = pendingAnswers.indices.contains(rowIdx) ? pendingAnswers[rowIdx] : ""
-        let isOptionPicked = row.options.contains(currentAnswer)
-        let otherExpanded = OtherInteractionStore.shared.isExpanded(bubbleId: bubble.id, rowIdx: rowIdx)
-        let showingOther = !row.options.isEmpty && !isOptionPicked && (!currentAnswer.isEmpty || otherExpanded)
-
-        VStack(alignment: .leading, spacing: 6) {
-            Text(row.question)
-                .italic()
-                .textSelection(.enabled)
-            if row.options.isEmpty {
-                inlineTextField(rowIdx: rowIdx, current: currentAnswer)
-            } else {
-                ForEach(Array(row.options.enumerated()), id: \.offset) { optIdx, option in
-                    optionButton(
-                        rowIdx: rowIdx,
-                        optIdx: optIdx,
-                        option: option,
-                        isSelected: currentAnswer == option
-                    )
-                }
-                Button {
-                    OtherInteractionStore.shared.expand(bubbleId: bubble.id, rowIdx: rowIdx)
-                    // Clear any selected option so the row's answer comes
-                    // from the inline text field instead.
-                    if isOptionPicked {
-                        onSetAnswer(rowIdx, "")
-                    }
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "pencil")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text("Other…")
-                            .italic()
-                            .foregroundStyle(.secondary)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.bordered)
-                .disabled(!isLive)
-                if showingOther {
-                    inlineTextField(rowIdx: rowIdx, current: currentAnswer)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func optionButton(rowIdx: Int, optIdx: Int, option: String, isSelected: Bool) -> some View {
-        // Selected options use `.borderedProminent` (filled) and unselected
-        // use `.bordered` (outline). Selecting a duplicate button styles
-        // via a viewmodifier-conditional Group rather than a type-erased
-        // ButtonStyle because the system bordered styles are
-        // `PrimitiveButtonStyle`, which doesn't compose with a generic
-        // ButtonStyle wrapper.
-        Group {
-            if isSelected {
-                Button { tapOption(rowIdx: rowIdx, option: option) } label: { optionLabel(optIdx: optIdx, option: option, isSelected: true) }
-                    .buttonStyle(.borderedProminent)
-            } else {
-                Button { tapOption(rowIdx: rowIdx, option: option) } label: { optionLabel(optIdx: optIdx, option: option, isSelected: false) }
-                    .buttonStyle(.bordered)
-            }
-        }
-        .disabled(!isLive)
-    }
-
-    private func tapOption(rowIdx: Int, option: String) {
-        onSetAnswer(rowIdx, option)
-        OtherInteractionStore.shared.collapse(bubbleId: bubble.id, rowIdx: rowIdx)
-    }
-
-    @ViewBuilder
-    private func optionLabel(optIdx: Int, option: String, isSelected: Bool) -> some View {
-        HStack(spacing: 8) {
-            Text("\(optIdx + 1)")
-                .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
-            Text(option)
-                .multilineTextAlignment(.leading)
-            Spacer(minLength: 0)
-            if isSelected {
-                Image(systemName: "checkmark")
-                    .font(.caption)
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    @ViewBuilder
-    private func inlineTextField(rowIdx: Int, current: String) -> some View {
-        TextField(
-            "Type a custom reply…",
-            text: Binding(
-                get: { current },
-                set: { onSetAnswer(rowIdx, $0) }
-            ),
-            axis: .vertical
+        QuestionRowView(
+            row: row,
+            answer: pendingAnswers.indices.contains(rowIdx) ? pendingAnswers[rowIdx] : PendingAnswer(),
+            isLive: isLive,
+            onIntent: { onAnswerIntent(rowIdx, $0) }
         )
-        .textFieldStyle(.roundedBorder)
-        .lineLimit(1...3)
-        .disabled(!isLive)
-    }
-}
-
-/// Per-bubble "Other…" expand/collapse state. Kept outside SwiftUI's
-/// `@State` because the bubble view recycles inside the LazyVStack and
-/// can lose local state when scrolled off screen — but we want the
-/// inline TextField to stay visible once the user has expanded it. Keyed
-/// by `(bubbleId, rowIdx)` so each row is independent.
-@MainActor
-private final class OtherInteractionStore {
-    static let shared = OtherInteractionStore()
-    private var expanded: Set<String> = []
-    private func key(bubbleId: String, rowIdx: Int) -> String { "\(bubbleId)#\(rowIdx)" }
-    func isExpanded(bubbleId: String, rowIdx: Int) -> Bool {
-        expanded.contains(key(bubbleId: bubbleId, rowIdx: rowIdx))
-    }
-    func expand(bubbleId: String, rowIdx: Int) {
-        expanded.insert(key(bubbleId: bubbleId, rowIdx: rowIdx))
-    }
-    func collapse(bubbleId: String, rowIdx: Int) {
-        expanded.remove(key(bubbleId: bubbleId, rowIdx: rowIdx))
     }
 }
 

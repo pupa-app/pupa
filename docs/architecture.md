@@ -930,6 +930,17 @@ that `ChatViewModel` conforms to). The backend forwards their schemas to
 the model and the client executes the calls — the backend owns no
 canvas logic.
 
+**Question-card answer state.** A parked `ask_user_questions` row holds a
+`PendingAnswer` — `.option(index)` or `.other` plus free text — not the
+resolved string, so typed text that happens to match an option is still the
+user's own answer and duplicate option strings stay independent. The card is
+one shared
+[`QuestionRowView`](../Pupa/Sources/PupaApp/Chat/QuestionRowView.swift), driven
+by `QuestionAnswerIntent`, rendered both in the chat transcript
+(`ChatViewModel.pendingAnswers`) and in the Slack pane for a parked sub-agent
+(`SlackInvoker.applyAnswerIntent`). Answers resolve to `[String]` only at
+submit.
+
 **Tool gates are per session.** Kind tools, the memory filesystem and
 notifications sit behind `get_tools_<kind>` / `get_tools_memories` /
 `get_tools_notifications`; calling one flips a `ToolGateState`, and the next
