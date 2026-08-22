@@ -1,6 +1,6 @@
 # Adding a new component / canvas shape
 
-End-to-end recipe for landing a new canvas-component kind on iOS / macOS. Written off the back of the Slack component PR (umbrella issue [#125](https://github.com/*/issues/125)) — every step here is a concrete drill into a file you'll touch.
+End-to-end recipe for landing a new canvas-component kind on iOS / macOS. Written off the back of the Slack component PR (umbrella issue [#125](https://github.com/pupa-app/pupa/issues/125)) — every step here is a concrete drill into a file you'll touch.
 
 > **First question**: do you actually need a new component, or just a new **view mode** for an existing one? An alternate calendar layout over `CalendarData` should be a `CalendarViewMode` case, not a new union arm. See `TrackerViewMode` in [CanvasState.swift](../Pupa/Sources/PupaApp/Canvas/CanvasState.swift) for the pattern. New shape = new data model.
 
