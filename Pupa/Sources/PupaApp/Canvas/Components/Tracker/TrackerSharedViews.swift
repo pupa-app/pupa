@@ -790,6 +790,9 @@ struct TrackerItemCard: View {
     /// geometry, so growing the card cannot feed back into a measurement.
     @State private var linksExpanded = false
 
+    /// False inside an imported app until the user opts in.
+    @Environment(\.remoteImagesAllowed) private var remoteImagesAllowed
+
     init(
         item: TrackerItem,
         layout: CardLayout,
@@ -971,7 +974,14 @@ struct TrackerItemCard: View {
     @ViewBuilder
     private var hero: some View {
         let value = heroValue
-        if let url = heroURL(value) {
+        if let url = heroURL(value), !remoteImagesAllowed {
+            // Same placeholder (and the same in-place switch) as a withheld
+            // markdown image, so the two read as one behaviour.
+            WithheldImage(host: url.host)
+                .frame(maxWidth: .infinity)
+                .frame(height: Self.heroHeight)
+                .background(heroBackdropTint)
+        } else if let url = heroURL(value) {
             AsyncImage(url: url) { phase in
                 switch phase {
                 case .success(let image):
@@ -1106,16 +1116,7 @@ struct TrackerItemCard: View {
         return max(0, allLinkEntries.count - CardDensityMetrics.linkCap(density))
     }
 
-    private func parseURL(_ value: String) -> URL? {
-        // Accept bare https://… / http://… as-is; prepend https:// for
-        // domain-only inputs (e.g. "github.com/foo") so the agent can write
-        // shorthand URLs and have them open cleanly.
-        if let url = URL(string: value), url.scheme != nil { return url }
-        if value.contains(".") && !value.contains(" ") {
-            return URL(string: "https://\(value)")
-        }
-        return nil
-    }
+    private func parseURL(_ value: String) -> URL? { TrackerLinkURL.parse(value) }
 
     /// Inline pills row for `item.linkedItems` — chain-link icon + live
     /// target display name. Capped at 3 visible (with a "+N" overflow
@@ -1197,5 +1198,32 @@ private struct LinkPill: View {
         // `.onTapGesture` propagates to the card's tap-to-edit handler when
         // wrapped by `Link`'s buttonStyle(.plain) — adding contentShape
         // here would steal the gesture. Default Link hit-testing is fine.
+    }
+}
+
+
+/// Turns a tracker link-field value into a URL safe to hand `Link(destination:)`.
+///
+/// These values are content — the agent writes them, an imported bundle ships
+/// them — and `Link` hands what it's given to the OS, which routes by scheme.
+/// So the set is closed: `http`/`https`, plus `pupa`, which never reaches the
+/// OS (`AppView`'s `chatLinkAction` intercepts it to open a note or component
+/// in-app, and the scheme is deliberately unregistered). Notably excluded are
+/// `file:`, `tel:`, and Pupa's *registered* `pupa-install://`, any of which
+/// would otherwise let one tap on a shared card drive something else.
+enum TrackerLinkURL {
+    private static let allowedSchemes: Set<String> = ["http", "https", ChatLink.scheme]
+
+    static func parse(_ value: String) -> URL? {
+        if let url = URL(string: value), let scheme = url.scheme {
+            guard allowedSchemes.contains(scheme.lowercased()) else { return nil }
+            return url
+        }
+        // Domain-only shorthand ("github.com/foo") — the agent writes these,
+        // and they carry no scheme to abuse.
+        if value.contains(".") && !value.contains(" ") {
+            return URL(string: "https://\(value)")
+        }
+        return nil
     }
 }

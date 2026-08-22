@@ -36,6 +36,10 @@ public struct KeychainCredentialStore: BackendCredentialStore {
         ]
         let update: [String: Any] = [
             kSecValueData as String: data,
+            // Also on the update path: an item created by an older build
+            // keeps whatever accessibility it was made with, and only
+            // `SecItemAdd` below sets it.
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
         ]
         let updateStatus = SecItemUpdate(query as CFDictionary, update as CFDictionary)
         if updateStatus == errSecSuccess { return }

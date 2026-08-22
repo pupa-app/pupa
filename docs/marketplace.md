@@ -125,12 +125,19 @@ fully before any store/disk mutation:
 2. `typeId` resolves; every component `kind` is supported + has a policy.
 3. caps (components / items / messages / memory files) + uniqueness
    (component / item / agent / channel ids).
-4. **settings allow-list** — only a re-validated `llm.*` pair survives; keys
-   like `shell_approval_disabled` are dropped.
+4. **settings allow-list** — only an `llm.*` pair survives; keys like
+   `shell_approval_disabled` are dropped. Immediately after, the importer
+   stamps `media.remoteImages: false` — *after* the allow-list, so a bundle
+   asking for it has already had the key dropped.
 5. fresh `id`, slug-collision-safe rename, fresh thread + `createdAt`.
-6. prune dangling refs; drop unknown per-agent LLM overrides.
+6. prune dangling refs. (The `llm.*` pair is kept when both fields are
+   non-empty strings — the model catalog is backend-provided now, so it can't
+   be validated here; an unknown pair is rejected at request time.)
 7. insert; then write memories via `MemoryStore.writeFile` (its `resolve`
-   blocks `..`, absolute paths, non-`.md`).
+   folds `..` and rejects one that escapes the subtree, plus absolute paths
+   and any extension outside `.md` / `.json`).
+   `pupa/automations.json` is rewritten on the way through to force
+   `confirm: true` on every rule.
 
 ## Library bundle (many apps in one file)
 
@@ -162,8 +169,10 @@ The bundle is inert (no code execution). Remaining vectors → mitigations:
 |---|---|
 | Settings injection (`shell_approval_disabled` …) | allow-list to validated `llm.*` |
 | Prompt injection via `AGENTS.md` / Slack personas (runs with victim's tools) | export review pane + "imported" provenance + a confirm sheet (names app + agent prompts) on externally-opened files; **real fix = signing + moderation in the backend follow-on** |
-| Bundled automation rules (`pupa/automations.json`) that auto-invoke the model on a canvas move | rules are inert declarative config (no executable content); the only action is a model turn behind a **confirm bubble on by default**. A `confirm: false` rule auto-fires — the residual vector; mitigated today by confirm-on-by-default, and a global force-confirm ("paranoid") toggle is a deferred follow-on |
-| Memory path traversal | `MemoryStore.resolve()` prefix/`..`/`.md` guards |
+| Bundled automation rules (`pupa/automations.json`) that auto-invoke the model on a canvas move | **closed for direct bundle authorship**: the importer rewrites the file to force `confirm: true`, matching the path through `MemoryStore.canonicalise` so a differently-spelled path (`/pupa/…`, `pupa//…`, `pupa/Automations.JSON`) can't land on the file while dodging the rewrite. Rules the user writes locally are untouched. **Still reachable via the row above**: the file is an ordinary writable `.json`, so an injected prompt can ask the agent's memory tools to set `confirm:false` after import |
+| Bundle content that calls out on render (image URLs in cards or notes) — a zero-click beacon, and a LAN probe since ATS permits local networking | imported apps are stamped `media.remoteImages: false`; card and markdown images render a placeholder until the user turns it on. The bundle can't grant itself the setting — the allow-list drops it and the importer stamps `false` afterwards |
+| Link fields reaching the OS by scheme (`file:`, `tel:`, Pupa's own `pupa-install://`) | `TrackerLinkURL.parse` accepts `http`/`https` only |
+| Memory path traversal | `MemoryStore.resolve()` prefix/`..`/extension guards (`.md`, `.json`) |
 | Cross-app memory clobber via slug collision | slug-unique rename on import |
 | DoS (huge/nested bundle) | pre-decode byte cap + post-decode count caps |
 | Hostile `pupa-install://` link from any web page | component-wise source allow-list (pinned to `main/apps/`, so unmerged fork-PR heads don't qualify) + `Content-Length`/streaming cap + digest check; a link naming a *real* app the user didn't ask for is left to the confirm sheet |

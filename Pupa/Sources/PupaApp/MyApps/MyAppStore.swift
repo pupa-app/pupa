@@ -262,6 +262,19 @@ public final class MyAppStore {
     public static let llmProviderSettingsKey = "llm.provider"
     /// Storage key for the per-MyApp LLM logical model id (e.g. "claude-sonnet-4-6").
     public static let llmModelSettingsKey = "llm.model"
+    /// Storage key for "may this app fetch remote images". Absent → yes; the
+    /// importer writes `false`. See `MyApp.allowsRemoteImages`.
+    /// `nonisolated` because `MyApp` (a plain struct) reads it.
+    public nonisolated static let remoteImagesSettingsKey = "media.remoteImages"
+
+    /// Allow (or stop) this app fetching images from the network. Imported
+    /// apps start off; this is what the placeholder's "Load images" button
+    /// calls. See `MyApp.allowsRemoteImages`.
+    public func setRemoteImages(_ allowed: Bool, for myAppId: UUID) {
+        guard let idx = myApps.firstIndex(where: { $0.id == myAppId }) else { return }
+        myApps[idx].settings[Self.remoteImagesSettingsKey] = .bool(allowed)
+        persist()
+    }
 
     /// Write (or clear) the per-MyApp LLM override atomically. Pass `nil` for
     /// either field to clear both — the pair only ever applies together.

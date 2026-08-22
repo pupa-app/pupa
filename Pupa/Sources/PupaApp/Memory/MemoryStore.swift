@@ -590,15 +590,32 @@ public final class MemoryStore {
         return candidate
     }
 
-    private func normalise(_ path: String) -> String {
+    private func normalise(_ path: String) -> String { Self.canonicalise(path) }
+
+    /// The path `resolve` will actually write to, for a caller-supplied one.
+    ///
+    /// Exposed because "is this file X?" must be answered the same way here and
+    /// by anyone deciding what to do with a file *before* it's written —
+    /// `MyAppImporter` rewrites `pupa/automations.json` on the way in, and a
+    /// second, looser opinion about which paths mean that file is a bypass, not
+    /// a cosmetic difference.
+    nonisolated static func canonicalise(_ path: String) -> String {
         var s = path.trimmingCharacters(in: .whitespacesAndNewlines)
         while s.hasPrefix("/") { s.removeFirst() }
         while s.hasPrefix("./") { s.removeFirst(2) }
-        let comps = s.split(separator: "/")
-        if comps.contains(where: { $0 == ".." }) {
-            // Caller will fail at the prefix check; we don't try to repair.
+        // Fold `.` and `..` the way `resolve`'s `standardizedFileURL` does. A
+        // `..` that escapes the root stays in the output and fails the prefix
+        // check there; we don't try to repair it.
+        var out: [Substring] = []
+        for comp in s.split(separator: "/") {
+            switch comp {
+            case ".": continue
+            case "..":
+                if let last = out.last, last != ".." { out.removeLast() } else { out.append(comp) }
+            default: out.append(comp)
+            }
         }
-        return comps.joined(separator: "/")
+        return out.joined(separator: "/")
     }
 
     private func ensureParent(of url: URL) throws {

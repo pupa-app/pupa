@@ -23,6 +23,17 @@ public struct MyApp: Codable, Hashable, Identifiable, Sendable {
     /// The threadId of the currently-selected conversation.
     public var currentThreadId: String
     public let createdAt: Date
+    /// Whether this app may fetch images from the network. Default **true**;
+    /// imported apps are stamped `false` because images load on render, so a
+    /// bundle's URL would call out with no interaction. See
+    /// `docs/marketplace.md`.
+    public var allowsRemoteImages: Bool {
+        if case .bool(let allowed)? = settings[MyAppStore.remoteImagesSettingsKey] {
+            return allowed
+        }
+        return true
+    }
+
     /// Per-MyApp settings overrides. Keys are `SettingsKey.name` values.
     public var settings: [String: SettingValue]
     /// Archived (hidden) apps leave the sidebar and every agent-facing app

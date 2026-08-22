@@ -169,10 +169,17 @@ public enum MyAppImporter {
         }
 
         // Stage 0e — settings allow-list (drops security-relevant keys).
-        let (cleanSettings, droppedKeys) = sanitizeSettings(decoded.settings)
+        var (cleanSettings, droppedKeys) = sanitizeSettings(decoded.settings)
         if !droppedKeys.isEmpty {
             warnings.append("Ignored unsupported settings: \(droppedKeys.sorted().joined(separator: ", ")).")
         }
+        // Imported content doesn't get to reach the network unprompted. Card
+        // and markdown images are fetched on render, with no tap, so a bundle
+        // could otherwise beacon (and probe the LAN — ATS permits local
+        // networking) the moment its app is opened. Set *after* the allow-list,
+        // which has already dropped any value the bundle tried to supply, so a
+        // bundle can't grant itself this.
+        cleanSettings[MyAppStore.remoteImagesSettingsKey] = .bool(false)
 
         // Stage 1–3 operate on a local component array, then we build the app.
         var components = decoded.components
@@ -212,9 +219,10 @@ public enum MyAppImporter {
         // Stage 5 — memories (last). Re-rooted under the new app's immutable id
         // (fresh UUID above) — so a re-import can never collide with or clobber
         // the source app's memory subtree. Every write goes through
-        // `MemoryStore.writeFile`, whose `resolve` blocks `..`, absolute paths and
-        // any extension outside the `.md` / `.json` allowlist.
-        writeMemories(bundle.memories, appId: id, memory: memory)
+        // `MemoryStore.writeFile`, whose `resolve` folds `..` and rejects one
+        // that escapes the app's subtree, along with absolute paths and any
+        // extension outside the `.md` / `.json` allowlist.
+        warnings += writeMemories(bundle.memories, appId: id, memory: memory)
 
         return ImportResult(myAppId: id, warnings: warnings)
     }
@@ -332,16 +340,79 @@ public enum MyAppImporter {
         return "\(base) \(n)"
     }
 
-    private static func writeMemories(_ files: [MemoryFile], appId: UUID, memory: MemoryStore) {
+    /// Force `confirm: true` on every rule in imported automation text.
+    ///
+    /// `confirm: false` starts a chat turn with no bubble
+    /// (`RuleEngine.pendingAutoFire`) — from a bundle, that's someone else's
+    /// prompt reaching the model with the user's tools. Rewrites the JSON so
+    /// the file on disk *is* the enforced truth and nothing downstream has to
+    /// track provenance. Nil when unreadable: unparseable rules aren't written.
+    /// See `docs/marketplace.md`.
+    static func sanitizeAutomations(_ content: String) -> String? {
+        guard let data = content.data(using: .utf8),
+              let parsed = try? JSONSerialization.jsonObject(with: data) else { return nil }
+        // Parses but carries no rule map (`{}`, a forward-compat config, a
+        // top-level array): nothing to rewrite, and nothing to warn about.
+        guard var root = parsed as? [String: Any],
+              let automations = root["automations"] as? [String: Any] else { return content }
+
+        var cleaned: [String: Any] = [:]
+        for (event, value) in automations {
+            guard let entries = value as? [[String: Any]] else {
+                cleaned[event] = value   // not rule-shaped; the parser drops it
+                continue
+            }
+            cleaned[event] = entries.map { entry -> [String: Any] in
+                var copy = entry
+                copy["confirm"] = true
+                return copy
+            }
+        }
+        root["automations"] = cleaned
+
+        guard let out = try? JSONSerialization.data(withJSONObject: root, options: [.sortedKeys]),
+              let text = String(data: out, encoding: .utf8) else { return nil }
+        return text
+    }
+
+    /// Whether a bundle path lands on the automation rules file.
+    ///
+    /// Canonicalised by `MemoryStore` — the same function that decides where
+    /// the file is written — so the two can't disagree. They did: this used to
+    /// strip one leading `./` and compare, while the store also strips leading
+    /// slashes, collapses empty components and folds `..`, so
+    /// `/pupa/automations.json` landed on the rules file while this said it
+    /// hadn't. Case-insensitive because the filesystem is.
+    static func isAutomationsPath(_ path: String) -> Bool {
+        MemoryStore.canonicalise(path)
+            .caseInsensitiveCompare(MemoryStore.pupaAutomationsPath) == .orderedSame
+    }
+
+    /// Returns any user-facing warnings (an unreadable rules file is dropped,
+    /// and silently losing a bundle's automations would look like a bug).
+    private static func writeMemories(
+        _ files: [MemoryFile], appId: UUID, memory: MemoryStore
+    ) -> [String] {
+        var warnings: [String] = []
         let capped = files.prefix(maxMemoryFiles)
         let scoped = memory.appScopedStore(forAppId: appId)
         for file in capped {
             guard file.content.utf8.count <= maxMemoryFileBytes else { continue }
-            // writeFile's resolve() rejects `..`, absolute paths and any
-            // extension outside the `.md` / `.json` allowlist; a hostile path
-            // simply fails to write rather than escaping.
-            _ = try? scoped.writeFile(path: file.path, content: file.content)
+            var content = file.content
+            if isAutomationsPath(file.path) {
+                guard let safe = sanitizeAutomations(content) else {
+                    warnings.append("Couldn't read this app's automation rules, so they were skipped.")
+                    continue
+                }
+                content = safe
+            }
+            // writeFile's resolve() folds `..`, rejects one that escapes the
+            // subtree along with absolute paths and any extension outside the
+            // `.md` / `.json` allowlist; a hostile path fails to write rather
+            // than escaping.
+            _ = try? scoped.writeFile(path: file.path, content: content)
         }
+        return warnings
     }
 
     /// Compare dotted numeric versions ("0.0.103"). Returns true when `lhs`

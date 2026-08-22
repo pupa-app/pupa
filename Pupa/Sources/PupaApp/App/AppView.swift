@@ -864,6 +864,11 @@ public struct AppView: View {
                     isOpen: $chatOpen,
                     launcherVisible: !bottomBarVisible
                 )
+                // Chat bubbles render markdown, so an image URL the model was
+                // steered into emitting fetches on render. Same gate as the
+                // canvas: an imported app's prompts are its author's.
+                .environment(\.remoteImagesAllowed, remoteImagesAllowed(for: chatScope.myAppId))
+                .environment(\.enableRemoteImages, enableRemoteImages(for: chatScope.myAppId))
             }
             // Inset on the ZStack (not the NavigationStack) so the bar reserves
             // space for the content AND lifts the floating `ChatOverlay` above
@@ -968,6 +973,8 @@ public struct AppView: View {
                 isOpen: $chatOpen,
                 launcherVisible: !bottomBarVisible
             )
+            .environment(\.remoteImagesAllowed, remoteImagesAllowed(for: chatScope.myAppId))
+            .environment(\.enableRemoteImages, enableRemoteImages(for: chatScope.myAppId))
             // Intercept `pupa://` links the agent embeds in chat markdown —
             // route them in-app instead of to the browser. Scoped to the
             // overlay subtree so it doesn't hijack the canvas's own openURL
@@ -1107,8 +1114,35 @@ public struct AppView: View {
     /// destinations (driven by `detailPath`). Keeping a single source of
     /// truth means a landing-page push of `.myAppComponent` shows the same
     /// `CanvasView` as a direct sidebar tap on that component.
-    @ViewBuilder
+    /// Applies the per-app remote-image gate to every detail route. Done here
+    /// because the routes showing imported content are siblings, not a tree —
+    /// `CanvasView` and `MemoryFileView` are separate cases below, so injecting
+    /// in one left the other reading the default.
     private func detailView(for sel: SidebarSelection) -> some View {
+        detailContent(for: sel)
+            .environment(\.remoteImagesAllowed, remoteImagesAllowed(for: sel.myAppId))
+            .environment(\.enableRemoteImages, enableRemoteImages(for: sel.myAppId))
+    }
+
+    /// `allowsRemoteImages` for an app id.
+    ///
+    /// No id at all means the orchestrator, whose notes are the user's own →
+    /// allowed. An id that resolves to nothing means we don't know whose
+    /// content this is (a stale route, a link naming an app that isn't here) →
+    /// denied.
+    private func remoteImagesAllowed(for myAppId: UUID?) -> Bool {
+        guard let myAppId else { return true }
+        return store.myApps.first { $0.id == myAppId }?.allowsRemoteImages ?? false
+    }
+
+    /// Action a withheld image offers, or nil when there's no app to enable.
+    private func enableRemoteImages(for myAppId: UUID?) -> (@MainActor () -> Void)? {
+        guard let myAppId else { return nil }
+        return { store.setRemoteImages(true, for: myAppId) }
+    }
+
+    @ViewBuilder
+    private func detailContent(for sel: SidebarSelection) -> some View {
         switch sel {
         case .myAppHome(let id):
             MyAppHomeView(
@@ -1548,7 +1582,8 @@ public struct AppView: View {
                 data: data,
                 isLibrary: false,
                 appNames: [bundle.app.name],
-                agentPrompts: agentPrompts(in: bundle.app))
+                agentPrompts: agentPrompts(in: bundle.app),
+                automationRuleCount: automationRuleCount(in: bundle.memories))
         case .library:
             guard let library = try? MyAppBundle.makeDecoder().decode(MyAppLibraryBundle.self, from: data) else {
                 importNotice = ImportNotice(message: "This isn't a valid Pupa app bundle.")
@@ -1558,7 +1593,10 @@ public struct AppView: View {
                 data: data,
                 isLibrary: true,
                 appNames: library.apps.map { $0.app.name },
-                agentPrompts: library.apps.flatMap { agentPrompts(in: $0.app) })
+                agentPrompts: library.apps.flatMap { agentPrompts(in: $0.app) },
+                automationRuleCount: library.apps.reduce(0) {
+                    $0 + automationRuleCount(in: $1.memories)
+                })
         case .unknown:
             importNotice = ImportNotice(message: "This isn't a valid Pupa app bundle.")
         }
@@ -1575,6 +1613,13 @@ public struct AppView: View {
             }
         }
         return slugs.sorted()
+    }
+
+    /// Rules in the bundle's `pupa/automations.json`, if it ships one.
+    private func automationRuleCount(in memories: [MemoryFile]) -> Int {
+        memories
+            .filter { MyAppImporter.isAutomationsPath($0.path) }
+            .reduce(0) { $0 + AutomationConfig.parse($1.content).count }
     }
 
     /// Run the real import after the user confirms, then navigate to the new
@@ -1616,6 +1661,10 @@ private struct PendingImport: Identifiable {
     let appNames: [String]
     /// Agent personas across the bundle, surfaced for review before import.
     let agentPrompts: [String]
+    /// Automation rules the bundle carries. They're forced to propose rather
+    /// than fire on their own (see `MyAppImporter.sanitizeAutomations`), but
+    /// the user should still know the app reacts to what they do.
+    let automationRuleCount: Int
 }
 
 private struct ImportNotice: Identifiable {
@@ -1663,6 +1712,14 @@ private struct ImportConfirmSheet: View {
                         }
                     }
                 }
+                if pending.automationRuleCount > 0 {
+                    Section("Automations") {
+                        Text("\(pending.automationRuleCount) rule\(pending.automationRuleCount == 1 ? "" : "s")")
+                            .font(.caption)
+                        Text("This app reacts when you move an item. Rules ask before starting a chat.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
             }
             .navigationTitle("Import")
             #if os(iOS)
@@ -1693,6 +1750,38 @@ extension EnvironmentValues {
     var paneIsActive: Bool {
         get { self[PaneIsActiveKey.self] }
         set { self[PaneIsActiveKey.self] = newValue }
+    }
+}
+
+/// Whether views in this subtree may fetch images from the network. Set from
+/// `MyApp.allowsRemoteImages` at the canvas root; **true** by default so plain
+/// SwiftUI previews and non-app surfaces are unaffected.
+///
+/// It's an environment value rather than a parameter because the fetch sites
+/// are leaves — a tracker card's hero image, a markdown image in chat — and
+/// threading a flag through every intermediate view would be a lot of surface
+/// for something that must not be forgotten at one call site.
+private struct RemoteImagesAllowedKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+/// Turns remote images on for the app being shown. Nil where there's no app to
+/// turn them on for. Set alongside `remoteImagesAllowed` so a withheld image
+/// can offer the switch in place, rather than sending the user to look for a
+/// setting that would otherwise have to exist somewhere.
+private struct EnableRemoteImagesKey: EnvironmentKey {
+    static let defaultValue: (@MainActor () -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    var remoteImagesAllowed: Bool {
+        get { self[RemoteImagesAllowedKey.self] }
+        set { self[RemoteImagesAllowedKey.self] = newValue }
+    }
+
+    var enableRemoteImages: (@MainActor () -> Void)? {
+        get { self[EnableRemoteImagesKey.self] }
+        set { self[EnableRemoteImagesKey.self] = newValue }
     }
 }
 

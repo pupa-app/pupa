@@ -3,8 +3,11 @@
 build/
 .swiftpm/
 Package.resolved
-# PupaHost pins remote SPM versions for reproducible builds — keep this one.
+# Pin the resolved graph for both build paths. The Xcode one covers device /
+# TestFlight builds; Pupa's covers `swift build` and CI, which would otherwise
+# re-resolve `from:` ranges to whatever is newest at build time.
 !PupaHost/PupaHost.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+!Pupa/Package.resolved
 
 # Local signing override — holds each developer's DEVELOPMENT_TEAM, never committed.
 PupaHost/Local.xcconfig
