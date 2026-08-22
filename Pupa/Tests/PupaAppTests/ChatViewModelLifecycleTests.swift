@@ -220,7 +220,7 @@ struct ChatViewModelLifecycleTests {
         #expect(bubble.humanQuestions[0].question == "Use existing or create new?")
         #expect(bubble.humanQuestions[0].options == ["Use existing", "Create new"])
         #expect(bubble.humanQuestions[2].options == [])
-        #expect(vm.pendingAnswers == ["", "", ""])
+        #expect(vm.resolvedPendingAnswers == ["", "", ""])
         #expect(vm.pendingAnswersComplete == false)
 
         // Cancel via newThread() so the async let resolves and the test doesn't hang.
@@ -228,8 +228,8 @@ struct ChatViewModelLifecycleTests {
         _ = await answers
     }
 
-    @Test("setPendingAnswer fills slots; pendingAnswersComplete flips when all rows are non-empty")
-    func setPendingAnswer_tracksPerRowState() async {
+    @Test("Typed answers fill slots; pendingAnswersComplete flips when all rows are non-empty")
+    func typedAnswers_trackPerRowState() async {
         MyAppTypeRegistry.shared.registerBuiltins()
         let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
         let store = MyAppStore(initial: ([a], a.id))
@@ -242,18 +242,256 @@ struct ChatViewModelLifecycleTests {
         await awaitBubbleAppear(vm)
         #expect(vm.pendingAnswersComplete == false)
 
-        vm.setPendingAnswer(rowIndex: 0, value: "a1")
-        #expect(vm.pendingAnswers == ["a1", ""])
+        vm.applyAnswerIntent(rowIndex: 0, intent: .typeOther("a1"))
+        #expect(vm.resolvedPendingAnswers == ["a1", ""])
         #expect(vm.pendingAnswersComplete == false)
 
-        vm.setPendingAnswer(rowIndex: 1, value: "a2")
-        #expect(vm.pendingAnswers == ["a1", "a2"])
+        vm.applyAnswerIntent(rowIndex: 1, intent: .typeOther("a2"))
+        #expect(vm.resolvedPendingAnswers == ["a1", "a2"])
         #expect(vm.pendingAnswersComplete == true)
 
-        vm.setPendingAnswer(rowIndex: 99, value: "junk")
-        #expect(vm.pendingAnswers == ["a1", "a2"])
+        vm.applyAnswerIntent(rowIndex: 99, intent: .typeOther("junk"))
+        #expect(vm.resolvedPendingAnswers == ["a1", "a2"])
 
-        vm.setPendingAnswer(rowIndex: 1, value: "   ")
+        vm.applyAnswerIntent(rowIndex: 1, intent: .typeOther("   "))
+        #expect(vm.pendingAnswersComplete == false)
+
+        vm.newThread()
+        _ = await answers
+    }
+
+    @Test("Typing an option's exact text stays a free-text answer — it does not select that option")
+    func typingOptionText_doesNotSelectTheOption() async {
+        MyAppTypeRegistry.shared.registerBuiltins()
+        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
+        let store = MyAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+
+        async let answers = vm.askQuestions([
+            HumanQuestionRow(question: "Ship it?", options: ["Yes", "No"]),
+        ])
+        await awaitBubbleAppear(vm)
+
+        vm.applyAnswerIntent(rowIndex: 0, intent: .chooseOther)
+        vm.applyAnswerIntent(rowIndex: 0, intent: .typeOther("Yes"))
+
+        #expect(vm.pendingAnswers[0].choice == .other,
+                "typed text matching an option must not flip the row to that option")
+        #expect(vm.pendingAnswers[0].text == "Yes")
+        #expect(vm.resolvedPendingAnswers == ["Yes"])
+
+        vm.newThread()
+        _ = await answers
+    }
+
+    @Test("\"Other…\" switches an untouched row to free text without needing an option first")
+    func chooseOther_fromUnsetRow() async {
+        MyAppTypeRegistry.shared.registerBuiltins()
+        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
+        let store = MyAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+
+        async let answers = vm.askQuestions([
+            HumanQuestionRow(question: "Ship it?", options: ["Yes", "No"]),
+        ])
+        await awaitBubbleAppear(vm)
+        #expect(vm.pendingAnswers[0].choice == .unset)
+
+        vm.applyAnswerIntent(rowIndex: 0, intent: .chooseOther)
+
+        #expect(vm.pendingAnswers[0].choice == .other,
+                "the reveal flag lives in observable state, so the field shows on the first tap")
+        #expect(vm.pendingAnswersComplete == false, "empty free text is still incomplete")
+
+        // Coming from a picked option, the text starts empty again.
+        vm.applyAnswerIntent(rowIndex: 0, intent: .pickOption(1))
+        #expect(vm.pendingAnswers[0].choice == .option(1))
+        vm.applyAnswerIntent(rowIndex: 0, intent: .chooseOther)
+        #expect(vm.pendingAnswers[0].choice == .other)
+        #expect(vm.resolvedPendingAnswers == [""])
+
+        vm.newThread()
+        _ = await answers
+    }
+
+    @Test("Tapping the selected option again clears it")
+    func pickOption_togglesOff() async {
+        MyAppTypeRegistry.shared.registerBuiltins()
+        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
+        let store = MyAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+
+        async let answers = vm.askQuestions([
+            HumanQuestionRow(question: "Ship it?", options: ["Yes", "No"]),
+        ])
+        await awaitBubbleAppear(vm)
+
+        vm.applyAnswerIntent(rowIndex: 0, intent: .pickOption(0))
+        #expect(vm.pendingAnswersComplete == true)
+        #expect(vm.resolvedPendingAnswers == ["Yes"])
+
+        vm.applyAnswerIntent(rowIndex: 0, intent: .pickOption(0))
+        #expect(vm.pendingAnswers[0].choice == .unset)
+        #expect(vm.pendingAnswersComplete == false, "a mis-tap can be taken back")
+
+        // Switching between two different options is still a plain replace.
+        vm.applyAnswerIntent(rowIndex: 0, intent: .pickOption(0))
+        vm.applyAnswerIntent(rowIndex: 0, intent: .pickOption(1))
+        #expect(vm.resolvedPendingAnswers == ["No"])
+
+        vm.newThread()
+        _ = await answers
+    }
+
+    @Test("Duplicate option strings select independently, by index")
+    func duplicateOptions_selectByIndex() async {
+        MyAppTypeRegistry.shared.registerBuiltins()
+        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
+        let store = MyAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+
+        async let answers = vm.askQuestions([
+            HumanQuestionRow(question: "Which?", options: ["Same", "Same"]),
+        ])
+        await awaitBubbleAppear(vm)
+
+        vm.applyAnswerIntent(rowIndex: 0, intent: .pickOption(1))
+        #expect(vm.pendingAnswers[0].choice == .option(1))
+        #expect(vm.pendingAnswers[0].choice != .option(0))
+        #expect(vm.resolvedPendingAnswers == ["Same"])
+
+        // Out-of-range option indices are ignored, not stored.
+        vm.applyAnswerIntent(rowIndex: 0, intent: .pickOption(7))
+        #expect(vm.pendingAnswers[0].choice == .option(1))
+
+        vm.newThread()
+        _ = await answers
+    }
+
+    @Test("Answer intents are ignored when no question is parked")
+    func answerIntents_ignoredWhenIdle() async {
+        MyAppTypeRegistry.shared.registerBuiltins()
+        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
+        let store = MyAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+
+        vm.applyAnswerIntent(rowIndex: 0, intent: .pickOption(0))
+        vm.applyAnswerIntent(rowIndex: 0, intent: .chooseOther)
+        vm.applyAnswerIntent(rowIndex: 0, intent: .typeOther("stray"))
+
+        #expect(vm.pendingAnswers.isEmpty)
+        #expect(vm.pendingAnswersComplete == false)
+    }
+
+    @Test("A picked option submits its text; mixed option + free-text rows resolve in order")
+    func submit_resolvesOptionsAndFreeText() async {
+        MyAppTypeRegistry.shared.registerBuiltins()
+        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
+        let store = MyAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+
+        async let answers = vm.askQuestions([
+            HumanQuestionRow(question: "Ship it?", options: ["Yes", "No"]),
+            HumanQuestionRow(question: "Notes?", options: []),
+        ])
+        await awaitBubbleAppear(vm)
+
+        vm.applyAnswerIntent(rowIndex: 0, intent: .pickOption(1))
+        vm.applyAnswerIntent(rowIndex: 1, intent: .typeOther("later"))
+        vm.submitInterruptAnswers()
+
+        #expect(vm.bubbles[1].text == "1. No\n2. later")
+        let result = await answers
+        #expect(result == ["No", "later"])
+    }
+
+    @Test("A typed reply survives a detour through the options")
+    func typedText_survivesOptionDetour() async {
+        MyAppTypeRegistry.shared.registerBuiltins()
+        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
+        let store = MyAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+
+        async let answers = vm.askQuestions([
+            HumanQuestionRow(question: "Ship it?", options: ["Yes", "No"]),
+        ])
+        await awaitBubbleAppear(vm)
+
+        vm.applyAnswerIntent(rowIndex: 0, intent: .typeOther("ship it on Friday, after the demo"))
+        // Tap an option to compare, then go back to the typed reply.
+        vm.applyAnswerIntent(rowIndex: 0, intent: .pickOption(0))
+        #expect(vm.resolvedPendingAnswers == ["Yes"])
+        vm.applyAnswerIntent(rowIndex: 0, intent: .chooseOther)
+
+        #expect(vm.resolvedPendingAnswers == ["ship it on Friday, after the demo"],
+                "detouring through an option must not throw the typed reply away")
+
+        vm.newThread()
+        _ = await answers
+    }
+
+    @Test("Clearing an option leaves the row unanswered even while it still carries text")
+    func togglingOffAnOption_leavesRowIncomplete() async {
+        MyAppTypeRegistry.shared.registerBuiltins()
+        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
+        let store = MyAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+
+        async let answers = vm.askQuestions([
+            HumanQuestionRow(question: "Ship it?", options: ["Yes", "No"]),
+        ])
+        await awaitBubbleAppear(vm)
+
+        vm.applyAnswerIntent(rowIndex: 0, intent: .typeOther("maybe"))
+        vm.applyAnswerIntent(rowIndex: 0, intent: .pickOption(0))
+        vm.applyAnswerIntent(rowIndex: 0, intent: .pickOption(0))
+
+        #expect(vm.pendingAnswers[0].choice == .unset)
+        #expect(vm.pendingAnswers[0].text == "maybe", "the reply is kept for when they tap Other… again")
+        #expect(vm.pendingAnswersComplete == false, "carried text must not count as an answer")
+        #expect(vm.resolvedPendingAnswers == [""])
+
+        vm.newThread()
+        _ = await answers
+    }
+
+    @Test("Only the newest question card is live; earlier ones stay historic")
+    func laterQuestion_doesNotReviveTheEarlierCard() async {
+        MyAppTypeRegistry.shared.registerBuiltins()
+        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
+        let store = MyAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+
+        async let first = vm.askQuestions([HumanQuestionRow(question: "Q1?", options: [])])
+        await awaitBubbleAppear(vm)
+        let firstCardId = vm.pendingBubbleId
+        vm.applyAnswerIntent(rowIndex: 0, intent: .typeOther("a1"))
+        vm.submitInterruptAnswers()
+        _ = await first
+        #expect(vm.pendingBubbleId == nil, "nothing is live between questions")
+
+        async let second = vm.askQuestions([HumanQuestionRow(question: "Q2?", options: [])])
+        for _ in 0..<100 where vm.pendingBubbleId == nil { await Task.yield() }
+
+        #expect(vm.pendingBubbleId != firstCardId,
+                "the earlier card must not go live again when a later question parks")
+        #expect(vm.pendingBubbleId == vm.bubbles.last?.id)
+
+        vm.newThread()
+        _ = await second
+    }
+
+    @Test("A question with no rows is not submittable")
+    func emptyRows_isNotComplete() async {
+        MyAppTypeRegistry.shared.registerBuiltins()
+        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
+        let store = MyAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+
+        async let answers = vm.askQuestions([])
+        for _ in 0..<100 where vm.hasPendingQuestion == false { await Task.yield() }
+
+        #expect(vm.hasPendingQuestion == true, "or the check below is vacuous")
         #expect(vm.pendingAnswersComplete == false)
 
         vm.newThread()
@@ -276,12 +514,12 @@ struct ChatViewModelLifecycleTests {
         ])
         await awaitBubbleAppear(vm)
 
-        vm.setPendingAnswer(rowIndex: 0, value: "a1")
+        vm.applyAnswerIntent(rowIndex: 0, intent: .typeOther("a1"))
         vm.submitInterruptAnswers()
         #expect(vm.hasPendingQuestion == true)
         #expect(vm.bubbles.count == 1)
 
-        vm.setPendingAnswer(rowIndex: 1, value: "a2")
+        vm.applyAnswerIntent(rowIndex: 1, intent: .typeOther("a2"))
         vm.submitInterruptAnswers()
 
         #expect(vm.hasPendingQuestion == false)
@@ -305,7 +543,7 @@ struct ChatViewModelLifecycleTests {
             HumanQuestionRow(question: "Which book?", options: []),
         ])
         await awaitBubbleAppear(vm)
-        vm.setPendingAnswer(rowIndex: 0, value: "The Pragmatic Programmer")
+        vm.applyAnswerIntent(rowIndex: 0, intent: .typeOther("The Pragmatic Programmer"))
         vm.submitInterruptAnswers()
 
         #expect(vm.bubbles[1].text == "The Pragmatic Programmer")
@@ -323,7 +561,7 @@ struct ChatViewModelLifecycleTests {
             HumanQuestionRow(question: "Q?", options: []),
         ])
         await awaitBubbleAppear(vm)
-        vm.setPendingAnswer(rowIndex: 0, value: "draft")
+        vm.applyAnswerIntent(rowIndex: 0, intent: .typeOther("draft"))
         #expect(vm.hasPendingQuestion == true)
 
         vm.newThread()
@@ -347,7 +585,7 @@ struct ChatViewModelLifecycleTests {
             HumanQuestionRow(question: "Q?", options: []),
         ])
         await awaitBubbleAppear(vm)
-        vm.setPendingAnswer(rowIndex: 0, value: "draft")
+        vm.applyAnswerIntent(rowIndex: 0, intent: .typeOther("draft"))
 
         vm.cancel()
 

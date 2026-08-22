@@ -54,15 +54,15 @@ struct SlackInvokerHITLTests {
         let state = inv.activeInvocations["agent-1"]
         #expect(state?.pendingQuestion?.rows.count == 2)
         #expect(state?.pendingQuestion?.rows[0].question == "level?")
-        #expect(state?.pendingQuestion?.answers == ["", ""])
+        #expect(state?.pendingQuestion?.answers == [PendingAnswer(), PendingAnswer()])
         #expect(inv.pendingAnswersComplete(agentId: "agent-1") == false)
 
         inv.cancelQuestion(agentId: "agent-1")
         _ = await answers
     }
 
-    @Test("setPendingAnswer fills per-row slots; pendingAnswersComplete flips when all are non-empty")
-    func setPendingAnswerTracksPerRowState() async {
+    @Test("applyAnswerIntent fills per-row slots; pendingAnswersComplete flips when all are non-empty")
+    func applyAnswerIntentTracksPerRowState() async {
         let inv = SlackInvoker(gate: AgentInvocationGate())
         startRootRun(inv, agentId: "agent-1", agentName: "tutor")
 
@@ -75,20 +75,73 @@ struct SlackInvokerHITLTests {
         )
         await awaitParkedQuestion(inv, agentId: "agent-1")
 
-        inv.setPendingAnswer(agentId: "agent-1", rowIndex: 0, value: "a1")
-        #expect(inv.activeInvocations["agent-1"]?.pendingQuestion?.answers == ["a1", ""])
+        inv.applyAnswerIntent(agentId: "agent-1", rowIndex: 0, intent: .typeOther("a1"))
+        #expect(inv.activeInvocations["agent-1"]?.pendingQuestion?.answers.map(\.text) == ["a1", ""])
         #expect(inv.pendingAnswersComplete(agentId: "agent-1") == false)
 
-        inv.setPendingAnswer(agentId: "agent-1", rowIndex: 1, value: "a2")
+        inv.applyAnswerIntent(agentId: "agent-1", rowIndex: 1, intent: .typeOther("a2"))
         #expect(inv.pendingAnswersComplete(agentId: "agent-1") == true)
 
         // Whitespace-only doesn't count as filled.
-        inv.setPendingAnswer(agentId: "agent-1", rowIndex: 1, value: "   ")
+        inv.applyAnswerIntent(agentId: "agent-1", rowIndex: 1, intent: .typeOther("   "))
         #expect(inv.pendingAnswersComplete(agentId: "agent-1") == false)
 
         // Out-of-range writes are silently ignored.
-        inv.setPendingAnswer(agentId: "agent-1", rowIndex: 99, value: "junk")
-        #expect(inv.activeInvocations["agent-1"]?.pendingQuestion?.answers == ["a1", "   "])
+        inv.applyAnswerIntent(agentId: "agent-1", rowIndex: 99, intent: .typeOther("junk"))
+        #expect(inv.activeInvocations["agent-1"]?.pendingQuestion?.answers.map(\.text) == ["a1", "   "])
+
+        inv.cancelQuestion(agentId: "agent-1")
+        _ = await answers
+    }
+
+    @Test("Options select by index, toggle off, and survive free text that matches an option")
+    func optionIntentsMatchTheChatCard() async {
+        let inv = SlackInvoker(gate: AgentInvocationGate())
+        startRootRun(inv, agentId: "agent-1", agentName: "tutor")
+
+        async let answers = inv.askQuestions(
+            agentId: "agent-1",
+            rows: [HumanQuestionRow(question: "level?", options: ["beginner", "advanced"])]
+        )
+        await awaitParkedQuestion(inv, agentId: "agent-1")
+
+        inv.applyAnswerIntent(agentId: "agent-1", rowIndex: 0, intent: .pickOption(1))
+        #expect(inv.activeInvocations["agent-1"]?.pendingQuestion?.answers[0].choice == .option(1))
+        #expect(inv.pendingAnswersComplete(agentId: "agent-1") == true)
+
+        // Tapping the selected option again clears it.
+        inv.applyAnswerIntent(agentId: "agent-1", rowIndex: 0, intent: .pickOption(1))
+        #expect(inv.activeInvocations["agent-1"]?.pendingQuestion?.answers[0].choice == .unset)
+        #expect(inv.pendingAnswersComplete(agentId: "agent-1") == false)
+
+        // Out-of-range option indices are ignored.
+        inv.applyAnswerIntent(agentId: "agent-1", rowIndex: 0, intent: .pickOption(9))
+        #expect(inv.activeInvocations["agent-1"]?.pendingQuestion?.answers[0].choice == .unset)
+
+        // "Other…" works from an untouched row, and text equal to an option
+        // stays the user's own answer.
+        inv.applyAnswerIntent(agentId: "agent-1", rowIndex: 0, intent: .chooseOther)
+        #expect(inv.activeInvocations["agent-1"]?.pendingQuestion?.answers[0].choice == .other)
+        inv.applyAnswerIntent(agentId: "agent-1", rowIndex: 0, intent: .typeOther("beginner"))
+        #expect(inv.activeInvocations["agent-1"]?.pendingQuestion?.answers[0].choice == .other)
+
+        inv.submitAnswers(agentId: "agent-1")
+        let result = await answers
+        #expect(result == ["beginner"], "a picked option and typed text resolve to the same string")
+    }
+
+    @Test("A question with no rows is not submittable")
+    func emptyRowsIsNotComplete() async {
+        let inv = SlackInvoker(gate: AgentInvocationGate())
+        startRootRun(inv, agentId: "agent-1", agentName: "tutor")
+
+        async let answers = inv.askQuestions(agentId: "agent-1", rows: [])
+        await awaitParkedQuestion(inv, agentId: "agent-1")
+
+        #expect(inv.activeInvocations["agent-1"]?.pendingQuestion != nil,
+                "the question must actually be parked, or the check below is vacuous")
+        #expect(inv.pendingAnswersComplete(agentId: "agent-1") == false,
+                "an empty answer list must not report complete")
 
         inv.cancelQuestion(agentId: "agent-1")
         _ = await answers
@@ -109,12 +162,12 @@ struct SlackInvokerHITLTests {
         await awaitParkedQuestion(inv, agentId: "agent-1")
 
         // Incomplete: submit is a no-op.
-        inv.setPendingAnswer(agentId: "agent-1", rowIndex: 0, value: "a1")
+        inv.applyAnswerIntent(agentId: "agent-1", rowIndex: 0, intent: .typeOther("a1"))
         inv.submitAnswers(agentId: "agent-1")
         #expect(inv.activeInvocations["agent-1"]?.pendingQuestion?.rows.count == 2)
 
         // Complete: submit resumes with answers and clears the slot.
-        inv.setPendingAnswer(agentId: "agent-1", rowIndex: 1, value: "a2")
+        inv.applyAnswerIntent(agentId: "agent-1", rowIndex: 1, intent: .typeOther("a2"))
         inv.submitAnswers(agentId: "agent-1")
 
         let result = await answers
@@ -133,7 +186,7 @@ struct SlackInvokerHITLTests {
         )
         await awaitParkedQuestion(inv, agentId: "agent-1")
 
-        inv.setPendingAnswer(agentId: "agent-1", rowIndex: 0, value: "draft")
+        inv.applyAnswerIntent(agentId: "agent-1", rowIndex: 0, intent: .typeOther("draft"))
         inv.cancelQuestion(agentId: "agent-1")
 
         let result = await answers
@@ -189,8 +242,8 @@ struct SlackInvokerHITLTests {
         await awaitParkedQuestion(inv, agentId: "agent-1")
         await awaitParkedQuestion(inv, agentId: "agent-2")
 
-        inv.setPendingAnswer(agentId: "agent-1", rowIndex: 0, value: "alice")
-        inv.setPendingAnswer(agentId: "agent-2", rowIndex: 0, value: "bob")
+        inv.applyAnswerIntent(agentId: "agent-1", rowIndex: 0, intent: .typeOther("alice"))
+        inv.applyAnswerIntent(agentId: "agent-2", rowIndex: 0, intent: .typeOther("bob"))
         inv.submitAnswers(agentId: "agent-1")
         inv.submitAnswers(agentId: "agent-2")
 
@@ -213,7 +266,7 @@ struct SlackInvokerHITLTests {
         await awaitParkedQuestion(inv, agentId: "agent-1")
 
         #expect(inv.activeInvocations["agent-1"]?.pendingQuestion?.rows.first?.question == "Q?")
-        inv.setPendingAnswer(agentId: "agent-1", rowIndex: 0, value: "yes")
+        inv.applyAnswerIntent(agentId: "agent-1", rowIndex: 0, intent: .typeOther("yes"))
         inv.submitAnswers(agentId: "agent-1")
         let result = await answers
         #expect(result == ["yes"])

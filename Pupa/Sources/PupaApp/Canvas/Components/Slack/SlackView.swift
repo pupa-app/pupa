@@ -1010,7 +1010,7 @@ private struct ThinkingBubble: View {
 /// Inline yellow question card rendered when a Slack sub-agent's
 /// `ask_user_questions` call is parked. Mirrors the main chat's
 /// `HumanQuestionBubbleView` but lives in the channel pane and routes
-/// writes through `SlackInvoker.setPendingAnswer` / `submitAnswers` /
+/// writes through `SlackInvoker.applyAnswerIntent` / `submitAnswers` /
 /// `cancelQuestion` keyed by `state.agentId`. Multiple bubbles stack
 /// if more than one sub-agent is parked on a question in the same
 /// channel concurrently.
@@ -1065,73 +1065,19 @@ private struct SlackQuestionBubble: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func answer(at rowIdx: Int, question: SlackPendingQuestion) -> String {
-        question.answers.indices.contains(rowIdx) ? question.answers[rowIdx] : ""
+    private func answer(at rowIdx: Int, question: SlackPendingQuestion) -> PendingAnswer {
+        question.answers.indices.contains(rowIdx) ? question.answers[rowIdx] : PendingAnswer()
     }
 
+    /// Rendered by the shared `QuestionRowView`, same as the chat card.
     @ViewBuilder
-    private func questionRow(rowIdx: Int, row: HumanQuestionRow, currentAnswer: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(row.question)
-                .italic()
-                .textSelection(.enabled)
-            if row.options.isEmpty {
-                TextField(
-                    "Type a reply…",
-                    text: Binding(
-                        get: { currentAnswer },
-                        set: { invoker.setPendingAnswer(agentId: state.agentId, rowIndex: rowIdx, value: $0) }
-                    ),
-                    axis: .vertical
-                )
-                .textFieldStyle(.roundedBorder)
-                .lineLimit(1...3)
-            } else {
-                ForEach(Array(row.options.enumerated()), id: \.offset) { optIdx, option in
-                    optionButton(rowIdx: rowIdx, optIdx: optIdx, option: option, isSelected: currentAnswer == option)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func optionButton(rowIdx: Int, optIdx: Int, option: String, isSelected: Bool) -> some View {
-        Group {
-            if isSelected {
-                Button {
-                    invoker.setPendingAnswer(agentId: state.agentId, rowIndex: rowIdx, value: option)
-                } label: {
-                    optionLabel(optIdx: optIdx, option: option, isSelected: true)
-                }
-                .buttonStyle(.borderedProminent)
-            } else {
-                Button {
-                    invoker.setPendingAnswer(agentId: state.agentId, rowIndex: rowIdx, value: option)
-                } label: {
-                    optionLabel(optIdx: optIdx, option: option, isSelected: false)
-                }
-                .buttonStyle(.bordered)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func optionLabel(optIdx: Int, option: String, isSelected: Bool) -> some View {
-        HStack(spacing: 8) {
-            Text("\(optIdx + 1)")
-                .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
-            Text(option)
-                .multilineTextAlignment(.leading)
-            Spacer(minLength: 0)
-            if isSelected {
-                Image(systemName: "checkmark")
-                    .font(.caption)
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity, alignment: .leading)
+    private func questionRow(rowIdx: Int, row: HumanQuestionRow, currentAnswer: PendingAnswer) -> some View {
+        QuestionRowView(
+            row: row,
+            answer: currentAnswer,
+            isLive: true,
+            onIntent: { invoker.applyAnswerIntent(agentId: state.agentId, rowIndex: rowIdx, intent: $0) }
+        )
     }
 }
 

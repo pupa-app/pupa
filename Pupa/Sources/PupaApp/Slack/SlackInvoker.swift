@@ -193,7 +193,7 @@ public final class SlackInvoker {
                 }
                 state.pendingQuestion = SlackPendingQuestion(
                     rows: rows,
-                    answers: Array(repeating: "", count: rows.count)
+                    answers: Array(repeating: PendingAnswer(), count: rows.count)
                 )
                 activeInvocations[agentId] = state
                 pendingContinuations[agentId] = continuation
@@ -205,23 +205,27 @@ public final class SlackInvoker {
         }
     }
 
-    /// Write a per-row answer into the parked question. Out-of-range
+    /// Apply one card interaction to the parked question. Out-of-range
     /// indices and writes against an agent with no parked question are
-    /// silently ignored — the view layer mirrors `ChatViewModel.setPendingAnswer`.
-    public func setPendingAnswer(agentId: String, rowIndex: Int, value: String) {
+    /// silently ignored. The transition itself lives in
+    /// `PendingAnswer.applying(_:options:)`, shared with
+    /// `ChatViewModel.applyAnswerIntent`.
+    public func applyAnswerIntent(agentId: String, rowIndex: Int, intent: QuestionAnswerIntent) {
         guard var state = activeInvocations[agentId],
               var q = state.pendingQuestion,
               q.answers.indices.contains(rowIndex) else { return }
-        q.answers[rowIndex] = value
+        let options = q.rows.indices.contains(rowIndex) ? q.rows[rowIndex].options : []
+        guard let next = q.answers[rowIndex].applying(intent, options: options) else { return }
+        q.answers[rowIndex] = next
         state.pendingQuestion = q
         activeInvocations[agentId] = state
     }
 
-    /// True iff every row of the parked question has a non-whitespace
-    /// answer. Drives the Submit button's enable state.
+    /// True iff every row of the parked question has an option picked or
+    /// non-whitespace free text. Drives the Submit button's enable state.
     public func pendingAnswersComplete(agentId: String) -> Bool {
         guard let q = activeInvocations[agentId]?.pendingQuestion else { return false }
-        return q.answers.allSatisfy { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        return !q.answers.isEmpty && q.answers.allSatisfy(\.isComplete)
     }
 
     /// Resume the parked continuation with the collected answers and
@@ -234,7 +238,7 @@ public final class SlackInvoker {
               let continuation = pendingContinuations.removeValue(forKey: agentId) else {
             return
         }
-        let answers = q.answers
+        let answers = PendingAnswer.resolve(q.answers, rows: q.rows)
         state.pendingQuestion = nil
         activeInvocations[agentId] = state
         continuation.resume(returning: answers)
@@ -336,7 +340,7 @@ public struct SlackInvocationState: Equatable {
     /// Non-nil while the sub-agent is parked on an `ask_user_questions`
     /// interrupt awaiting the user's reply. The view renders an inline
     /// yellow question card in the channel pane when set; writes flow
-    /// through `SlackInvoker.setPendingAnswer` / `submitAnswers` /
+    /// through `SlackInvoker.applyAnswerIntent` / `submitAnswers` /
     /// `cancelQuestion`.
     public var pendingQuestion: SlackPendingQuestion? = nil
     /// Non-nil while the sub-agent is parked on a `request_shell_approval`
@@ -376,9 +380,9 @@ public struct SlackPendingShellApproval: Equatable, Sendable {
 
 public struct SlackPendingQuestion: Equatable, Sendable {
     public var rows: [HumanQuestionRow]
-    public var answers: [String]
+    public var answers: [PendingAnswer]
 
-    public init(rows: [HumanQuestionRow], answers: [String]) {
+    public init(rows: [HumanQuestionRow], answers: [PendingAnswer]) {
         self.rows = rows
         self.answers = answers
     }

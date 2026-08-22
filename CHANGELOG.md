@@ -3,6 +3,33 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.259] — 2026-08-22
+
+### Fixed
+
+- **Question cards no longer hijack what you type.** Typing an answer that
+  happened to match one of the suggested options silently selected that
+  option and made the text field disappear mid-sentence. What you type is now
+  kept as your own answer.
+- **"Other…" works on the first tap.** It only opened the text field if you
+  had already picked an option first; from an untouched question nothing
+  happened. Tapping it also puts the cursor straight in the field.
+- **A tapped option can be untapped.** Tapping the selected option again
+  clears it, so a mis-tap no longer forces you to submit an answer you didn't
+  mean.
+- **Older question cards stay read-only.** When the agent asked a second
+  question, every earlier card in the conversation became editable again and
+  wrote into the new question's answers.
+- **A typed reply survives tapping an option.** Writing a custom answer, then
+  tapping an option to compare, then going back to "Other…" used to leave the
+  field empty.
+- Suggested options that repeat the same wording now select independently.
+- Shell-approval cards got the same read-only fix: older ones in the
+  conversation no longer show working Approve / Deny buttons that answer the
+  *current* request.
+- The same card in a Slack channel gained "Other…", untapping, and the fixes
+  above; it previously offered no way to write your own answer.
+
 ## [0.0.258] — 2026-08-21
 
 ### Performance
