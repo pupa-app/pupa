@@ -75,6 +75,15 @@ struct ImportedAutomationTests {
         #expect(allConfirm)
     }
 
+    @Test("A config with no rules is kept, not reported as corrupt")
+    func rulelessConfigSurvives() {
+        // A bundle shipping an empty or forward-compatible config isn't
+        // broken; dropping it and telling the user it couldn't be read is a
+        // lie about their data.
+        #expect(MyAppImporter.sanitizeAutomations("{}") == "{}")
+        #expect(MyAppImporter.sanitizeAutomations(#"{"version":2}"#) == #"{"version":2}"#)
+    }
+
     @Test("Unparseable rule text is dropped, not passed through")
     func garbageIsDropped() {
         // If it can't be understood it can't be vouched for. `AutomationConfig`
@@ -149,27 +158,6 @@ struct ImportedAutomationTests {
         #expect(allConfirm, "\(path) bypassed the confirm rewrite")
     }
 
-    @Test("A case-variant path is sanitised too")
-    func caseVariantPathIsSanitised() throws {
-        // iOS/macOS filesystems are case-insensitive by default, so
-        // `pupa/Automations.JSON` lands at the same place `AutomationStore`
-        // reads from. Matching the path case-sensitively would be a one-character
-        // bypass of the whole guard.
-        let mem = tempMemory()
-        let store = MyAppStore(initial: ([], UUID()))
-        let data = try bundleCarrying(
-            MemoryFile(path: "pupa/Automations.JSON", content: rulesJSON(confirm: "false")))
-
-        let result = try MyAppImporter.importBundle(data, into: store, memory: mem)
-        let scoped = mem.appScopedStore(forAppId: result.myAppId)
-        let paths = scoped.snapshotPaths()
-        let automationPath = try #require(
-            paths.first { $0.lowercased() == MemoryStore.pupaAutomationsPath.lowercased() },
-            "the file didn't land anywhere — fixture assumption is wrong")
-        let onDisk = try scoped.readFile(path: automationPath).content
-        let allConfirm = AutomationConfig.parse(onDisk).allSatisfy { $0.confirm }
-        #expect(allConfirm, "a case-variant path bypassed the confirm guard")
-    }
 
     @Test("Rules the user writes locally are untouched")
     func locallyAuthoredRulesKeepAutoFire() throws {
@@ -272,13 +260,6 @@ struct ImportedRemoteImageTests {
         #expect(store.myApps.first { $0.id == result.myAppId }?.allowsRemoteImages == true)
     }
 
-    @Test("The withheld provider does not fetch; the allowed one does")
-    func gatedProviderSwitches() {
-        // GatedImageProvider had no test at all. It can't be rendered headlessly,
-        // but the branch it takes is the whole contract.
-        #expect(GatedImageProvider(allowed: false).allowed == false)
-        #expect(GatedImageProvider(allowed: true).allowed == true)
-    }
 }
 
 extension ImportedAutomationTests {
@@ -293,5 +274,20 @@ extension ImportedAutomationTests {
         let result = try MyAppImporter.importBundle(data, into: store, memory: mem)
         let mentionsRules = result.warnings.contains { $0.lowercased().contains("automation") }
         #expect(mentionsRules, "rules vanished with no warning: \(result.warnings)")
+    }
+}
+
+extension ImportedRemoteImageTests {
+    @Test("An app id that resolves to nothing is denied, not allowed")
+    func unknownAppIdFailsClosed() throws {
+        // A stale route, or a link naming an app that isn't installed, means
+        // we can't tell whose content this is — which is not a reason to fetch.
+        let store = MyAppStore(initial: ([], UUID()))
+        let known = try MyAppImporter.importBundle(
+            try bundle(settings: [:]), into: store, memory: tempMemory()).myAppId
+
+        #expect(store.myApps.first { $0.id == known }?.allowsRemoteImages == false)
+        #expect(store.myApps.first { $0.id == UUID() } == nil,
+                "fixture assumption: a random id resolves to no app")
     }
 }

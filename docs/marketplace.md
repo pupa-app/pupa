@@ -134,7 +134,8 @@ fully before any store/disk mutation:
    non-empty strings — the model catalog is backend-provided now, so it can't
    be validated here; an unknown pair is rejected at request time.)
 7. insert; then write memories via `MemoryStore.writeFile` (its `resolve`
-   blocks `..`, absolute paths, and any extension outside `.md` / `.json`).
+   folds `..` and rejects one that escapes the subtree, plus absolute paths
+   and any extension outside `.md` / `.json`).
    `pupa/automations.json` is rewritten on the way through to force
    `confirm: true` on every rule.
 

@@ -219,8 +219,9 @@ public enum MyAppImporter {
         // Stage 5 — memories (last). Re-rooted under the new app's immutable id
         // (fresh UUID above) — so a re-import can never collide with or clobber
         // the source app's memory subtree. Every write goes through
-        // `MemoryStore.writeFile`, whose `resolve` blocks `..`, absolute paths and
-        // any extension outside the `.md` / `.json` allowlist.
+        // `MemoryStore.writeFile`, whose `resolve` folds `..` and rejects one
+        // that escapes the app's subtree, along with absolute paths and any
+        // extension outside the `.md` / `.json` allowlist.
         warnings += writeMemories(bundle.memories, appId: id, memory: memory)
 
         return ImportResult(myAppId: id, warnings: warnings)
@@ -349,8 +350,11 @@ public enum MyAppImporter {
     /// See `docs/marketplace.md`.
     static func sanitizeAutomations(_ content: String) -> String? {
         guard let data = content.data(using: .utf8),
-              var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let automations = root["automations"] as? [String: Any] else { return nil }
+              let parsed = try? JSONSerialization.jsonObject(with: data) else { return nil }
+        // Parses but carries no rule map (`{}`, a forward-compat config, a
+        // top-level array): nothing to rewrite, and nothing to warn about.
+        guard var root = parsed as? [String: Any],
+              let automations = root["automations"] as? [String: Any] else { return content }
 
         var cleaned: [String: Any] = [:]
         for (event, value) in automations {
@@ -402,9 +406,10 @@ public enum MyAppImporter {
                 }
                 content = safe
             }
-            // writeFile's resolve() rejects `..`, absolute paths and any
-            // extension outside the `.md` / `.json` allowlist; a hostile path
-            // simply fails to write rather than escaping.
+            // writeFile's resolve() folds `..`, rejects one that escapes the
+            // subtree along with absolute paths and any extension outside the
+            // `.md` / `.json` allowlist; a hostile path fails to write rather
+            // than escaping.
             _ = try? scoped.writeFile(path: file.path, content: content)
         }
         return warnings

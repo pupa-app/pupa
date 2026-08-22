@@ -50,7 +50,8 @@ allow-listed, memory writes are confined to the app's own subtree with `..` and
 absolute paths rejected and extensions limited to `.md` / `.json`, automation
 rules are forced to *propose* rather than fire on their own, remote image
 loading is off until the user turns it on, and link fields accept only
-`http`/`https`.
+`http`/`https` plus in-app `pupa://` (which the app intercepts itself and never
+hands to the OS).
 
 What that does **not** cover, by design: an imported agent prompt or skill body
 is model-facing text, and a bundle that ships one is asking the model to behave

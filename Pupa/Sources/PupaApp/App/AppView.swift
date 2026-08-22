@@ -1114,23 +1114,25 @@ public struct AppView: View {
     /// destinations (driven by `detailPath`). Keeping a single source of
     /// truth means a landing-page push of `.myAppComponent` shows the same
     /// `CanvasView` as a direct sidebar tap on that component.
-    /// Every detail route, with the per-app remote-image gate applied.
-    ///
-    /// Applied here rather than inside each screen because the routes that show
-    /// imported content are siblings, not a tree: `CanvasView` and
-    /// `MemoryFileView` are separate cases of the switch below, so injecting in
-    /// one left the other reading the default. One place, all routes.
+    /// Applies the per-app remote-image gate to every detail route. Done here
+    /// because the routes showing imported content are siblings, not a tree —
+    /// `CanvasView` and `MemoryFileView` are separate cases below, so injecting
+    /// in one left the other reading the default.
     private func detailView(for sel: SidebarSelection) -> some View {
         detailContent(for: sel)
             .environment(\.remoteImagesAllowed, remoteImagesAllowed(for: sel.myAppId))
             .environment(\.enableRemoteImages, enableRemoteImages(for: sel.myAppId))
     }
 
-    /// `allowsRemoteImages` for an app id, defaulting to allowed when there
-    /// isn't one (the orchestrator's own notes aren't imported content).
+    /// `allowsRemoteImages` for an app id.
+    ///
+    /// No id at all means the orchestrator, whose notes are the user's own →
+    /// allowed. An id that resolves to nothing means we don't know whose
+    /// content this is (a stale route, a link naming an app that isn't here) →
+    /// denied.
     private func remoteImagesAllowed(for myAppId: UUID?) -> Bool {
         guard let myAppId else { return true }
-        return store.myApps.first { $0.id == myAppId }?.allowsRemoteImages ?? true
+        return store.myApps.first { $0.id == myAppId }?.allowsRemoteImages ?? false
     }
 
     /// Action a withheld image offers, or nil when there's no app to enable.

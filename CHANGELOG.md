@@ -16,9 +16,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   Pictures in cards and notes were fetched the moment an app was opened, so a
   shared app could quietly tell whoever made it that you'd opened it. They now
   show a placeholder with a switch to turn loading on.
-- **Links in tracker cards only open web addresses.** A shared app could put a
-  link on a card that pointed at something other than a web page and have one
-  tap hand it to another app on your device.
+- **Links in tracker cards only open web addresses**, or a link back into Pupa
+  itself. A shared app could put a link on a card that pointed at something
+  else entirely and have one tap hand it to another app on your device.
 
 ### Changed
 
