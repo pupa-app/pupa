@@ -238,9 +238,7 @@ public final class SlackInvoker {
               let continuation = pendingContinuations.removeValue(forKey: agentId) else {
             return
         }
-        let answers = q.answers.enumerated().map { idx, answer in
-            q.rows.indices.contains(idx) ? answer.resolved(in: q.rows[idx]) : answer.text
-        }
+        let answers = PendingAnswer.resolve(q.answers, rows: q.rows)
         state.pendingQuestion = nil
         activeInvocations[agentId] = state
         continuation.resume(returning: answers)

@@ -137,10 +137,10 @@ public struct ChatPanel: View {
                             MessageBubbleView(
                                 bubble: bubble,
                                 verbose: viewModel.verbose,
-                                pendingAnswers: viewModel.pendingAnswers,
+                                pendingAnswers: viewModel.pendingBubbleId == bubble.id ? viewModel.pendingAnswers : [],
                                 pendingBubbleId: viewModel.pendingBubbleId,
                                 pendingComplete: viewModel.pendingAnswersComplete,
-                                shellApprovalBubbleId: viewModel.hasPendingShellApproval ? bubble.id : nil,
+                                shellApprovalBubbleId: viewModel.pendingShellApprovalBubbleId,
                                 onAnswerIntent: { rowIndex, intent in
                                     viewModel.applyAnswerIntent(rowIndex: rowIndex, intent: intent)
                                 },
@@ -1050,9 +1050,10 @@ enum MarkdownCache {
 private struct MessageBubbleView: View, Equatable {
     let bubble: ChatBubble
     let verbose: Bool
-    /// The viewmodel's in-progress answers for the currently-pending
-    /// interrupt, indexed by question row. The bubble reads its own row's
-    /// value from this array (matched against `pendingBubbleId`); writes
+    /// The in-progress answers for the live interrupt, indexed by question
+    /// row — empty for every bubble but the one that owns it, so a historic
+    /// card never renders the live question's state and never invalidates on
+    /// its keystrokes. Writes
     /// flow through `onAnswerIntent` so the viewmodel stays the source of
     /// truth and SwiftUI re-renders cleanly when the user interacts.
     let pendingAnswers: [PendingAnswer]

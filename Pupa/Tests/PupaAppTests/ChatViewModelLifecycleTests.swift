@@ -405,6 +405,99 @@ struct ChatViewModelLifecycleTests {
         #expect(result == ["No", "later"])
     }
 
+    @Test("A typed reply survives a detour through the options")
+    func typedText_survivesOptionDetour() async {
+        MyAppTypeRegistry.shared.registerBuiltins()
+        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
+        let store = MyAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+
+        async let answers = vm.askQuestions([
+            HumanQuestionRow(question: "Ship it?", options: ["Yes", "No"]),
+        ])
+        await awaitBubbleAppear(vm)
+
+        vm.applyAnswerIntent(rowIndex: 0, intent: .typeOther("ship it on Friday, after the demo"))
+        // Tap an option to compare, then go back to the typed reply.
+        vm.applyAnswerIntent(rowIndex: 0, intent: .pickOption(0))
+        #expect(vm.resolvedPendingAnswers == ["Yes"])
+        vm.applyAnswerIntent(rowIndex: 0, intent: .chooseOther)
+
+        #expect(vm.resolvedPendingAnswers == ["ship it on Friday, after the demo"],
+                "detouring through an option must not throw the typed reply away")
+
+        vm.newThread()
+        _ = await answers
+    }
+
+    @Test("Clearing an option leaves the row unanswered even while it still carries text")
+    func togglingOffAnOption_leavesRowIncomplete() async {
+        MyAppTypeRegistry.shared.registerBuiltins()
+        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
+        let store = MyAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+
+        async let answers = vm.askQuestions([
+            HumanQuestionRow(question: "Ship it?", options: ["Yes", "No"]),
+        ])
+        await awaitBubbleAppear(vm)
+
+        vm.applyAnswerIntent(rowIndex: 0, intent: .typeOther("maybe"))
+        vm.applyAnswerIntent(rowIndex: 0, intent: .pickOption(0))
+        vm.applyAnswerIntent(rowIndex: 0, intent: .pickOption(0))
+
+        #expect(vm.pendingAnswers[0].choice == .unset)
+        #expect(vm.pendingAnswers[0].text == "maybe", "the reply is kept for when they tap Other… again")
+        #expect(vm.pendingAnswersComplete == false, "carried text must not count as an answer")
+        #expect(vm.resolvedPendingAnswers == [""])
+
+        vm.newThread()
+        _ = await answers
+    }
+
+    @Test("Only the newest question card is live; earlier ones stay historic")
+    func laterQuestion_doesNotReviveTheEarlierCard() async {
+        MyAppTypeRegistry.shared.registerBuiltins()
+        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
+        let store = MyAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+
+        async let first = vm.askQuestions([HumanQuestionRow(question: "Q1?", options: [])])
+        await awaitBubbleAppear(vm)
+        let firstCardId = vm.pendingBubbleId
+        vm.applyAnswerIntent(rowIndex: 0, intent: .typeOther("a1"))
+        vm.submitInterruptAnswers()
+        _ = await first
+        #expect(vm.pendingBubbleId == nil, "nothing is live between questions")
+
+        async let second = vm.askQuestions([HumanQuestionRow(question: "Q2?", options: [])])
+        for _ in 0..<100 where vm.pendingBubbleId == nil { await Task.yield() }
+
+        #expect(vm.pendingBubbleId != firstCardId,
+                "the earlier card must not go live again when a later question parks")
+        #expect(vm.pendingBubbleId == vm.bubbles.last?.id)
+
+        vm.newThread()
+        _ = await second
+    }
+
+    @Test("A question with no rows is not submittable")
+    func emptyRows_isNotComplete() async {
+        MyAppTypeRegistry.shared.registerBuiltins()
+        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
+        let store = MyAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+
+        async let answers = vm.askQuestions([])
+        for _ in 0..<100 where vm.hasPendingQuestion == false { await Task.yield() }
+
+        #expect(vm.hasPendingQuestion == true, "or the check below is vacuous")
+        #expect(vm.pendingAnswersComplete == false)
+
+        vm.newThread()
+        _ = await answers
+    }
+
     @Test("submitInterruptAnswers clears pending state, appends a transcript bubble, and returns answers")
     func submitInterruptAnswers_clearsAndSummarises() async {
         MyAppTypeRegistry.shared.registerBuiltins()

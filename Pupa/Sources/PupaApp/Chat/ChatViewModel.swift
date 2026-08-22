@@ -120,17 +120,30 @@ public struct PendingAnswer: Hashable, Sendable {
 
     /// The string handed to the model for `row`.
     public func resolved(in row: HumanQuestionRow) -> String {
-        if case .option(let i) = choice, row.options.indices.contains(i) {
-            return row.options[i]
+        switch choice {
+        case .unset: return ""
+        case .option(let i): return row.options.indices.contains(i) ? row.options[i] : ""
+        case .other: return text
         }
-        return text
+    }
+
+    /// Every row's answer, in row order, as the agent receives them. Shared
+    /// by both cards so the wire payload is built one way only.
+    public static func resolve(_ answers: [PendingAnswer], rows: [HumanQuestionRow]) -> [String] {
+        answers.enumerated().map { idx, answer in
+            rows.indices.contains(idx) ? answer.resolved(in: rows[idx]) : ""
+        }
     }
 
     /// True once this row can be submitted: an option is picked, or the free
-    /// text is more than whitespace.
+    /// text is more than whitespace. An untouched row is never complete, even
+    /// though it may still be carrying text the user typed earlier.
     public var isComplete: Bool {
-        if case .option = choice { return true }
-        return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        switch choice {
+        case .unset: return false
+        case .option: return true
+        case .other: return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
     }
 
     /// The row after one card interaction, or nil when the intent doesn't
@@ -141,13 +154,12 @@ public struct PendingAnswer: Hashable, Sendable {
         switch intent {
         case .pickOption(let optIdx):
             guard options.indices.contains(optIdx) else { return nil }
-            // Tapping the selected option again clears it, so a mis-tap can
-            // be taken back.
-            return choice == .option(optIdx) ? PendingAnswer() : PendingAnswer(choice: .option(optIdx))
+            // Tapping the selected option again clears it, so a mis-tap can be
+            // taken back. Either way the typed reply rides along untouched, so
+            // detouring through an option doesn't lose it.
+            let next: Choice = choice == .option(optIdx) ? .unset : .option(optIdx)
+            return PendingAnswer(choice: next, text: text)
         case .chooseOther:
-            // Switching away from an option starts the text empty; an
-            // already-typed reply is kept.
-            if case .option = choice { return PendingAnswer(choice: .other) }
             return PendingAnswer(choice: .other, text: text)
         case .typeOther(let text):
             // Always free text — a reply equal to an option is still the
@@ -455,9 +467,18 @@ public final class ChatViewModel {
     /// bubble view via `applyAnswerIntent(rowIndex:intent:)`. Empty when no
     /// interrupt is active.
     public private(set) var pendingAnswers: [PendingAnswer] = []
+    /// The parked question's rows, held alongside the answers that index them
+    /// rather than looked up in the transcript — the answers resolve against
+    /// these, so a payload can never go out blank because a bubble moved.
+    private var pendingQuestionRows: [HumanQuestionRow] = []
     /// Continuation suspended by `requestShellApproval(command:)`. Resumed
     /// exactly once via `submitShellApproval` or cleared on cancel / new-thread.
     private var pendingShellApprovalContinuation: CheckedContinuation<(approved: Bool, remember: Bool), Never>?
+    /// Id of the bubble owning the live shell-approval interrupt, or nil when
+    /// none is pending. Same role as `pendingBubbleId`: without it every
+    /// historic approval card in the transcript grows working Approve / Deny
+    /// buttons that resolve the *current* request.
+    public private(set) var pendingShellApprovalBubbleId: String?
     /// Fired on every `isStreaming` transition so the coordinator can update
     /// its derived `busyMyApps` set without polling.
     private let onStreamingChange: ((Bool) -> Void)?
@@ -1156,26 +1177,17 @@ public final class ChatViewModel {
     public func applyAnswerIntent(rowIndex: Int, intent: QuestionAnswerIntent) {
         guard pendingContinuation != nil,
               pendingAnswers.indices.contains(rowIndex) else { return }
-        let rows = pendingQuestionRows ?? []
-        let options = rows.indices.contains(rowIndex) ? rows[rowIndex].options : []
+        let options = pendingQuestionRows.indices.contains(rowIndex)
+            ? pendingQuestionRows[rowIndex].options
+            : []
         guard let next = pendingAnswers[rowIndex].applying(intent, options: options) else { return }
         pendingAnswers[rowIndex] = next
-    }
-
-    /// The rows of the currently-parked question bubble, or nil when no
-    /// interrupt is active.
-    private var pendingQuestionRows: [HumanQuestionRow]? {
-        guard let id = pendingBubbleId else { return nil }
-        return bubbles.first { $0.id == id }?.humanQuestions
     }
 
     /// `pendingAnswers` flattened to the strings the agent receives, in row
     /// order. Empty when no interrupt is active.
     public var resolvedPendingAnswers: [String] {
-        guard let rows = pendingQuestionRows else { return pendingAnswers.map(\.text) }
-        return pendingAnswers.enumerated().map { idx, answer in
-            rows.indices.contains(idx) ? answer.resolved(in: rows[idx]) : answer.text
-        }
+        PendingAnswer.resolve(pendingAnswers, rows: pendingQuestionRows)
     }
 
     /// Submit the collected answers to the suspended `ask_user_questions`
@@ -1199,6 +1211,7 @@ public final class ChatViewModel {
         pendingContinuation = nil
         pendingBubbleId = nil
         pendingAnswers = []
+        pendingQuestionRows = []
         continuation.resume(returning: answers)
     }
 
@@ -1209,6 +1222,7 @@ public final class ChatViewModel {
         let label = approved ? (remember ? "Always allow" : "Allow once") : "Deny"
         appendBubble(ChatBubble(role: .user, text: label))
         pendingShellApprovalContinuation = nil
+        pendingShellApprovalBubbleId = nil
         continuation.resume(returning: (approved: approved, remember: remember))
     }
 
@@ -1391,6 +1405,7 @@ public final class ChatViewModel {
         // pending at a time).
         if let continuation = pendingShellApprovalContinuation {
             pendingShellApprovalContinuation = nil
+            pendingShellApprovalBubbleId = nil
             appendBubble(ChatBubble(role: .user, text: "Deny"))
             continuation.resume(returning: (approved: false, remember: false))
             return
@@ -1399,6 +1414,7 @@ public final class ChatViewModel {
             pendingContinuation = nil
             pendingBubbleId = nil
             pendingAnswers = []
+            pendingQuestionRows = []
             continuation.resume(returning: [])
             return
         }
@@ -2086,6 +2102,7 @@ extension ChatViewModel: HumanInTheLoopBridge {
         openToolRoundId = nil
         let bubble = ChatBubble(role: .shellApproval, text: command)
         appendBubble(bubble)
+        pendingShellApprovalBubbleId = bubble.id
         return await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<(approved: Bool, remember: Bool), Never>) in
                 pendingShellApprovalContinuation = continuation
@@ -2094,6 +2111,7 @@ extension ChatViewModel: HumanInTheLoopBridge {
             Task { @MainActor [weak self] in
                 guard let self, let continuation = self.pendingShellApprovalContinuation else { return }
                 self.pendingShellApprovalContinuation = nil
+                self.pendingShellApprovalBubbleId = nil
                 continuation.resume(returning: (approved: false, remember: false))
             }
         }
@@ -2108,6 +2126,7 @@ extension ChatViewModel: HumanInTheLoopBridge {
         appendBubble(bubble)
         pendingBubbleId = bubble.id
         pendingAnswers = Array(repeating: PendingAnswer(), count: questions.count)
+        pendingQuestionRows = questions
         return await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<[String], Never>) in
                 pendingContinuation = continuation
@@ -2121,6 +2140,7 @@ extension ChatViewModel: HumanInTheLoopBridge {
                 self.pendingContinuation = nil
                 self.pendingBubbleId = nil
                 self.pendingAnswers = []
+                self.pendingQuestionRows = []
                 continuation.resume(returning: [])
             }
         }

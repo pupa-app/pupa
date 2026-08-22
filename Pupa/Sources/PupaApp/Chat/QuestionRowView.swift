@@ -42,12 +42,21 @@ struct QuestionRowView: View {
             }
             if showingOther { inlineTextField }
         }
+        // Focus is requested here rather than in the "Other…" action: at the
+        // moment of the tap the field doesn't exist yet, so the request has
+        // nothing to bind to. By the time `choice` has changed it does.
+        // Option-less rows are excluded so a card never opens the keyboard on
+        // its own.
+        .onChange(of: answer.choice) { _, choice in
+            guard isLive, !row.options.isEmpty, choice == .other else { return }
+            otherFocused = true
+        }
     }
 
     private var otherButton: some View {
-        Button {
+        let isSelected = answer.choice == .other
+        return Button {
             onIntent(.chooseOther)
-            otherFocused = true
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "pencil")
@@ -57,12 +66,21 @@ struct QuestionRowView: View {
                     .italic()
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.caption)
+                }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(.bordered)
+        .background(
+            isSelected
+                ? RoundedRectangle(cornerRadius: 6).fill(Color.accentColor.opacity(0.18))
+                : nil
+        )
         .disabled(!isLive)
     }
 

@@ -20,7 +20,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
 - **Older question cards stay read-only.** When the agent asked a second
   question, every earlier card in the conversation became editable again and
   wrote into the new question's answers.
+- **A typed reply survives tapping an option.** Writing a custom answer, then
+  tapping an option to compare, then going back to "Other…" used to leave the
+  field empty.
 - Suggested options that repeat the same wording now select independently.
+- Shell-approval cards got the same read-only fix: older ones in the
+  conversation no longer show working Approve / Deny buttons that answer the
+  *current* request.
 - The same card in a Slack channel gained "Other…", untapping, and the fixes
   above; it previously offered no way to write your own answer.
 
