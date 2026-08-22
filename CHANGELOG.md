@@ -3,6 +3,27 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.261] — 2026-08-22
+
+### Security
+
+- **An imported app can no longer start a chat by itself.** A shared app can
+  carry rules that react when you move something on the canvas. A rule was able
+  to mark itself as not needing confirmation, which meant opening someone's app
+  could send a message to your agent — with your tools and your data — without
+  showing you anything first. Imported rules now always ask.
+- **Imported apps don't load images from the internet until you say so.**
+  Pictures in cards and notes were fetched the moment an app was opened, so a
+  shared app could quietly tell whoever made it that you'd opened it. They now
+  show a placeholder with a switch to turn loading on.
+- **Links in tracker cards only open web addresses.** A shared app could put a
+  link on a card that pointed at something other than a web page and have one
+  tap hand it to another app on your device.
+
+### Changed
+
+- The import screen now says how many automation rules an app brings with it.
+
 ## [0.0.260] — 2026-08-22
 
 ### Changed

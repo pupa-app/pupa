@@ -169,10 +169,17 @@ public enum MyAppImporter {
         }
 
         // Stage 0e — settings allow-list (drops security-relevant keys).
-        let (cleanSettings, droppedKeys) = sanitizeSettings(decoded.settings)
+        var (cleanSettings, droppedKeys) = sanitizeSettings(decoded.settings)
         if !droppedKeys.isEmpty {
             warnings.append("Ignored unsupported settings: \(droppedKeys.sorted().joined(separator: ", ")).")
         }
+        // Imported content doesn't get to reach the network unprompted. Card
+        // and markdown images are fetched on render, with no tap, so a bundle
+        // could otherwise beacon (and probe the LAN — ATS permits local
+        // networking) the moment its app is opened. Set *after* the allow-list,
+        // which has already dropped any value the bundle tried to supply, so a
+        // bundle can't grant itself this.
+        cleanSettings[MyAppStore.remoteImagesSettingsKey] = .bool(false)
 
         // Stage 1–3 operate on a local component array, then we build the app.
         var components = decoded.components
@@ -332,15 +339,73 @@ public enum MyAppImporter {
         return "\(base) \(n)"
     }
 
+    /// Force `confirm: true` on every rule in imported automation text.
+    ///
+    /// An automation rule with `confirm: false` starts a chat turn with **no
+    /// bubble** — see `RuleEngine.pendingAutoFire`. In a bundle that means an
+    /// attacker-authored prompt reaching the model with the victim's tools, on
+    /// a canvas event, with nothing shown first. `docs/marketplace.md` named
+    /// this as the residual vector of the import threat model; this closes it.
+    ///
+    /// Rewrites the JSON rather than filtering at read time so the file on disk
+    /// *is* the enforced truth — nothing downstream has to remember where the
+    /// rules came from, and the Memories UI shows the user what actually runs.
+    /// The action survives: a shared MyApp can still ship automations, they
+    /// just always propose. Rules the user writes locally are untouched, since
+    /// this runs only on the import path.
+    ///
+    /// Returns nil when the text can't be understood — unreadable rules aren't
+    /// written at all, rather than trusting that a future parser will read them
+    /// the same way this one does.
+    static func sanitizeAutomations(_ content: String) -> String? {
+        guard let data = content.data(using: .utf8),
+              var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let automations = root["automations"] as? [String: Any] else { return nil }
+
+        var cleaned: [String: Any] = [:]
+        for (event, value) in automations {
+            guard let entries = value as? [[String: Any]] else {
+                cleaned[event] = value   // not rule-shaped; the parser drops it
+                continue
+            }
+            cleaned[event] = entries.map { entry -> [String: Any] in
+                var copy = entry
+                copy["confirm"] = true
+                return copy
+            }
+        }
+        root["automations"] = cleaned
+
+        guard let out = try? JSONSerialization.data(withJSONObject: root, options: [.sortedKeys]),
+              let text = String(data: out, encoding: .utf8) else { return nil }
+        return text
+    }
+
+    /// Whether a bundle path lands on the automation rules file.
+    ///
+    /// Case-insensitive on purpose: iOS and macOS filesystems are
+    /// case-insensitive by default, so `pupa/Automations.JSON` resolves to the
+    /// same file `AutomationStore` reads. Matching exactly would make the
+    /// guard a one-character bypass.
+    private static func isAutomationsPath(_ path: String) -> Bool {
+        let normalised = path.hasPrefix("./") ? String(path.dropFirst(2)) : path
+        return normalised.caseInsensitiveCompare(MemoryStore.pupaAutomationsPath) == .orderedSame
+    }
+
     private static func writeMemories(_ files: [MemoryFile], appId: UUID, memory: MemoryStore) {
         let capped = files.prefix(maxMemoryFiles)
         let scoped = memory.appScopedStore(forAppId: appId)
         for file in capped {
             guard file.content.utf8.count <= maxMemoryFileBytes else { continue }
+            var content = file.content
+            if isAutomationsPath(file.path) {
+                guard let safe = sanitizeAutomations(content) else { continue }
+                content = safe
+            }
             // writeFile's resolve() rejects `..`, absolute paths and any
             // extension outside the `.md` / `.json` allowlist; a hostile path
             // simply fails to write rather than escaping.
-            _ = try? scoped.writeFile(path: file.path, content: file.content)
+            _ = try? scoped.writeFile(path: file.path, content: content)
         }
     }
 

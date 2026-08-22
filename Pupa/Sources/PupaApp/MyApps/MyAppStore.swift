@@ -262,6 +262,14 @@ public final class MyAppStore {
     public static let llmProviderSettingsKey = "llm.provider"
     /// Storage key for the per-MyApp LLM logical model id (e.g. "claude-sonnet-4-6").
     public static let llmModelSettingsKey = "llm.model"
+    /// Storage key for "may this app fetch remote images". Absent → yes, which
+    /// keeps every app the user built themselves behaving as before. The
+    /// importer writes `false` on anything that arrived in a bundle: card and
+    /// markdown images load on render with no interaction, so bundle content
+    /// could otherwise beacon the moment the app is opened. See
+    /// `MyApp.allowsRemoteImages`.
+    /// `nonisolated` because `MyApp` (a plain struct) reads it.
+    public nonisolated static let remoteImagesSettingsKey = "media.remoteImages"
 
     /// Write (or clear) the per-MyApp LLM override atomically. Pass `nil` for
     /// either field to clear both — the pair only ever applies together.

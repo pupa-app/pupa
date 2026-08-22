@@ -19,6 +19,10 @@ public struct MemoryFileView: View {
     /// When true (the file's app has locked memories), Edit / Delete are hidden
     /// and the note is preview-only.
     var readOnly: Bool = false
+
+    /// False inside an imported app until the user opts in. See
+    /// `MyApp.allowsRemoteImages`.
+    @Environment(\.remoteImagesAllowed) private var remoteImagesAllowed
     var onDeleted: () -> Void
 
     /// Last content loaded from disk. The Cancel button reverts to this.
@@ -62,6 +66,10 @@ public struct MemoryFileView: View {
                     Markdown(loadedContent)
                         .markdownTheme(.gitHub)
                         .textSelection(.enabled)
+                        // Memory files ride in imported bundles, and MarkdownUI's
+                        // default provider fetches on render — an image URL in
+                        // one is a callout the moment the note is opened.
+                        .markdownImageProvider(.gated(allowed: remoteImagesAllowed))
                 } else {
                     codeView
                 }

@@ -790,6 +790,12 @@ struct TrackerItemCard: View {
     /// geometry, so growing the card cannot feed back into a measurement.
     @State private var linksExpanded = false
 
+    /// False inside an imported app until the user opts in. A hero image is
+    /// fetched on render, so the URL alone is a zero-click callout; the card
+    /// falls back to `initialBadge`, which is what a card without an image
+    /// already shows.
+    @Environment(\.remoteImagesAllowed) private var remoteImagesAllowed
+
     init(
         item: TrackerItem,
         layout: CardLayout,
@@ -971,7 +977,7 @@ struct TrackerItemCard: View {
     @ViewBuilder
     private var hero: some View {
         let value = heroValue
-        if let url = heroURL(value) {
+        if let url = heroURL(value), remoteImagesAllowed {
             AsyncImage(url: url) { phase in
                 switch phase {
                 case .success(let image):
@@ -1106,16 +1112,7 @@ struct TrackerItemCard: View {
         return max(0, allLinkEntries.count - CardDensityMetrics.linkCap(density))
     }
 
-    private func parseURL(_ value: String) -> URL? {
-        // Accept bare https://… / http://… as-is; prepend https:// for
-        // domain-only inputs (e.g. "github.com/foo") so the agent can write
-        // shorthand URLs and have them open cleanly.
-        if let url = URL(string: value), url.scheme != nil { return url }
-        if value.contains(".") && !value.contains(" ") {
-            return URL(string: "https://\(value)")
-        }
-        return nil
-    }
+    private func parseURL(_ value: String) -> URL? { TrackerLinkURL.parse(value) }
 
     /// Inline pills row for `item.linkedItems` — chain-link icon + live
     /// target display name. Capped at 3 visible (with a "+N" overflow
@@ -1197,5 +1194,31 @@ private struct LinkPill: View {
         // `.onTapGesture` propagates to the card's tap-to-edit handler when
         // wrapped by `Link`'s buttonStyle(.plain) — adding contentShape
         // here would steal the gesture. Default Link hit-testing is fine.
+    }
+}
+
+
+/// Turns a tracker link-field value into a URL safe to hand `Link(destination:)`.
+///
+/// **Web schemes only.** These values are content — the agent writes them and
+/// an imported bundle ships them — and `Link` hands whatever it's given to the
+/// OS, which routes by scheme. Accepting any scheme meant a card could carry
+/// `file:`, `tel:`, or a custom scheme (including Pupa's own registered
+/// `pupa-install://`) and have one tap drive it. The sibling `heroURL` already
+/// restricted itself this way; this is the same rule for the link pills.
+enum TrackerLinkURL {
+    private static let allowedSchemes: Set<String> = ["http", "https"]
+
+    static func parse(_ value: String) -> URL? {
+        if let url = URL(string: value), let scheme = url.scheme {
+            guard allowedSchemes.contains(scheme.lowercased()) else { return nil }
+            return url
+        }
+        // Domain-only shorthand ("github.com/foo") — the agent writes these,
+        // and they carry no scheme to abuse.
+        if value.contains(".") && !value.contains(" ") {
+            return URL(string: "https://\(value)")
+        }
+        return nil
     }
 }

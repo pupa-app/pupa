@@ -1548,7 +1548,8 @@ public struct AppView: View {
                 data: data,
                 isLibrary: false,
                 appNames: [bundle.app.name],
-                agentPrompts: agentPrompts(in: bundle.app))
+                agentPrompts: agentPrompts(in: bundle.app),
+                automationRuleCount: automationRuleCount(in: bundle.memories))
         case .library:
             guard let library = try? MyAppBundle.makeDecoder().decode(MyAppLibraryBundle.self, from: data) else {
                 importNotice = ImportNotice(message: "This isn't a valid Pupa app bundle.")
@@ -1558,7 +1559,10 @@ public struct AppView: View {
                 data: data,
                 isLibrary: true,
                 appNames: library.apps.map { $0.app.name },
-                agentPrompts: library.apps.flatMap { agentPrompts(in: $0.app) })
+                agentPrompts: library.apps.flatMap { agentPrompts(in: $0.app) },
+                automationRuleCount: library.apps.reduce(0) {
+                    $0 + automationRuleCount(in: $1.memories)
+                })
         case .unknown:
             importNotice = ImportNotice(message: "This isn't a valid Pupa app bundle.")
         }
@@ -1567,6 +1571,13 @@ public struct AppView: View {
     /// Slack workspace agents in a bundle — the privacy review surface. Agent
     /// slugs referenced by the rooms; their persona text ships as
     /// `pupa/agents/<slug>/AGENTS.md` memory files (shown in the memory review).
+    /// Rules in the bundle's `pupa/automations.json`, if it ships one.
+    private func automationRuleCount(in memories: [MemoryFile]) -> Int {
+        memories
+            .filter { $0.path.caseInsensitiveCompare(MemoryStore.pupaAutomationsPath) == .orderedSame }
+            .reduce(0) { $0 + AutomationConfig.parse($1.content).count }
+    }
+
     private func agentPrompts(in app: MyApp) -> [String] {
         var slugs: Set<String> = []
         for comp in app.components {
@@ -1616,6 +1627,10 @@ private struct PendingImport: Identifiable {
     let appNames: [String]
     /// Agent personas across the bundle, surfaced for review before import.
     let agentPrompts: [String]
+    /// Automation rules the bundle carries. They're forced to propose rather
+    /// than fire on their own (see `MyAppImporter.sanitizeAutomations`), but
+    /// the user should still know the app reacts to what they do.
+    let automationRuleCount: Int
 }
 
 private struct ImportNotice: Identifiable {
@@ -1663,6 +1678,14 @@ private struct ImportConfirmSheet: View {
                         }
                     }
                 }
+                if pending.automationRuleCount > 0 {
+                    Section("Automations") {
+                        Text("\(pending.automationRuleCount) rule\(pending.automationRuleCount == 1 ? "" : "s")")
+                            .font(.caption)
+                        Text("This app reacts when you move an item. Rules ask before starting a chat.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
             }
             .navigationTitle("Import")
             #if os(iOS)
@@ -1693,6 +1716,25 @@ extension EnvironmentValues {
     var paneIsActive: Bool {
         get { self[PaneIsActiveKey.self] }
         set { self[PaneIsActiveKey.self] = newValue }
+    }
+}
+
+/// Whether views in this subtree may fetch images from the network. Set from
+/// `MyApp.allowsRemoteImages` at the canvas root; **true** by default so plain
+/// SwiftUI previews and non-app surfaces are unaffected.
+///
+/// It's an environment value rather than a parameter because the fetch sites
+/// are leaves — a tracker card's hero image, a markdown image in chat — and
+/// threading a flag through every intermediate view would be a lot of surface
+/// for something that must not be forgotten at one call site.
+private struct RemoteImagesAllowedKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    var remoteImagesAllowed: Bool {
+        get { self[RemoteImagesAllowedKey.self] }
+        set { self[RemoteImagesAllowedKey.self] = newValue }
     }
 }
 

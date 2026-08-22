@@ -1,0 +1,18 @@
+# Swift package updates. The backend repo has its own for uv / Actions.
+version: 2
+updates:
+  - package-ecosystem: swift
+    directory: /Pupa
+    schedule:
+      interval: weekly
+    target-branch: dev
+  - package-ecosystem: swift
+    directory: /AGUIKit
+    schedule:
+      interval: weekly
+    target-branch: dev
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    target-branch: dev
