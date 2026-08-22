@@ -3,6 +3,22 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.260] — 2026-08-22
+
+### Changed
+
+- **Everything about agents now lives under Settings ▸ Agents.** Tools was a
+  top-level Settings row even though every control on it — shell approval,
+  per-tool mutes, host-tool scope — decides what agents are allowed to do. It
+  has moved under Agents, which is now a hub of four focused screens:
+  **Roster** (agents per app, and their activity), **Tools**, **Limits**
+  (agent-to-agent and turn limits) and **Threads** (conversations, tokens and
+  cost). The Agents page used to stack all of that into one long scroll.
+  Every control behaves exactly as before — only where you find it changed.
+- **Opening Agents no longer fetches usage for every thread you own.** Token
+  and cost figures are fetched by the screen that shows them, so the request
+  covers the page you opened instead of the whole section.
+
 ## [0.0.259] — 2026-08-22
 
 ### Fixed

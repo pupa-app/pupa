@@ -45,7 +45,7 @@ handlers.
   cleanly would need a terminal resume carrying a cancelled tool result. The cap is **off by default** (`nil`) — every tool round-trip
   consumes a round, so a finite cap truncated long agentic turns; the
   backend's graph-step limit is the runaway guard. Users can switch the
-  breaker on in Settings → Turn limits (`maxToolRounds`, range 4–64), and
+  breaker on in Settings → Agents → Limits (`maxToolRounds`, range 4–64), and
   `AgentSession.setMaxRounds` applies the change on the very next message
   without rebuilding the session (which would drop `messages` and the replay
   cursor). The loop settles with `.completed(CompletionOutcome)`:
@@ -91,7 +91,7 @@ handlers.
 | [`Agents/`](../Pupa/Sources/PupaApp/Agents/) | Per-agent policies, the agent overview/detail pages, `ModelCatalogStore` (live per-harness model list + tool/permission schema from `GET /harnesses`; no offline fallback). |
 | [`Slack/`](../Pupa/Sources/PupaApp/Slack/) | `SlackInvoker` — multi-agent room invocation policy. |
 | [`ScreenShare/`](../Pupa/Sources/PupaApp/ScreenShare/) | WebRTC viewer + signalling client for the backend's `/screenshare/ws` broker. |
-| [`Settings/`](../Pupa/Sources/PupaApp/Settings/) | `SettingsStore` (backend URL, API key, disabled tools), backend-tools client. |
+| [`Settings/`](../Pupa/Sources/PupaApp/Settings/) | `SettingsStore` (backend URL, API key, disabled tools), `SettingsSheet` + its category screens, `SettingsHubRow`, backend-tools client. |
 
 `AppView` lays this out as a fixed-width `HStack` split (sidebar `Divider`
 detail) on macOS and a custom slide-in drawer on iOS. (macOS deliberately
@@ -133,6 +133,30 @@ content-hash change, so a streaming bubble replaces its own entry.
 `MyAppSidebarView` is `Equatable` for the same reason — the stores it reads are
 `@Observable`, so real data changes still invalidate it from within; the gate
 only suppresses the redundant passes.
+
+### Settings hierarchy
+
+`SettingsSheet` is a `NavigationStack` over a root `List` of top-level
+categories (`SettingsCategory`, one `navigationDestination`). Everything that
+governs agents sits under **Agents**, a hub of its own:
+
+```
+Account · Backend · Agents · Notifications · Examples · Import & Export
+                      │      · Pinned snapshots · Archive · Recently deleted
+                      ├── Roster    AgentRosterView    roster + lifetime stats
+                      ├── Tools     ToolsSettingsView  harness permissions
+                      ├── Limits    AgentLimitsView    A2A + turn limits
+                      └── Threads   AgentThreadsView   threads, tokens, cost
+```
+
+Hub children are pushed with **closure** `NavigationLink`s (as in Import &
+Export), so they stay out of `SettingsCategory` and the tour's deep-link map
+(`TourSettingsPage`) keeps covering only top-level pages. Roster and Threads
+need the app stores and hide without them; Tools and Limits need only
+`SettingsStore` and always render. Roster and Threads own a
+`ThreadUsageStore` each, so `POST /db/threads/usage` fires for the page you
+opened rather than for the whole Agents section. All category rows —
+root, Agents, Import & Export — render through the one `SettingsHubRow`.
 
 ### Measuring interaction latency
 
@@ -968,7 +992,7 @@ unreachable the model list is empty and the picker shows an explicit
 "backend unreachable" state rather than a stale hardcoded catalog. The selected
 `{provider, model}` is forwarded per turn in `RunAgentInput.forwardedProps["llm"]`.
 
-**Harness-scoped permissions.** Settings → Tools renders controls from the
+**Harness-scoped permissions.** Settings → Agents → Tools renders controls from the
 active harness's advertised schema (`HarnessPermissionControl`): a `toolset`
 (backend-tool mutes → `state["disabled_tools"]`), `bool`
 (`shell_approval_disabled`), or `choice` (`claude_loop_native`). Values echo
@@ -1006,7 +1030,7 @@ Storage parallels the existing per-agent LLM storage: the main agent uses
 subagents keep their overrides in `pupa/agents/<slug>/AGENTS.md` frontmatter
 (`model`/`provider`/`tools`/`disabled_tools`; edited via `AgentStore.setModel` /
 `setDisabledTools`), and the orchestrator uses global `SettingsStore` fields.
-Each agent's disabled set is **unioned** with the global Settings → Tools set
+Each agent's disabled set is **unioned** with the global Settings → Agents → Tools set
 (`disabledBackendTools`) and sent every turn as `state.disabled_tools`, which
 the backend `ToolGatingMiddleware` drops from the model's tool list. The send
 paths — the main-agent chat turn (`ChatViewModel`), orchestrator→MyApp sub-runs
@@ -1431,10 +1455,10 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
   they stay in the Keychain, unsynced. The Settings
   sheet groups these into drill-down categories: **Account** (the read-only
   `ProfileSettingsView` — iCloud sync status, this device via `DeviceInfo`,
-  data overview, version; no auth/login of its own), Backend, Tools (shell
-  approval + backend tool toggles), Agent-to-agent (the `AgentInvocationGate`
-  conversation-rounds + chain-depth limits), **Agents** (the
-  `AgentsOverviewView` — see below), Notifications (lists/cancels
+  data overview, version; no auth/login of its own), Backend, **Agents** (the
+  hub — Roster/Tools/Limits/Threads; shell approval + backend tool toggles
+  under Tools, the `AgentInvocationGate` conversation-rounds + chain-depth
+  limits under Limits; see below), Notifications (lists/cancels
   pending scheduled notifications — one-shot or recurring presets
   daily / weekly / everyNHours, repeating rows badged), and Examples.
 - **Notifications** → `NotificationCenterCoordinator` (singleton wrapper
@@ -1478,8 +1502,8 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
   ungated chat panel, so first-level delegations (orchestrator chat → MyApp
   agent, MyApp chat → subagent) are counted too. `.user` — the composer, a
   Slack @-mention — roots a tree and credits nobody. Stats are advisory/lossy-tolerant
-  (missing key → zero; orphans ignored). **Settings → Agents**
-  (`AgentsOverviewView`) reads the roster through the existing
+  (missing key → zero; orphans ignored). **Settings → Agents → Roster**
+  (`AgentRosterView`) reads the roster through the existing
   `AgentRegistry` descriptor pipeline and renders it as nested dropdowns
   (each MyApp expands to its agents — main agent + Slack personas, derived
   from `AgentDescriptor.kind`/`myAppId`; each agent expands to its stats;
