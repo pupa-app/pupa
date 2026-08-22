@@ -110,7 +110,8 @@ Key facts:
   [docs/adding-a-component.md](docs/adding-a-component.md).
 - **Agent behaviour primarily via frontend tools** registered in
   [`AppTools.swift`](Pupa/Sources/PupaApp/Tools/AppTools.swift). The
-  backend only owns `tavily_search` (optional).
+  backend forwards their JSON-Schema definitions to the model; the client
+  executes them.
 - **Memories are persistent**; canvas + chat state reset on "New
   session" but the markdown filesystem at
   `~/Library/Application Support/pupa/memories/` survives.
