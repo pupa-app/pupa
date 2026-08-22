@@ -2,176 +2,95 @@
   <img src="docs/assets/pupa-icon.png" alt="Pupa" width="280" />
 </p>
 
-# Pupa
+<p align="center">
+  <strong>Agentic experiences crystallised into real apps.</strong>
+  <br />
+  <a href="https://pupa-app.com">pupa-app.com</a>
+</p>
 
-[![Pupa](https://img.shields.io/badge/Pupa-0.0.259-000000?logo=apple&logoColor=white)](Pupa/Sources/PupaApp/Version.swift)
-[![AGUIKit](https://img.shields.io/badge/AGUIKit-0.0.30-f05138?logo=swift&logoColor=white)](AGUIKit/Sources/AGUIKit/Version.swift)
+<p align="center">
+  <a href="Pupa/Sources/PupaApp/Version.swift"><img src="https://img.shields.io/badge/Pupa-0.0.259-000000?logo=apple&logoColor=white" alt="Pupa version" /></a>
+  <a href="AGUIKit/Sources/AGUIKit/Version.swift"><img src="https://img.shields.io/badge/AGUIKit-0.0.30-f05138?logo=swift&logoColor=white" alt="AGUIKit version" /></a>
+</p>
 
-Native iOS / macOS client for the Pupa agent: a SwiftUI canvas that
-moulds into the shape you ask for (tracker, calendar, checklist, slack
-rooms, calculator, charts…), a side-panel chat that drives it, and a long-lived Memories
-filesystem that survives sessions. Talks plain
-[AG-UI](https://github.com/copilotkit/copilotkit) to the
-[Pupa backend](https://github.com/pupa-app/pupa-backend) over a single
-SSE stream.
+Pupa is a native iOS and macOS app where your agent builds you real apps.
+Say what you need, and the canvas moulds into the shape that fits it:
+trackers, calendars, checklists, charts, calculators, rooms of agents
+talking to each other. Each one is a **MyApp**, with its own long-lived
+Memories filesystem, so the work keeps growing instead of disappearing
+when the chat ends.
 
-## Contents
+The agent is yours. Pupa talks to a backend you run, fronting the harness
+you already use (Claude Code works out of the box), so your keys and your
+context stay on your machine.
 
-- [Components](#components)
-- [Layout](#layout)
-- [Run](#run)
-- [Architecture](#architecture)
-- [Backend](#backend)
-- [Adding a new component](#adding-a-new-component)
-- [Contributing](#contributing)
+|  One for everything you're juggling  |  Your agent builds you a real app  |  Just say what you need  |
+| :---: | :---: | :---: |
+| <img src="docs/assets/shot-library.png" alt="MyApps library" width="240" /> | <img src="docs/assets/shot-canvas.png" alt="A MyApp home screen" width="240" /> | <img src="docs/assets/shot-chat.png" alt="Chat driving the canvas" width="240" /> |
 
-## Components
+## Build, use, share, contribute
 
-| Component | Version | Where |
-|---|---|---|
-| **Pupa iOS / macOS app** (SwiftUI) | `0.0.259` | [`Pupa/Sources/PupaApp/Version.swift`](Pupa/Sources/PupaApp/Version.swift) |
-| **AGUIKit** (Swift Package — AG-UI client) | `0.0.30` | [`AGUIKit/Sources/AGUIKit/Version.swift`](AGUIKit/Sources/AGUIKit/Version.swift) |
+- **Build** apps for anything, from daily helpers to full automations.
+- **Use** them across your Apple devices, powered by the agent on your
+  laptop, synced over iCloud.
+- **Share** any app as a portable `.pupa` bundle, and install what others
+  have made from the [marketplace](https://pupa-app.com/marketplace).
+- **Contribute** the pieces themselves. Canvas shapes, MyApp templates and
+  skills are all things you can add. See below.
 
-Patch-only bumps (`0.0.X` → `0.0.X+1`). See [CHANGELOG.md](CHANGELOG.md)
-for the root project version and [CONTRIBUTING.md](CONTRIBUTING.md) for
-the release flow.
+## How it works
 
-## Layout
+The app speaks plain [AG-UI](https://github.com/copilotkit/copilotkit) to
+the [Pupa backend](https://github.com/pupa-app/pupa-backend) over a single
+SSE stream. The backend runs wherever you want it, wraps your agent, and
+forwards the client's tool definitions to the model. The model then drives
+the canvas by calling those tools: the shapes render locally, the state
+lives on device, and a MyApp exports as a self-contained `.pupa` bundle.
 
-```
-pupa/
-├── AGUIKit/      ← standalone Swift Package, the AG-UI client.
-│                   Could be published independently — no dependency on Pupa.
-├── Pupa/         ← the app proper. Depends on ../AGUIKit (local SPM path),
-│                   plus SwiftUI views, @Observable stores, tool handlers.
-├── PupaHost/     ← thin Xcode app project (PupaHost.xcodeproj) that hosts
-│                   PupaApp on iOS / macOS via SPM. Used for TestFlight builds.
-└── docs/         ← architecture + "adding a new component" recipe.
-```
+Two Swift packages sit behind that: `Pupa` (the app) and
+[`AGUIKit`](AGUIKit/), a standalone AG-UI client for Apple platforms with
+no dependency on Pupa, embeddable in any project.
 
-`AGUIKit` is meant to be **the AG-UI client library that doesn't exist
-in the Swift ecosystem yet** — equivalent to what `@copilotkit/runtime`
-+ `@copilotkit/react-core` do for browsers. By keeping it isolated,
-anyone building any AG-UI agent client on Apple platforms can reuse it
-without taking on Pupa's UI choices.
+## Get Pupa
 
-## Run
+**App Store: coming soon.** Email
+[support@pupa-app.com](mailto:support@pupa-app.com) for a TestFlight
+invite and try it early.
 
-### macOS demo (fast iteration outside Xcode)
+To build from source, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-```bash
-# 1. Start a backend on :8004 (see https://github.com/pupa-app/pupa-backend).
-# 2. Run the macOS demo:
-make mac-demo            # = swift run --package-path Pupa PupaDemo
-```
+## Docs
 
-The demo defaults to `http://localhost:8004/`. Override by passing
-`backendURL:` to `AppView` in `Pupa/Sources/PupaDemo/App.swift`, or via
-Settings → Backend inside the running app.
-
-### iOS / macOS app via Xcode
-
-Open `PupaHost/PupaHost.xcodeproj` in Xcode 16+; the host app pulls in
-`PupaApp` via the workspace's pinned SPM dependencies. Select an iOS
-simulator or "My Mac (Designed for iPad)" and run.
-
-> **Signing.** `DEVELOPMENT_TEAM` is intentionally blank in the checked-in
-> project. Before running on a device or archiving for TestFlight, set
-> your own team under the `PupaHost` target → Signing & Capabilities (or
-> via `xcodebuild DEVELOPMENT_TEAM=...`). The `testflight-release` skill
-> does not set it for you.
-
-### Tests
-
-```bash
-make test                # both packages
-make test-aguikit        # AGUIKit only (use FILTER=Foo to scope)
-make test-pupa           # PupaApp only
-```
-
-## Architecture
-
-```
-   ┌─────────────────────────────────────┐
-   │  Pupa (SwiftUI app)                 │
-   │   • Canvas (tracker / calendar /    │   ────── AG-UI ───────▶   Pupa backend
-   │     checklist / slack / …)          │      POST / (SSE)          (FastAPI on :8004)
-   │   • Chat + slash commands           │
-   │   • Frontend tools (canvas + mem)   │
-   │   • Memories filesystem             │
-   │   • UserDefaults state              │
-   │                                     │
-   │     uses ─▶  AGUIKit                │
-   │                • AgentClient/Session│
-   │                • multi-round loop   │
-   │                • ToolRegistry       │
-   └─────────────────────────────────────┘
-```
-
-Key facts:
-
-- **Canvas mutations only via `CanvasState`
-  ([Pupa/Sources/PupaApp/Canvas/CanvasState.swift](Pupa/Sources/PupaApp/Canvas/CanvasState.swift))
-  or registered frontend tools.** No duplicate mutation logic in views.
-- **Shapes are SwiftUI views**, not generative-UI primitives. Adding one
-  = small self-contained change — recipe at
-  [docs/adding-a-component.md](docs/adding-a-component.md).
-- **Agent behaviour primarily via frontend tools** registered in
-  [`AppTools.swift`](Pupa/Sources/PupaApp/Tools/AppTools.swift). The
-  backend only owns `tavily_search` (optional).
-- **Memories are persistent**; canvas + chat state reset on "New
-  session" but the markdown filesystem at
-  `~/Library/Application Support/pupa/memories/` survives.
-
-Full reference in [docs/architecture.md](docs/architecture.md).
-
-## Backend
-
-The backend lives in a separate repo —
-[pupa-app/pupa-backend](https://github.com/pupa-app/pupa-backend).
-Install + run + pair-once auth flow are documented there. The client
-defaults to `http://localhost:8004/`; point it at a hosted instance via
-Settings → Backend.
-
-## Adding a new component
-
-Follow [docs/adding-a-component.md](docs/adding-a-component.md) — full
-recipe (SwiftUI view, typed data model, render + mutator tools, kind
-registration on `MyAppType`, tests) covered end-to-end.
-
-## TestFlight
-
-The `testflight-release` skill at
-[`.claude/skills/testflight-release/`](.claude/skills/testflight-release/)
-syncs `MARKETING_VERSION` to `PupaAppVersion`, bumps
-`CURRENT_PROJECT_VERSION`, and produces a `.xcarchive` ready for upload
-via Xcode Organizer. Invoke through Claude Code's
-`/testflight-release`, or run the script directly:
-
-```bash
-.claude/skills/testflight-release/archive.sh [--build N] [--no-bump] [--skip-icon-check]
-```
+| Doc | What |
+|---|---|
+| [architecture.md](docs/architecture.md) | How the app actually works. The source of truth. |
+| [adding-a-component.md](docs/adding-a-component.md) | End to end recipe for a new canvas shape. |
+| [marketplace.md](docs/marketplace.md) | `.pupa` bundle format, export and import, threat model. |
+| [skills.md](docs/skills.md) | The per-MyApp `pupa/` folder: slash commands and playbooks. |
+| [templates.md](docs/templates.md) | The realism bar for shipping a `.pupa` template. |
+| [testing-turn-recovery.md](docs/testing-turn-recovery.md) | By-hand playbook for interrupted turns. |
+| [components/](docs/components/) | Per-shape notes: [calculator](docs/components/calculator.md), [chart](docs/components/chart.md), [slack](docs/components/slack.md). |
 
 ## Contributing
 
-[CONTRIBUTING.md](CONTRIBUTING.md) covers the branching workflow (`dev`
-integration, fast-forward release to `main`) and the hard rules for AI
-assistants. [CLAUDE.md](CLAUDE.md) is the in-repo agent guide.
+Extending Pupa is the point. A canvas shape is a self-contained SwiftUI
+view plus a typed model and its tools, so adding one is a small change
+rather than surgery:
+[docs/adding-a-component.md](docs/adding-a-component.md) walks the whole
+recipe. MyApp templates and skills are plain files, no Swift required.
+
+[CONTRIBUTING.md](CONTRIBUTING.md) covers setup, build and test commands,
+the architecture tour, and the branch workflow (`dev` is the integration
+branch). There is no CLA.
 
 ## License
 
-Two licenses, split by role:
+| Path | License |
+|---|---|
+| `AGUIKit/` | [MIT](AGUIKit/LICENSE), so any Swift project can embed the AG-UI client, closed source included. |
+| Everything else | [MPL-2.0](LICENSE). File-level copyleft: fixes to Pupa's files come back, and the app still ships on the App Store. |
 
-| Path | License | Why |
-|---|---|---|
-| `AGUIKit/` | **MIT** — [AGUIKit/LICENSE](AGUIKit/LICENSE) | A library is only useful if anyone can embed it, including in closed-source apps. |
-| Everything else (`Pupa/`, `PupaHost/`, `docs/`, tooling) | **MPL-2.0** — [LICENSE](LICENSE) | File-level copyleft: improvements to Pupa's own files come back, but the app still combines with proprietary code and ships on the App Store without the GPL conflict. |
-
-MPL-2.0 is *file-level* copyleft. If you modify a Mozilla-licensed file
-you publish that file's changes under MPL-2.0; you may combine it with
-proprietary or differently-licensed code, and larger works carry no
-copyleft obligation. Per-file Exhibit A headers are omitted in favour of
-the directory-level notice MPL-2.0 explicitly permits — these two
-`LICENSE` files are the notice.
+Full terms in
+[CONTRIBUTING.md](CONTRIBUTING.md#licensing-of-contributions).
 
 Copyright © 2026 Pupa.
