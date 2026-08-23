@@ -1317,6 +1317,15 @@ seeds fresh. iCloud needs the CloudDocuments entitlement
 (`PupaHost.entitlements`, container `iCloud.com.pupa-app.client` =
 `PupaStorage.containerID`).
 
+`localRoot` is written as `~/Library/Application Support/pupa` throughout this
+doc, which is what it resolves to on iOS and in the unsandboxed `PupaDemo`
+target. **`PupaHost` is sandboxed on macOS**, so there the same code lands in
+`~/Library/Containers/com.pupa-app.client/Data/Library/Application Support/pupa`.
+Nothing in the storage layer needs to know: `.applicationSupportDirectory`
+already resolves per-container. It matters when you go looking for the files by
+hand, and it means `make mac-demo` reads a different tree from an Xcode build —
+see [App Sandbox & entitlements](#app-sandbox--entitlements).
+
 - **Canvas + MyApps state** → **per-file** under `state/`: one
   `apps/<uuid>.json` per MyApp plus `index.json` (active id, order,
   orchestrator threads, audit log, and the UI-only component-folder layout).
@@ -1630,6 +1639,61 @@ domain `pupa-app.com`; platform-neutral so one Universal Purchase record
 covers iOS + macOS). Tests/UITests use the `.tests` / `.uitests` suffixes.
 The bundle ID is permanent once an app record exists in App Store Connect,
 so settle on the final value before creating that record.
+
+### App Sandbox & entitlements
+
+`PupaHost` runs under the **macOS App Sandbox**, and has since the initial
+commit — `ENABLE_APP_SANDBOX = YES` in both app-target build-configuration
+blocks. That matters for distribution: the Mac App Store requires the sandbox,
+and a Developer ID build made from this same project gets it too, so both
+channels resolve the same container and the same data. There is no
+unsandboxed-to-sandboxed migration to write (pupa#246).
+
+**Entitlements are declared two ways here, and only one of them is a file.**
+
+- [`PupaHost/PupaHost/PupaHost.entitlements`](../PupaHost/PupaHost/PupaHost.entitlements)
+  — a literal key list. It holds the three iCloud keys and nothing else.
+- `ENABLE_*` build settings in `project.pbxproj` — the *Signing & Capabilities*
+  checkboxes. Xcode **synthesizes** the matching `com.apple.security.*` keys at
+  sign time, per platform, and they never appear in the `.entitlements` file.
+
+So reading the `.entitlements` file alone tells you almost nothing about what
+the shipped binary can do. The signature is the only ground truth:
+
+```bash
+codesign -d --entitlements - --xml build/Pupa-macOS.xcarchive/Products/Applications/PupaHost.app \
+  | plutil -convert xml1 -o - -
+```
+
+The synthesized form is preferred over hand-writing the keys because Xcode
+applies the macOS-only sandbox keys to the Mac slice by itself — a shared
+entitlements file would either duplicate the iCloud keys across two files or
+risk shipping a macOS key to iOS.
+
+Every key has to be justified by code that uses it. Too few and the feature is
+simply dead at runtime — the Mac build once shipped with no outbound network at
+all, localhost included (pupa#229). Too many and App Store review asks why the
+app wants a door it never opens.
+
+| Key (macOS) | Build setting | Why |
+|---|---|---|
+| `app-sandbox` | `ENABLE_APP_SANDBOX` | Required by the Mac App Store; keeps both channels on one container. |
+| `network.client` | `ENABLE_OUTGOING_NETWORK_CONNECTIONS` | The AG-UI SSE stream and every backend call. |
+| `network.server` | `ENABLE_INCOMING_NETWORK_CONNECTIONS` | **WebRTC.** Screen sharing is a real `RTCPeerConnection`; ICE binds local UDP sockets that the peer sends binding requests *inbound* to. The WebSocket signaling channel alone would need only `network.client`. |
+| `files.user-selected.read-write` | `ENABLE_USER_SELECTED_FILES` | `.pupa` export via the Save panel, import via the file picker and via Finder. |
+
+Not requested, deliberately: **camera** — the only `AVCapture*` is
+`QRScannerView`, which is `#if os(iOS)`, and the WebRTC session is receive-only
+with no local capture; and **microphone** — no audio API exists in either
+package. Keyboard dictation runs in the system process and needs nothing from
+the app (TextEdit is sandboxed, dictates fine, and holds no audio entitlement).
+`NSCameraUsageDescription` stays in the Info.plist because iOS still needs it
+for the TCC prompt; that string is separate from the macOS sandbox key.
+
+`archive.sh` gates every release on this set — see `MACOS_ENTITLEMENTS_EXPECTED`
+in the [`testflight-release`](../.claude/skills/testflight-release/) skill. It
+fails on both a missing key and an unexpected one, so any change here must land
+in the script and this table together.
 
 ### App icon
 

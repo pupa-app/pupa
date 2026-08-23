@@ -39,7 +39,8 @@ public enum PupaStorage {
         return base.appendingPathComponent("Documents", isDirectory: true)
     }()
 
-    /// Local canonical root: `~/Library/Application Support/pupa`.
+    /// Local canonical root: `~/Library/Application Support/pupa`. `PupaHost` is
+    /// sandboxed on macOS, so there that resolves inside the app container.
     public static var localRoot: URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory())

@@ -57,6 +57,12 @@ The demo defaults to `http://localhost:8004/`. Override by passing
 `backendURL:` to `AppView` in `Pupa/Sources/PupaDemo/App.swift`, or via
 Settings → Backend inside the running app.
 
+> **The demo does not share data with the Xcode build.** `PupaDemo` is a plain
+> SwiftPM executable, so it is unsandboxed and stores everything under
+> `~/Library/Application Support/pupa`. `PupaHost` is sandboxed, so the same
+> tree lives inside its container. Expect two separate rosters; it is not data
+> loss.
+
 ### iOS / macOS app via Xcode
 
 Open `PupaHost/PupaHost.xcodeproj` in Xcode 16+; the host app pulls in
@@ -64,10 +70,13 @@ Open `PupaHost/PupaHost.xcodeproj` in Xcode 16+; the host app pulls in
 simulator or "My Mac (Designed for iPad)" and run.
 
 > **Signing.** `DEVELOPMENT_TEAM` is intentionally blank in the checked-in
-> project. Before running on a device or archiving for TestFlight, set
-> your own team under the `PupaHost` target → Signing & Capabilities (or
-> via `xcodebuild DEVELOPMENT_TEAM=...`). The `testflight-release` skill
-> does not set it for you.
+> project. Before running on a device or archiving for TestFlight, put your
+> own team in `PupaHost/Local.xcconfig` (git-ignored, one line
+> `DEVELOPMENT_TEAM = XXXXXXXXXX`), or pass
+> `xcodebuild DEVELOPMENT_TEAM=...`. Do **not** use the `PupaHost` target →
+> Signing & Capabilities dropdown: it writes the team back into
+> `project.pbxproj` and leaks it into the repo. The `testflight-release`
+> skill does not set it for you.
 
 ### Tests
 
@@ -147,11 +156,14 @@ The `testflight-release` skill at
 [`.claude/skills/testflight-release/`](.claude/skills/testflight-release/)
 syncs `MARKETING_VERSION` to `PupaAppVersion`, bumps
 `CURRENT_PROJECT_VERSION`, and produces a `.xcarchive` ready for upload
-via Xcode Organizer. Invoke through Claude Code's
-`/testflight-release`, or run the script directly:
+via Xcode Organizer. It also gates the macOS archive on its signed
+entitlement set, so an unused capability can't reach App Store review —
+see [Signing & build configuration](docs/architecture.md#signing--build-configuration).
+Invoke through Claude Code's `/testflight-release`, or run the script
+directly:
 
 ```bash
-.claude/skills/testflight-release/archive.sh [--build N] [--no-bump] [--skip-icon-check]
+.claude/skills/testflight-release/archive.sh [--build N] [--no-bump] [--skip-icon-check] [--no-flow]
 ```
 
 ## Branches
