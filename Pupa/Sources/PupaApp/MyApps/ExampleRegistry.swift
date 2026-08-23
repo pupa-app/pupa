@@ -42,7 +42,6 @@ public enum ExampleRegistry {
         ContentStudioExample.self,
         DevWorkspaceExample.self,
         FashionCompanionExample.self,
-        HomeBuyingExample.self,
         ResearchTrackerExample.self,
     ]
 

@@ -3,6 +3,14 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.265] — 2026-08-23
+
+### Removed
+
+- **The Home Buying example app.** It is no longer offered on the examples
+  screen. An existing copy you already added keeps working and is not touched —
+  it just can't be added again from Settings.
+
 ## [0.0.264] — 2026-08-23
 
 ### Fixed

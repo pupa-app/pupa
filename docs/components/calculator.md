@@ -60,8 +60,8 @@ rows by `key`, never by display `name`, so renames never break them):
 `inlineChart: ChartData?` — the `decodeIfPresent` decoders mean that lands
 without a migration. `extraCharts: [ChartData]` stacks further charts below
 `inlineChart` (seed-declared; the `embedComponent` tool only ever touches
-`inlineChart`) — e.g. the Home Buying example pairs the live monthly-cost bar
-chart with a buy-vs-rent net-worth line chart.
+`inlineChart`) — e.g. a cost breakdown as a bar chart above a projection over
+time as a line chart.
 
 ## Engines (pure, store-free)
 

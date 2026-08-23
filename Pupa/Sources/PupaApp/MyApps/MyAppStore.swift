@@ -3961,9 +3961,9 @@ public final class MyAppStore {
         }
 
         // Fresh install: seed just the Daily Briefing (default, active). The
-        // guided tour offers to add a second example (Home Buying) at the end,
-        // and every example is restorable from Settings. The caller writes this
-        // to disk via `persist()`.
+        // guided tour offers to add a second example at the end, and every
+        // example is restorable from Settings. The caller writes this to disk
+        // via `persist()`.
         let myApp = DailyBriefingExample.make()
         let firstThread = ChatThread()
         return Loaded(myApps: [myApp], activeId: myApp.id,

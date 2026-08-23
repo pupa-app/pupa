@@ -13,9 +13,10 @@ import Testing
 @Suite("Calculator resolve cost")
 struct CalculatorResolvePerfTests {
 
-    /// A mortgage model shaped like the Home Buying example: linked fields off
-    /// a house tracker, a formula chain, and three list rows (a 4-house
-    /// comparison plus two 30-step sweeps).
+    /// A mortgage model: linked fields off a house tracker, a formula chain,
+    /// and three list rows (a 4-house comparison plus two 30-step sweeps).
+    /// Deliberately the heaviest shape a calculator takes — that is what makes
+    /// it worth pinning the resolve cost against.
     private func mortgageModel() -> (CalculatorData, [Component]) {
         var items: [TrackerItem] = []
         for (i, name) in ["Maple St", "Oak Ave", "Pine Rd", "Cedar Ln"].enumerated() {
