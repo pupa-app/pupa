@@ -3,6 +3,26 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.264] — 2026-08-23
+
+### Fixed
+
+- **A "curve per item" chart now actually draws.** A chart set up to compare
+  linked items over a range — one line per house, per plan, per option — drew a
+  blank panel however valid the model was, and the calculator row feeding it
+  reported "(no data)" beside it. Both were reading the single-line shape from
+  a row that produces a set of lines. The numbers had been computed correctly
+  all along; nothing was ever shown.
+- **A chart where you coloured only some of the lines no longer paints the rest
+  the same.** Setting a colour on one line left every uncoloured line sharing a
+  single indeterminate colour; they now get distinct ones.
+
+### Changed
+
+- **The little preview chart on a calculator row drops its dots** and draws the
+  line alone. At that size the dots were denser than the line they sat on. This
+  affects every calculator row with a preview, not only the new multi-line ones.
+
 ## [0.0.263] — 2026-08-23
 
 ### Fixed

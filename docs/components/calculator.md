@@ -45,6 +45,11 @@ rows by `key`, never by display `name`, so renames never break them):
   ref). Mental model: `linkedCompare`→bars (scalar per ref),
   `linkedSweep`→multi-line (curve per ref).
 
+  A `linkedSweep` row carries its curves in `RowResult.series` and leaves the
+  flat `list` nil; every other list kind is the other way round. Both the chart
+  and the calculator's own row read whichever shape the row produced — reading
+  only `list` is what made a valid `linkedSweep` render as empty.
+
 ## Data model
 
 [`Canvas/CanvasState.swift`](../../Pupa/Sources/PupaApp/Canvas/CanvasState.swift):
@@ -56,7 +61,7 @@ rows by `key`, never by display `name`, so renames never break them):
 without a migration. `extraCharts: [ChartData]` stacks further charts below
 `inlineChart` (seed-declared; the `embedComponent` tool only ever touches
 `inlineChart`) — e.g. the Home Buying example pairs the live monthly-cost bar
-chart with a per-house cumulative-cost line chart.
+chart with a buy-vs-rent net-worth line chart.
 
 ## Engines (pure, store-free)
 
@@ -66,6 +71,13 @@ chart with a per-house cumulative-cost line chart.
 - [`Calculator/TrackerAggregator.swift`](../../Pupa/Sources/PupaApp/Calculator/TrackerAggregator.swift)
   — the reduce + filter + tolerant numeric parse (currency / commas /
   percent). Reused by Phase 2 charts.
+- [`Calculator/ChartResolver.swift`](../../Pupa/Sources/PupaApp/Calculator/ChartResolver.swift)
+  — `ChartData` spec → `[ChartSeries]`. **Views render through
+  `displaySeries`**, which owns the `calculatorLinkedSweep` fan-out (one spec →
+  a curve per ref), the duplicate-name disambiguation Swift Charts needs, and
+  the `colorHex` carry-across (dropped for a fanned-out spec, so the curves
+  don't all come out one colour). The single-spec arm is private precisely
+  because it can't express a fan-out and silently returns nothing for one.
 - [`Calculator/CalculatorResolver.swift`](../../Pupa/Sources/PupaApp/Calculator/CalculatorResolver.swift)
   — `@MainActor` glue → per-row `{value, status}` where status ∈
   `ok / cycle / brokenRef / nonNumeric / unknownIdentifier / divisionByZero`.

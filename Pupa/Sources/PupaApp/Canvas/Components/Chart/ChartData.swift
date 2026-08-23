@@ -88,6 +88,19 @@ public enum ChartSeriesSource: Codable, Hashable, Sendable {
     }
     enum Kind: String, Codable { case tracker, calculatorRows, calculatorList, calculatorLinkedSweep, inline }
 
+    /// Whether one declared spec of this kind can resolve to MANY series.
+    ///
+    /// A fanning source gives up its `colorHex`: the override names one colour
+    /// and there are N curves to paint, so applying it would either flatten
+    /// them all to one colour or arbitrarily privilege the first. This is a
+    /// property of the *kind*, not of how many curves a given model happens to
+    /// produce today — otherwise a one-ref sweep would keep its colour and then
+    /// silently lose it the moment a second ref was linked.
+    var fansOut: Bool {
+        if case .calculatorLinkedSweep = self { return true }
+        return false
+    }
+
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let kind = (try? c.decodeIfPresent(Kind.self, forKey: .type)) ?? .inline

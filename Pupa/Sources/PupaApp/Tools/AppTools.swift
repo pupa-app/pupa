@@ -786,7 +786,12 @@ public enum AppTools {
                         guard let chart = parseChartData(from: args["chart"]) else {
                             return .object(["ok": .bool(false), "error": "embedComponent hostKind \"chat\" needs a `chart` ({title, kind, series})."])
                         }
-                        let series = ChartResolver.resolve(chart, components: siblingComponents(store: store, myAppId: myAppId))
+                        // Disambiguate before snapshotting: a chat embed is
+                        // frozen into the transcript, so two same-named series
+                        // would collapse into one style group permanently.
+                        let series = ChartResolver.disambiguated(
+                            ChartResolver.resolve(chart, components: siblingComponents(store: store, myAppId: myAppId))
+                        )
                         guard !series.isEmpty else {
                             return .object(["ok": .bool(false), "error": "chart resolved to no points — check the series sources before embedding in chat."])
                         }

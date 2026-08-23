@@ -1181,10 +1181,7 @@ private struct SlackShellApprovalBubble: View {
 /// agent dot and the message-bubble author label so an agent always
 /// reads as the same colour everywhere it appears.
 public enum SlackAgentPalette {
-    public static let palette: [Color] = [
-        .blue, .green, .orange, .pink,
-        .purple, .red, .teal, .indigo,
-    ]
+    public static let palette: [Color] = CategoricalPalette.colors
 
     public static func color(forAgentId id: String) -> Color {
         // DJB2 hash — stable across runs (no per-process salt), keeps

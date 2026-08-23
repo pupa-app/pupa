@@ -13,11 +13,27 @@ public struct ChartView: View {
     let series: [ChartSeries]
     let kind: ChartKind
     let colorByName: [String: Color]
+    /// Multi-series charts legend themselves. A caller drawing into a space
+    /// too small for one — the calculator's inline sparkline — turns it off;
+    /// the legend would otherwise eat most of a 36pt-tall plot.
+    let showsLegend: Bool
+    /// Per-point glyphs on a line chart. Off for a sparkline: three curves over
+    /// thirty steps is ninety glyphs in 120pt of width, which reads as noise
+    /// rather than as data.
+    let showsPoints: Bool
 
-    public init(series: [ChartSeries], kind: ChartKind, colorByName: [String: Color] = [:]) {
+    public init(
+        series: [ChartSeries],
+        kind: ChartKind,
+        colorByName: [String: Color] = [:],
+        showsLegend: Bool = true,
+        showsPoints: Bool = true
+    ) {
         self.series = series
         self.kind = kind
         self.colorByName = colorByName
+        self.showsLegend = showsLegend
+        self.showsPoints = showsPoints
     }
 
     /// Every plotted point flattened with its owning series name.
@@ -33,7 +49,7 @@ public struct ChartView: View {
 
     public var body: some View {
         chart
-            .modifier(ColorScaleModifier(colorByName: colorByName))
+            .modifier(ColorScaleModifier(names: series.map(\.name), colorByName: colorByName))
     }
 
     @ViewBuilder
@@ -58,41 +74,74 @@ public struct ChartView: View {
                 .foregroundStyle(by: .value("Series", row.series))
                 .position(by: .value("Series", row.series))
             }
-            .chartLegend(series.count > 1 ? .visible : .hidden)
+            .chartLegend(showsLegend && series.count > 1 ? .visible : .hidden)
         case .line:
             Chart(flat, id: \.point.id) { row in
                 if usesNumericX, let x = row.point.x {
                     LineMark(x: .value("x", x), y: .value("Value", row.point.y))
                         .foregroundStyle(by: .value("Series", row.series))
-                    PointMark(x: .value("x", x), y: .value("Value", row.point.y))
-                        .foregroundStyle(by: .value("Series", row.series))
+                    if showsPoints {
+                        PointMark(x: .value("x", x), y: .value("Value", row.point.y))
+                            .foregroundStyle(by: .value("Series", row.series))
+                    }
                 } else {
                     LineMark(x: .value("Label", row.point.label), y: .value("Value", row.point.y))
                         .foregroundStyle(by: .value("Series", row.series))
-                    PointMark(x: .value("Label", row.point.label), y: .value("Value", row.point.y))
-                        .foregroundStyle(by: .value("Series", row.series))
+                    if showsPoints {
+                        PointMark(x: .value("Label", row.point.label), y: .value("Value", row.point.y))
+                            .foregroundStyle(by: .value("Series", row.series))
+                    }
                 }
             }
-            .chartLegend(series.count > 1 ? .visible : .hidden)
+            .chartLegend(showsLegend && series.count > 1 ? .visible : .hidden)
         }
     }
 }
 
 /// Applies an explicit foreground-style scale only when colour overrides
 /// exist — otherwise Swift Charts picks its own distinct palette.
-private struct ColorScaleModifier: ViewModifier {
+///
+/// When it does apply, the scale must span **every** series on the chart.
+/// `chartForegroundStyleScale(domain:range:)` is categorical: a series whose
+/// name is missing from the domain gets no slot and renders in an undefined
+/// style, so a chart mixing one overridden series with several un-overridden
+/// ones would draw the rest identically. Names without an override are filled
+/// from the fallback palette, in the order they appear.
+struct ColorScaleModifier: ViewModifier {
+    /// Every series name on the chart, in draw order.
+    let names: [String]
     let colorByName: [String: Color]
 
     func body(content: Content) -> some View {
         if colorByName.isEmpty {
+            // No overrides at all: leave Swift Charts' own palette alone. It
+            // adapts to the series count better than a fixed list, and forcing
+            // ours here would restyle every existing chart in the app.
             content
         } else {
-            let pairs = colorByName.sorted { $0.key < $1.key }
-            content.chartForegroundStyleScale(
-                domain: pairs.map(\.key),
-                range: pairs.map(\.value)
-            )
+            content.chartForegroundStyleScale(domain: names, range: Self.range(names: names, colorByName: colorByName))
         }
+    }
+
+    /// One colour per name, in draw order: the author's override where there is
+    /// one, otherwise the next **unused** fallback — an overridden name must not
+    /// consume a palette slot, or the remaining series skip colours and wrap
+    /// sooner than they need to.
+    ///
+    /// Internal so this is testable: it is the logic that keeps a partly
+    /// coloured chart from rendering its un-overridden series identically.
+    static func range(names: [String], colorByName: [String: Color]) -> [Color] {
+        var next = 0
+        var out: [Color] = []
+        for name in names {
+            if let override = colorByName[name] {
+                out.append(override)
+            } else {
+                out.append(CategoricalPalette.colors[next % CategoricalPalette.colors.count])
+                next += 1
+            }
+        }
+        return out
     }
 }
 
@@ -115,23 +164,28 @@ public struct ChartContainerView: View {
         store.myApps.first(where: { $0.id == myAppId })?.components ?? []
     }
 
-    /// Resolve every series ONCE per render, then disambiguate duplicate
-    /// names (Swift Charts groups colour + legend by name, so two series
-    /// sharing a name would otherwise collapse into one) and carry each
-    /// spec's `colorHex` override across to the deduped name. Returns the
-    /// renamed series in declared order plus the name→colour overrides.
+    /// Resolve every series ONCE per render via `ChartResolver.displaySeries`,
+    /// which owns the fan-out (`calculatorLinkedSweep` becomes one curve per
+    /// linked item), the duplicate-name disambiguation and the `colorHex`
+    /// carry-across. All this view does is turn hex into `Color`.
     private var resolved: (series: [ChartSeries], colorByName: [String: Color]) {
+        Self.drawable(data, components: siblingComponents)
+    }
+
+    /// What `body` draws, as a pure function of the spec and the component
+    /// pool. Separate from the view so a test can assert this goes through
+    /// `displaySeries` — i.e. that a fanned-out source really reaches the
+    /// chart, which is the regression this file exists to prevent.
+    static func drawable(
+        _ data: ChartData,
+        components: [Component]
+    ) -> (series: [ChartSeries], colorByName: [String: Color]) {
         var series: [ChartSeries] = []
         var colorByName: [String: Color] = [:]
-        var counts: [String: Int] = [:]
-        for (idx, spec) in data.series.enumerated() {
-            guard let s = ChartResolver.resolveSeries(spec, index: idx, components: siblingComponents) else { continue }
-            let n = (counts[s.name] ?? 0) + 1
-            counts[s.name] = n
-            let name = n == 1 ? s.name : "\(s.name) (\(n))"
-            series.append(ChartSeries(id: s.id, name: name, points: s.points))
-            if let hex = spec.colorHex, let color = Color(hex: hex) {
-                colorByName[name] = color
+        for entry in ChartResolver.displaySeries(data, components: components) {
+            series.append(entry.series)
+            if let hex = entry.colorHex, let color = Color(hex: hex) {
+                colorByName[entry.series.name] = color
             }
         }
         return (series, colorByName)

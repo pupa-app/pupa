@@ -137,6 +137,24 @@ public struct CalculatorView: View {
         guard case .aggregate(let spec) = row.kind else { return nil }
         return store.componentName(spec.sourceComponentId, myAppId: myAppId)
     }
+
+    /// The curves to draw for a `list` row.
+    ///
+    /// A `list` row resolves into one of two shapes and the row has to read
+    /// whichever it got: `sweep` / `trackerColumn` / `linkedCompare` fill the
+    /// flat `list`, while `linkedSweep` fills `series` with a curve per linked
+    /// item and leaves `list` nil. Reading only `list` made a valid
+    /// `linkedSweep` row show "(no data)".
+    static func listRowSeries(_ result: CalculatorResolver.RowResult?) -> [ChartSeries] {
+        if let series = result?.series, !series.isEmpty {
+            // Curve names are linked-item display names, which are user data
+            // and can repeat — two houses both called "Maple" would otherwise
+            // collapse into one style group and draw as a single tangle.
+            return ChartResolver.disambiguated(series)
+        }
+        guard let points = result?.list, !points.isEmpty else { return [] }
+        return [ChartSeries(name: "", points: points)]
+    }
 }
 
 // MARK: - Title bar
@@ -343,7 +361,7 @@ private struct CalcRowView: View {
                 )
             }
         case .list:
-            ListSparkline(points: result?.list ?? [], status: result?.status)
+            ListSparkline(series: CalculatorView.listRowSeries(result), status: result?.status)
         case .header:
             EmptyView()
         }
@@ -486,23 +504,30 @@ private struct LinkedFieldControl: View {
 // MARK: - List sparkline
 
 private struct ListSparkline: View {
-    let points: [ChartPoint]
+    let series: [ChartSeries]
     let status: CalculatorResolver.RowStatus?
 
     var body: some View {
-        if points.isEmpty {
+        if series.isEmpty {
             Text(note)
                 .font(.caption)
                 .foregroundStyle(.orange)
         } else {
             HStack(spacing: 8) {
-                ChartView(series: [ChartSeries(name: "", points: points)], kind: .line)
+                ChartView(series: series, kind: .line, showsLegend: false, showsPoints: false)
                     .frame(width: 120, height: 36)
-                Text("\(points.count) pts")
+                Text(countLabel)
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    /// A single curve counts its points; a `linkedSweep` counts its curves —
+    /// "30 pts" would be ambiguous across four of them.
+    private var countLabel: String {
+        if series.count > 1 { return "\(series.count) curves" }
+        return "\(series.first?.points.count ?? 0) pts"
     }
 
     private var note: String {

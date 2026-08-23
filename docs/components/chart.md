@@ -10,7 +10,10 @@ calculator reflects immediately. Non-linkable — a chart holds a `title`, a
 `kind` ∈ `pie / bar / line`. Multiple series **overlay** (line/bar) — each
 gets a distinct colour + a legend; `pie` uses series[0] only. Each series is
 `{name?, colorHex?, source}`: `name` defaults from the source, `colorHex`
-(`#RRGGBB`) overrides the auto palette. A `source` is one of four arms:
+(`#RRGGBB`) overrides the auto palette — **except on a spec that fans out**
+(`calculatorLinkedSweep` becomes a curve per ref), where one colour across
+every curve would defeat the point, so the override is dropped and the palette
+assigns per curve. A `source` is one of five arms:
 
 - **tracker** — reduce a numeric `valueField` grouped by `groupBy` over a
   tracker: `{componentId, groupBy, valueField, reduce, filter, xIsNumericOrDate}`.
@@ -50,19 +53,43 @@ inside a calculator.
   — `series(...)` extends the Phase-1 reducer: group → reduce → one
   `ChartPoint` per bucket, ascending-by-x when `xIsNumericOrDate`.
 - [`Calculator/ChartResolver.swift`](../../Pupa/Sources/PupaApp/Calculator/ChartResolver.swift)
-  — `@MainActor` → `[ChartSeries]`, one per `ChartSeriesSpec` (empty / broken
-  specs drop out), against a MyApp's sibling components. Default series names
-  come from the source (`valueField`, calc title / row name, or `Series N`).
+  — `@MainActor` → `[ChartSeries]` against a MyApp's sibling components. Mostly
+  one series per `ChartSeriesSpec` (empty / broken specs drop out), but
+  `calculatorLinkedSweep` fans **one** spec out to a curve per ref. Default
+  series names come from the source (`valueField`, calc title / row name, or
+  `Series N`).
+
+  **Views render through `displaySeries`**, not `resolve`: it adds the two
+  things a drawn chart needs. `disambiguated` suffixes repeated names (`(2)`,
+  `(3)`, …) — Swift Charts groups colour and legend by name, and names come
+  from user data, so two tracker items both called "Maple" would otherwise
+  merge into one style group. And it carries `colorHex` across to the renamed
+  series, dropping it for a fanned-out spec. The one-spec-one-series arm is
+  private: it cannot express a fan-out and silently returns nothing for one,
+  which is exactly how `linkedSweep` charts came to render blank.
 
 ## View
 
-[`Canvas/ChartView.swift`](../../Pupa/Sources/PupaApp/Canvas/ChartView.swift):
-`ChartView(series:kind:colorByName:)` is a pure Swift Charts view
-(`SectorMark`/`BarMark`/`LineMark`) — store-free, reusable in chat. Colour is
-keyed by series **name** (`.foregroundStyle(by:)`) so multi-series charts get
-a distinct colour + legend for free; `colorByName` applies any `colorHex`
-overrides. `ChartContainerView` does the store lookup + resolution and renders
-title + placeholder. Used by the standalone `chart` component and the
+[`Canvas/ChartView.swift`](../../Pupa/Sources/PupaApp/Canvas/Components/Chart/ChartView.swift):
+`ChartView(series:kind:colorByName:showsLegend:showsPoints:)` is a pure Swift
+Charts view (`SectorMark`/`BarMark`/`LineMark`) — store-free, reusable in chat.
+Colour is keyed by series **name** (`.foregroundStyle(by:)`) so multi-series
+charts get a distinct colour + legend for free.
+
+`colorByName` is all-or-nothing by design: with no overrides at all the view
+leaves Swift Charts' own palette alone, but **one** override switches on an
+explicit scale — and that scale then has to span *every* series, filling the
+un-overridden ones from `CategoricalPalette`. A domain listing only the
+overridden names leaves the rest outside it, sharing one indeterminate style.
+
+`showsLegend` / `showsPoints` both default true. The calculator's list-row
+sparkline passes false to both: at 120×36 a legend eats the plot and the point
+glyphs outnumber the line.
+
+`ChartContainerView` does the store lookup + resolution (through
+`ChartResolver.displaySeries` — see Engines) and renders title + placeholder;
+`ChartContainerView.drawable` is that mapping as a pure function, so tests can
+assert what the view draws. Used by the standalone `chart` component and the
 calculator's `inlineChart` (and the list-row sparkline). `import Charts` works
 unconditionally on the app's iOS 17 / macOS 14 targets — no `@available`
 guards.

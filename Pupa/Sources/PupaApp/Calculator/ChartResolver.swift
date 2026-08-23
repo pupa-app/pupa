@@ -18,6 +18,80 @@ public enum ChartResolver {
         }
     }
 
+    /// One drawable line/bar group: the series, with its display name already
+    /// disambiguated, plus the colour the spec asked for (if it applies).
+    public struct DisplaySeries: Sendable, Equatable {
+        public var series: ChartSeries
+        /// The spec's `colorHex`, carried across to the deduped name. `nil`
+        /// when the spec fanned out to several series — see `displaySeries`.
+        public var colorHex: String?
+
+        public init(series: ChartSeries, colorHex: String?) {
+            self.series = series
+            self.colorHex = colorHex
+        }
+    }
+
+    /// Everything a chart view needs to draw `data`, in declared order.
+    ///
+    /// This is the entry point for **rendering** — `resolveSeries` handles one
+    /// spec and cannot express `calculatorLinkedSweep`, which fans one spec out
+    /// to a curve per linked item. Drawing through the single-series path meant
+    /// a `linkedSweep` chart silently rendered nothing at all.
+    ///
+    /// Two things happen here that the raw resolve doesn't do:
+    ///
+    /// - **Name disambiguation.** Swift Charts groups colour and legend entries
+    ///   by series name, so two series sharing a name would collapse into one.
+    ///   Repeats get a `(2)`, `(3)`, … suffix.
+    /// - **Colour carry-across.** A spec's `colorHex` follows its series to the
+    ///   deduped name — unless its source `fansOut`, in which case it keeps
+    ///   `nil` so Swift Charts assigns a distinct colour per item. Forcing one
+    ///   colour across every curve would defeat the point of a line per item,
+    ///   and the rule keys off the source kind so a spec doesn't change colour
+    ///   behaviour just because a ref was added or removed.
+    public static func displaySeries(_ data: ChartData, components: [Component]) -> [DisplaySeries] {
+        var resolvedPerSpec: [(spec: ChartSeriesSpec, series: [ChartSeries])] = []
+        for (idx, spec) in data.series.enumerated() {
+            resolvedPerSpec.append((spec, resolveSeriesAll(spec, index: idx, components: components)))
+        }
+        // One colour slot per resolved series, flattened in the same order, so
+        // pairing is a zip rather than two loops that could drift apart. A spec
+        // whose source fans out keeps no colour override — see above.
+        let colors: [String?] = resolvedPerSpec.flatMap { entry in
+            Array(repeating: entry.spec.source.fansOut ? nil : entry.spec.colorHex,
+                  count: entry.series.count)
+        }
+        let renamed = disambiguated(resolvedPerSpec.flatMap(\.series))
+        return zip(renamed, colors).map(DisplaySeries.init)
+    }
+
+    /// Give every series a name unique within the set, preserving order and
+    /// identity. Repeats get a `(2)`, `(3)`, … suffix.
+    ///
+    /// Swift Charts groups colour and legend entries by the *name* a mark is
+    /// styled by, so two series sharing one would silently merge into a single
+    /// style group and render as one tangled line. Names come from user data —
+    /// two tracker items really can both be called "Maple" — so this is not a
+    /// rare case. Every surface that hands a set of series to `ChartView` must
+    /// go through here.
+    public static func disambiguated(_ series: [ChartSeries]) -> [ChartSeries] {
+        // Track what has actually been emitted. Counting source names instead
+        // would let a generated "Maple (2)" collide with a literal "Maple (2)"
+        // further down the list — people number their own duplicates by hand.
+        var used: Set<String> = []
+        return series.map { s in
+            var name = s.name
+            var n = 1
+            while !used.insert(name).inserted {
+                n += 1
+                name = "\(s.name) (\(n))"
+            }
+            guard name != s.name else { return s }
+            return ChartSeries(id: s.id, name: name, points: s.points)
+        }
+    }
+
     /// Resolve one spec to ONE OR MORE series. Every source resolves to a
     /// single series except `calculatorLinkedSweep`, which fans out to one
     /// curve per linked ref (read straight off the `.series` the resolver
@@ -35,7 +109,13 @@ public enum ChartResolver {
     /// Resolve one spec to a named series, or nil when it produces no points.
     /// `index` seeds a default name (`Series N`) when the spec / source give
     /// none.
-    public static func resolveSeries(_ spec: ChartSeriesSpec, index: Int, components: [Component]) -> ChartSeries? {
+    ///
+    /// **Private on purpose.** This arm cannot represent a
+    /// `calculatorLinkedSweep`, which is one spec and many series — it reports
+    /// no points for one, so anything drawing through here renders a
+    /// `linkedSweep` chart as empty. That is exactly the bug this replaced.
+    /// Render through `displaySeries`; ask `resolve` for the raw series.
+    private static func resolveSeries(_ spec: ChartSeriesSpec, index: Int, components: [Component]) -> ChartSeries? {
         let (points, defaultName) = resolvePoints(spec.source, components: components)
         guard !points.isEmpty else { return nil }
         let name = spec.name?.nonEmpty ?? defaultName.nonEmpty ?? "Series \(index + 1)"
