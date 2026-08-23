@@ -3,6 +3,32 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.263] — 2026-08-23
+
+### Fixed
+
+- **Dragging a calculator slider is smooth again when charts are linked to the
+  rows.** A projection curve re-reads the whole model once per plotted point,
+  and each of those reads was re-reading every formula from its text and
+  re-totalling every linked tracker — so the Home Buying example redid the same
+  work thousands of times per frame. Each read now reuses that groundwork,
+  making a model like it about ten times faster to retune.
+
+- **Slack channels no longer stutter while you type.** The agent list was read
+  back off disk once per message on screen — a channel with sixty messages did
+  sixty-odd directory scans per keystroke, and now does one — and each
+  message's text is formatted once and remembered instead of being rebuilt on
+  every keystroke.
+
+### Changed
+
+- A projection chart with an unusable range or a missing row now flags the
+  problem the same way whether it plots one line or one per linked item —
+  previously the per-item form silently drew nothing.
+- A slider that shares its name with another row now actually drives its
+  projection curve. Two rows with the same name used to leave the curve flat,
+  ignoring the slider entirely.
+
 ## [0.0.262] — 2026-08-23
 
 ### Changed

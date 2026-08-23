@@ -70,6 +70,30 @@ chart with a per-house cumulative-cost line chart.
   — `@MainActor` glue → per-row `{value, status}` where status ∈
   `ok / cycle / brokenRef / nonNumeric / unknownIdentifier / divisionByZero`.
 
+  A resolve runs in three stages, because a `list` row re-reads the scalar
+  model once per sweep step / compared ref and must not redo work that cannot
+  have changed:
+
+  | Stage | Depends on | Rebuilt per… |
+  |---|---|---|
+  | `Program` — parse + topo-sort every formula | row specs | resolve |
+  | `Base` — pass-1 leaves (variable / aggregate / linkedField) | components + linked refs | compared ref |
+  | `evaluateFormulas` | the above + the swept value | sweep step |
+
+  So a sweep re-runs only the formula pass: a 30-step curve parses its
+  expressions once, not thirty times, and re-totals its aggregates once, not
+  thirty times. Sweeps and ref swaps substitute through override parameters —
+  the row array is never copied and mutated. `CalculatorResolvePerfTests` pins
+  both stages by counting parses and `Base` builds, rather than by timing.
+
+  Duplicate keys: the **spec guards** (`isSweepable`, `anchorRef`) are
+  first-wins, so a key whose first row is the wrong kind — a formula ahead of
+  the swept variable — resolves to `brokenRef` rather than to a flat curve that
+  looks like a real answer. The swept **value**, though, is substituted after
+  `Base`, so it beats every duplicate: two `variable` rows sharing the swept key
+  sweep correctly instead of being pinned to whichever one happened to be
+  last.
+
 ## Mutator surface
 
 [`MyApps/MyAppStore.swift`](../../Pupa/Sources/PupaApp/MyApps/MyAppStore.swift):

@@ -9,6 +9,13 @@ Agents are **not** stored in the component. They are filesystem subagents
 (`pupa/agents/<slug>/AGENTS.md`) discovered by `AgentStore`; a Slack workspace's
 roster is *all* subagents in the MyApp. The component owns only rooms + history.
 
+Building that roster walks the app's memory dir and parses every agent file, so
+`SlackView.body` reads it **once** and passes `roster` down to every helper —
+never re-read it per channel, per message, or per bubble. Message bubbles are
+likewise memoized (`MessageTextCache`, keyed on text + roster names): `body`
+re-runs on every composer keystroke, and re-parsing each message's markdown on
+each one is what made typing stutter.
+
 ## Data model — `SlackData` ([Canvas/CanvasState.swift](../../Pupa/Sources/PupaApp/Canvas/CanvasState.swift))
 
 - `channels: [SlackChannel]` — `channel` / `groupDM` / `dm`; `memberAgentIds`

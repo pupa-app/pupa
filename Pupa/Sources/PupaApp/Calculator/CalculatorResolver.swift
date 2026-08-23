@@ -10,6 +10,21 @@ import Foundation
 ///
 /// Results are computed on demand — never persisted — so a tuned variable
 /// or an edited source tracker reflects immediately on the next render.
+///
+/// **Shape of a resolve.** The work splits into three reusable stages so a
+/// `list` row (which re-reads the model tens of times) never repeats work
+/// that cannot have changed:
+///
+/// 1. `Program` — parse every formula and topo-sort them. Depends only on the
+///    row *specs*, so it is built once per resolve and shared by every sweep
+///    step and every compared ref.
+/// 2. `Base` — the pass-1 leaves (variables, aggregates, linked fields).
+///    Depends on the components and the linked refs, but **not** on any
+///    swept variable, so a sweep computes it once and reuses it per step.
+/// 3. `evaluateFormulas` — the only stage a sweep step actually re-runs.
+///
+/// Sweeps and linked comparisons substitute values through override
+/// parameters rather than copying and mutating the row array.
 @MainActor
 public enum CalculatorResolver {
 
@@ -66,188 +81,290 @@ public enum CalculatorResolver {
         public func result(forKey key: String) -> RowResult? { byKey[key] }
     }
 
+    #if DEBUG
+    /// Test-only tally of `ExpressionEngine.parse` calls. Backs the perf
+    /// invariant that a sweep re-runs only the formula pass — parsing each
+    /// expression once per resolve, not once per step.
+    static var parseCountForTesting = 0
+    /// Test-only tally of `Base` builds — the pass-1 leaves, which re-scan
+    /// every aggregate's source tracker. Should track the number of compared
+    /// refs, never the number of sweep steps.
+    static var baseBuildCountForTesting = 0
+    #endif
+
     /// Resolve every row in `data`, pulling aggregates from `components`
     /// (the sibling components of the same MyApp). Tracker lookups use the
     /// passed components only — store-free so this is unit-testable with a
     /// hand-built component list.
-    /// - `computeLists`: when false, `list` rows are skipped (left `nil`).
-    ///   The sweep resolution re-resolves the whole calculator with one
-    ///   variable overridden — it passes `false` so a sweep never re-enters
-    ///   list computation (no recursion, no exponential blow-up).
+    /// - `computeLists`: when false, `list` rows are skipped (left `nil`) —
+    ///   a "scalars only" opt-out for callers that want the numeric rows
+    ///   without paying for the sweeps. List rows re-read the model through
+    ///   `evaluateFormulas` directly rather than re-entering `resolve`, so
+    ///   this is a cost knob, not a recursion guard.
     public static func resolve(
         _ data: CalculatorData,
         components: [Component],
         computeLists: Bool = true
     ) -> Resolved {
-        var byKey: [String: RowResult] = [:]
-        // A row key may appear more than once if the agent mis-keys; the
-        // last write wins, mirroring how a dictionary env would resolve it.
-        let knownKeys = Set(data.rows.map(\.key))
+        let program = Program(rows: data.rows)
+        let base = Base(rows: data.rows, components: components, refOverride: nil)
+        var byKey = evaluateFormulas(program, base: base, variableOverride: nil)
 
-        // Pass 1 — variables and aggregates (no inter-row dependencies).
+        guard computeLists else { return Resolved(byKey: byKey) }
+
+        // Pass 3 — list rows (terminal arrays; they run last and feed off the
+        // already-resolved scalars).
         for row in data.rows {
-            switch row.kind {
-            case .variable(let value, _):
-                byKey[row.key] = RowResult(value: value, status: .ok)
-            case .aggregate(let spec):
-                byKey[row.key] = resolveAggregate(spec, components: components)
-            case .linkedField(let spec):
-                byKey[row.key] = resolveLinkedField(spec, components: components)
-            case .formula, .list, .header:
-                break  // formulas in pass 2, lists in pass 3, headers skipped
-            }
+            guard case .list(let spec) = row.kind else { continue }
+            byKey[row.key] = resolveList(
+                spec, program: program, base: base, rows: data.rows, components: components
+            )
         }
+        return Resolved(byKey: byKey)
+    }
 
-        // Pass 2 — formulas, in dependency order. Skipped when there are no
-        // formula rows, but we must still fall through to the list pass (a
-        // calculator can have list rows and no formulas at all).
-        let formulaRows = data.rows.filter { if case .formula = $0.kind { return true } else { return false } }
-        guard !formulaRows.isEmpty else {
-            Self.computeLists(computeLists, data: data, components: components, into: &byKey)
-            return Resolved(byKey: byKey)
-        }
+    // MARK: - Program (parse + topo-sort, once per resolve)
 
-        // Parse each formula once; a parse failure is a syntax error we
-        // surface as unknownIdentifier (the closest agent-actionable status).
-        var parsed: [String: ExpressionEngine.Node] = [:]
-        var dependencies: [String: Set<String>] = [:]
-        for row in formulaRows {
-            guard case .formula(let expression) = row.kind else { continue }
-            if let node = try? ExpressionEngine.parse(expression) {
-                parsed[row.key] = node
-                dependencies[row.key] = ExpressionEngine.identifiers(in: node).intersection(knownKeys)
-            } else {
-                byKey[row.key] = RowResult(value: nil, status: .unknownIdentifier)
-            }
-        }
-
-        // Topo-sort only the formulas that parsed. Dependency edges to
-        // non-formula keys (variables / aggregates) are already-resolved
-        // leaves, so they don't need to be in the sort — but including them
-        // as zero-dep nodes keeps the ordering total. We add every dep key
-        // as a node so Kahn doesn't treat a leaf as missing.
-        var topoInput = dependencies
-        for (_, deps) in dependencies {
-            for dep in deps where topoInput[dep] == nil {
-                topoInput[dep] = []  // leaf (variable / aggregate / earlier formula)
-            }
-        }
-
+    /// The parsed, dependency-ordered formula set for a row list. Built from
+    /// the row *specs* alone, so it stays valid across every sweep step and
+    /// every compared ref — that's what keeps a 30-step sweep from re-parsing
+    /// the same expressions 30 times.
+    private struct Program {
+        /// Every row key in the calculator — formula dependencies are
+        /// intersected with this so unknown identifiers surface as such.
+        let knownKeys: Set<String>
+        /// Successfully parsed formula ASTs, by row key.
+        let parsed: [String: ExpressionEngine.Node]
+        /// Each parsed formula's dependencies (already intersected with
+        /// `knownKeys`).
+        let dependencies: [String: Set<String>]
+        /// Safe evaluation order (includes non-formula leaf keys, which are
+        /// skipped at eval time).
         let order: [String]
-        switch ExpressionEngine.topologicalSort(dependencies: topoInput) {
-        case .ordered(let keys):
-            order = keys
-        case .cycle(let cyclic):
-            // Mark every cyclic formula; order the rest by removing them.
-            for key in cyclic where parsed[key] != nil {
-                byKey[key] = RowResult(value: nil, status: .cycle)
+        /// Formula keys caught in a dependency cycle.
+        let cyclic: Set<String>
+        /// Formula keys whose expression did not parse at all.
+        let parseFailed: [String]
+
+        @MainActor
+        init(rows: [CalcRow]) {
+            let knownKeys = Set(rows.map(\.key))
+            self.knownKeys = knownKeys
+
+            var parsed: [String: ExpressionEngine.Node] = [:]
+            var dependencies: [String: Set<String>] = [:]
+            var parseFailed: [String] = []
+
+            // Parse each formula once; a parse failure is a syntax error we
+            // surface as unknownIdentifier (the closest agent-actionable
+            // status).
+            for row in rows {
+                guard case .formula(let expression) = row.kind else { continue }
+                #if DEBUG
+                CalculatorResolver.parseCountForTesting += 1
+                #endif
+                if let node = try? ExpressionEngine.parse(expression) {
+                    parsed[row.key] = node
+                    dependencies[row.key] = ExpressionEngine.identifiers(in: node).intersection(knownKeys)
+                } else {
+                    parseFailed.append(row.key)
+                }
             }
-            // Re-sort with the cyclic keys dropped so the acyclic remainder
-            // still evaluates.
-            var acyclic = topoInput
-            for key in cyclic { acyclic.removeValue(forKey: key) }
-            for key in acyclic.keys {
-                acyclic[key] = acyclic[key]?.subtracting(cyclic)
+            self.parsed = parsed
+            self.dependencies = dependencies
+            self.parseFailed = parseFailed
+
+            guard !parsed.isEmpty else {
+                self.order = []
+                self.cyclic = []
+                return
             }
-            if case .ordered(let keys) = ExpressionEngine.topologicalSort(dependencies: acyclic) {
-                order = keys
-            } else {
-                order = []
+
+            // Topo-sort only the formulas that parsed. Dependency edges to
+            // non-formula keys (variables / aggregates) are already-resolved
+            // leaves, so they don't need to be in the sort — but including
+            // them as zero-dep nodes keeps the ordering total. We add every
+            // dep key as a node so Kahn doesn't treat a leaf as missing.
+            var topoInput = dependencies
+            for (_, deps) in dependencies {
+                for dep in deps where topoInput[dep] == nil {
+                    topoInput[dep] = []  // leaf (variable / aggregate / earlier formula)
+                }
+            }
+
+            switch ExpressionEngine.topologicalSort(dependencies: topoInput) {
+            case .ordered(let keys):
+                self.order = keys
+                self.cyclic = []
+            case .cycle(let cyclicKeys):
+                // Mark every cyclic formula; order the rest by removing them.
+                self.cyclic = Set(cyclicKeys)
+                var acyclic = topoInput
+                for key in cyclicKeys { acyclic.removeValue(forKey: key) }
+                for key in acyclic.keys {
+                    acyclic[key] = acyclic[key]?.subtracting(cyclicKeys)
+                }
+                if case .ordered(let keys) = ExpressionEngine.topologicalSort(dependencies: acyclic) {
+                    self.order = keys
+                } else {
+                    self.order = []
+                }
             }
         }
+    }
 
-        // Evaluate formulas in order. The env holds every already-resolved
-        // numeric value (variables, aggregates, earlier formulas).
-        for key in order {
-            guard let node = parsed[key] else { continue }   // skip leaves
-            guard byKey[key]?.status != .cycle else { continue }
+    // MARK: - Base (pass-1 leaves)
+
+    /// The pass-1 leaves: `variable`, `aggregate` and `linkedField` rows,
+    /// which carry no inter-row dependencies. Independent of any swept
+    /// variable, so a sweep resolves this once and reuses it for every step —
+    /// aggregates in particular re-scan their whole source tracker, and that
+    /// scan is invariant across the sweep.
+    private struct Base {
+        var byKey: [String: RowResult]
+        /// Numeric environment seeded from `byKey` (only rows that resolved
+        /// to a value). Grown in place as formulas evaluate, rather than
+        /// rebuilt per formula.
+        var env: [String: Double]
+
+        @MainActor
+        init(rows: [CalcRow], components: [Component], refOverride: (from: ComponentItemRef?, to: ComponentItemRef)?) {
+            #if DEBUG
+            CalculatorResolver.baseBuildCountForTesting += 1
+            #endif
+            var byKey: [String: RowResult] = [:]
+            var env: [String: Double] = [:]
+
+            // A row key may appear more than once if the agent mis-keys; the
+            // last write wins, mirroring how a dictionary env would resolve
+            // it — so a later nil-valued duplicate must also clear `env`.
+            func record(_ key: String, _ result: RowResult) {
+                byKey[key] = result
+                if let value = result.value {
+                    env[key] = value
+                } else {
+                    env.removeValue(forKey: key)
+                }
+            }
+
+            for row in rows {
+                switch row.kind {
+                case .variable(let value, _):
+                    record(row.key, RowResult(value: value, status: .ok))
+                case .aggregate(let spec):
+                    record(row.key, resolveAggregate(spec, components: components))
+                case .linkedField(var spec):
+                    // The anchor swap: every linkedField row bound to the
+                    // compared-from ref follows the compared item, so a
+                    // multi-field source (price / rate / term) moves together.
+                    if let override = refOverride, spec.ref == override.from {
+                        spec.ref = override.to
+                    }
+                    record(row.key, resolveLinkedField(spec, components: components))
+                case .formula, .list, .header:
+                    break  // formulas in pass 2, lists in pass 3, headers skipped
+                }
+            }
+            self.byKey = byKey
+            self.env = env
+        }
+    }
+
+    // MARK: - Pass 2 (the only stage a sweep step re-runs)
+
+    /// Evaluate every formula in dependency order on top of `base`.
+    /// `variableOverride` replaces one `variable` row's value (the sweep
+    /// axis) without touching the row array or redoing pass 1.
+    private static func evaluateFormulas(
+        _ program: Program,
+        base: Base,
+        variableOverride: (key: String, value: Double)?
+    ) -> [String: RowResult] {
+        var byKey = base.byKey
+        var env = base.env
+
+        if let override = variableOverride {
+            byKey[override.key] = RowResult(value: override.value, status: .ok)
+            env[override.key] = override.value
+        }
+
+        for key in program.parseFailed {
+            byKey[key] = RowResult(value: nil, status: .unknownIdentifier)
+            env.removeValue(forKey: key)
+        }
+        for key in program.cyclic where program.parsed[key] != nil {
+            byKey[key] = RowResult(value: nil, status: .cycle)
+            env.removeValue(forKey: key)
+        }
+
+        for key in program.order {
+            guard let node = program.parsed[key] else { continue }   // skip leaves
+            guard !program.cyclic.contains(key) else { continue }
             // A dependency that resolved to nil (broken aggregate, cyclic,
             // non-numeric, …) poisons this formula — surface brokenRef
             // before attempting eval so the engine doesn't see a phantom
             // unknownIdentifier.
-            let deps = dependencies[key] ?? []
-            if let broken = deps.first(where: { byKey[$0]?.value == nil }) {
-                _ = broken
+            let deps = program.dependencies[key] ?? []
+            if deps.contains(where: { byKey[$0]?.value == nil }) {
                 byKey[key] = RowResult(value: nil, status: .brokenRef)
+                env.removeValue(forKey: key)
                 continue
             }
-            var env: [String: Double] = [:]
-            for (k, result) in byKey {
-                if let v = result.value { env[k] = v }
-            }
+            let result: RowResult
             do {
                 let value = try ExpressionEngine.evaluate(node, variables: env)
                 if value.isFinite {
-                    byKey[key] = RowResult(value: value, status: .ok)
+                    result = RowResult(value: value, status: .ok)
                 } else {
                     // Non-finite (e.g. log of a negative, overflow) — treat
                     // like a numeric failure rather than surfacing NaN.
-                    byKey[key] = RowResult(value: nil, status: .nonNumeric)
+                    result = RowResult(value: nil, status: .nonNumeric)
                 }
             } catch ExpressionEngine.EvalError.divisionByZero {
-                byKey[key] = RowResult(value: nil, status: .divisionByZero)
+                result = RowResult(value: nil, status: .divisionByZero)
             } catch ExpressionEngine.EvalError.unknownIdentifier {
-                byKey[key] = RowResult(value: nil, status: .unknownIdentifier)
+                result = RowResult(value: nil, status: .unknownIdentifier)
             } catch {
-                byKey[key] = RowResult(value: nil, status: .unknownIdentifier)
+                result = RowResult(value: nil, status: .unknownIdentifier)
+            }
+            byKey[key] = result
+            if let value = result.value {
+                env[key] = value
+            } else {
+                env.removeValue(forKey: key)
             }
         }
-
-        // Pass 3 — list rows (sweep / tracker column).
-        Self.computeLists(computeLists, data: data, components: components, into: &byKey)
-
-        return Resolved(byKey: byKey)
+        return byKey
     }
 
     // MARK: - List resolution
 
-    /// Resolve every `list` row (terminal arrays — they run last and feed off
-    /// the already-resolved scalars). No-op when `enabled` is false (i.e.
-    /// inside a sweep's re-resolve, so a sweep never re-enters list work).
-    private static func computeLists(
-        _ enabled: Bool,
-        data: CalculatorData,
-        components: [Component],
-        into byKey: inout [String: RowResult]
-    ) {
-        guard enabled else { return }
-        for row in data.rows {
-            guard case .list(let spec) = row.kind else { continue }
-            byKey[row.key] = resolveList(spec, data: data, components: components)
-        }
-    }
-
     /// Resolve a `list` row to its point array. Terminal: `value` stays nil.
+    ///
+    /// Every variant re-reads the scalar model many times; none of them
+    /// rebuild the `Program` (the specs didn't change), and the sweeps don't
+    /// rebuild the `Base` either (a swept variable can't change a leaf).
     private static func resolveList(
         _ spec: CalcListSpec,
-        data: CalculatorData,
+        program: Program,
+        base: Base,
+        rows: [CalcRow],
         components: [Component]
     ) -> RowResult {
         switch spec {
         case .sweep(let variableKey, let from, let to, let step, let targetKey):
+            // An unusable range is a spec error (nonNumeric); keys that don't
+            // name a variable row / a known row are a brokenRef.
             guard step > 0, from <= to else {
                 return RowResult(value: nil, status: .nonNumeric)
             }
-            guard let varIdx = data.rows.firstIndex(where: { $0.key == variableKey }),
-                  case .variable(_, let control) = data.rows[varIdx].kind,
-                  data.rows.contains(where: { $0.key == targetKey }) else {
+            guard isSweepable(rows: rows, program: program, variableKey: variableKey, targetKey: targetKey) else {
                 return RowResult(value: nil, status: .brokenRef)
             }
-            var points: [ChartPoint] = []
-            // Cap iterations so a tiny step over a wide range can't hang.
-            let maxSteps = 1000
-            var v = from
-            var i = 0
-            while v <= to + step * 1e-9 && i < maxSteps {
-                var swept = data
-                swept.rows[varIdx].kind = .variable(value: v, control: control)
-                let r = resolve(swept, components: components, computeLists: false)
-                if let y = r.result(forKey: targetKey)?.value, y.isFinite {
-                    points.append(ChartPoint(label: numberLabel(v), x: v, y: y))
-                }
-                v += step
-                i += 1
-            }
+            let points = sweepPoints(
+                program: program, base: base,
+                variableKey: variableKey, from: from, to: to, step: step, targetKey: targetKey
+            )
             return RowResult(value: nil, status: .ok, list: points)
 
         case .trackerColumn(let sourceComponentId, let valueField, let labelField, let filter):
@@ -269,60 +386,113 @@ public enum CalculatorResolver {
             // every linkedField row sharing that ref follows the compared house
             // (a house has many fields — price, rate, term — and they must all
             // move together for the target metric to be coherent).
-            guard let anchorIdx = data.rows.firstIndex(where: { $0.key == linkedRowKey }),
-                  case .linkedField(let anchorSpec) = data.rows[anchorIdx].kind,
-                  data.rows.contains(where: { $0.key == targetKey }) else {
+            guard let baseRef = anchorRef(rows: rows, linkedRowKey: linkedRowKey),
+                  program.knownKeys.contains(targetKey) else {
                 return RowResult(value: nil, status: .brokenRef)
             }
-            let baseRef = anchorSpec.ref
             var points: [ChartPoint] = []
             for ref in refs {
-                var swapped = data
-                for i in swapped.rows.indices {
-                    if case .linkedField(var s) = swapped.rows[i].kind, s.ref == baseRef {
-                        s.ref = ref
-                        swapped.rows[i].kind = .linkedField(s)
-                    }
-                }
-                // computeLists:false so this never re-enters list work — no
-                // recursion through linkedCompare.
-                let r = resolve(swapped, components: components, computeLists: false)
-                guard let y = r.result(forKey: targetKey)?.value, y.isFinite else { continue }
+                // A fresh Base per ref — the swap changes the pass-1 leaves.
+                let swapped = Base(rows: rows, components: components, refOverride: (baseRef, ref))
+                let byKey = evaluateFormulas(program, base: swapped, variableOverride: nil)
+                guard let y = byKey[targetKey]?.value, y.isFinite else { continue }
                 points.append(ChartPoint(label: linkedItemLabel(ref, components: components), y: y))
             }
             return RowResult(value: nil, status: .ok, list: points)
 
         case .linkedSweep(let refs, let linkedRowKey, let variableKey, let from, let to, let step, let targetKey):
             // linkedCompare, but each ref reads a swept CURVE instead of a
-            // scalar → one ChartSeries per ref. Self-contained: the embedded
-            // sweep params build a transient .sweep spec per ref.
-            guard let anchorIdx = data.rows.firstIndex(where: { $0.key == linkedRowKey }),
-                  case .linkedField(let anchorSpec) = data.rows[anchorIdx].kind else {
+            // scalar → one ChartSeries per ref.
+            // Same two-tier split as `.sweep`, so an identical spec reports an
+            // identical status whether it is standalone or nested here.
+            guard step > 0, from <= to else {
+                return RowResult(value: nil, status: .nonNumeric)
+            }
+            guard let baseRef = anchorRef(rows: rows, linkedRowKey: linkedRowKey),
+                  isSweepable(rows: rows, program: program, variableKey: variableKey, targetKey: targetKey) else {
                 return RowResult(value: nil, status: .brokenRef)
             }
-            let baseRef = anchorSpec.ref
-            let sweepSpec = CalcListSpec.sweep(variableKey: variableKey, from: from, to: to, step: step, targetKey: targetKey)
             var chartSeries: [ChartSeries] = []
             for ref in refs {
-                var swapped = data
-                for i in swapped.rows.indices {
-                    if case .linkedField(var s) = swapped.rows[i].kind, s.ref == baseRef {
-                        s.ref = ref
-                        swapped.rows[i].kind = .linkedField(s)
-                    }
-                }
-                // resolveList(.sweep) re-resolves with computeLists:false, so
-                // this never re-enters list work — no recursion through linkedSweep.
-                let listResult = resolveList(sweepSpec, data: swapped, components: components)
-                guard let points = listResult.list, !points.isEmpty else { continue }
+                let swapped = Base(rows: rows, components: components, refOverride: (baseRef, ref))
+                let points = sweepPoints(
+                    program: program, base: swapped,
+                    variableKey: variableKey, from: from, to: to, step: step, targetKey: targetKey
+                )
+                guard !points.isEmpty else { continue }
                 chartSeries.append(ChartSeries(name: linkedItemLabel(ref, components: components), points: points))
             }
             return RowResult(value: nil, status: .ok, series: chartSeries)
         }
     }
 
+    /// Whether `variableKey` names a `variable` row and `targetKey` a known
+    /// row — the two spec preconditions every sweep shares.
+    ///
+    /// Keys are matched **first-wins**, not any-wins: if a duplicate key puts
+    /// a formula row ahead of the variable, the formula pass would overwrite
+    /// the swept value on every step and the curve would come out flat. That
+    /// is a mis-keyed model, so it must surface as `brokenRef` rather than as
+    /// a plausible-looking flat line.
+    private static func isSweepable(
+        rows: [CalcRow], program: Program, variableKey: String, targetKey: String
+    ) -> Bool {
+        guard program.knownKeys.contains(targetKey) else { return false }
+        guard let first = rows.first(where: { $0.key == variableKey }) else { return false }
+        guard case .variable = first.kind else { return false }
+        return true
+    }
+
+    /// Vary `variableKey` across `from…to` by `step`, reading `targetKey` at
+    /// each step. Callers validate the spec first via `isSweepable`.
+    ///
+    /// The `Base` is passed in and reused across every step: only a formula
+    /// can see the swept value, so re-running pass 1 per step would re-scan
+    /// every aggregate's source tracker for nothing.
+    private static func sweepPoints(
+        program: Program,
+        base: Base,
+        variableKey: String,
+        from: Double,
+        to: Double,
+        step: Double,
+        targetKey: String
+    ) -> [ChartPoint] {
+        var points: [ChartPoint] = []
+        // Cap iterations so a tiny step over a wide range can't hang.
+        let maxSteps = 1000
+        var v = from
+        var i = 0
+        while v <= to + step * 1e-9 && i < maxSteps {
+            let byKey = evaluateFormulas(program, base: base, variableOverride: (variableKey, v))
+            if let y = byKey[targetKey]?.value, y.isFinite {
+                points.append(ChartPoint(label: numberLabel(v), x: v, y: y))
+            }
+            v += step
+            i += 1
+        }
+        return points
+    }
+
+    /// The ref a `linkedField` anchor row is currently bound to — the "from"
+    /// side of a compare swap. `nil` when `linkedRowKey` doesn't name a
+    /// `linkedField` row.
+    ///
+    /// First-wins on the key, like `isSweepable`: a duplicate key that puts a
+    /// non-linked row first is a mis-keyed model, not an invitation to hunt
+    /// further down the list for something swappable.
+    ///
+    /// Double-optional on purpose — the outer `nil` is "no anchor row", the
+    /// inner is "anchor row bound to nothing", and the latter still matches
+    /// the nil-ref `linkedField` rows a swap is supposed to repoint.
+    private static func anchorRef(rows: [CalcRow], linkedRowKey: String) -> ComponentItemRef?? {
+        guard let first = rows.first(where: { $0.key == linkedRowKey }),
+              case .linkedField(let spec) = first.kind else { return nil }
+        return .some(spec.ref)
+    }
+
     /// Display name for a linked tracker item, resolved store-free from the
-    /// component pool (keeps the resolver pure). Falls back to the raw item id.
+    /// component pool (keeps the resolver pure). Falls back to a dash.
     private static func linkedItemLabel(_ ref: ComponentItemRef, components: [Component]) -> String {
         guard let component = components.first(where: { $0.id == ref.componentId }),
               case .tracker(let tracker) = component.body,

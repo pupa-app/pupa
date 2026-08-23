@@ -65,29 +65,36 @@ public struct SlackView: View {
         self.invoker = coordinator.slackInvoker
     }
 
-    /// The MyApp's subagent roster — every `pupa/agents/<slug>/AGENTS.md`,
-    /// re-read from disk each render. Slack agents ARE subagents now; the
-    /// component holds no agent list of its own. `rosterRefresh` forces a
-    /// recompute after the create-agent sheet writes a new file.
+    /// The MyApp's subagent roster — every `pupa/agents/<slug>/AGENTS.md`.
+    /// Slack agents ARE subagents now; the component holds no agent list of
+    /// its own. `rosterRefresh` forces a recompute after the create-agent
+    /// sheet writes a new file.
+    ///
+    /// Reading this walks the app's memory directory and parses every agent
+    /// file, so `body` reads it **once** and threads the result down. Every
+    /// helper below takes `roster` as a parameter rather than reaching for
+    /// this again — a message list that touched it per row turned a single
+    /// render into hundreds of directory walks.
     private var agentRoster: [Subagent] {
         _ = rosterRefresh
         return AgentStore(memory: MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myAppId))).agents
     }
 
     public var body: some View {
-        Group {
+        let roster = agentRoster
+        return Group {
             if isCompact {
                 // Compact (iPhone portrait): single-pane —
                 // message pane fills the width, sidebar slides
                 // in as a sheet via the hamburger button in the
                 // channel header.
-                messagePane
+                messagePane(roster: roster)
             } else {
                 HStack(alignment: .top, spacing: 0) {
-                    sidebar
+                    sidebar(roster: roster)
                         .frame(width: 220)
                     Divider()
-                    messagePane
+                    messagePane(roster: roster)
                         .frame(maxWidth: .infinity)
                 }
             }
@@ -128,7 +135,7 @@ public struct SlackView: View {
             // is invoked from inside `sidebar`, so we just watch
             // for activeChannelId changes and close on transition.
             NavigationStack {
-                sidebar
+                sidebar(roster: roster)
                     .navigationTitle("Slack")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
@@ -148,7 +155,7 @@ public struct SlackView: View {
         #endif
         .sheet(isPresented: $newChannelSheet) {
             SlackChannelEditorSheet(
-                agents: agentRoster,
+                agents: roster,
                 onCreate: { name, type, members in
                     _ = store.slackAddChannel(
                         name: name,
@@ -185,7 +192,7 @@ public struct SlackView: View {
     // MARK: - Sidebar
 
     @ViewBuilder
-    private var sidebar: some View {
+    private func sidebar(roster: [Subagent]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             sidebarHeader
 
@@ -194,7 +201,7 @@ public struct SlackView: View {
                     channelSection(title: "Channels", type: .channel)
                     channelSection(title: "Group DMs", type: .groupDM)
                     channelSection(title: "Direct messages", type: .dm)
-                    agentsSection
+                    agentsSection(roster: roster)
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 12)
@@ -254,14 +261,14 @@ public struct SlackView: View {
     }
 
     @ViewBuilder
-    private var agentsSection: some View {
-        if !agentRoster.isEmpty {
+    private func agentsSection(roster: [Subagent]) -> some View {
+        if !roster.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
                 Text("AGENTS")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 8)
-                ForEach(agentRoster) { agent in
+                ForEach(roster) { agent in
                     let label = agent.displayName ?? agent.name
                     Button {
                         let dmId = store.slackOpenDM(
@@ -325,14 +332,14 @@ public struct SlackView: View {
     // MARK: - Message pane
 
     @ViewBuilder
-    private var messagePane: some View {
+    private func messagePane(roster: [Subagent]) -> some View {
         if let channel = activeChannel {
             VStack(spacing: 0) {
                 channelHeader(channel)
                 Divider()
-                messageList(channel)
+                messageList(channel, roster: roster)
                 Divider()
-                composer(channel)
+                composer(channel, roster: roster)
             }
         } else {
             emptyState
@@ -387,9 +394,10 @@ public struct SlackView: View {
         }
     }
 
-    private func messageList(_ channel: SlackChannel) -> some View {
+    private func messageList(_ channel: SlackChannel, roster: [Subagent]) -> some View {
         let messages = (data.messagesByChannel[channel.id] ?? [])
             .sorted { $0.timestamp < $1.timestamp }
+        let rosterKey = MessageTextCache.fingerprint(roster)
         let inflight = invoker.invocations(forChannel: channel.id)
         // Zero-height marker for "scroll all the way to the bottom".
         // A dedicated id (rather than the last message id) is robust
@@ -423,9 +431,9 @@ public struct SlackView: View {
                     ForEach(messages) { msg in
                         MessageBubble(
                             message: msg,
-                            authorName: authorName(for: msg),
+                            authorName: authorName(for: msg, roster: roster),
                             authorColor: authorColor(for: msg),
-                            attributedText: Self.attributedMessageText(msg.text, agents: agentRoster)
+                            attributedText: Self.attributedMessageText(msg.text, agents: roster, rosterKey: rosterKey)
                         )
                         .id(msg.id)
                     }
@@ -454,11 +462,11 @@ public struct SlackView: View {
         .frame(maxHeight: .infinity)
     }
 
-    private func authorName(for msg: SlackMessage) -> String {
+    private func authorName(for msg: SlackMessage, roster: [Subagent]) -> String {
         switch msg.authorKind {
         case .user: return "You"
         case .agent:
-            let a = agentRoster.first(where: { $0.name == msg.authorId })
+            let a = roster.first(where: { $0.name == msg.authorId })
             return a?.displayName ?? a?.name ?? msg.authorId
         }
     }
@@ -470,7 +478,7 @@ public struct SlackView: View {
         }
     }
 
-    private func composer(_ channel: SlackChannel) -> some View {
+    private func composer(_ channel: SlackChannel, roster: [Subagent]) -> some View {
         VStack(spacing: 0) {
             if let note = lastInvocationNote {
                 HStack(spacing: 6) {
@@ -491,7 +499,7 @@ public struct SlackView: View {
             // Mention palette — floats above the input when an
             // `@<partial>` token is being typed. Click to insert.
             if let token = activeMentionToken {
-                let matches = mentionMatches(token.partial)
+                let matches = mentionMatches(token.partial, roster: roster)
                 if !matches.isEmpty {
                     MentionPalette(
                         agents: matches,
@@ -504,12 +512,12 @@ public struct SlackView: View {
                 }
             }
             HStack(spacing: 8) {
-                TextField(composerPlaceholder(for: channel, compact: isCompact), text: $composerText, axis: .vertical)
+                TextField(composerPlaceholder(for: channel, roster: roster, compact: isCompact), text: $composerText, axis: .vertical)
                     .textFieldStyle(.plain)
                     .lineLimit(1...4)
-                    .onSubmit { send(in: channel) }
+                    .onSubmit { send(in: channel, roster: roster) }
                 Button {
-                    send(in: channel)
+                    send(in: channel, roster: roster)
                 } label: {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.title2)
@@ -569,10 +577,10 @@ public struct SlackView: View {
 
     /// Subagents whose slug or display name has `partial` as a prefix
     /// (case-insensitive). Empty partial returns every agent.
-    private func mentionMatches(_ partial: String) -> [Subagent] {
-        if partial.isEmpty { return agentRoster }
+    private func mentionMatches(_ partial: String, roster: [Subagent]) -> [Subagent] {
+        if partial.isEmpty { return roster }
         let q = partial.lowercased()
-        return agentRoster.filter {
+        return roster.filter {
             $0.name.lowercased().hasPrefix(q) || ($0.displayName?.lowercased().hasPrefix(q) ?? false)
         }
     }
@@ -590,12 +598,8 @@ public struct SlackView: View {
     /// narrow horizontal layouts (iPhone portrait) where it would
     /// truncate to `Mes…` anyway; the `@`-autofill palette covers
     /// discoverability.
-    private func composerPlaceholder(for channel: SlackChannel) -> String {
-        composerPlaceholder(for: channel, compact: isCompact)
-    }
-
-    private func composerPlaceholder(for channel: SlackChannel, compact: Bool) -> String {
-        Self.composerPlaceholder(for: channel, agents: agentRoster, compact: compact)
+    private func composerPlaceholder(for channel: SlackChannel, roster: [Subagent], compact: Bool) -> String {
+        Self.composerPlaceholder(for: channel, agents: roster, compact: compact)
     }
 
     /// Pure helper for unit tests. Returns the user-facing
@@ -615,10 +619,9 @@ public struct SlackView: View {
         return compact ? base : "\(base) — use @name to mention"
     }
 
-    private func send(in channel: SlackChannel) {
+    private func send(in channel: SlackChannel, roster: [Subagent]) {
         let trimmed = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        let roster = agentRoster
         let explicitMentions = Self.parseMentions(text: trimmed, agents: roster)
         // DM auto-trigger: in a 1-on-1 DM, every user post invokes
         // the recipient agent even without an explicit `@mention`.
@@ -683,6 +686,15 @@ public struct SlackView: View {
     /// substring range (so the renderer can decorate it), the
     /// resolved `SlackAgent.id` (so the tap handler knows which
     /// agent to open a DM with), and the agent name as authored.
+    /// `@` followed by a run of name characters. Names that contain spaces
+    /// aren't supported in v1 — the convention is single-token agent names
+    /// (marketing, dev, research).
+    ///
+    /// Compiled once: this is walked per message per render, and building an
+    /// `NSRegularExpression` from source each time dominated the cost.
+    private static let mentionRegex: NSRegularExpression? =
+        try? NSRegularExpression(pattern: #"@([A-Za-z0-9._\-]+)"#)
+
     public struct MessageMention: Equatable, Sendable {
         public let range: Range<String.Index>
         public let agentId: String
@@ -703,8 +715,7 @@ public struct SlackView: View {
             if let d = a.displayName { byName[d.lowercased()] = a }
         }
         var out: [MessageMention] = []
-        let pattern = #"@([A-Za-z0-9._\-]+)"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        guard let regex = Self.mentionRegex else { return [] }
         let ns = text as NSString
         let range = NSRange(location: 0, length: ns.length)
         regex.enumerateMatches(in: text, range: range) { match, _, _ in
@@ -739,6 +750,29 @@ public struct SlackView: View {
     /// so a bad message still renders. Pure for unit-test
     /// friendliness.
     public nonisolated static func attributedMessageText(
+        _ text: String,
+        agents: [Subagent]
+    ) -> AttributedString {
+        attributedMessageText(text, agents: agents, rosterKey: MessageTextCache.fingerprint(agents))
+    }
+
+    /// `attributedMessageText` with the roster fingerprint hoisted out. The
+    /// message list renders every bubble against one roster, so it computes
+    /// the fingerprint once per render and hands it in — on a cache hit that
+    /// leaves nothing per-message to allocate but the lookup itself.
+    nonisolated static func attributedMessageText(
+        _ text: String,
+        agents: [Subagent],
+        rosterKey: [String]
+    ) -> AttributedString {
+        let key = MessageTextCache.Key(text: text, roster: rosterKey)
+        if let hit = MessageTextCache.shared.value(for: key) { return hit }
+        let built = buildAttributedMessageText(text, agents: agents)
+        MessageTextCache.shared.store(built, for: key)
+        return built
+    }
+
+    private nonisolated static func buildAttributedMessageText(
         _ text: String,
         agents: [Subagent]
     ) -> AttributedString {
@@ -784,11 +818,7 @@ public struct SlackView: View {
         }
         var out: [String] = []
         var seen = Set<String>()
-        // Match `@` followed by a run of name characters. Names that
-        // contain spaces aren't supported in v1 — the convention is
-        // single-token agent names (marketing, dev, research).
-        let pattern = #"@([A-Za-z0-9._\-]+)"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        guard let regex = Self.mentionRegex else { return [] }
         let ns = text as NSString
         let range = NSRange(location: 0, length: ns.length)
         regex.enumerateMatches(in: text, range: range) { match, _, _ in
@@ -1270,6 +1300,58 @@ private struct SlackAgentEditorSheet: View {
             #if os(macOS)
             .frame(minWidth: 360, idealWidth: 420, minHeight: 320, idealHeight: 420)
             #endif
+        }
+    }
+}
+
+/// Memo for `SlackView.attributedMessageText`.
+///
+/// Rendering a message bubble parses the text as markdown and re-scans it for
+/// mentions. Message text is immutable once posted, but `SlackView.body` re-runs
+/// on every keystroke in the composer — so without this, typing one character
+/// re-parsed every message on screen.
+///
+/// Keyed on the text plus the roster fields mention-resolution reads, because
+/// the roster decides which `@tokens` become links. Bounded and FIFO-evicted:
+/// a busy channel must not grow this without limit.
+private final class MessageTextCache: @unchecked Sendable {
+    struct Key: Hashable {
+        let text: String
+        /// Identifies the roster that produced the render. Must cover every
+        /// field `SlackView.mentions(in:agents:)` matches on — it resolves an
+        /// `@token` against the slug **and** the display name, so a key on
+        /// slugs alone would keep serving an old rendering after an agent is
+        /// renamed in its `AGENTS.md` frontmatter.
+        let roster: [String]
+    }
+
+    /// Flatten the roster to the fields mention-resolution reads.
+    static func fingerprint(_ agents: [Subagent]) -> [String] {
+        agents.flatMap { [$0.name, $0.displayName ?? ""] }
+    }
+
+    static let shared = MessageTextCache()
+
+    private let limit = 512
+    private let lock = NSLock()
+    private var entries: [Key: AttributedString] = [:]
+    private var insertionOrder: [Key] = []
+
+    func value(for key: Key) -> AttributedString? {
+        lock.lock()
+        defer { lock.unlock() }
+        return entries[key]
+    }
+
+    func store(_ value: AttributedString, for key: Key) {
+        lock.lock()
+        defer { lock.unlock() }
+        if entries.updateValue(value, forKey: key) == nil {
+            insertionOrder.append(key)
+            if insertionOrder.count > limit {
+                let evicted = insertionOrder.removeFirst()
+                entries.removeValue(forKey: evicted)
+            }
         }
     }
 }
