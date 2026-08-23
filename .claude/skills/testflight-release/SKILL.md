@@ -1,6 +1,6 @@
 ---
 name: testflight-release
-description: Archive Pupa iOS + macOS for TestFlight upload (one Universal Purchase record, both ship together). Verifies the App Store icon is opaque, syncs MARKETING_VERSION to PupaAppVersion, bumps CURRENT_PROJECT_VERSION, runs xcodebuild archive for both platforms, and reports both .xcarchive paths so the user can upload via Xcode Organizer. Invoke when the user says "ship to TestFlight", "archive for TestFlight", "release ios", "distribute ios", or "/testflight-release".
+description: Archive Pupa iOS + macOS for TestFlight upload (one Universal Purchase record, both ship together). Verifies the App Store icon is opaque, syncs MARKETING_VERSION to PupaAppVersion, bumps CURRENT_PROJECT_VERSION, runs xcodebuild archive for both platforms, checks the macOS entitlement set, and reports both .xcarchive paths so the user can upload via Xcode Organizer. Invoke when the user says "ship to TestFlight", "archive for TestFlight", "release ios", "distribute ios", or "/testflight-release".
 ---
 
 > **Workflow note:** The script lands the build-number bump on `dev`, then fast-forwards `main` from `dev`, then archives `main`. So the bump is part of `dev`'s history *before* it reaches `main`, and the branches stay aligned — no post-hoc realign. You don't need to be on any particular branch first; the script switches to `dev` itself. (Use `--no-flow` to bump+archive the current branch in place, skipping the dev→main dance — for local validation builds only.)
@@ -48,7 +48,11 @@ Branch names default to `dev`/`main`; override with `DEV_BRANCH=` / `MAIN_BRANCH
 5. If pbxproj changed, commits the bump on `dev` with a generic `chore(ios): bump build to N` message. Stops if working tree is otherwise dirty.
 6. Fast-forwards `main` from `dev` (`--ff-only`; aborts if diverged), then archives `main`.
 7. Runs `xcodebuild archive` twice: `-destination generic/platform=iOS` into `build/Pupa.xcarchive`, then `-destination generic/platform=macOS` into `build/Pupa-macOS.xcarchive`.
-8. Verifies each archive's `Info.plist` reports the expected version + build + bundle ID.
+8. Checks the macOS archive's signed entitlements against the expected set (sandbox,
+   network client + server, user-selected files). The signature is the only ground
+   truth here — the `com.apple.security.*` keys are synthesized from `ENABLE_*` build
+   settings and never appear in `PupaHost.entitlements`.
+9. Verifies each archive's `Info.plist` reports the expected version + build + bundle ID.
 
 Nothing is pushed — both branches are aligned locally and the script prints the `git push origin dev main` command for you to run.
 
@@ -77,6 +81,12 @@ If the user wants to skip Organizer and upload via CLI: `xcrun altool --upload-a
 
 - **Icon has alpha**: tell the user the icon must be flattened. Suggest running our flatten one-liner (composite onto white, save back). Don't auto-flatten — icon edits are visual, the user should approve. This check is for the **master source art** `icon_1024.png` only. Two derived sets are *supposed* to have alpha: `mac_icon_*.png` (squircle mask + inset — `swift scripts/gen-macos-appicon.swift`) and `AppIcon.icon/Assets/mark.png` (transparent-backed mark — `swift scripts/gen-icon-mark.swift`). Regenerate both if the source art changes.
 - **`AppIcon.icon` missing or `"glass": false` gone**: the shipped icon would revert to the system's auto-applied Liquid Glass, which visibly blurs the mark. Restore the key rather than skipping the check.
+- **macOS entitlements drifted**: the gate prints a diff — `<` lines are keys we expect
+  but the build lost (that feature is dead at runtime, as in pupa#229), `>` lines are keys
+  the build gained that no code uses (review risk). Don't relax the expected set to make it
+  pass; find the `ENABLE_*` build setting that moved. If the change is deliberate, update
+  `MACOS_ENTITLEMENTS_EXPECTED` here and the entitlement table in `docs/architecture.md`
+  in the same commit.
 - **Working tree dirty (non-pbxproj files)**: refuse and ask the user to commit/stash first.
 - **`main` can't fast-forward from `dev`**: `main` has commits not on `dev` (they diverged). The script aborts before archiving. Resolve the branch state manually (or merge `main` into `dev`), then re-run. The bump commit is already on `dev` at this point — no harm in re-running.
 - **Archive fails on signing**: usually means agreements unaccepted at `developer.apple.com` or the Xcode Apple ID needs re-auth. Direct the user there; don't try to fix from the CLI.

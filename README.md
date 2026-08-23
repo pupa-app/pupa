@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="Pupa/Sources/PupaApp/Version.swift"><img src="https://img.shields.io/badge/Pupa-0.0.259-000000?logo=apple&logoColor=white" alt="Pupa version" /></a>
+  <a href="Pupa/Sources/PupaApp/Version.swift"><img src="https://img.shields.io/badge/Pupa-0.0.262-000000?logo=apple&logoColor=white" alt="Pupa version" /></a>
   <a href="AGUIKit/Sources/AGUIKit/Version.swift"><img src="https://img.shields.io/badge/AGUIKit-0.0.30-f05138?logo=swift&logoColor=white" alt="AGUIKit version" /></a>
 </p>
 
@@ -55,7 +55,9 @@ no dependency on Pupa, embeddable in any project.
 
 **App Store: coming soon.** Email
 [support@pupa-app.com](mailto:support@pupa-app.com) for a TestFlight
-invite and try it early.
+invite and try it early. One app covers iPhone, iPad and Mac — the invite
+includes the Mac build, and a single Universal Purchase will cover all
+three.
 
 To build from source, see [CONTRIBUTING.md](CONTRIBUTING.md).
 

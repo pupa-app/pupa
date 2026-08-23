@@ -3,6 +3,17 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.262] — 2026-08-23
+
+### Changed
+
+- **The Mac app no longer asks for your camera or microphone.** It requested
+  both, and listed itself under both in Privacy & Security, while using
+  neither: the camera is only ever used for QR pairing on iPhone and iPad, and
+  nothing in Pupa has ever recorded audio. Dictating into a text field with the
+  keyboard mic is unaffected — that runs in the system, not in Pupa. Screen
+  sharing, iCloud sync and importing `.pupa` files are unchanged.
+
 ## [0.0.261] — 2026-08-22
 
 ### Security
