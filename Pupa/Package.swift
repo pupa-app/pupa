@@ -14,6 +14,9 @@ let package = Package(
         // A macOS-runnable build of the same app, useful for fast iteration
         // outside Xcode. Start a backend on :8004 (see backend/), then `swift run PupaDemo`.
         .executable(name: "PupaDemo", targets: ["PupaDemo"]),
+        // Debug harness: drive a real app graph headlessly against a scripted
+        // or live backend. Not linked by the app — see docs/testing.md.
+        .library(name: "PupaHarness", targets: ["PupaHarness"]),
     ],
     dependencies: [
         .package(path: "../AGUIKit"),
@@ -33,6 +36,14 @@ let package = Package(
             path: "Sources/PupaApp",
             resources: [.process("Resources")]
         ),
+        .target(
+            name: "PupaHarness",
+            dependencies: [
+                "PupaApp",
+                .product(name: "AGUIKit", package: "AGUIKit"),
+            ],
+            path: "Sources/PupaHarness"
+        ),
         .executableTarget(
             name: "PupaDemo",
             dependencies: ["PupaApp"],
@@ -40,7 +51,7 @@ let package = Package(
         ),
         .testTarget(
             name: "PupaAppTests",
-            dependencies: ["PupaApp"],
+            dependencies: ["PupaApp", "PupaHarness"],
             path: "Tests/PupaAppTests"
         ),
     ]
