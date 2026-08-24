@@ -228,42 +228,10 @@ archive_platform "iOS" "$ARCHIVE_IOS"
 archive_platform "macOS" "$ARCHIVE_MACOS"
 
 # --- entitlement gate -----------------------------------------------------
-# Entitlements only exist in the signed product, so this can't sit up with the
-# icon checks. Both drift directions ship silently:
-#   missing key -> the feature is simply dead at runtime (pupa#229: the Mac
-#                  build had no outbound network at all, localhost included)
-#   extra key   -> App Store review asks why we want a door we never open
-# The signature is the only ground truth. Do NOT read PupaHost.entitlements to
-# answer "are we sandboxed" — the com.apple.security.* keys are synthesized
-# from the ENABLE_* build settings and never appear in that file (pupa#246).
-MACOS_ENTITLEMENTS_EXPECTED="com.apple.security.app-sandbox
-com.apple.security.files.user-selected.read-write
-com.apple.security.network.client
-com.apple.security.network.server"
-
-verify_entitlements() {
-  local archive_path="$1" app actual drift
-  app=$(echo "$archive_path"/Products/Applications/*.app)
-  [[ -d "$app" ]] || die "No .app inside $archive_path — cannot verify entitlements."
-  # get-task-allow is a signing-mode artefact (development vs distribution),
-  # not a capability we choose, so it never takes part in the comparison.
-  actual=$(codesign -d --entitlements - --xml "$app" 2>/dev/null \
-    | plutil -convert xml1 -o - - 2>/dev/null \
-    | grep -o 'com\.apple\.security\.[a-z.-]*' \
-    | grep -v '^com\.apple\.security\.get-task-allow$' \
-    | sort -u || true)
-  [[ -n "$actual" ]] || die "Read no entitlements out of $app. Is it signed?"
-  if ! drift=$(diff <(printf '%s\n' "$MACOS_ENTITLEMENTS_EXPECTED" | sort) <(printf '%s\n' "$actual")); then
-    printf '%s\n' "$drift" >&2
-    die "macOS entitlements drifted ('<' expected but absent, '>' present but unexpected).
-       Each key must be justified by code that uses it — see the entitlement table in
-       docs/architecture.md. If the change is intentional, update MACOS_ENTITLEMENTS_EXPECTED
-       in this script and that table in the same commit."
-  fi
-  note "macOS entitlements match the expected set (sandbox, network client+server, user-selected files)"
-}
-
-verify_entitlements "$ARCHIVE_MACOS"
+# Shared with dmg-release, so the App Store and Developer ID channels cannot
+# drift apart on the sandbox keys or the iCloud container. Entitlements exist
+# only in a signed product, so this is the only regression guard there is.
+scripts/verify-mac-entitlements.sh "$ARCHIVE_MACOS"
 
 # --- verify ---------------------------------------------------------------
 verify_archive() {
