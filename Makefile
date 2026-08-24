@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help build build-aguikit build-pupa test test-aguikit test-pupa ctl mac-demo clean
+.PHONY: help build build-aguikit build-pupa test test-aguikit test-pupa ui-test ctl mac-demo clean
 
 AGUIKIT := AGUIKit
 PUPA := Pupa
@@ -26,6 +26,19 @@ test-pupa:  ## Run Pupa app tests (use FILTER=Foo to scope)
 	# dir (TestStorage) and share backend singletons, so parallel suites
 	# clobber each other and fail nondeterministically. Serial run is ~3s.
 	swift test --package-path $(PUPA) --no-parallel $(if $(FILTER),--filter $(FILTER),)
+
+SIM ?= iPhone 17 Pro Max
+
+ui-test:  ## Run the simulator UI tests, exporting screenshots to build/shots (SIM=... to pick a device)
+	@rm -rf build/uitest.xcresult build/shots
+	@xcodebuild test -project $(PUPAHOST)/PupaHost.xcodeproj -scheme PupaHost \
+	  -destination 'platform=iOS Simulator,name=$(SIM)' \
+	  -resultBundlePath build/uitest.xcresult \
+	  -parallel-testing-enabled NO \
+	  -only-testing:PupaHostUITests/ChatFlowUITests
+	@xcrun xcresulttool export attachments --path build/uitest.xcresult \
+	  --output-path build/shots >/dev/null 2>&1 || true
+	@echo "screenshots (if any) → build/shots"
 
 ctl:  ## Drive the app headlessly: make ctl ARGS='chat "add a tracker"' (see docs/testing.md)
 	@swift run --package-path $(PUPA) PupaCtl $(ARGS)

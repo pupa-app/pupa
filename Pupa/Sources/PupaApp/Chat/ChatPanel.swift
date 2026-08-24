@@ -656,6 +656,7 @@ public struct ChatPanel: View {
                     // via the bubble) gates the field.
                     .disabled(viewModel.isAwaitingHumanInput)
                     .onSubmit(send)
+                    .accessibilityIdentifier(PupaID.chatComposer)
                 Button(action: send) {
                     Image(systemName: showsStopButton ? "stop.fill" : "arrow.up")
                         .font(.system(size: 16, weight: .semibold))
@@ -668,6 +669,7 @@ public struct ChatPanel: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(sendDisabled)
+                .accessibilityIdentifier(PupaID.chatSend)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 5)

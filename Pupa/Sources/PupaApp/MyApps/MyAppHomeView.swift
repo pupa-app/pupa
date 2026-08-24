@@ -312,6 +312,9 @@ public struct MyAppHomeView: View {
                 store.combineComponentsIntoFolder(dragged, component.id, myAppId: app.id)
             }
         )
+        // Keyed on the component's own stable id, so a UI test can wait for
+        // exactly the component a tool created rather than matching its label.
+        .accessibilityIdentifier(PupaID.component(component.id))
     }
 
     /// Components assigned to `folder`, in the app's component order (stable).

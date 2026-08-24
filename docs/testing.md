@@ -88,6 +88,33 @@ make ctl ARGS='record /tmp/live.jsonl --send "add a tracker"'
 make ctl ARGS='replay /tmp/live.jsonl --send "add a tracker"'
 ```
 
+## Driving the launched app
+
+The app accepts launch arguments so a UI test can drive it with no network and
+no pairing. All of them are ignored without `-PupaStorageRoot` — nothing here
+may run against real app data.
+
+| Argument | Effect |
+|---|---|
+| `-PupaStorageRoot PATH` | isolate storage; `ephemeral` picks a fresh dir in the app's own temp |
+| `-PupaBackendURL URL` | point the agent somewhere |
+| `-PupaScript PATH` | serve a canned backend |
+| `-PupaSkipOnboarding 1` | skip first-run |
+
+`PUPA_SCRIPT` in the environment carries a script inline instead of by path —
+the only form that crosses the sandbox boundary between a UI test runner and the
+app it launches. `ephemeral` exists for the same reason.
+
+```sh
+make ui-test                      # SIM='iPhone 17' to pick a device
+```
+
+Screenshots land in `build/shots`; `ChatFlowUITests` attaches one on failure.
+Query by identifier (`PupaID` in PupaApp, mirrored in the test target), not by
+label — labels are user-facing copy and change with the wording. Keep this layer
+to what genuinely needs pixels; everything below the view layer is covered far
+faster by the scenario harness.
+
 ## In tests
 
 `Scenario` is the same thing from Swift. See

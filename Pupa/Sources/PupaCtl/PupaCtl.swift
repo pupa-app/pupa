@@ -1,5 +1,6 @@
 import Foundation
 import AGUIKit
+import PupaScripting
 import PupaApp
 import PupaHarness
 

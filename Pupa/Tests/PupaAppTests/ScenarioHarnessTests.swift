@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import AGUIKit
+import PupaScripting
 import PupaHarness
 @testable import PupaApp
 

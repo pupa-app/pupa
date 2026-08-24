@@ -28,9 +28,18 @@ let package = Package(
         .package(url: "https://github.com/stasel/WebRTC.git", from: "137.0.0"),
     ],
     targets: [
+        // Canned-backend scripting. Below PupaApp so the launched app can
+        // serve a script itself (`-PupaScript`) without depending on the
+        // harness that sits above it.
+        .target(
+            name: "PupaScripting",
+            dependencies: [.product(name: "AGUIKit", package: "AGUIKit")],
+            path: "Sources/PupaScripting"
+        ),
         .target(
             name: "PupaApp",
             dependencies: [
+                "PupaScripting",
                 .product(name: "AGUIKit", package: "AGUIKit"),
                 .product(name: "MarkdownUI", package: "swift-markdown-ui"),
                 .product(name: "WebRTC", package: "WebRTC"),
@@ -42,13 +51,14 @@ let package = Package(
             name: "PupaHarness",
             dependencies: [
                 "PupaApp",
+                "PupaScripting",
                 .product(name: "AGUIKit", package: "AGUIKit"),
             ],
             path: "Sources/PupaHarness"
         ),
         .executableTarget(
             name: "PupaCtl",
-            dependencies: ["PupaApp", "PupaHarness"],
+            dependencies: ["PupaApp", "PupaHarness", "PupaScripting"],
             path: "Sources/PupaCtl"
         ),
         .executableTarget(
@@ -58,7 +68,7 @@ let package = Package(
         ),
         .testTarget(
             name: "PupaAppTests",
-            dependencies: ["PupaApp", "PupaHarness"],
+            dependencies: ["PupaApp", "PupaHarness", "PupaScripting"],
             path: "Tests/PupaAppTests"
         ),
     ]
