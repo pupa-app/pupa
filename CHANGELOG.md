@@ -3,6 +3,21 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.267] — 2026-08-24
+
+### Changed
+
+- **Pupa has moved to a new developer account, and this version starts with an
+  empty library.** The app's identity on Apple's side had to change, and where
+  your apps and memories are kept is tied to that identity — so this build reads
+  a different folder from the one your old install filled. Nothing was deleted,
+  and nothing syncs across: an app is only allowed to read its own storage, so
+  this version genuinely cannot reach the old one's.
+  **Open the old version first and export your apps** — Settings ▸ Share, with
+  records and memories included — then import that file here. Chat history,
+  version history and your settings aren't carried in that file, and every
+  device pairs with your backend again.
+
 ## [0.0.266] — 2026-08-24
 
 ### Added

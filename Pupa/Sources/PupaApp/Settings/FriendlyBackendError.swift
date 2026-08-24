@@ -3,9 +3,9 @@ import OSLog
 
 /// Maps a raw networking `Error` to a short, human backend-connection
 /// message. The raw error is logged (never shown) so the UI stays friendly.
-/// Filter Console.app by subsystem `com.pupa-app.client`, category `backend`.
+/// Filter Console.app by subsystem `com.pupa-app.pupa`, category `backend`.
 enum FriendlyBackendError {
-    private static let log = Logger(subsystem: "com.pupa-app.client", category: "backend")
+    private static let log = Logger(subsystem: "com.pupa-app.pupa", category: "backend")
 
     /// Short user-facing copy for a failed backend request. Logs the raw error.
     static func message(for error: Error) -> String {

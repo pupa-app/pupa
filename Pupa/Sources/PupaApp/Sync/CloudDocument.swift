@@ -99,7 +99,7 @@ public enum CloudDocument {
 /// reload.
 @MainActor
 public final class CloudWatcher {
-    static let log = Logger(subsystem: "com.pupa-app.client", category: "sync")
+    static let log = Logger(subsystem: "com.pupa-app.pupa", category: "sync")
     private let query = NSMetadataQuery()
     private let onChange: @MainActor () async -> Void
     private var observers: [NSObjectProtocol] = []

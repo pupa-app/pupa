@@ -13,15 +13,15 @@ import os
 /// Each line also carries `cold`/`warm`: first use of a name this launch is
 /// cold, so "first open slow" is a column rather than an anecdote.
 ///
-/// Output: one CSV line per number to `com.pupa-app.client`/`perf`, plus an
+/// Output: one CSV line per number to `com.pupa-app.pupa`/`perf`, plus an
 /// `os_signpost` interval so Instruments traces self-label on device.
 public enum PerfTrace {
     /// A `let`, so `guard isEnabled` folds the bodies away when unset.
     public static let isEnabled = ProcessInfo.processInfo.environment["PUPA_PERF"] == "1"
 
-    static let log = Logger(subsystem: "com.pupa-app.client", category: "perf")
+    static let log = Logger(subsystem: "com.pupa-app.pupa", category: "perf")
     private static let signposter = OSSignposter(
-        subsystem: "com.pupa-app.client", category: "perf")
+        subsystem: "com.pupa-app.pupa", category: "perf")
 
     /// One recorded number. Collected only while tracing, so the PupaDemo
     /// harness can print a table without scraping the log.

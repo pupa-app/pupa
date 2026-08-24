@@ -182,7 +182,7 @@ submit --wait`, `stapler staple`. Invoke through Claude Code's
 
 It needs three things that only an Account Holder can create — a Developer ID
 Application certificate, a Developer ID provisioning profile for
-`com.pupa-app.client` **including the iCloud container**, and stored
+`com.pupa-app.pupa` **including the iCloud container**, and stored
 `notarytool` credentials. The script refuses to run until all three exist. See
 [Distribution channels](docs/architecture.md#distribution-channels) for why the
 embedded profile matters.

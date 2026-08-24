@@ -162,7 +162,7 @@ root, Agents, Import & Export — render through the one `SettingsHubRow`.
 
 `PerfTrace` (`App/PerfTrace.swift`) times navigation interactions when
 `PUPA_PERF=1`; it is inert otherwise. Each interaction logs two numbers to
-`com.pupa-app.client`/`perf`, plus an `os_signpost` interval:
+`com.pupa-app.pupa`/`perf`, plus an `os_signpost` interval:
 
 - **main** — the runloop turn the tap kicks off (state write + body + layout).
   Moves when synchronous work leaves a `body`.
@@ -1243,7 +1243,7 @@ cloud copy is still an un-downloaded placeholder is **never** pushed up over it
 (that write would clobber the real bytes before they land; a later pass converges
 them once the download completes). This guard is path-agnostic, so it protects app
 bodies and memories, not just `state/index.json`. Convergence is observable: `os_log` under subsystem
-`com.pupa-app.client` / category `sync`, and `SyncStatus` drives the Account
+`com.pupa-app.pupa` / category `sync`, and `SyncStatus` drives the Account
 screen's real "Status" ("Up to date", "Syncing N…", "Waiting for iCloud").
 
 **Seed-race guard (a fresh device must not clobber the cloud roster).** On
@@ -1323,13 +1323,13 @@ background disk task crosses a suite boundary.
 
 There is no migration from the pre-iCloud single-blob storage — a new build
 seeds fresh. iCloud needs the CloudDocuments entitlement
-(`PupaHost.entitlements`, container `iCloud.com.pupa-app.client` =
+(`PupaHost.entitlements`, container `iCloud.com.pupa-app.pupa` =
 `PupaStorage.containerID`).
 
 `localRoot` is written as `~/Library/Application Support/pupa` throughout this
 doc, which is what it resolves to on iOS and in the unsandboxed `PupaDemo`
 target. **`PupaHost` is sandboxed on macOS**, so there the same code lands in
-`~/Library/Containers/com.pupa-app.client/Data/Library/Application Support/pupa`.
+`~/Library/Containers/com.pupa-app.pupa/Data/Library/Application Support/pupa`.
 Nothing in the storage layer needs to know: `.applicationSupportDirectory`
 already resolves per-container. It matters when you go looking for the files by
 hand, and it means `make mac-demo` reads a different tree from an Xcode build —
@@ -1643,11 +1643,27 @@ Then build/run in Xcode as normal (automatic signing). Do **not** set the
 team via Xcode's *Signing & Capabilities* dropdown — that writes
 `DEVELOPMENT_TEAM` back into `project.pbxproj` and re-leaks it.
 
-The app's bundle ID is `com.pupa-app.client` (reverse-DNS of the owned
+The app's bundle ID is `com.pupa-app.pupa` (reverse-DNS of the owned
 domain `pupa-app.com`; platform-neutral so one Universal Purchase record
 covers iOS + macOS). Tests/UITests use the `.tests` / `.uitests` suffixes.
 The bundle ID is permanent once an app record exists in App Store Connect,
 so settle on the final value before creating that record.
+
+It was `com.pupa-app.client` until the project moved to a different Apple
+Developer account. Bundle IDs and iCloud containers are globally unique and
+registered to one team, and Apple's app transfer needs a version already
+released to the App Store — which Pupa never had — so the move meant new
+identifiers rather than a transfer.
+
+**That change resets local data, and no code can soften it.** A new bundle ID
+means a new container, so an existing install finds an empty app with its data
+at the old container path. A shim can't help: a sandboxed app may read its own
+container and user-selected files, and nothing else, so the old tree is
+unreachable except through a file picker the user drives. The supported route is
+to export a `.pupa` library bundle (with records and memories) from the old
+build and import it into the new one. Chat transcripts, snapshots and settings
+are not in that bundle, and the paired-device token is scoped to the old bundle
+ID, so devices re-pair.
 
 ### App Sandbox & entitlements
 

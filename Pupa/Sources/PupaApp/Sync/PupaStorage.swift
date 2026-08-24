@@ -11,7 +11,7 @@ import Foundation
 /// background when iCloud is available.
 ///
 /// iCloud is a **mirror target**, resolved lazily off the main thread only
-/// when the mirror runs. `iCloud.com.pupa-app.client` must match the
+/// when the mirror runs. `iCloud.com.pupa-app.pupa` must match the
 /// CloudDocuments container in the app's entitlements; without that
 /// capability `documentsRoot` is `nil` and the app runs local-only.
 ///
@@ -20,7 +20,7 @@ import Foundation
 /// real ubiquity container.
 public enum PupaStorage {
     /// iCloud container id; matches the CloudDocuments entitlement.
-    public static let containerID = "iCloud.com.pupa-app.client"
+    public static let containerID = "iCloud.com.pupa-app.pupa"
 
     /// Process-wide canonical-root override. Set by tests before any store
     /// inits so file IO stays off the developer's real Application Support.

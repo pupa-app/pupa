@@ -29,9 +29,9 @@ public actor StorageMirror {
     public static let shared = StorageMirror()
     private init() {}
 
-    /// Sync diagnostics — filter Console.app by subsystem `com.pupa-app.client`,
+    /// Sync diagnostics — filter Console.app by subsystem `com.pupa-app.pupa`,
     /// category `sync`. One line per subtree, never per file (avoids spam).
-    static let log = Logger(subsystem: "com.pupa-app.client", category: "sync")
+    static let log = Logger(subsystem: "com.pupa-app.pupa", category: "sync")
 
     /// Pending debounced reconcile. Lock-protected rather than actor state so
     /// `scheduleReconcile()` registers it *synchronously* — a `drain()` ordered

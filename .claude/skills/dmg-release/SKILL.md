@@ -26,7 +26,7 @@ The script refuses to run until all three exist:
    Not the same as the Apple Development cert used for TestFlight. Apple caps
    these at 5 per account and replacing one is painful, so back the private key
    up.
-2. **A Developer ID provisioning profile for `com.pupa-app.client` that includes
+2. **A Developer ID provisioning profile for `com.pupa-app.pupa` that includes
    the iCloud container.** iCloud is a *restricted* entitlement: without a
    profile embedded in the app, the build launches normally and then never
    syncs, silently. The script checks for this and fails rather than shipping it.
