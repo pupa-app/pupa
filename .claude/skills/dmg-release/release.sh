@@ -100,6 +100,12 @@ else
 fi
 note "building Pupa $VERSION for the Developer ID channel"
 
+# project.pbxproj carries whatever MARKETING_VERSION the last TestFlight release
+# left behind — archive.sh syncs it from PupaAppVersion at release time, and this
+# script must not mutate a tracked file just to build. Override on the command
+# line instead, or the DMG advertises a stale version in Finder, in Get Info, and
+# to any updater that reads CFBundleShortVersionString.
+
 # --- archive --------------------------------------------------------------
 mkdir -p build
 rm -rf "$ARCHIVE" "$EXPORT_DIR" "$STAGE"
@@ -111,6 +117,7 @@ xcodebuild \
   -destination 'generic/platform=macOS' \
   -archivePath "$ARCHIVE" \
   -allowProvisioningUpdates \
+  MARKETING_VERSION="$VERSION" \
   archive \
   >/tmp/pupa-dmg-archive.log 2>&1 \
   || { tail -40 /tmp/pupa-dmg-archive.log >&2; die "xcodebuild archive failed. Full log: /tmp/pupa-dmg-archive.log"; }
@@ -176,13 +183,20 @@ hdiutil create -volname "Pupa" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev
   || die "hdiutil create failed."
 note "packaged $DMG"
 
+BUNDLE_SHORT=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist" 2>/dev/null || echo '?')
+BUNDLE_BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist" 2>/dev/null || echo '?')
+[[ "$BUNDLE_SHORT" == "$VERSION" ]] \
+  || die "The packaged app reports version $BUNDLE_SHORT, expected $VERSION.
+       MARKETING_VERSION did not take — the DMG would advertise the wrong version."
+
 if [[ $SKIP_NOTARIZE -eq 1 ]]; then
   if [[ $DEV_SIGNING -eq 1 ]]; then
     cat <<EOF
 
 PIPELINE SMOKE TEST PASSED — THIS DMG IS NOT A RELEASE
   $DMG
-  Version $VERSION, signed with an Apple Development identity
+  Bundle reports $BUNDLE_SHORT (build $BUNDLE_BUILD), signed with an Apple
+  Development identity
 
 Everything up to notarization ran: archive, export, entitlement + embedded
 profile checks, staging, signature re-verify, packaging. Notarization itself is
@@ -229,7 +243,8 @@ cat <<EOF
 
 DMG READY
   $DMG
-  Version $VERSION, notarized and stapled, Gatekeeper accepted
+  Bundle reports $BUNDLE_SHORT (build $BUNDLE_BUILD), notarized and stapled,
+  Gatekeeper accepted
 
 Verify on a machine that has never seen this build (or clear the quarantine
 cache) before publishing. Upload it wherever the download link points, and
