@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import PupaScripting
 
 /// URLSessionDelegate that accepts a server certificate whose SHA-256
 /// fingerprint matches a known value — used for self-signed HTTPS backends
@@ -44,7 +45,12 @@ final class CertPinningDelegate: NSObject, URLSessionDelegate, Sendable {
 extension URLSession {
     /// Returns a URLSession pinned to the given SHA-256 cert fingerprint, or
     /// `.shared` when no fingerprint is configured.
+    ///
+    /// An app launched with `-PupaScript` gets a session that answers from the
+    /// script instead — the one place the whole app's backend traffic can be
+    /// intercepted, so a UI test never needs a live backend.
     static func forBackend(certFingerprint: String?) -> URLSession {
+        if LaunchOptions.isScripted { return ScriptedTransport.session() }
         guard let fp = certFingerprint, !fp.isEmpty else { return .shared }
         let delegate = CertPinningDelegate(fingerprint: fp)
         return URLSession(

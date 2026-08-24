@@ -176,6 +176,7 @@ public struct MyAppBottomBar: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(chatOpen ? "Close chat" : "Open chat")
+        .accessibilityIdentifier(PupaID.chatToggle)
         .accessibilityValue(chatStatus.accessibilityDescription ?? "")
         .tourAnchor(.bottomBarChat)
     }

@@ -21,6 +21,9 @@ backend (separate repo) over a single `POST /` SSE stream.
   recipe for landing a new canvas shape.
 - [docs/marketplace.md](docs/marketplace.md) — MyApp export/import bundle
   format, the unified reference model, and the import threat model.
+- [docs/testing.md](docs/testing.md) — the four testing layers, and how an
+  agent drives the app headlessly (`make ctl`) against a scripted or live
+  backend. Read before debugging any app↔backend flow.
 - [docs/testing-turn-recovery.md](docs/testing-turn-recovery.md) — by-hand
   playbook for turn recovery (parked frontend-tool dispatch): env knobs to
   shrink the clocks, files + log lines to watch, scenario matrix. For what the
@@ -92,6 +95,8 @@ to `dev`, fast-forward `main` from `dev` for releases.
   must track the backend's `MODEL_REGISTRY`.
 - **Write a test early when helpful.** For bugs / features, prefer a
   failing test up front; skip only for pure UI tweaks and docs.
+- **Drive whole turns with `make ctl`** — chat, replay, record, dump. See
+  [docs/testing.md](docs/testing.md).
 - **Run the suite with `make test`** — not raw `swift test`. It covers
   both packages (AGUIKit + Pupa) and pins Pupa's `--no-parallel`. Narrow
   with `make test FILTER=SomeTests`.

@@ -29,9 +29,19 @@ public struct RootView: View {
     /// content's fade-in run back-to-back, never simultaneously.
     private enum Phase { case splash, transitioning, content }
 
-    @State private var settings = SettingsStore()
+    /// Launch arguments are applied here — the first thing that runs in any
+    /// entry point, since all three build a `RootView` and nothing else may
+    /// construct a store before `PupaStorage.overrideRoot` is set.
+    private static let launch = LaunchOptions.apply()
+
+    @State private var settings = RootView.makeSettings()
     @State private var phase: Phase = .splash
     @AppStorage(OnboardingKeys.completed) private var onboardingCompleted = false
+
+    private static func makeSettings() -> SettingsStore {
+        // Touching `launch` forces the launch arguments to apply first.
+        SettingsStore(backendURL: launch.backendURL)
+    }
 
     public init() {
         // Migration: users who already configured the app before onboarding +

@@ -607,6 +607,15 @@ on finish/skip so it never replays, and is re-launchable from Settings →
 "Getting started tour". `RootView`'s migration back-fills `tourCompleted = true`
 for pre-existing users so an update never replays it.
 
+### Driven launches
+
+`LaunchOptions` (applied by `RootView` before any store exists) lets a launch be
+pointed at an isolated storage root, a chosen backend, or a canned script
+(`URLSession.forBackend` serves from it instead of the network). Every flag is
+ignored without `-PupaStorageRoot`, so a normal launch is untouched and none of
+it can reach real app data. Used by the UI tests; see
+[testing.md](testing.md).
+
 ## Canvas mutations
 
 All canvas / item mutation goes through **`MyAppStore`**

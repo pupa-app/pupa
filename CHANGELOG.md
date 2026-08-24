@@ -3,6 +3,18 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.266] — 2026-08-24
+
+### Added
+
+- **A debug harness for driving the app end to end.** `make ctl` sends chat
+  turns through the real app graph and prints what they touched — chat, canvas,
+  recovery records, wire — against a scripted backend or a live one. Scripts can
+  be recorded from a real backend and replayed deterministically. The app itself
+  accepts launch arguments (`-PupaStorageRoot`, `-PupaScript`) so a UI test can
+  drive it with no network and no pairing; `make ui-test` runs the first one.
+  Nothing here is reachable in a normal launch. See `docs/testing.md`.
+
 ## [0.0.265] — 2026-08-23
 
 ### Removed
