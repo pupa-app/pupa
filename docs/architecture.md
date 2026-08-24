@@ -1690,10 +1690,36 @@ the app (TextEdit is sandboxed, dictates fine, and holds no audio entitlement).
 `NSCameraUsageDescription` stays in the Info.plist because iOS still needs it
 for the TCC prompt; that string is separate from the macOS sandbox key.
 
-`archive.sh` gates every release on this set — see `MACOS_ENTITLEMENTS_EXPECTED`
-in the [`testflight-release`](../.claude/skills/testflight-release/) skill. It
-fails on both a missing key and an unexpected one, so any change here must land
-in the script and this table together.
+[`scripts/verify-mac-entitlements.sh`](../scripts/verify-mac-entitlements.sh)
+gates every release on this set, and both release paths call it — App Store via
+[`testflight-release`](../.claude/skills/testflight-release/), Developer ID via
+[`dmg-release`](../.claude/skills/dmg-release/). One definition, so the two
+channels cannot drift apart. It fails on a missing key, on an unexpected one,
+and on an iCloud container that isn't `PupaStorage.containerID` (read straight
+out of the Swift source, so the check can't go stale). Any change here must land
+in that script and this table together.
+
+### Distribution channels
+
+macOS ships two ways from **one build shape** — same target, bundle id, sandbox
+container and iCloud container — so a user moving between them keeps their data.
+
+| | App Store | Direct download |
+|---|---|---|
+| Signing | Apple Distribution, Apple re-signs | Developer ID Application |
+| Gatekeeper | implicit | notarized + stapled ticket |
+| Provisioning profile | Apple supplies | **must be embedded in the app** |
+| Updates | automatic | manual today (pupa#246 step 4) |
+| Tooling | `testflight-release` | `dmg-release` |
+
+**The embedded profile is the trap.** iCloud is a *restricted* entitlement:
+Apple has to grant it, and on a Developer ID build that grant travels in a
+`.provisionprofile` embedded at `Contents/embedded.provisionprofile`. Miss it and
+nothing looks wrong — the app launches, the UI works, and
+`url(forUbiquityContainerIdentifier:)` returns nil, so `documentsRoot` is nil,
+`iCloudActive` is false, and the app quietly runs local-only forever. No error,
+no crash, no sync. `verify-mac-entitlements.sh --require-embedded-profile`
+catches it; `dmg-release` always passes that flag.
 
 ### App icon
 

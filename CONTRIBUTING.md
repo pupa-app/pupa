@@ -166,6 +166,30 @@ directly:
 .claude/skills/testflight-release/archive.sh [--build N] [--no-bump] [--skip-icon-check] [--no-flow]
 ```
 
+## DMG (direct download)
+
+The `dmg-release` skill at
+[`.claude/skills/dmg-release/`](.claude/skills/dmg-release/) builds the
+notarized `.dmg` for the download-from-the-website channel: Developer ID
+archive, export, entitlement + embedded-profile check, DMG, `notarytool
+submit --wait`, `stapler staple`. Invoke through Claude Code's
+`/dmg-release`, or run it directly:
+
+```bash
+.claude/skills/dmg-release/release.sh --notary-profile <name>
+.claude/skills/dmg-release/release.sh --skip-notarize   # local validation only
+```
+
+It needs three things that only an Account Holder can create — a Developer ID
+Application certificate, a Developer ID provisioning profile for
+`com.pupa-app.client` **including the iCloud container**, and stored
+`notarytool` credentials. The script refuses to run until all three exist. See
+[Distribution channels](docs/architecture.md#distribution-channels) for why the
+embedded profile matters.
+
+Never publish a `--skip-notarize` build: Gatekeeper refuses it everywhere except
+the machine that built it.
+
 ## Branches
 
 | Branch | Role |
