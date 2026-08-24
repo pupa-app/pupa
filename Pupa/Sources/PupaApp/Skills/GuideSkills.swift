@@ -15,7 +15,7 @@ import Foundation
 /// component-kind list is generated from `MyAppType.kinds` so it can't drift.
 enum GuideSkills {
     /// Bump when any guide body changes so existing installs re-seed.
-    static let version = "21"
+    static let version = "22"
 
     /// The plugin folder holding this guide's skills.
     static let pluginDir = "\(MemoryStore.pupaPluginsDir)/pupa-guide"
@@ -211,6 +211,10 @@ enum GuideSkills {
       deleted app can be restored (revived) from a pin.
     - **Archive** — hide a myapp without deleting it (its data and memories
       are kept). Browse, restore or delete from Settings ▸ Archive.
+    - **Folders** — tidy the sidebar: a myapp's row menu ▸ Move to Folder puts
+      it in a folder (or a new one); a folder row collapses, renames or
+      ungroups. Cosmetic only — folders never travel in a `.pupa` file, and a
+      folder disappears once its last myapp leaves.
     - **Recently deleted** — deleting a myapp is undoable for 180 days.
       Settings ▸ Recently deleted lists them (including ones deleted on another
       device, and ones a sync removed on its own) and restores the last saved

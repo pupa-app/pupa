@@ -57,6 +57,11 @@ public final class MyAppStore {
     /// `MyApp`/`Component` body, so the agent (`getCanvasState`) and marketplace
     /// exports never see it. See `ComponentFolderLayout`.
     public private(set) var componentFolders: [String: ComponentFolderLayout] = [:]
+    /// UI-only folder grouping of the MyApps sidebar. Same reasoning as
+    /// `componentFolders` one level up: persisted in `index.json`, never in a
+    /// `MyApp` body, so no tool and no marketplace export can see it.
+    /// See `MyAppFolderLayout`.
+    public private(set) var myAppFolders = MyAppFolderLayout()
     /// Coalesces bursts of edits into one debounced `SnapshotStore` capture
     /// per MyApp, keyed by app id.
     private var pendingSnapshotTasks: [UUID: Task<Void, Never>] = [:]
@@ -171,6 +176,7 @@ public final class MyAppStore {
             self.memoryCurrentThreadId = loaded.memoryCurrentThreadId
             self.itemEventLog = loaded.itemEventLog
             self.componentFolders = loaded.componentFolders
+            self.myAppFolders = loaded.myAppFolders
             // Seed disk on fresh install; otherwise prime hashes so the first
             // mutation only writes the app that actually changed. On fresh
             // install also ship default skills into the seeded app (app-birth
@@ -485,6 +491,10 @@ public final class MyAppStore {
         SnapshotStore.record(myApps[idx], reason: .deleted)
         let deletedName = myApps[idx].name
         myApps.remove(at: idx)
+        // Drop the sidebar-folder assignment with the app, pruning a folder
+        // that empties as a result. Unlike archiving, a delete is final.
+        myAppFolders.assignments.removeValue(forKey: id.uuidString)
+        pruneMyAppFolders()
         // Remember this was a deliberate local delete so a later `reloadFromDisk`
         // doesn't mistake the resulting roster shrink for a bad sync merge.
         userInitiatedRemovals.insert(id)
@@ -943,6 +953,63 @@ public final class MyAppStore {
         let live = Set(out.assignments.values)
         out.folders.removeAll { !live.contains($0.id) }
         return (out.folders.isEmpty && out.assignments.isEmpty) ? nil : out
+    }
+
+    // MARK: - MyApp folders (UI-only)
+
+    /// Create a folder holding `myAppId` and return its id. Folders are always
+    /// born with a member, so `prunedMyAppFolders` can never see a
+    /// user-created empty one.
+    @discardableResult
+    public func createMyAppFolder(name: String, containing myAppId: UUID) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let folder = MyAppFolder(id: UUID().uuidString,
+                                 name: trimmed.isEmpty ? "New Folder" : trimmed)
+        myAppFolders.folders.append(folder)
+        myAppFolders.assignments[myAppId.uuidString] = folder.id
+        pruneMyAppFolders()
+        persist()
+        return folder.id
+    }
+
+    /// Assign `myAppId` to `folderId`, or move it out with `nil`. An unknown
+    /// `folderId` also moves it out. Prunes a folder that empties as a result.
+    public func setMyAppFolder(myAppId: UUID, folderId: String?) {
+        if let folderId, myAppFolders.folders.contains(where: { $0.id == folderId }) {
+            myAppFolders.assignments[myAppId.uuidString] = folderId
+        } else {
+            myAppFolders.assignments.removeValue(forKey: myAppId.uuidString)
+        }
+        pruneMyAppFolders()
+        persist()
+    }
+
+    /// Rename a folder. No-op if the folder is unknown or the name is blank.
+    public func renameMyAppFolder(folderId: String, name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let idx = myAppFolders.folders.firstIndex(where: { $0.id == folderId })
+        else { return }
+        myAppFolders.folders[idx].name = trimmed
+        persist()
+    }
+
+    /// Delete a folder; its MyApps return to the top level.
+    public func removeMyAppFolder(folderId: String) {
+        myAppFolders.folders.removeAll { $0.id == folderId }
+        myAppFolders.assignments = myAppFolders.assignments.filter { $0.value != folderId }
+        pruneMyAppFolders()
+        persist()
+    }
+
+    /// Drop folders with no members, and assignments naming a folder that is
+    /// gone. Archived apps keep their assignment — hiding is the sidebar's job,
+    /// so unarchiving restores an app to the folder it left.
+    private func pruneMyAppFolders() {
+        let known = Set(myAppFolders.folders.map(\.id))
+        myAppFolders.assignments = myAppFolders.assignments.filter { known.contains($0.value) }
+        let live = Set(myAppFolders.assignments.values)
+        myAppFolders.folders.removeAll { !live.contains($0.id) }
     }
 
     /// Make `componentId` the active component of `myAppId`. The active
@@ -3698,6 +3765,8 @@ public final class MyAppStore {
         /// UI-only component folder layout, keyed by MyApp `id.uuidString`.
         /// Optional so legacy `index.json` without it still decodes.
         var componentFolders: [String: ComponentFolderLayout]?
+        /// UI-only sidebar folder layout. Optional for the same reason.
+        var myAppFolders: MyAppFolderLayout?
     }
 
     /// Encoder for persisted state. `.sortedKeys` makes the bytes
@@ -3770,7 +3839,8 @@ public final class MyAppStore {
             memoryThreads: memoryThreads,
             memoryCurrentThreadId: memoryCurrentThreadId,
             itemEventLog: itemEventLog,
-            componentFolders: componentFolders
+            componentFolders: componentFolders,
+            myAppFolders: myAppFolders
         )
         if let data = try? enc.encode(index), data.hashValue != lastIndexHash {
             try? CloudDocument.write(data, to: Self.indexURL)
@@ -3887,7 +3957,8 @@ public final class MyAppStore {
         let index = IndexFile(
             order: myApps.map(\.id), activeId: activeMyAppId,
             memoryThreads: memoryThreads, memoryCurrentThreadId: memoryCurrentThreadId,
-            itemEventLog: itemEventLog, componentFolders: componentFolders)
+            itemEventLog: itemEventLog, componentFolders: componentFolders,
+            myAppFolders: myAppFolders)
         lastIndexHash = (try? enc.encode(index))?.hashValue
     }
 
@@ -3898,6 +3969,7 @@ public final class MyAppStore {
         var memoryCurrentThreadId: String
         var itemEventLog: ItemEventLog
         var componentFolders: [String: ComponentFolderLayout]
+        var myAppFolders: MyAppFolderLayout
         var fromDisk: Bool
     }
 
@@ -3956,6 +4028,7 @@ public final class MyAppStore {
                               memoryCurrentThreadId: memCurrent,
                               itemEventLog: log,
                               componentFolders: index.componentFolders ?? [:],
+                              myAppFolders: index.myAppFolders ?? MyAppFolderLayout(),
                               fromDisk: true)
             }
         }
@@ -3968,7 +4041,8 @@ public final class MyAppStore {
         let firstThread = ChatThread()
         return Loaded(myApps: [myApp], activeId: myApp.id,
                       memoryThreads: [firstThread], memoryCurrentThreadId: firstThread.id,
-                      itemEventLog: ItemEventLog(), componentFolders: [:], fromDisk: false)
+                      itemEventLog: ItemEventLog(), componentFolders: [:],
+                      myAppFolders: MyAppFolderLayout(), fromDisk: false)
     }
 
     /// Reload all state from disk and republish. Called by the iCloud watcher
@@ -4020,6 +4094,7 @@ public final class MyAppStore {
         memoryCurrentThreadId = loaded.memoryCurrentThreadId
         itemEventLog = loaded.itemEventLog
         componentFolders = loaded.componentFolders
+        myAppFolders = loaded.myAppFolders
         // A lost app whose body came back (the other device pushed it up again)
         // is not lost any more — retire its marker so it stops being listed
         // under Recently deleted alongside the live copy. One listing, normally

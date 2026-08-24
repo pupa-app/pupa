@@ -101,7 +101,20 @@ avoids `NavigationSplitView`: its sidebar fails to render in the unbundled
 → its home; components, memories, and history are reached from the MyApp home +
 its bottom bar, not the sidebar); a footer menu holds the global
 **Orchestrator**, the **Screen share** viewer, and **Settings**. A row's
-long-press menu offers Rename · **Archive** · Delete.
+long-press menu offers Rename · **Move to Folder** · **Archive** · Delete.
+
+**Sidebar folders** group MyApp rows for readability and nothing else.
+`MyAppFolderLayout` (`folders` + `assignments: myAppUUID → folderId`) is
+UI-only, one level deep, and lives in `index.json` beside `componentFolders` —
+never on a `MyApp`, so no tool reads it and no marketplace bundle carries it.
+It rides the existing `index.json` mirror, so folders sync across devices;
+expand/collapse is per-device `@AppStorage`. A folder is always created holding
+an app (row menu → Move to Folder → New Folder…) and is pruned the moment its
+last member leaves, so there are no empty folders. Folders render at the
+position of their first visible member, so grouping never reshuffles roster
+order. Archiving is orthogonal: an archived app keeps its assignment but is
+filtered out with `visibleMyApps`, so a folder whose members are all archived
+renders nothing and comes back intact on restore.
 
 **Archiving** hides an app: `MyApp.isArchived` (per-app flag, round-tripped
 through `persist()`/`load()`) drops it from `MyAppStore.visibleMyApps` — the
