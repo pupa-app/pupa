@@ -50,6 +50,11 @@ Xcode build already uses.
 |---|---|
 | `--notary-profile NAME` | notarytool keychain profile (or set `NOTARY_PROFILE`) |
 | `--skip-notarize` | Archive, export and package only. The DMG is signed but **not** notarized, so Gatekeeper refuses it on every machine but this one. Never publish that output. |
+| `--development-signing` | Smoke-test the pipeline with an Apple Development identity, for contributors with no Developer ID certificate. Implies `--skip-notarize` — Apple only notarizes Developer ID signatures — and names the output `…-dev-signed-DO-NOT-DISTRIBUTE.dmg`. |
+
+Building a `--development-signing` DMG claims nothing and blocks nothing: a
+later release under any Developer ID, on any team, is an independent signature
+and an independent notarization submission. Delete the output when done.
 
 ## What the script does
 
@@ -92,6 +97,16 @@ Xcode build already uses.
   helper inside a framework.
 - **`spctl` rejects the stapled DMG**: do not publish it. Gatekeeper will refuse
   it for every user.
+
+## A note on shell hazards in this script
+
+Every capability check is written as *capture, then test* — never
+`cmd | grep -q`. Under `set -o pipefail` that idiom is a trap: `grep -q` exits
+at the first match, the producer takes SIGPIPE, and the pipeline reports failure
+even though the match succeeded. It only bites when the producer is still
+writing, so it passes on short output and fails on long — the hardened-runtime
+check failed exactly this way the first time the pipeline ran end to end. Keep
+new checks in the same shape.
 
 ## Don't
 

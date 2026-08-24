@@ -22,20 +22,28 @@ STAGE="build/dmg-stage"
 
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
 SKIP_NOTARIZE=0
+DEV_SIGNING=0
 usage() {
   cat <<EOF
-usage: $0 [--notary-profile NAME] [--skip-notarize]
+usage: $0 [--notary-profile NAME] [--skip-notarize] [--development-signing]
   --notary-profile NAME  notarytool keychain profile (or set NOTARY_PROFILE).
                          Create once with: xcrun notarytool store-credentials
   --skip-notarize        Archive, export and package only. The DMG will be
                          signed but NOT notarized — Gatekeeper will refuse it on
                          any other Mac. Local validation only.
+  --development-signing  Smoke-test this pipeline with an Apple Development
+                         identity, for contributors with no Developer ID
+                         certificate. Implies --skip-notarize (an Apple
+                         Development signature cannot be notarized) and names
+                         the output so it can never be mistaken for a release.
+                         NOT DISTRIBUTABLE.
 EOF
 }
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --notary-profile) NOTARY_PROFILE="${2:-}"; shift 2;;
     --skip-notarize) SKIP_NOTARIZE=1; shift;;
+    --development-signing) DEV_SIGNING=1; SKIP_NOTARIZE=1; shift;;
     -h|--help) usage; exit 0;;
     *) echo "unknown flag: $1" >&2; usage >&2; exit 2;;
   esac
@@ -48,14 +56,28 @@ note() { echo "→ $*"; }
 [[ -f "$PBXPROJ" ]] || die "Run from repo root. Could not find $PBXPROJ."
 command -v xcodebuild >/dev/null || die "xcodebuild not on PATH."
 
+# Read the identity list once. Note the shape of every check below: capture,
+# then test. `cmd | grep -q` is unsafe under `set -o pipefail` — grep exits at
+# the first match, cmd takes SIGPIPE, and the pipeline reports failure even
+# though the match succeeded. It bites only when the producer is still writing,
+# so it passes on small output and fails on large.
+IDENTITIES=$(security find-identity -v -p codesigning 2>/dev/null || true)
+
 # Developer ID is a different certificate from the Apple Development one used
 # for TestFlight. Without it the export silently falls back and Gatekeeper
 # rejects the result on every machine but this one.
-security find-identity -v -p codesigning 2>/dev/null | grep -q "Developer ID Application" \
-  || die "No 'Developer ID Application' certificate in the keychain.
+if [[ $DEV_SIGNING -eq 1 ]]; then
+  [[ "$IDENTITIES" == *"Apple Development"* ]] \
+    || die "No 'Apple Development' identity in the keychain — nothing to sign the smoke test with."
+  note "DEVELOPMENT SIGNING — exercising the pipeline, not producing a release"
+else
+  [[ "$IDENTITIES" == *"Developer ID Application"* ]] \
+    || die "No 'Developer ID Application' certificate in the keychain.
        Create one at developer.apple.com → Certificates (Account Holder only; Apple caps
        these at 5 per account, so back the private key up). An Apple Development cert
-       will not do — it is not trusted off this machine."
+       will not do — it is not trusted off this machine.
+       To smoke-test this script without one, pass --development-signing."
+fi
 
 [[ -f "$LOCAL_XCCONFIG" ]] || die "Missing $LOCAL_XCCONFIG (git-ignored). It must hold: DEVELOPMENT_TEAM = <your team id>"
 TEAM=$(grep -E '^[[:space:]]*DEVELOPMENT_TEAM[[:space:]]*=' "$LOCAL_XCCONFIG" | sed -E 's/.*=[[:space:]]*([A-Za-z0-9]+).*/\1/')
@@ -69,7 +91,13 @@ fi
 
 VERSION=$(grep 'PupaAppVersion: String' "$VERSION_SWIFT" | sed -E 's/.*"([^"]+)".*/\1/')
 [[ -n "$VERSION" ]] || die "Could not read PupaAppVersion from $VERSION_SWIFT."
-DMG="build/Pupa-$VERSION.dmg"
+if [[ $DEV_SIGNING -eq 1 ]]; then
+  DMG="build/Pupa-$VERSION-dev-signed-DO-NOT-DISTRIBUTE.dmg"
+  EXPORT_METHOD="development"
+else
+  DMG="build/Pupa-$VERSION.dmg"
+  EXPORT_METHOD="developer-id"
+fi
 note "building Pupa $VERSION for the Developer ID channel"
 
 # --- archive --------------------------------------------------------------
@@ -98,7 +126,7 @@ cat > "$EXPORT_PLIST" <<PLIST
 <plist version="1.0">
 <dict>
 	<key>method</key>
-	<string>developer-id</string>
+	<string>$EXPORT_METHOD</string>
 	<key>teamID</key>
 	<string>$TEAM</string>
 	<key>signingStyle</key>
@@ -109,7 +137,7 @@ cat > "$EXPORT_PLIST" <<PLIST
 </plist>
 PLIST
 
-note "exporting with Developer ID..."
+note "exporting ($EXPORT_METHOD)..."
 xcodebuild -exportArchive \
   -archivePath "$ARCHIVE" \
   -exportPath "$EXPORT_DIR" \
@@ -129,7 +157,8 @@ scripts/verify-mac-entitlements.sh "$APP" --require-embedded-profile
 
 codesign --verify --strict --deep "$APP" 2>/dev/null \
   || die "codesign --verify failed on $APP."
-codesign -dv "$APP" 2>&1 | grep -q 'flags=.*runtime' \
+CS_INFO=$(codesign -dv "$APP" 2>&1 || true)
+[[ "$CS_INFO" == *"(runtime)"* ]] \
   || die "$APP is not hardened-runtime signed. Notarization would reject it."
 note "signature valid, hardened runtime on"
 
@@ -148,7 +177,23 @@ hdiutil create -volname "Pupa" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev
 note "packaged $DMG"
 
 if [[ $SKIP_NOTARIZE -eq 1 ]]; then
-  cat <<EOF
+  if [[ $DEV_SIGNING -eq 1 ]]; then
+    cat <<EOF
+
+PIPELINE SMOKE TEST PASSED — THIS DMG IS NOT A RELEASE
+  $DMG
+  Version $VERSION, signed with an Apple Development identity
+
+Everything up to notarization ran: archive, export, entitlement + embedded
+profile checks, staging, signature re-verify, packaging. Notarization itself is
+untested — Apple only notarizes Developer ID signatures.
+
+Delete this file. It is signed for this machine, cannot be notarized, and must
+never be published. Building it claims nothing and blocks nothing: a later
+release under any Developer ID is an independent signature and submission.
+EOF
+  else
+    cat <<EOF
 
 DMG BUILT (NOT NOTARIZED)
   $DMG
@@ -157,6 +202,7 @@ DMG BUILT (NOT NOTARIZED)
 Gatekeeper will refuse this on any machine but this one. Re-run without
 --skip-notarize before publishing it anywhere.
 EOF
+  fi
   exit 0
 fi
 
@@ -174,8 +220,10 @@ xcrun stapler validate "$DMG" >/dev/null || die "stapler validate failed on $DMG
 note "notarized and stapled"
 
 # Gatekeeper's own verdict, which is what a user's Mac will compute.
-spctl -a -t open --context context:primary-signature -v "$DMG" 2>&1 | grep -q accepted \
-  || die "spctl rejected $DMG — Gatekeeper would refuse it."
+SPCTL=$(spctl -a -t open --context context:primary-signature -v "$DMG" 2>&1 || true)
+[[ "$SPCTL" == *accepted* ]] \
+  || die "spctl rejected $DMG — Gatekeeper would refuse it:
+       $SPCTL"
 
 cat <<EOF
 
