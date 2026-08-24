@@ -88,10 +88,11 @@ struct ScenarioHarnessTests {
         defer { scenario.restoreStorageRoot() }
 
         _ = await scenario.send("add a Books tracker")
-        let report = scenario.report()
+        // The snapshot lands on a detached task after settle — poll, don't sample.
+        let report = await scenario.waitForReport { $0.recovery?.turnInFlight == false }
 
         #expect(report.journal == nil, "journal outlived the turn")
-        #expect(report.recovery?.turnInFlight != true)
+        #expect(report.recovery?.turnInFlight == false)
     }
 
     /// Round-addressing: an explicit `round` wins over file order, so a
@@ -118,5 +119,31 @@ struct ScenarioHarnessTests {
         let reparsed = try Script.parse(original.jsonl())
         #expect(reparsed.rounds.count == original.rounds.count)
         #expect(reparsed.rounds.first?.events.count == original.rounds.first?.events.count)
+    }
+
+    /// `record` is only useful if a live round's raw SSE comes back as a
+    /// scriptable round — the `id:` lines the backend stamps included.
+    @Test("recorded SSE decodes into a replayable round")
+    func recording_decodesSSEIntoScript() throws {
+        let sse = """
+        id: 0
+        data: {"type":"RUN_STARTED","threadId":"t","runId":"r1"}
+
+        id: 1
+        data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"m1","delta":"hi"}
+
+        id: 2
+        data: {"type":"RUN_FINISHED","threadId":"t","runId":"r1"}
+
+
+        """
+        let round = RecordingTransport.round(from: Data(sse.utf8), status: 200)
+        #expect(round.events.count == 3)
+        #expect(round.events.first?["type"]?.stringValue == "RUN_STARTED")
+        #expect(round.status == nil, "200 is the default — don't write it out")
+
+        // …and what it decoded is servable again.
+        let replayed = try Script.parse(Script(rounds: [round]).jsonl())
+        #expect(replayed.rounds.first?.events.count == 3)
     }
 }

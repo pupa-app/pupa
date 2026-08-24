@@ -17,6 +17,8 @@ let package = Package(
         // Debug harness: drive a real app graph headlessly against a scripted
         // or live backend. Not linked by the app — see docs/testing.md.
         .library(name: "PupaHarness", targets: ["PupaHarness"]),
+        // Drive the app from a shell — chat turns, replay, record, dump.
+        .executable(name: "PupaCtl", targets: ["PupaCtl"]),
     ],
     dependencies: [
         .package(path: "../AGUIKit"),
@@ -43,6 +45,11 @@ let package = Package(
                 .product(name: "AGUIKit", package: "AGUIKit"),
             ],
             path: "Sources/PupaHarness"
+        ),
+        .executableTarget(
+            name: "PupaCtl",
+            dependencies: ["PupaApp", "PupaHarness"],
+            path: "Sources/PupaCtl"
         ),
         .executableTarget(
             name: "PupaDemo",

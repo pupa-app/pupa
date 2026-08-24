@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help build build-aguikit build-pupa test test-aguikit test-pupa mac-demo clean
+.PHONY: help build build-aguikit build-pupa test test-aguikit test-pupa ctl mac-demo clean
 
 AGUIKIT := AGUIKit
 PUPA := Pupa
@@ -26,6 +26,9 @@ test-pupa:  ## Run Pupa app tests (use FILTER=Foo to scope)
 	# dir (TestStorage) and share backend singletons, so parallel suites
 	# clobber each other and fail nondeterministically. Serial run is ~3s.
 	swift test --package-path $(PUPA) --no-parallel $(if $(FILTER),--filter $(FILTER),)
+
+ctl:  ## Drive the app headlessly: make ctl ARGS='chat "add a tracker"' (see docs/testing.md)
+	@swift run --package-path $(PUPA) PupaCtl $(ARGS)
 
 mac-demo:  ## Run the native macOS demo (talks AG-UI to a backend on :8004)
 	export AGUIKIT_LOG=1 && cd $(PUPA) && swift run PupaDemo

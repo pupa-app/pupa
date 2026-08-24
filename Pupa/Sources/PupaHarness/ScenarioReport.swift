@@ -11,15 +11,27 @@ public struct ScenarioReport: Sendable {
     public let myApp: MyApp?
     public let threadId: String
     public let bubbles: [ChatBubble]
-    /// Raw POST bodies, one per round. Empty against a live backend — nothing
-    /// intercepts the socket there.
+    /// Set when the turn died on the wire — a refused connection, a dropped
+    /// stream, an HTTP error. A turn that produced no reply and no issue was
+    /// never sent; one with an issue tells you why.
+    public let connectionIssue: String?
+    /// Raw POST bodies, one per round. Empty when a plain session drove the
+    /// run — nothing intercepts the socket there.
     public let wire: [Data]
     public let root: URL
 
-    public init(myApp: MyApp?, threadId: String, bubbles: [ChatBubble], wire: [Data], root: URL) {
+    public init(
+        myApp: MyApp?,
+        threadId: String,
+        bubbles: [ChatBubble],
+        connectionIssue: String? = nil,
+        wire: [Data],
+        root: URL
+    ) {
         self.myApp = myApp
         self.threadId = threadId
         self.bubbles = bubbles
+        self.connectionIssue = connectionIssue
         self.wire = wire
         self.root = root
     }
@@ -68,6 +80,7 @@ public struct ScenarioReport: Sendable {
     public func text(includeWire: Bool = true) -> String {
         var out: [String] = []
         out.append("thread \(threadId)   root \(root.path)")
+        if let connectionIssue { out.append("connection issue: \(connectionIssue)") }
 
         out.append("")
         out.append("── chat ──")
@@ -118,6 +131,47 @@ public struct ScenarioReport: Sendable {
             }
         }
         return out.joined(separator: "\n")
+    }
+
+    /// Machine-readable form — `PupaCtl --json`, for asserting on a flow from
+    /// a script rather than reading it.
+    public func json() throws -> String {
+        var object: [String: Any] = [
+            "threadId": threadId,
+            "root": root.path,
+            "assistantText": assistantText,
+            "connectionIssue": connectionIssue as Any,
+            "bubbles": bubbles.map { ["role": $0.role.rawValue, "text": $0.text] },
+            "toolCalls": toolCalls.map {
+                ["name": $0.name, "state": $0.state.rawValue,
+                 "args": $0.argsJSON, "result": $0.resultText]
+            },
+            "rounds": rounds.map {
+                ["messages": $0.messages.count, "tools": $0.tools.count,
+                 "context": $0.context.count]
+            },
+        ]
+        if let myApp {
+            object["myApp"] = [
+                "name": myApp.name,
+                "typeId": myApp.typeId,
+                "activeComponentId": myApp.activeComponentId as Any,
+                "components": myApp.components.map {
+                    ["id": $0.id, "name": $0.name,
+                     "summary": $0.summary as Any, "isLocked": $0.isLocked]
+                },
+            ]
+        }
+        if let recovery {
+            object["recovery"] = [
+                "turnInFlight": recovery.turnInFlight,
+                "lastEventSeq": recovery.lastEventSeq as Any,
+                "pendingDispatchAfterSeq": recovery.pendingDispatchAfterSeq as Any,
+            ]
+        }
+        let data = try JSONSerialization.data(
+            withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+        return String(decoding: data, as: UTF8.self)
     }
 
     private func oneLine(_ text: String, limit: Int = 160) -> String {

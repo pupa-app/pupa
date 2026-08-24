@@ -6,7 +6,9 @@ suite can't reach: a turn parked on a frontend tool, interrupted for real
 a real process, a real socket, or a real clock.
 
 Read [architecture.md](architecture.md) § "Resuming a turn parked on a frontend
-tool" first — it is the spec these scenarios check.
+tool" first — it is the spec these scenarios check. For the layers that *are*
+automatable — headless whole-turn scenarios and `PupaCtl` against a live
+backend — see [testing.md](testing.md).
 
 ## The mechanism in one paragraph
 

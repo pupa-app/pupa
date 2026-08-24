@@ -46,12 +46,15 @@ public final class Scenario {
     ///   - typeId: MyApp type to seed. Defaults to tracker.
     ///   - reset: wipe `root` first. False continues an existing store, which
     ///     is what multi-turn `PupaCtl --continue` needs.
+    ///   - token: paired-device token for a live backend. Held in memory only
+    ///     — see `TokenCredentialStore`. Scripted runs don't need one.
     public init(
         root: URL,
         backend: URL,
         urlSession: URLSession,
         typeId: String = MyAppType.tracker.id,
-        reset: Bool = true
+        reset: Bool = true,
+        token: String? = nil
     ) {
         if reset { try? FileManager.default.removeItem(at: root) }
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -75,9 +78,23 @@ public final class Scenario {
         // No override — `PupaStorage.memoriesRoot` already follows the root
         // set above, so the tree lands exactly where the app puts it.
         self.memory = MemoryStore()
-        self.settings = SettingsStore(backendURL: backend)
+        self.settings = SettingsStore(
+            backendURL: backend, credentials: TokenCredentialStore(token: token))
         self.coordinator = ChatSessionCoordinator(
             store: store, memory: memory, settings: settings, urlSession: urlSession)
+    }
+
+    /// Load the thread's history, the way `ConversationPager` does when a
+    /// conversation becomes visible: on-device transcript first, backend fetch
+    /// behind it. Without this a fresh process reports an empty chat for a
+    /// thread that has one, and the session doesn't know the send is a
+    /// continuation.
+    ///
+    /// The cached read is synchronous, so `settle` only covers the backend
+    /// fetch — a genuinely empty thread returns as soon as it elapses.
+    public func hydrate(settle: TimeInterval = 1) async {
+        vm.loadHistoryIfNeeded()
+        _ = await poll(timeout: settle) { !self.vm.bubbles.isEmpty }
     }
 
     /// Send one turn and wait for the session to go idle.
@@ -108,12 +125,30 @@ public final class Scenario {
 
     /// Everything the last turns did, in one readable object.
     public func report() -> ScenarioReport {
-        ScenarioReport(
+        // Whichever transport was driving this run recorded the wire; a live
+        // run through a plain session records neither and reports no rounds.
+        let wire = ScriptedTransport.postBodies.isEmpty
+            ? RecordingTransport.postBodies
+            : ScriptedTransport.postBodies
+        return ScenarioReport(
             myApp: store.myApps.first(where: { $0.id == myAppId }),
             threadId: threadId,
             bubbles: vm.bubbles,
-            wire: ScriptedTransport.postBodies,
+            connectionIssue: vm.connectionIssue.map { String(describing: $0) },
+            wire: wire,
             root: root)
+    }
+
+    /// Wait for a report to satisfy `condition`.
+    ///
+    /// The on-disk records (`recovery`, `journal`) are written by a detached
+    /// task chained after each settle, so they lag the in-memory turn by a
+    /// beat. Anything asserting on them must poll rather than sample once.
+    public func waitForReport(
+        timeout: TimeInterval = 5, where condition: @escaping (ScenarioReport) -> Bool
+    ) async -> ScenarioReport {
+        _ = await poll(timeout: timeout) { condition(self.report()) }
+        return report()
     }
 
     /// Give `PupaStorage.overrideRoot` back to whoever held it. A test suite
