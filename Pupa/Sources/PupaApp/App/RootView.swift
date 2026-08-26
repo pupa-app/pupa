@@ -43,9 +43,12 @@ public struct RootView: View {
     /// bug on their own device turns the trace on. Applied before any session
     /// exists, so a turn started from a cold launch is covered.
     private static let diagnostics: Void = {
-        if UserDefaults.standard.bool(forKey: DiagnosticsKeys.enabled) {
-            AGUIKitLog.enabled = true
-        }
+        // Only when the user has actually chosen. Seeding the key from this
+        // build's default would leave a debug run's `true` behind for the next
+        // release build in the same container — diagnostics silently on.
+        guard UserDefaults.standard.object(forKey: DiagnosticsKeys.enabled) != nil
+        else { return }
+        AGUIKitLog.enabled = UserDefaults.standard.bool(forKey: DiagnosticsKeys.enabled)
     }()
 
     private static func makeSettings() -> SettingsStore {

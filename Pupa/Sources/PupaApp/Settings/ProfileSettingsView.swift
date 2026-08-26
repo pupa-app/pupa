@@ -237,7 +237,11 @@ struct ProfileSettingsView: View {
         }
     }
 
-    @AppStorage(DiagnosticsKeys.enabled) private var diagnosticsEnabled = false
+    /// Seeded from what this build is actually doing, not from the key —
+    /// a debug build logs by default, and a toggle reading "off" while the
+    /// log fills up is worse than no toggle. `RootView` has already applied
+    /// the stored choice by the time Settings can be opened.
+    @State private var diagnosticsEnabled = AGUIKitLog.enabled
 
     private static let webLinks = [
         WebLink("Website", ""),
@@ -255,6 +259,7 @@ struct ProfileSettingsView: View {
                     // it off stops new lines; what is already in the system log
                     // stays until the device rotates it.
                     AGUIKitLog.enabled = on
+                    UserDefaults.standard.set(on, forKey: DiagnosticsKeys.enabled)
                     AGUIKitLog.session("diagnostics \(on ? "enabled" : "disabled") by the user")
                 }
             ForEach(Self.webLinks) { link in
