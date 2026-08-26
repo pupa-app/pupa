@@ -1677,7 +1677,8 @@ public final class ChatViewModel {
     /// particular the `toolRound` lifecycle) are subtle enough to warrant
     /// focused unit tests at this layer.
     func apply(_ event: SessionEvent) {
-        if LaunchOptions.current.isDriven || AGUIKitLog.enabled { recordProbe(event) }
+        if LaunchOptions.current.isDriven { recordProbe(event) }
+        if AGUIKitLog.enabled { logProbeIfSignificant(event) }
         // A frame after a retry means the socket came back, so the banner that
         // retry raised must not outlive it — a latched "Reconnecting…" reads as
         // a turn stuck forever, and the two existing clear sites (`send`,
@@ -2281,6 +2282,27 @@ extension ChatViewModel {
         probeEvents.append(Self.probeCode(event))
         if probeEvents.count > 12 { probeEvents.removeFirst(probeEvents.count - 12) }
         probeGeneration &+= 1
+    }
+
+    /// Emit the turn state to the device log, on the events that decide a
+    /// recovery bug and no others.
+    ///
+    /// Straight from the event path, never through a view: `probeStateJSON`
+    /// reads `appliedEventSeq`, so a SwiftUI view rendering it re-renders on
+    /// every streamed token, and driving logging from that put a log write and
+    /// a root-view invalidation on the main thread per token. It was enough to
+    /// stall the app on a phone.
+    ///
+    /// Deltas and cursor advances are excluded for the same reason they are
+    /// noise in a trace: hundreds a turn, and none of them the reason a turn
+    /// was lost.
+    func logProbeIfSignificant(_ event: SessionEvent) {
+        switch event {
+        case .assistantMessageDelta, .cursorAdvanced, .assistantMessageStart:
+            return
+        default:
+            AGUIKitLog.probe(probeStateJSON)
+        }
     }
 
     /// Everything that decides a turn-recovery bug, in under a kilobyte.

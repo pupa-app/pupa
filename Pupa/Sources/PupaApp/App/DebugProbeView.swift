@@ -10,9 +10,11 @@ import SwiftUI
 /// tree entirely. For the same reason it must not sit in a lazy container,
 /// and must not be conditioned on the chat panel being open.
 ///
-/// The value is the *primary* channel but not the only one — a backgrounded
-/// app has no accessibility tree to query, so every change is also written to
-/// the unified log, which keeps reporting while the app is away.
+/// The accessibility value is the only thing this view does. The unified-log
+/// series comes off the event path in `ChatViewModel`, not from here: this
+/// view reads `appliedEventSeq`, so it re-renders on every streamed token, and
+/// logging from that put a write and a root-view invalidation on the main
+/// thread per token.
 struct DebugProbeView: View {
     let json: String
 
@@ -23,8 +25,5 @@ struct DebugProbeView: View {
             .accessibilityElement(children: .ignore)
             .accessibilityIdentifier(PupaID.debugTurnState)
             .accessibilityValue(json)
-            .onChange(of: json, initial: true) { _, value in
-                AGUIKitLog.probe(value)
-            }
     }
 }
