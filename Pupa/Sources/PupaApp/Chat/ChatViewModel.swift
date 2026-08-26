@@ -330,7 +330,18 @@ public final class ChatViewModel {
     /// Set while a relaunch is attempting to answer a parked turn, so the
     /// settle path can tell "resumed the turn" from "the park was already
     /// gone" and surface a notice for the latter.
-    private var isRecoveringParkedDispatch = false
+    private(set) var isRecoveringParkedDispatch = false
+    /// Why the last turn stopped short, as a bare string for the debug probe.
+    /// `nil` once a new turn starts.
+    private(set) var lastNoticeReason: String?
+    /// Which reattach attempt is in flight, 0 when none is.
+    private(set) var reattachAttempt = 0
+    /// Last few applied event kinds, for the debug probe's `ev` field. Only
+    /// recorded on a driven launch.
+    private(set) var probeEvents: [String] = []
+    /// Bumped on every probe-visible change, so a UI test can wait for "the
+    /// state moved" without naming the value it moved to.
+    private(set) var probeGeneration = 0
     /// True when a turn finished while this thread was not on screen — drives
     /// the "unviewed answer" badge on the pupa circle / thread lists. Set when
     /// a real turn settles (see `setStreaming`); cleared by `markViewed()` when
@@ -1076,6 +1087,8 @@ public final class ChatViewModel {
 
         setStreaming(true)
         connectionIssue = nil
+        lastNoticeReason = nil
+        reattachAttempt = 0
         didUserStop = false
 
         rebuildSessionIfSettingsChanged()
@@ -1621,7 +1634,25 @@ public final class ChatViewModel {
     /// particular the `toolRound` lifecycle) are subtle enough to warrant
     /// focused unit tests at this layer.
     func apply(_ event: SessionEvent) {
+        if LaunchOptions.current.isDriven { recordProbe(event) }
+        // A frame after a retry means the socket came back, so the banner that
+        // retry raised must not outlive it — a latched "Reconnecting…" reads as
+        // a turn stuck forever, and the two existing clear sites (`send`,
+        // foreground reattach) neither of them runs mid-stream. Keyed on the
+        // attempt counter, not on the banner: a banner raised by an earlier
+        // dead stream is somebody else's to clear, and clearing it here would
+        // strand the Continue button's `connectionIssue != nil` gate.
+        if case .reattaching = event {} else if reattachAttempt > 0 {
+            reattachAttempt = 0
+            if case .reconnecting? = connectionIssue { connectionIssue = nil }
+        }
         switch event {
+        case .reattaching(let attempt, _):
+            // Say so during the backoff. Without this the user watches
+            // "Working…" for the whole retry budget and then either recovers
+            // or is handed a banner with no account of the gap.
+            reattachAttempt = attempt
+            connectionIssue = .reconnecting
         case .assistantMessageStart(let id):
             // LLM is resuming narration after any tool batch — close the open
             // tool-round bubble so the next .toolCallStarted opens a fresh one.
@@ -1663,6 +1694,7 @@ public final class ChatViewModel {
             if let reason = outcome.noticeReason, !didUserStop {
                 var truncated = false
                 if case .truncated = outcome { truncated = true }
+                lastNoticeReason = "\(reason)"
                 appendBubble(ChatBubble(
                     role: .system,
                     text: Self.silentStopMessage(reason, truncated: truncated)
@@ -2167,4 +2199,61 @@ private func prettyJSONString(_ value: AnyJSON) -> String {
         return s
     }
     return ""
+}
+
+// MARK: - Debug probe (driven launches only)
+
+extension ChatViewModel {
+
+    /// Three-letter code per applied event, for the probe's `ev` ring. Short
+    /// because the whole payload rides in one accessibility value.
+    private static func probeCode(_ event: SessionEvent) -> String {
+        switch event {
+        case .assistantMessageStart: return "ams"
+        case .assistantMessageDelta: return "amd"
+        case .assistantMessageEnd: return "ame"
+        case .toolCallStarted: return "tcs"
+        case .toolCallFinished: return "tcf"
+        case .roundFinished: return "rnd"
+        case .completed: return "cmp"
+        case .error: return "err"
+        case .cursorAdvanced: return "cur"
+        case .frontendDispatchParked: return "fdp"
+        case .frontendDispatchResolved: return "fdr"
+        case .reattaching: return "rea"
+        }
+    }
+
+    /// Keep the last 12 event kinds, and bump the generation so a waiting test
+    /// can tell "state moved" from "state happens to match".
+    func recordProbe(_ event: SessionEvent) {
+        probeEvents.append(Self.probeCode(event))
+        if probeEvents.count > 12 { probeEvents.removeFirst(probeEvents.count - 12) }
+        probeGeneration &+= 1
+    }
+
+    /// Everything that decides a turn-recovery bug, in under a kilobyte.
+    /// Single-letter keys: this rides in one accessibility value, and XCTest
+    /// truncates long attribute strings in its own failure output.
+    var probeStateJSON: String {
+        var fields: [String] = [
+            "\"g\":\(probeGeneration)",
+            "\"s\":\(isStreaming ? 1 : 0)",
+            "\"tif\":\(isStreaming || connectionIssue == .reconnecting ? 1 : 0)",
+            "\"rec\":\(isRecoveringParkedDispatch ? 1 : 0)",
+            "\"awh\":\(isAwaitingHumanInput ? 1 : 0)",
+            "\"ra\":\(reattachAttempt)",
+        ]
+        switch connectionIssue {
+        case .none: fields.append("\"ci\":null")
+        case .reconnecting: fields.append("\"ci\":\"reconnecting\"")
+        case .failed: fields.append("\"ci\":\"failed\"")
+        }
+        fields.append("\"pd\":\(pendingDispatchAfterSeq.map(String.init) ?? "null")")
+        fields.append("\"seq\":\(appliedEventSeq.map(String.init) ?? "null")")
+        fields.append("\"nr\":\(lastNoticeReason.map { "\"\($0)\"" } ?? "null")")
+        fields.append("\"th\":\"\(threadId)\"")
+        fields.append("\"ev\":\"\(probeEvents.joined(separator: ","))\"")
+        return "{\(fields.joined(separator: ","))}"
+    }
 }

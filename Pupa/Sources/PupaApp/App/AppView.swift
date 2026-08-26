@@ -273,6 +273,14 @@ public struct AppView: View {
 
     public var body: some View {
         platformBody
+            // An overlay, not a child of any lazy container: the probe has to
+            // exist in the accessibility tree from launch, whether or not the
+            // chat panel is open. Costs a `Bool` on a normal launch.
+            .overlay(alignment: .topLeading) {
+                if LaunchOptions.current.isDriven {
+                    DebugProbeView(json: coordinator.session(for: chatScope).probeStateJSON)
+                }
+            }
             .onReceive(PerfTrace.drivePublisher) { handleDrive($0) }
             #if os(iOS)
             // Parsed markdown is held for the process lifetime otherwise —

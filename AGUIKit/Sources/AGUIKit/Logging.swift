@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Tiny diagnostic logger.
 ///
@@ -12,6 +13,14 @@ import Foundation
 /// Output uses stable prefixes for grep:
 ///   `[AGUIKit clt] …`  – AgentClient: HTTP + raw events
 ///   `[AGUIKit ses] …`  – AgentSession: round + tool dispatch
+///   `[AGUIKit prb] …`  – host turn-state probe (driven launches only)
+///
+/// Every line is also mirrored to the unified log under subsystem
+/// `dev.pupa.aguikit`, because a simulator-launched app's stderr goes
+/// nowhere a test runner can read:
+///
+///     xcrun simctl spawn booted log stream --level info \
+///       --predicate 'subsystem BEGINSWITH "dev.pupa"'
 public enum AGUIKitLog {
     nonisolated(unsafe) public static var enabled: Bool = {
         if let v = ProcessInfo.processInfo.environment["AGUIKIT_LOG"] {
@@ -28,10 +37,16 @@ public enum AGUIKitLog {
     /// occasionally be buffered or routed to the unified log when the
     /// process is a foreground GUI app; this guarantees the terminal sees
     /// each line immediately.
-    private static func emit(_ line: String) {
+    private static func emit(_ line: String, _ log: OSLog = AGUIKitLog.sessionLog) {
         let data = (line + "\n").data(using: .utf8) ?? Data()
         FileHandle.standardError.write(data)
+        // `%{public}@` is load-bearing: without it the message redacts to
+        // `<private>` and the trace is useless.
+        os_log("%{public}@", log: log, type: .info, line)
     }
+
+    private static let sessionLog = OSLog(subsystem: "dev.pupa.aguikit", category: "session")
+    private static let probeLog = OSLog(subsystem: "dev.pupa.aguikit", category: "probe")
 
     public static func client(_ message: @autoclosure () -> String) {
         guard enabled else { return }
@@ -41,6 +56,17 @@ public enum AGUIKitLog {
     public static func session(_ message: @autoclosure () -> String) {
         guard enabled else { return }
         emit("[AGUIKit ses] \(message())")
+    }
+
+    /// Host turn state, one line per change. Its own category so a trace can
+    /// isolate the state series from the round narrative — and the only
+    /// channel that keeps reporting while the app is backgrounded, where
+    /// there is no accessibility tree to query.
+    ///
+    /// Not gated on `enabled`: a driven launch always wants it, and nothing
+    /// else calls it.
+    public static func probe(_ message: @autoclosure () -> String) {
+        emit("[AGUIKit prb] \(message())", probeLog)
     }
 
     /// Compact one-line label for an `AgentEvent` so logs stay scannable.

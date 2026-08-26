@@ -437,6 +437,7 @@ public struct ChatPanel: View {
                 .frame(minHeight: 44, alignment: .leading)
                 .contentShape(Rectangle())
                 .accessibilityLabel("Continue the interrupted turn")
+                .accessibilityIdentifier(PupaID.chatContinue)
         }
     }
 

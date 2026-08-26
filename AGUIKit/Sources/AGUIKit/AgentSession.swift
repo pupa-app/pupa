@@ -47,6 +47,10 @@ public enum SessionEvent: Sendable {
     /// The resume carrying that batch's results reached the backend. The
     /// persisted `afterSeq` is spent and the journal has been cleared.
     case frontendDispatchResolved
+    /// A dropped socket is being retried. Yielded once per attempt, before the
+    /// retry goes out, so the host can say "Reconnecting…" during the backoff
+    /// rather than only once the budget is spent.
+    case reattaching(attempt: Int, of: Int)
 }
 
 /// How a `send` / `reattach` settled, so the host can decide whether to show
@@ -1074,6 +1078,7 @@ public actor AgentSession {
                 "\(attempt)/\(maxReattachAttempts) " +
                 "after_seq=\(lastEventSeq.map(String.init) ?? "-1")"
             )
+            yield(.reattaching(attempt: attempt, of: maxReattachAttempts))
             do {
                 let retry = resend ? original : reattachInput()
                 let sawFramesBefore = state.outcome.sawAnyFrame

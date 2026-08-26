@@ -12,6 +12,12 @@ public enum PupaID {
     public static let chatComposer = "chat.composer"
     public static let chatSend = "chat.send"
     public static let chatToggle = "chat.toggle"
+    /// The dropped-turn banner's Continue button.
+    public static let chatContinue = "chat.continue"
+    /// Machine-readable turn state, mounted only on a driven launch. See
+    /// `DebugProbeView` — this is how a UI test reads recovery state across
+    /// the sandbox boundary.
+    public static let debugTurnState = "debug.turnState"
 
     /// Per-component; `component(_:)` builds the id from the component's own
     /// stable id, so a test can wait for exactly the one a tool created.
