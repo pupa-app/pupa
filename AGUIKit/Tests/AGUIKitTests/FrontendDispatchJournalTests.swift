@@ -102,6 +102,64 @@ struct DispatchJournal {
         return registry
     }
 
+    // MARK: - What confirms a resume
+
+    /// `RUN_STARTED` proves the resume POST arrived and nothing more — the same
+    /// thing `RUN_ERROR` proves, which is already excluded. Confirming on it
+    /// drops the journal and spends the rewind point while the round has still
+    /// produced nothing, so an app killed in that window has neither handle
+    /// left: the relaunch seeds from the last applied seq instead of rewinding,
+    /// the backend has nothing buffered there, and the turn is reported settled
+    /// with the work gone.
+    ///
+    /// Seen in the wild on a device: park at seq 256, resume POSTed,
+    /// `RUN_STARTED` at 259, killed 0.4s later, relaunch reattached at 259 and
+    /// got "nothing buffered".
+    @Test("RUN_STARTED alone does not confirm the resume")
+    func runStartedAlone_doesNotConfirmResume() async throws {
+        let recorder = CallRecorder()
+        let journal = TestJournal()
+        MockURLProtocol.reset()
+        // One attempt: the retry ladder is not what this pins, and four rounds
+        // of backoff cost 7.5s.
+        let session = AgentSession(
+            client: makeClient(), registry: recordingRegistry(recorder),
+            threadId: "test-thread", journal: journal,
+            maxReattachAttempts: 1, reattachBaseDelayNanos: 1_000_000)
+
+        JournalBodies.shared.tail = sseBodyWithIds([
+            #"{"type":"RUN_STARTED","threadId":"test-thread","runId":"r2"}"#,
+            Self.interruptFrame([(id: "call_A", name: "addItem", args: #"{"item":"apple"}"#)]),
+            #"{"type":"RUN_FINISHED","threadId":"test-thread","runId":"r2"}"#,
+        ], startSeq: 5)
+        MockURLProtocol.responder = { _ in
+            (200, JournalBodies.shared.tail!, Self.sseHeaders)
+        }
+        // The resume round acknowledges and then the socket dies — the app was
+        // killed, so the round never settles and nothing reaps the journal on
+        // its way out. Only the first-frame confirmation can lose it here.
+        MockURLProtocol.midStreamFailer = { request in
+            guard MockURLProtocol.requestCount > 1 else { return nil }
+            return (prefix: sseBodyWithIds([
+                #"{"type":"RUN_STARTED","threadId":"test-thread","runId":"r3"}"#,
+            ], startSeq: 8), error: URLError(.networkConnectionLost))
+        }
+        await session.seedReplayCursor(4)
+
+        var resolved = 0
+        do {
+            for try await ev in session.reattach() {
+                if case .frontendDispatchResolved = ev { resolved += 1 }
+            }
+        } catch {}
+
+        #expect(resolved == 0, "an acknowledgement is not a result")
+        #expect(await journal.clearCount == 0,
+                "the journal is the only way to answer this park without re-running the tool")
+        #expect(await journal.records["call_A"]?.result != nil,
+                "the recorded result must survive for the relaunch to replay")
+    }
+
     // MARK: - Restored batches
 
     @Test("A journaled result is replayed verbatim — the handler never runs again")

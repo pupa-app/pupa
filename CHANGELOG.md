@@ -3,7 +3,7 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
-## [0.0.269] — 2026-08-26
+## [0.0.270] — 2026-08-26
 
 ### Added
 
@@ -11,6 +11,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   record what the agent is doing so a dropped reply can be traced from a real
   device — read it with Console on a Mac, filtering `dev.pupa`. Your messages
   are never recorded, only their length.
+
+### Fixed
+
+- **A turn killed just after its on-device action reported back is no longer
+  lost.** The app treated the backend's acknowledgement as proof the results had
+  been taken, and dropped the two records that make the turn recoverable. Close
+  the app in that moment and the reply never came back — it stopped, and asked
+  you to continue by hand.
 
 ### Changed
 

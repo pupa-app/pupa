@@ -475,11 +475,17 @@ reported settled and lost. Two pieces recover it:
   interrupt, so reattaching at it replays nothing — via
   `rewindReplayCursor(to:)`, the one non-monotonic cursor setter, reserved for
   exactly this. `.frontendDispatchResolved` clears the rewind point once the
-  resume lands; it is yielded from **inside** the round, on its first frame, so
-  it always precedes a *new* park announced later in that same round (a resolve
-  emitted after the round would wipe the fresh rewind point of a turn that parks
-  twice). A `RUN_ERROR` frame is the one exception — the backend answered but
-  rejected the resume, which proves nothing. Nothing new is persisted about the
+  resume lands; it is yielded from **inside** the round, on its first frame that
+  proves anything, so it always precedes a *new* park announced later in that
+  same round (a resolve emitted after the round would wipe the fresh rewind
+  point of a turn that parks twice). `RUN_ERROR` and `RUN_STARTED` are both
+  excluded: the first is the backend answering the POST and rejecting it, the
+  second is it acknowledging receipt, and every round opens with one. Neither
+  says the round produced anything. Confirming on `RUN_STARTED` cost a real
+  turn on a device — park at 256, resume POSTed, `RUN_STARTED` at 259, the app
+  killed 0.4s later; the rewind point and journal were already gone, so the
+  relaunch seeded from 259 instead of rewinding, and the backend had nothing
+  buffered there. Nothing new is persisted about the
   calls themselves:
   the backend's replay log outlives the park (~6h vs 300s), so it is always the
   cheaper source of truth. An unstamped interrupt frame yields no rewind point
@@ -513,8 +519,9 @@ resume is re-POSTed directly: a bare re-attach carrying `after_seq: -1` and an
 empty message list isn't short-circuited by the replay middleware and would land
 on a real agent loop.
 
-The journal is cleared only once the resume's first frame arrives (a kill
-mid-POST must replay, not re-run), and reaped four ways: that confirmation,
+The journal is cleared only once the resume's first *meaningful* frame arrives
+(a kill mid-POST, or mid-acknowledgement, must replay rather than re-run), and
+reaped four ways: that confirmation,
 thread deletion, an explicit Stop, and a 24h launch sweep
 (`FrontendDispatchJournalStore.sweep`, well past the 300s park wall). An empty
 reattach tail deliberately does **not** reap it — the reattach may simply have

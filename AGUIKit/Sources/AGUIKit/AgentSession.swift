@@ -1115,12 +1115,28 @@ public actor AgentSession {
             // resolve emitted after the round would land on top of that fresh
             // park and wipe it, leaving the second dispatch unrecoverable.
             //
-            // A `RUN_ERROR` is the one frame that proves nothing: the backend
-            // answered the POST but rejected it (an expired park replies exactly
-            // that). Confirming on it would drop the journal and spend the
-            // rewind point before the host can tell the two apart.
+            // Two frames prove nothing and must not confirm. `RUN_ERROR` is
+            // the backend answering the POST but rejecting it (an expired park
+            // replies exactly that). `RUN_STARTED` is the backend
+            // acknowledging receipt — it says the resume arrived, not that the
+            // round produced anything, and every round opens with one.
+            //
+            // Confirming on either drops the journal and spends the rewind
+            // point while the round is still empty, so an app killed in that
+            // window has neither handle left: the relaunch seeds from the last
+            // applied seq instead of rewinding, the backend has nothing
+            // buffered there, and the turn settles with the work gone. Seen on
+            // a device — park at 256, RUN_STARTED at 259, killed 0.4s later,
+            // relaunch reattached at 259 to "nothing buffered".
+            //
+            // Waiting one frame is safe: the resolve still yields before any
+            // new park announced later in the same round, since it is emitted
+            // ahead of the frame's own switch.
             var confirmsThisFrame = state.confirmsResume
-            if case .runError = sequenced.event { confirmsThisFrame = false }
+            switch sequenced.event {
+            case .runError, .runStarted: confirmsThisFrame = false
+            default: break
+            }
             if confirmsThisFrame {
                 state.confirmsResume = false
                 await journal?.clear()
