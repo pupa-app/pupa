@@ -413,6 +413,10 @@ public struct AppView: View {
     /// actually streaming. `.invalid` whenever no hold is active.
     #if os(iOS)
     @State private var streamKeepAlive: UIBackgroundTaskIdentifier = .invalid
+    /// Fires the expiry body early under `-PupaBackgroundGrace`. The simulator
+    /// never suspends a backgrounded app, so the real grace never lands there
+    /// and a driven test has no other way to reach the post-grace state.
+    @State private var graceTimer: Task<Void, Never>?
     #endif
 
     private func handleScenePhase(_ phase: ScenePhase) {
@@ -455,7 +459,17 @@ public struct AppView: View {
                 coordinator.persistAllForBackground()
                 endStreamKeepAlive()
             }
+            if let grace = LaunchOptions.current.backgroundGrace {
+                graceTimer = Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(grace))
+                    guard !Task.isCancelled else { return }
+                    coordinator.persistAllForBackground()
+                    endStreamKeepAlive()
+                }
+            }
         case .active:
+            graceTimer?.cancel()
+            graceTimer = nil
             endStreamKeepAlive()
             coordinator.setAllHostBackgrounded(false)
             coordinator.reattachAllAfterForeground()

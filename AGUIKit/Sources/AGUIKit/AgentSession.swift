@@ -194,8 +194,10 @@ public actor AgentSession {
 
     /// Transport drops mid-round are retried this many times (exponential
     /// backoff, base 0.5s) before the error is surfaced to the caller.
-    private let maxReattachAttempts = 4
-    private let reattachBaseDelayNanos: UInt64 = 500_000_000
+    /// Injected rather than fixed so a test can collapse the 7.5s of backoff
+    /// an exhaustion case would otherwise pay.
+    private let maxReattachAttempts: Int
+    private let reattachBaseDelayNanos: UInt64
 
     /// Liveness heartbeat (pupa-backend#82): while a frontend-tool dispatch is
     /// in flight the backend's handler is parked with no open socket, so the
@@ -223,7 +225,9 @@ public actor AgentSession {
         initialMessages: [AgentMessage] = [],
         maxRounds: Int? = nil,
         keepaliveInterval: TimeInterval = 10,
-        journal: FrontendDispatchJournal? = nil
+        journal: FrontendDispatchJournal? = nil,
+        maxReattachAttempts: Int? = nil,
+        reattachBaseDelayNanos: UInt64? = nil
     ) {
         self.client = client
         self.registry = registry
@@ -232,6 +236,8 @@ public actor AgentSession {
         self.maxRounds = maxRounds
         self.keepaliveIntervalNanos = UInt64(max(0.01, keepaliveInterval) * 1_000_000_000)
         self.journal = journal
+        self.maxReattachAttempts = max(1, maxReattachAttempts ?? 4)
+        self.reattachBaseDelayNanos = reattachBaseDelayNanos ?? 500_000_000
         let toolNames = registry.descriptors.map(\.name).sorted().joined(separator: ",")
         AGUIKitLog.session(
             "AgentSession init thread=\(threadId) maxRounds=\(Self.capDescription(maxRounds)) " +

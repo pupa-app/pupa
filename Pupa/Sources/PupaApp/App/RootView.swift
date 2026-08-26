@@ -40,7 +40,19 @@ public struct RootView: View {
 
     private static func makeSettings() -> SettingsStore {
         // Touching `launch` forces the launch arguments to apply first.
-        SettingsStore(backendURL: launch.backendURL)
+        guard let token = launch.backendToken else {
+            return SettingsStore(backendURL: launch.backendURL, harnessID: launch.harnessID)
+        }
+        // A driven launch reaches a paired backend without the Keychain, which
+        // a UI test can't seed. The backend's UUID only exists once the store
+        // is built, so the token goes in after.
+        let credentials = InMemoryCredentialStore()
+        let settings = SettingsStore(
+            backendURL: launch.backendURL,
+            harnessID: launch.harnessID,
+            credentials: credentials)
+        try? credentials.setToken(token, for: settings.activeBackend.id)
+        return settings
     }
 
     public init() {

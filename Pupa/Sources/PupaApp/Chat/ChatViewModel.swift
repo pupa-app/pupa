@@ -973,7 +973,9 @@ public final class ChatViewModel {
             registry: registry,
             threadId: threadId,
             maxRounds: settings.effectiveMaxToolRounds,
-            journal: FrontendDispatchJournalStore(threadId: threadId)
+            journal: FrontendDispatchJournalStore(threadId: threadId),
+            maxReattachAttempts: LaunchOptions.current.reattachAttempts,
+            reattachBaseDelayNanos: LaunchOptions.current.reattachDelayNanos
         )
         self.sessionBackendURL = initialURL
         self.sessionAuthHeaders = initialHeaders
@@ -1002,7 +1004,9 @@ public final class ChatViewModel {
             registry: registry,
             threadId: threadId,
             maxRounds: settings.effectiveMaxToolRounds,
-            journal: FrontendDispatchJournalStore(threadId: threadId)
+            journal: FrontendDispatchJournalStore(threadId: threadId),
+            maxReattachAttempts: LaunchOptions.current.reattachAttempts,
+            reattachBaseDelayNanos: LaunchOptions.current.reattachDelayNanos
         )
         sessionBackendURL = url
         sessionAuthHeaders = headers
