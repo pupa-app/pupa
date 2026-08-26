@@ -138,8 +138,24 @@ app it launches. `ephemeral` exists for the same reason.
 ```sh
 make ui-test                      # SIM='iPhone 17' device, UITEST='…' to scope
 make ui-test-recovery             # the recovery suite + build/trace.log
-make ui-test-live                 # the same against :8004 (needs PUPA_BACKEND_TOKEN)
+export PUPA_BACKEND_TOKEN=$(…)    # make ctl ARGS='pair <CODE>' prints one
+make ui-test-live                 # the same, plus two cases against a real backend
 ```
+
+`ui-test-live` adds two cases that open a real socket to `--harness claude_code`
+on `:8004` — a live turn crossing background/foreground, and one killed and
+relaunched. They assert structurally (settles, no banner, every park answered),
+never on wording: a live model writes what it likes. Without a token they skip,
+so `make ui-test` runs the whole suite offline.
+
+Its config reaches the runner through the runner's **bundle**
+(`Fixtures/live-backend.json`, written before the build and deleted after —
+it holds a device token, and is gitignored). Neither documented environment
+channel survives to a UI-test runner: `TEST_RUNNER_<VAR>` build settings inject
+into a test *host*, which a UI test doesn't have, and xcscheme environment
+values are not build-setting-expanded under `xcodebuild` — `$(PUPA_BACKEND)`
+reached the app as that literal string and the POST failed `unsupported URL`.
+Both were diagnosed from `build/trace.log`, which is what it is for.
 
 `TurnRecoveryUITests` covers what only a launched app can prove: a live turn
 left alone across background/foreground, a socket that dies while away, a kill

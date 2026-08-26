@@ -41,9 +41,7 @@ ui-test:  ## Run the simulator UI tests, exporting screenshots to build/shots (S
 	  -destination 'platform=iOS Simulator,name=$(SIM)' \
 	  -resultBundlePath build/uitest.xcresult \
 	  -parallel-testing-enabled NO \
-	  $(foreach s,$(UITEST),-only-testing:PupaHostUITests/$(s)) \
-	  $(if $(PUPA_BACKEND_TOKEN),TEST_RUNNER_PUPA_BACKEND_TOKEN=$(PUPA_BACKEND_TOKEN),) \
-	  $(if $(LIVE),TEST_RUNNER_PUPA_LIVE=1 TEST_RUNNER_PUPA_BACKEND=$(BACKEND) TEST_RUNNER_PUPA_HARNESS=$(HARNESS),)
+	  $(foreach s,$(UITEST),-only-testing:PupaHostUITests/$(s))
 	@xcrun xcresulttool export attachments --path build/uitest.xcresult \
 	  --output-path build/shots >/dev/null 2>&1 || true
 	@echo "screenshots (if any) → build/shots"
@@ -59,7 +57,13 @@ ui-test-recovery:  ## Turn-recovery suite, with the app's unified log captured t
 ui-test-live:  ## Same suite against a real backend (needs PUPA_BACKEND_TOKEN; see docs/testing.md)
 	@test -n "$(PUPA_BACKEND_TOKEN)" || \
 	  (echo "set PUPA_BACKEND_TOKEN — mint one with: make ctl ARGS='pair <CODE>'"; exit 1)
-	@$(MAKE) ui-test-recovery LIVE=1
+	@# The runner reads this from its own bundle: no env channel survives to a
+	@# UI-test runner (see TurnRecoveryUITests.liveBackend). Written before the
+	@# build so it gets bundled, and removed straight after — it holds a token.
+	@mkdir -p $(FIXTURES)
+	@printf '{"url":"%s","harness":"%s","token":"%s"}\n' \
+	  '$(BACKEND)' '$(HARNESS)' '$(PUPA_BACKEND_TOKEN)' > $(FIXTURES)/live-backend.json
+	@trap 'rm -f $(FIXTURES)/live-backend.json' EXIT INT TERM; $(MAKE) ui-test-recovery LIVE=1
 
 record-fixture:  ## Record one real turn as a UI-test fixture: make record-fixture NAME=... PROMPT='...'
 	@test -n "$(NAME)" -a -n "$(PROMPT)" || \

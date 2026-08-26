@@ -360,6 +360,11 @@ public final class ChatViewModel {
     private(set) var lastNoticeReason: String?
     /// Which reattach attempt is in flight, 0 when none is.
     private(set) var reattachAttempt = 0
+    /// How many times this turn has parked on a frontend tool. Unbounded on
+    /// purpose: `probeEvents` keeps only the last 12 kinds, so it cannot
+    /// answer "did this park twice?" — the question a multi-park recovery
+    /// test asks.
+    private(set) var parkCount = 0
     /// Last few applied event kinds, for the debug probe's `ev` field. Only
     /// recorded on a driven launch.
     private(set) var probeEvents: [String] = []
@@ -1114,6 +1119,7 @@ public final class ChatViewModel {
         stoppedNotice = nil
         lastNoticeReason = nil
         reattachAttempt = 0
+        parkCount = 0
         didUserStop = false
 
         rebuildSessionIfSettingsChanged()
@@ -1760,6 +1766,7 @@ public final class ChatViewModel {
             // Persist the rewind point straight away — a kill can land at any
             // moment from here until the resume POST goes out (pupa#258).
             pendingDispatchAfterSeq = afterSeq
+            parkCount += 1
             persistTranscript()
         case .frontendDispatchResolved:
             pendingDispatchAfterSeq = nil
@@ -2287,6 +2294,7 @@ extension ChatViewModel {
             "\"rec\":\(isRecoveringParkedDispatch ? 1 : 0)",
             "\"awh\":\(isAwaitingHumanInput ? 1 : 0)",
             "\"ra\":\(reattachAttempt)",
+            "\"pc\":\(parkCount)",
         ]
         switch connectionIssue {
         case .none: fields.append("\"ci\":null")

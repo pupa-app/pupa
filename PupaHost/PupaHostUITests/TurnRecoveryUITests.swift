@@ -34,20 +34,18 @@ final class TurnRecoveryUITests: XCTestCase {
 
     // MARK: - Fixtures
 
-    /// Round 1 parks on `addComponent`; the resume is accepted and never
-    /// answered, so the turn sits at the park with no clock of its own. This
-    /// is the pupa#258 window, held open deliberately.
-    private static let parkThenHang = """
-    {"events":[
-      {"type":"RUN_STARTED","threadId":"t","runId":"r1"},
-      {"type":"TOOL_CALL_START","toolCallId":"call_1","toolCallName":"addComponent"},
-      {"type":"TOOL_CALL_ARGS","toolCallId":"call_1","delta":"{\\"kind\\":\\"tracker\\",\\"name\\":\\"Books\\"}"},
-      {"type":"TOOL_CALL_END","toolCallId":"call_1"},
-      {"type":"CUSTOM","name":"on_interrupt","value":"{\\"frontend_tool_calls\\":[{\\"id\\":\\"call_1\\",\\"name\\":\\"addComponent\\",\\"args\\":{\\"kind\\":\\"tracker\\",\\"name\\":\\"Books\\"}}]}"},
-      {"type":"RUN_FINISHED","threadId":"t","runId":"r1"}
-    ]}
-    {"fail":"hang","events":[]}
-    """
+    /// A real `claude_code` turn, recorded against a live backend
+    /// (`make record-fixture`): five frontend-tool parks — `get_tools_tracker`,
+    /// `addComponent`, `renderTracker`, `addTrackerItems`, `listTrackerItems` —
+    /// then a closing narration. Hand-written fixtures drift from the backend;
+    /// this one is what the harness actually says.
+    private static let realParkedTurn = "claude-code-park"
+
+    /// The same recording with one change: the resume answering the
+    /// `addTrackerItems` park is replaced with a hang. The app freezes with
+    /// the side effect already done and the resume unanswered — the pupa#258
+    /// window, held open instead of raced.
+    private static let realParkedTurnHung = "claude-code-park-hang"
 
     /// A turn that starts narrating and then holds the socket open — a live
     /// stream that stays live for as long as the test needs it.
@@ -178,24 +176,49 @@ final class TurnRecoveryUITests: XCTestCase {
     @MainActor
     func testForceQuitWhileParkedDoesNotRerunTheSideEffect() throws {
         let root = "recovery-killparked"
-        let app = launched(script: Self.parkThenHang, root: root)
+        let app = launched(script: fixture(Self.realParkedTurnHung), root: root)
         // The seeded MyApp ships with components of its own, so what matters
         // is the delta, not the count.
         let before = componentCount(app)
         send(app, "add a Books tracker")
 
-        waitForProbe(app, "the turn parked on a frontend tool", timeout: 60) {
-            $0.pendingDispatchAfterSeq != nil
+        // The recording parks five times; the kill has to land on the one with
+        // the side effect (`addTrackerItems`), which is the last park before
+        // the hang, so wait for the whole prefix to have run.
+        waitForProbe(app, "the turn reached the hung resume", timeout: 120) {
+            $0.pendingDispatchAfterSeq != nil && $0.parkCount >= 4
         }
-        XCTAssertEqual(componentCount(app), before + 1, "setup: the tool ran once before the kill")
+        XCTAssertEqual(componentCount(app), before + 1, "setup: the tracker was added once")
 
         app.terminate()
 
         let relaunched = launched(script: Self.emptyTurn, root: root, reset: false)
-        waitForProbe(relaunched, "recovery finished", timeout: 60) { !$0.isStreaming }
+        waitForProbe(relaunched, "recovery finished", timeout: 120) { !$0.isStreaming }
         XCTAssertEqual(
             componentCount(relaunched), before + 1,
-            "the parked tool ran a second time — the dispatch journal did not replay it")
+            "a parked tool ran a second time — the dispatch journal did not replay it")
+    }
+
+    /// The recording replays as a whole: five parks, five on-device tools, one
+    /// reply. If the backend's shape drifts from what this captured, this is
+    /// where it shows up — which is the point of recording rather than guessing.
+    @MainActor
+    func testRecordedClaudeCodeTurnReplaysEndToEnd() throws {
+        let app = launched(script: fixture(Self.realParkedTurn), root: "recovery-replay")
+        let before = componentCount(app)
+        send(app, "add three items to the Books tracker")
+
+        waitForProbe(app, "the recorded turn settled", timeout: 120) {
+            !$0.isStreaming && $0.events.contains("cmp")
+        }
+        let after = probe(app)
+        XCTAssertNil(after.connectionIssue, "a turn that ran to the end must leave no banner")
+        XCTAssertNil(after.noticeReason, "it settled cleanly — there is nothing to continue")
+        XCTAssertNil(after.pendingDispatchAfterSeq, "every park was answered")
+        XCTAssertEqual(
+            after.parkCount, 5,
+            "the recording parks five times; the replay saw \(after.parkCount)")
+        XCTAssertEqual(componentCount(app), before + 1, "the tracker the turn was asked for")
     }
 
     // MARK: - What a stopped turn offers
@@ -250,6 +273,8 @@ final class TurnRecoveryUITests: XCTestCase {
         var connectionIssue: String? { fields["ci"] as? String }
         var pendingDispatchAfterSeq: Int? { fields["pd"] as? Int }
         var noticeReason: String? { fields["nr"] as? String }
+        /// Unbounded, unlike `events`, which keeps only the last 12 kinds.
+        var parkCount: Int { fields["pc"] as? Int ?? 0 }
         var threadId: String? { fields["th"] as? String }
         var events: [String] {
             (fields["ev"] as? String).map { $0.isEmpty ? [] : $0.components(separatedBy: ",") } ?? []
@@ -296,9 +321,116 @@ final class TurnRecoveryUITests: XCTestCase {
 
     // MARK: - Driving
 
+    // MARK: - Live backend
+
+    /// Skips rather than fails when this isn't a live run — `make ui-test`
+    /// runs the whole suite, and a scripted run has no backend to reach.
+    private func XCTSkipIfNotLive(
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws -> (url: String, harness: String, token: String) {
+        guard let live = liveBackend else {
+            throw XCTSkip("not a live run — use make ui-test-live", file: file, line: line)
+        }
+        return live
+    }
+
+    /// Live-backend config, written into the runner's bundle by
+    /// `make ui-test-live` and absent otherwise, so these cases skip on a
+    /// normal run. Never committed — it carries a device token.
+    ///
+    /// The bundle rather than the environment because neither documented env
+    /// channel survives to a UI-test runner: the `TEST_RUNNER_` build-setting
+    /// prefix injects into a test *host*, which a UI test doesn't have, and
+    /// xcscheme environment values are not build-setting-expanded under
+    /// `xcodebuild` — `$(PUPA_BACKEND)` reached the app as that literal string
+    /// and the POST failed with "unsupported URL". Fixtures already ride in
+    /// the bundle, so this uses the one channel known to work.
+    private var liveBackend: (url: String, harness: String, token: String)? {
+        guard let url = Bundle(for: Self.self).url(
+                forResource: "live-backend", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: String],
+              let token = o["token"], !token.isEmpty
+        else { return nil }
+        return (o["url"] ?? "http://localhost:8004", o["harness"] ?? "claude_code", token)
+    }
+
+    /// A real turn against a real backend: no script, so the app opens an
+    /// actual SSE stream. Fixtures prove the shapes; this proves the shapes are
+    /// still what the backend sends, and that the recovery paths work on a
+    /// socket nobody is simulating.
+    ///
+    /// Deliberately not asserting on wording — a live model writes what it
+    /// likes. What must hold is structural: the turn settles, it leaves no
+    /// banner and nothing to continue, and every park it took was answered.
+    @MainActor
+    func testLiveTurnSurvivesBackgroundAndForeground() throws {
+        let live = try XCTSkipIfNotLive()
+        let app = launched(script: nil, root: "recovery-live-bg", live: live)
+        send(app, "add three items to the Books tracker: Dune, Ubik, Solaris")
+
+        waitForProbe(app, "the live turn started", timeout: 120) { $0.isStreaming }
+
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 60), "app never came back")
+
+        waitForProbe(app, "the live turn settled", timeout: 300) {
+            !$0.isStreaming && $0.events.contains("cmp")
+        }
+        let after = probe(app)
+        XCTAssertNil(after.connectionIssue, "a live turn crossed background and kept a banner")
+        XCTAssertNil(after.pendingDispatchAfterSeq, "a park went unanswered across background")
+        XCTAssertNil(after.noticeReason, "the live turn stopped short: \(after.fields)")
+    }
+
+    /// The same, killed outright. Recovery here comes only from what the event
+    /// path persisted before the kill — `.background` never runs.
+    @MainActor
+    func testLiveTurnSurvivesForceQuitAndRelaunch() throws {
+        let live = try XCTSkipIfNotLive()
+        let root = "recovery-live-kill"
+        let app = launched(script: nil, root: root, live: live)
+        send(app, "add three items to the Books tracker: Dune, Ubik, Solaris")
+        waitForProbe(app, "the live turn started", timeout: 120) { $0.isStreaming }
+        let thread = probe(app).threadId
+
+        app.terminate()
+
+        let relaunched = launched(script: nil, root: root, reset: false, live: live)
+        // The probe reports `{}` until a session exists, and one is only built
+        // when the conversation becomes visible.
+        openChat(relaunched)
+        waitForProbe(relaunched, "history rehydrated", timeout: 120) { $0.threadId == thread }
+        waitForProbe(relaunched, "recovery settled", timeout: 300) { !$0.isStreaming }
+        XCTAssertNil(
+            probe(relaunched).pendingDispatchAfterSeq,
+            "the relaunch left a park unanswered: \(probe(relaunched).fields)")
+    }
+
+    // MARK: - Probe
+
+    /// Fixtures ride in the runner's own bundle and are handed to the app
+    /// inline: the two do not share a sandbox, so a path would not resolve.
+    private func fixture(
+        _ name: String, file: StaticString = #filePath, line: UInt = #line
+    ) -> String {
+        guard let url = Bundle(for: Self.self).url(forResource: name, withExtension: "jsonl"),
+              let text = try? String(contentsOf: url, encoding: .utf8)
+        else {
+            XCTFail("missing fixture \(name).jsonl — re-record with make record-fixture",
+                    file: file, line: line)
+            return #"{"events":[]}"#
+        }
+        return text
+    }
+
+    /// `script: nil` means no scripted transport — the app talks to whatever
+    /// `live` points at, over a real socket.
     @MainActor
     private func launched(
-        script: String, root: String, reset: Bool = true, extra: [String] = []
+        script: String?, root: String, reset: Bool = true, extra: [String] = [],
+        live: (url: String, harness: String, token: String)? = nil
     ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = [
@@ -309,13 +441,15 @@ final class TurnRecoveryUITests: XCTestCase {
             // passes YES because the Settings gear lives in the drawer.
             "-pupa.ui.sidebarOpen", "NO",
         ] + (reset ? ["-PupaStorageReset", "1"] : []) + extra
-        app.launchEnvironment["PUPA_SCRIPT"] = script
-        // Forwarded by `make ui-test-live`; absent for a scripted run.
-        for key in ["PUPA_BACKEND_TOKEN"] {
-            if let value = ProcessInfo.processInfo.environment[key] {
-                app.launchEnvironment[key] = value
-            }
+        if let live {
+            app.launchArguments += [
+                "-PupaBackendURL", live.url,
+                "-PupaHarness", live.harness,
+            ]
+            // Env, not an argument: keeps the token out of the process list.
+            app.launchEnvironment["PUPA_BACKEND_TOKEN"] = live.token
         }
+        if let script { app.launchEnvironment["PUPA_SCRIPT"] = script }
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 90), "app never foregrounded")
         return app
