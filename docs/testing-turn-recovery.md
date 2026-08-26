@@ -37,10 +37,16 @@ log, which survives the app being suspended, killed, or relaunched:
 # no device option at all on macOS 26.
 sudo log collect --device-udid <udid> --last 2h --output build/device.logarchive
 log show build/device.logarchive --predicate 'subsystem BEGINSWITH "dev.pupa"' \
-  --style compact --info > build/trace.log
+  --style compact > build/trace.log
 ```
 
-`xcrun devicectl list devices` prints the udid. Console.app with the phone
+`xcrun devicectl list devices` prints the udid. (It also prints an app
+version, but that is the project's stale `MARKETING_VERSION` — synced only at
+release — so it cannot tell you which branch is installed. Settings ▸ Profile ▸
+Version reads `PupaAppVersion` and can.)
+
+These lines log at `.default` so they persist to disk. `.info` would survive a
+live `log stream` and be gone by the time anyone collected an archive. Console.app with the phone
 selected and `dev.pupa` in the filter is the same thing by hand. Two categories:
 `session` is the round-by-round narrative, `probe` is one line of turn state per
 change — the same JSON the UI suite asserts on, so a trace from the field lines

@@ -41,8 +41,13 @@ public enum AGUIKitLog {
         let data = (line + "\n").data(using: .utf8) ?? Data()
         FileHandle.standardError.write(data)
         // `%{public}@` is load-bearing: without it the message redacts to
-        // `<private>` and the trace is useless.
-        os_log("%{public}@", log: log, type: .info, line)
+        // `<private>`. `.default`, not `.info`, is equally load-bearing: the
+        // unified log keeps `.info` in a memory ring and never writes it to
+        // disk, so it survives a live `log stream` but is gone by the time
+        // anyone runs `log collect` — which is the whole point here, since a
+        // user reproduces first and collects afterwards. These lines are
+        // opt-in and low-volume; persistence is what they are for.
+        os_log("%{public}@", log: log, type: .default, line)
     }
 
     private static let sessionLog = OSLog(subsystem: "dev.pupa.aguikit", category: "session")
