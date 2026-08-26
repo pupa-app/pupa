@@ -17,6 +17,9 @@ import PupaScripting
 ///     -PupaBackendToken tok      reach a paired backend without the Keychain
 ///     -PupaScript      path.jsonl  serve a canned backend, no network
 ///     -PupaSkipOnboarding 1      skip first-run
+///     -PupaSidebarOpen 1         keep the MyApps drawer open (driven launches
+///                                close it by default: it covers the bottom
+///                                bar, laying its own over the top)
 ///     -PupaBackgroundGrace 2     shrink the iOS stream keep-alive hold
 ///     -PupaReattachAttempts 1    shrink the dropped-stream retry budget
 ///     -PupaReattachDelayMs 50    shrink its backoff
@@ -41,6 +44,7 @@ public enum LaunchOptions {
         public var backendToken: String?
         public var scriptPath: String?
         public var skipOnboarding = false
+        public var sidebarOpen = false
         /// Seconds to hold the iOS background task before releasing it. The
         /// simulator never fires the real expiry, so this is the only way to
         /// exercise a background long enough to lose the socket.
@@ -73,6 +77,10 @@ public enum LaunchOptions {
         if values.skipOnboarding {
             UserDefaults.standard.set(true, forKey: OnboardingKeys.completed)
         }
+        // Start on the canvas. The drawer is open by default and covers the
+        // bottom bar with a bar of its own, so anything driving chat has to
+        // get past it first — and it is not what these tests are about.
+        UserDefaults.standard.set(values.sidebarOpen, forKey: UIStateKeys.sidebarOpen)
         return values
     }
 
@@ -102,6 +110,7 @@ public enum LaunchOptions {
             case "-PupaBackendToken": values.backendToken = next()
             case "-PupaScript": values.scriptPath = next()
             case "-PupaSkipOnboarding": values.skipOnboarding = next() != "0"
+            case "-PupaSidebarOpen": values.sidebarOpen = next() != "0"
             case "-PupaBackgroundGrace": values.backgroundGrace = next().flatMap(TimeInterval.init)
             case "-PupaReattachAttempts": values.reattachAttempts = next().flatMap(Int.init)
             case "-PupaReattachDelayMs":

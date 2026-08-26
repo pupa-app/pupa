@@ -252,7 +252,16 @@ public final class ScriptedTransport: URLProtocol, @unchecked Sendable {
         serve(status: round.status ?? 200,
               body: Self.sseBody(Array(round.events.prefix(cut))),
               finish: false)
-        client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
+        // Failing in the same turn of the runloop throws the buffered bytes
+        // away: `URLSession.bytes(for:)` surfaces the error before it hands
+        // the prefix to its consumer, so "half a reply, then the socket dies"
+        // arrived as "nothing, then the socket dies" — no events applied and
+        // no replay cursor, which is precisely what a reattach needs. Let the
+        // delivery land first.
+        DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(50)) { [weak self] in
+            guard let self else { return }
+            self.client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
+        }
     }
 
     public override func stopLoading() {}

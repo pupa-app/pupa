@@ -18,6 +18,14 @@ import UIKit
 ///     file viewer) under a floating `ChatOverlay` anchored bottom-trailing.
 ///     The overlay rebinds to whichever `ChatViewModel` matches the current
 ///     selection — backgrounded sessions keep streaming until they finish.
+/// Persisted UI state keys shared with the launch seam, which pre-sets some
+/// of them so a driven app comes up in a known place.
+public enum UIStateKeys {
+    /// The MyApps drawer. Defaults open, and it lays its own bottom bar over
+    /// the main one while it is.
+    public static let sidebarOpen = "pupa.ui.sidebarOpen"
+}
+
 public struct AppView: View {
     /// Drives the resumable-SSE lifecycle hooks (background hold / foreground
     /// re-attach). See `handleScenePhase`.
@@ -53,7 +61,7 @@ public struct AppView: View {
     /// the same state it was left in; defaults to `true` so a fresh install
     /// lands on an open menu. Written through by the toolbar toggle and the
     /// auto-close on selection, so "last state" survives relaunch.
-    @AppStorage("pupa.ui.sidebarOpen") private var showSidebar = true
+    @AppStorage(UIStateKeys.sidebarOpen) private var showSidebar = true
     /// Drives the slide-in menu width: on a regular width class (iPad, or a
     /// large iPhone in landscape) the drawer stays slim instead of swallowing
     /// the whole screen the way it does on compact iPhones.
@@ -278,7 +286,11 @@ public struct AppView: View {
             // chat panel is open. Costs a `Bool` on a normal launch.
             .overlay(alignment: .topLeading) {
                 if LaunchOptions.current.isDriven {
-                    DebugProbeView(json: coordinator.session(for: chatScope).probeStateJSON)
+                    // `existingSession`, never `session(for:)`: the latter
+                    // creates and stores one, which from inside `body` writes
+                    // observable state mid-update and spins the view loop.
+                    DebugProbeView(
+                        json: coordinator.existingSession(for: chatScope)?.probeStateJSON ?? "{}")
                 }
             }
             .onReceive(PerfTrace.drivePublisher) { handleDrive($0) }
@@ -862,6 +874,7 @@ public struct AppView: View {
                                 } label: {
                                     Image(systemName: "line.3.horizontal")
                                 }
+                                .accessibilityIdentifier(PupaID.sidebarToggle)
                             }
                         }
                         .navigationDestination(for: SidebarSelection.self) { dest in
@@ -876,6 +889,7 @@ public struct AppView: View {
                                         } label: {
                                             Image(systemName: "line.3.horizontal")
                                         }
+                                        .accessibilityIdentifier(PupaID.sidebarToggle)
                                     }
                                 }
                         }

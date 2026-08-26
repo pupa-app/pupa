@@ -438,6 +438,11 @@ public struct MyAppSidebarView: View, Equatable {
             }
         }
         .tag(tag)
+        // One element, not three: without this the identifier propagates to
+        // the row's icon and label separately, and a query resolves to the
+        // 28pt icon rather than the row.
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(PupaID.sidebarMyApp(myApp.id))
         // iOS `List(selection:)` only tap-selects rows in edit mode, so plain
         // taps landed on the binding unreliably — routing to the wrong (stale)
         // MyApp. Drive selection explicitly from a full-row tap; macOS keeps
