@@ -285,7 +285,11 @@ public struct AppView: View {
             // exist in the accessibility tree from launch, whether or not the
             // chat panel is open. Costs a `Bool` on a normal launch.
             .overlay(alignment: .topLeading) {
-                if LaunchOptions.current.isDriven {
+                // Driven launches read it through accessibility; a user with
+                // diagnostics on gets the same series in their device log,
+                // which is what makes a report from the field comparable to
+                // what the suite asserts.
+                if LaunchOptions.current.isDriven || AGUIKitLog.enabled {
                     // `existingSession`, never `session(for:)`: the latter
                     // creates and stores one, which from inside `body` writes
                     // observable state mid-update and spins the view loop.

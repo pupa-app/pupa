@@ -58,6 +58,21 @@ public enum AGUIKitLog {
         emit("[AGUIKit ses] \(message())")
     }
 
+    /// Whether log lines may carry the user's own words.
+    ///
+    /// Diagnostics can be switched on in a release build to chase a bug on a
+    /// real device, and every line goes to the unified log as `%{public}@` —
+    /// readable by anyone who can pull logs off the phone. Turn recovery is
+    /// explained by structure (cursors, parks, retries), never by what the
+    /// user typed, so the prompt is logged as a length outside DEBUG.
+    nonisolated(unsafe) public static var includesUserContent: Bool = {
+        #if DEBUG
+        return true
+        #else
+        return false
+        #endif
+    }()
+
     /// Host turn state, one line per change. Its own category so a trace can
     /// isolate the state series from the round narrative — and the only
     /// channel that keeps reporting while the app is backgrounded, where

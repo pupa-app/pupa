@@ -512,7 +512,9 @@ public actor AgentSession {
         lastSendSettledCleanly = false
         let imageNote = images.isEmpty ? "" :
             " images=\(images.count)/\(images.reduce(0) { $0 + $1.data.count })B"
-        AGUIKitLog.session("send() user=\(snippet(userText))\(imageNote) thread=\(threadId) maxRounds=\(Self.capDescription(maxRounds))")
+        let userNote = AGUIKitLog.includesUserContent
+            ? snippet(userText) : "<\(userText.count) chars>"
+        AGUIKitLog.session("send() user=\(userNote)\(imageNote) thread=\(threadId) maxRounds=\(Self.capDescription(maxRounds))")
 
         // True if ANY round this turn emitted assistant text. Accumulated
         // across rounds so a turn that narrated in round 1 then settled

@@ -1677,7 +1677,7 @@ public final class ChatViewModel {
     /// particular the `toolRound` lifecycle) are subtle enough to warrant
     /// focused unit tests at this layer.
     func apply(_ event: SessionEvent) {
-        if LaunchOptions.current.isDriven { recordProbe(event) }
+        if LaunchOptions.current.isDriven || AGUIKitLog.enabled { recordProbe(event) }
         // A frame after a retry means the socket came back, so the banner that
         // retry raised must not outlive it — a latched "Reconnecting…" reads as
         // a turn stuck forever, and the two existing clear sites (`send`,

@@ -221,6 +221,32 @@ final class TurnRecoveryUITests: XCTestCase {
         XCTAssertEqual(componentCount(app), before + 1, "the tracker the turn was asked for")
     }
 
+    /// The closest a simulator gets to jetsam: the app is backgrounded first,
+    /// so `.background` runs — `setAllHostBackgrounded`, `persistAllForBackground`,
+    /// the keep-alive hold — and only then is the process killed. A different
+    /// path from the foreground kill above, which skips all of that, and the
+    /// shape of what iOS actually does to a turn left running.
+    @MainActor
+    func testBackgroundedThenKilledRelaunchesOntoTheSameTurn() throws {
+        let root = "recovery-bgkill"
+        let app = launched(script: fixture(Self.realParkedTurnHung), root: root)
+        let before = componentCount(app)
+        send(app, "add three items to the Books tracker")
+        waitForProbe(app, "the turn parked", timeout: 120) { $0.pendingDispatchAfterSeq != nil }
+        let thread = probe(app).threadId
+
+        XCUIDevice.shared.press(.home)
+        app.terminate()
+
+        let relaunched = launched(script: Self.emptyTurn, root: root, reset: false)
+        openChat(relaunched)
+        waitForProbe(relaunched, "history rehydrated", timeout: 120) { $0.threadId == thread }
+        waitForProbe(relaunched, "recovery settled", timeout: 120) { !$0.isStreaming }
+        XCTAssertEqual(
+            componentCount(relaunched), before + 1,
+            "a parked tool ran again after a backgrounded kill: \(probe(relaunched).fields)")
+    }
+
     // MARK: - What a stopped turn offers
 
     /// A turn whose stream throws ends on a banner, and the banner carries a

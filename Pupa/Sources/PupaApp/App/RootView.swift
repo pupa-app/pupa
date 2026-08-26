@@ -1,3 +1,4 @@
+import AGUIKit
 import SwiftUI
 
 /// Top-level coordinator that layers the launch splash and first-install
@@ -38,7 +39,17 @@ public struct RootView: View {
     @State private var phase: Phase = .splash
     @AppStorage(OnboardingKeys.completed) private var onboardingCompleted = false
 
+    /// Diagnostics are off in a release build; this is how a user chasing a
+    /// bug on their own device turns the trace on. Applied before any session
+    /// exists, so a turn started from a cold launch is covered.
+    private static let diagnostics: Void = {
+        if UserDefaults.standard.bool(forKey: DiagnosticsKeys.enabled) {
+            AGUIKitLog.enabled = true
+        }
+    }()
+
     private static func makeSettings() -> SettingsStore {
+        _ = diagnostics
         // Touching `launch` forces the launch arguments to apply first.
         guard let token = launch.backendToken else {
             return SettingsStore(backendURL: launch.backendURL, harnessID: launch.harnessID)

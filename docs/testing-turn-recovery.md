@@ -19,6 +19,37 @@ timers, a real network drop, real jetsam, and the multi-park and expired-park
 endings. Note also that the simulator never suspends a backgrounded app, so its
 ~30s grace never fires there — only a device tells you the truth about that.
 
+## On a real device
+
+The simulator cannot reach the case that matters most: it never suspends a
+backgrounded app, so the `beginBackgroundTask` grace never expires, sockets stay
+alive, and jetsam never happens. Everything the suite covers passes there —
+including a backgrounded-then-killed relaunch — so a turn still lost in real use
+is a device-only path.
+
+Diagnostics are off in a release build. Settings → Profile → **Diagnostic
+logging** turns them on live, no relaunch, and every line goes to the unified
+log, which survives the app being suspended, killed, or relaunched:
+
+```sh
+log stream --device --predicate 'subsystem BEGINSWITH "dev.pupa"' > trace.log
+```
+
+or Console.app with the phone selected, filtering `dev.pupa`. Two categories:
+`session` is the round-by-round narrative, `probe` is one line of turn state per
+change — the same JSON the UI suite asserts on, so a trace from the field lines
+up with what the tests check.
+
+What to look for, in order: `send() user=` (the turn started), `round N → POST`,
+`stream dropped … reattach N/4` (the retry ladder ran), `reattach tail empty`
+(the resume never landed), `foreground reattach: thread=`, `rewound replay
+cursor`, and how it ends — `settled → completed(produced)` versus
+`completed(silent(…))`. In the probe line, `tif` staying 1 across a relaunch and
+`pd` staying non-nil are the two tells that recovery never completed.
+
+Messages are not logged — only their length. Turn diagnostics back off
+afterwards: the lines are public in the device log.
+
 ## The mechanism in one paragraph
 
 The backend closes its SSE and **parks** while the app runs an on-device tool.
