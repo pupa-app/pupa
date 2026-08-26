@@ -3,9 +3,9 @@ import AGUIKit
 
 /// Value-type description of a notification the agent wants to schedule.
 /// Built from the `sendNotification` tool args by `init(fromToolArgs:)` and
-/// consumed by `NotificationCenterCoordinator.schedule(_:)`.
-public struct NotificationRequest: Sendable, Hashable {
-    public enum Trigger: Sendable, Hashable {
+/// consumed by `NotificationCenterCoordinator.schedule(_:origin:)`.
+public struct NotificationRequest: Sendable, Hashable, Codable {
+    public enum Trigger: Sendable, Hashable, Codable {
         /// Fire as soon as the OS will allow. Maps to a `UNTimeIntervalNotificationTrigger`
         /// with a tiny epsilon (iOS rejects `timeInterval == 0`).
         case now
@@ -33,7 +33,7 @@ public struct NotificationRequest: Sendable, Hashable {
 
     /// What tapping the delivered banner does, beyond the OS bringing the app
     /// forward. `.foreground` is the historical default (no extra routing).
-    public enum TapAction: Sendable, Hashable {
+    public enum TapAction: Sendable, Hashable, Codable {
         /// Just foreground the app (plus any `target` deep-link navigation).
         case foreground
         /// Pre-fill the chat composer with `prompt` so the user can continue.
@@ -78,7 +78,7 @@ public struct NotificationRequest: Sendable, Hashable {
 
     /// Optional deep-link target. When present, tapping the notification banner
     /// navigates the app to the specified myApp (and optionally component).
-    public struct Target: Sendable, Hashable {
+    public struct Target: Sendable, Hashable, Codable {
         /// The myApp to open on tap. Injected from the caller's scope by
         /// `AppTools.scopeNotificationRequest` (never taken from the model): the
         /// owning myApp for a MyApp scope, `nil` for the orchestrator (which is
@@ -124,6 +124,24 @@ public struct NotificationRequest: Sendable, Hashable {
         self.trigger = trigger
         self.target = target
         self.tapAction = tapAction
+    }
+
+    /// The request an edit should schedule: new content and timing, but the
+    /// deep-link target and tap action `previous` carried. Without that, fixing
+    /// a typo in an agent's reminder stops it routing into its own myApp.
+    public static func edited(
+        title: String,
+        body: String,
+        trigger: Trigger,
+        preserving previous: NotificationRequest?
+    ) -> NotificationRequest {
+        NotificationRequest(
+            title: title,
+            body: body,
+            trigger: trigger,
+            target: previous?.target,
+            tapAction: previous?.tapAction ?? .foreground
+        )
     }
 
     /// Build from the raw `AnyJSON` the tool registry hands us, or throw a

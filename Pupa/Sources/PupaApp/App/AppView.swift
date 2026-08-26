@@ -424,6 +424,11 @@ public struct AppView: View {
         case .active:
             Task { await convergeAndReloadStores() }
             startSyncPoll()
+            // Notice what fired while we were away. iOS never calls back for an
+            // untapped delivery, so leaving the queue is the only evidence —
+            // and the notification log is local, so it stays out of the
+            // converge path above.
+            Task { await NotificationCenterCoordinator.shared.reconcileLog() }
         case .background:
             stopSyncPoll()
             // macOS gets no memory warning, so without this it never releases

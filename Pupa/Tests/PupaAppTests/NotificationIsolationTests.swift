@@ -91,6 +91,49 @@ struct NotificationIsolationTests {
         #expect(scoped.target?.myAppId == nil)
     }
 
+    // MARK: - Origin: who created it, as opposed to where it links
+
+    @Test("a myApp session credits its own myApp; the orchestrator credits itself")
+    func originFollowsScope() {
+        let myAppId = UUID()
+        #expect(AppTools.notificationOrigin(ownerMyAppId: myAppId) == .myApp(myAppId))
+        #expect(AppTools.notificationOrigin(ownerMyAppId: nil) == .orchestrator)
+    }
+
+    @Test("an edit keeps the deep-link target and tap action it was scheduled with")
+    func editPreservesRouting() {
+        let myAppId = UUID()
+        let original = NotificationRequest(
+            title: "Stand up", body: "time to move",
+            trigger: .daily(hour: 9, minute: 0),
+            target: .init(myAppId: myAppId, componentId: "tracker-1"),
+            tapAction: .runAgent(prompt: "log it")
+        )
+
+        let edited = NotificationRequest.edited(
+            title: "Stretch", body: "time to move",
+            trigger: .daily(hour: 10, minute: 30),
+            preserving: original
+        )
+
+        // Retiming must not sever the route back into the owning myApp.
+        #expect(edited.target?.myAppId == myAppId)
+        #expect(edited.target?.componentId == "tracker-1")
+        #expect(edited.tapAction == .runAgent(prompt: "log it"))
+        #expect(edited.title == "Stretch")
+        #expect(edited.trigger == .daily(hour: 10, minute: 30))
+    }
+
+    @Test("composing a new notification has no target and just foregrounds")
+    func freshComposeHasNoRouting() {
+        let fresh = NotificationRequest.edited(
+            title: "Tea", body: "kettle", trigger: .now, preserving: nil
+        )
+
+        #expect(fresh.target == nil)
+        #expect(fresh.tapAction == .foreground)
+    }
+
     // MARK: - Handler wiring: no reject path remains; the request reaches scheduling
 
     @Test("the sendNotification handler binds and schedules (no target rejection)")

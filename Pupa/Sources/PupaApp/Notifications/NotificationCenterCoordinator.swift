@@ -13,10 +13,15 @@ extension Notification.Name {
 /// - Lazy permission request (`requestAuthorizationIfNeeded`) — the agent's
 ///   first `sendNotification` call drives it; the user is never prompted at
 ///   app launch.
-/// - `schedule(_:)` — converts a `NotificationRequest` into a
+/// - `schedule(_:origin:)` — converts a `NotificationRequest` into a
 ///   `UNNotificationRequest` and adds it; returns the assigned identifier and
 ///   resolved delivery instant.
 /// - `cancel(id:)` — idempotent; reports whether the id was actually pending.
+/// - `reschedule(...)` — an edit, i.e. schedule the replacement then drop the
+///   original, since UN can't mutate a request.
+/// - `log` (`NotificationLogStore`) — the durable record of all of the above.
+///   The OS queue holds only pending requests, so `reconcileLog()` folds it
+///   back in to notice what fired.
 /// - `UNUserNotificationCenterDelegate` — presents banners while the app is
 ///   foregrounded (otherwise the OS swallows them silently). On tap it routes
 ///   the notification's deep-link target and/or `tapAction` (populate the
@@ -52,10 +57,12 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
         public let deliveryAt: Date?
         /// Whether the underlying OS trigger repeats (recurring preset).
         public let repeats: Bool
-        /// Deep-link target stored in the notification's userInfo. Nil when
-        /// the notification was scheduled without a target (opens app only).
-        public let myAppId: UUID?
+        /// Component the banner deep-links to, from the notification's
+        /// userInfo. Nil when it was scheduled without one.
         public let componentId: String?
+        /// Raw `pupa.origin` marker, for rebuilding a `NotificationRecord`
+        /// from the queue alone — see `NotificationRecord.init(adopting:)`.
+        public let origin: String?
     }
 
     public enum ScheduleError: Error, CustomStringConvertible {
@@ -94,6 +101,11 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
     /// userInfo (`selection` / `tapAction` / `tapPrompt`).
     public var pendingTap: [String: Any]?
 
+    /// Durable record of what was scheduled and what became of it. The OS
+    /// queue is not a history; this is. Read lazily rather than held, so its
+    /// file isn't decoded on the launch path.
+    private var log: NotificationLogStore { .shared }
+
     private override init() {
         super.init()
     }
@@ -130,11 +142,20 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
         }
     }
 
-    /// Schedule `request`. Throws `.notAuthorised` if permission isn't
-    /// granted (the caller has already lazily prompted via
+    /// Schedule `request` on behalf of `origin`. Throws `.notAuthorised` if
+    /// permission isn't granted (the caller has already lazily prompted via
     /// `requestAuthorizationIfNeeded`). Returns the identifier we assigned
     /// and the resolved delivery instant the agent can echo back to the user.
-    public func schedule(_ request: NotificationRequest) async throws -> ScheduledNotification {
+    ///
+    /// Also writes a `NotificationRecord` to `log`, which is what survives
+    /// delivery — the OS queue forgets a one-shot the moment it fires.
+    /// `replacing` carries the record id when this call is the second half of
+    /// an edit, so the log updates that row instead of appending a new one.
+    public func schedule(
+        _ request: NotificationRequest,
+        origin: NotificationOrigin,
+        replacing: UUID? = nil
+    ) async throws -> ScheduledNotification {
         guard Self.isHostSupported else { throw ScheduleError.unsupportedHost }
         let auth = await requestAuthorizationIfNeeded()
         switch auth {
@@ -148,7 +169,7 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
         content.sound = .default
         // Stash the deep-link target and/or tap action in userInfo so the
         // delegate can route the tap (and the Settings list can label it).
-        var info: [String: String] = [:]
+        var info: [String: String] = ["pupa.origin": origin.userInfoValue]
         if let target = request.target {
             if let mid = target.myAppId { info["pupa.myAppId"] = mid.uuidString }
             if let cid = target.componentId { info["pupa.componentId"] = cid }
@@ -162,7 +183,7 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
             info["pupa.tapAction"] = "runAgent"
             info["pupa.tapPrompt"] = prompt
         }
-        if !info.isEmpty { content.userInfo = info }
+        content.userInfo = info
 
         let trigger: UNNotificationTrigger
         let referenceDate = Date()
@@ -174,6 +195,12 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
                 timeInterval: TimeInterval(seconds),
                 repeats: false
             )
+        case .atDate(let date) where date <= referenceDate:
+            // A calendar match on an instant that has passed never fires and
+            // has no next trigger date, so the record would sit `.scheduled`
+            // until reconcile called it `.fired` — reporting a delivery that
+            // never happened. Fire it now instead.
+            trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
         case .atDate(let date):
             let comps = Calendar.current.dateComponents(
                 [.year, .month, .day, .hour, .minute, .second],
@@ -206,7 +233,31 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
         let resolved = (trigger as? UNCalendarNotificationTrigger)?.nextTriggerDate()
             ?? (trigger as? UNTimeIntervalNotificationTrigger)?.nextTriggerDate()
             ?? request.deliveryAt(referenceDate: referenceDate)
+        switch replacing {
+        case .none:
+            log.noteScheduled(request, origin: origin, unId: id, deliveryAt: resolved)
+        case .some(let recordId):
+            log.noteEdited(id: recordId, request: request, unId: id, deliveryAt: resolved)
+        }
         return ScheduledNotification(id: id, deliveryAt: resolved)
+    }
+
+    /// Replace a scheduled notification with an edited one, keeping the
+    /// record's identity and Origin. UN can't mutate a request, so this is
+    /// cancel + reschedule: the OS identifier necessarily changes, the record
+    /// id doesn't.
+    /// Schedules the replacement *first*: if that throws (permission revoked,
+    /// OS refusal) the original is still in the queue and the user has lost
+    /// nothing.
+    public func reschedule(
+        recordId: UUID,
+        previousUnId: String,
+        with request: NotificationRequest,
+        origin: NotificationOrigin
+    ) async throws -> ScheduledNotification {
+        let scheduled = try await schedule(request, origin: origin, replacing: recordId)
+        center.removePendingNotificationRequests(withIdentifiers: [previousUnId])
+        return scheduled
     }
 
     /// Cancel a pending notification by identifier. Returns `true` if the id
@@ -219,17 +270,35 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
         let wasPending = pending.contains { $0.identifier == id }
         if wasPending {
             center.removePendingNotificationRequests(withIdentifiers: [id])
+            // Only a request we actually pulled out of the queue was
+            // cancelled. An id that already fired is left for `reconcileLog`
+            // to mark `.fired` — logging it as cancelled would erase the very
+            // distinction this exists to draw.
+            log.markCancelled(unId: id)
         }
         return wasPending
     }
 
-    /// All pending notifications, soonest-first. Drives the Settings →
-    /// Notifications list. Empty on unsupported hosts (unsigned `swift run`
-    /// macOS binary / test process).
-    public func pendingNotifications() async -> [PendingNotification] {
-        guard Self.isHostSupported else { return [] }
-        let requests = await center.pendingNotificationRequests()
-        return requests
+    /// Fold the OS queue into the log — notice what fired, refresh repeats,
+    /// adopt anything scheduled before the log existed. Called on foreground
+    /// and whenever the Notifications screen opens.
+    public func reconcileLog() async {
+        // On a host that can't read the queue, "nothing pending" is ignorance,
+        // not fact — reconciling against it would mark every record fired.
+        guard Self.isHostSupported else { return }
+        // Two instants, because they answer opposite questions: `capturedAt`
+        // predates the read, so a record written during it isn't judged
+        // against a queue that predates it; `now` postdates the read, so a
+        // notification that fired during it reads as delivered, not cancelled.
+        let capturedAt = Date()
+        let pending = await pendingNotifications()
+        log.reconcile(pending: pending, capturedAt: capturedAt, now: Date())
+    }
+
+    /// The OS pending queue, flattened. Unordered — `reconcile` keys by id and
+    /// the list sorts what it displays.
+    private func pendingNotifications() async -> [PendingNotification] {
+        await center.pendingNotificationRequests()
             .map { req in
                 let deliveryAt: Date?
                 let repeats: Bool
@@ -245,19 +314,16 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
                     repeats = false
                 }
                 let userInfo = req.content.userInfo
-                let myAppId = (userInfo["pupa.myAppId"] as? String).flatMap(UUID.init(uuidString:))
-                let componentId = userInfo["pupa.componentId"] as? String
                 return PendingNotification(
                     id: req.identifier,
                     title: req.content.title,
                     body: req.content.body,
                     deliveryAt: deliveryAt,
                     repeats: repeats,
-                    myAppId: myAppId,
-                    componentId: componentId
+                    componentId: userInfo["pupa.componentId"] as? String,
+                    origin: userInfo["pupa.origin"] as? String
                 )
             }
-            .sorted { ($0.deliveryAt ?? .distantFuture) < ($1.deliveryAt ?? .distantFuture) }
     }
 
     // MARK: - UNUserNotificationCenterDelegate

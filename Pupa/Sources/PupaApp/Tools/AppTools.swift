@@ -1949,11 +1949,12 @@ public enum AppTools {
     ///
     /// **Cross-myApp isolation.** When registered inside a MyApp (or a
     /// sub-run acting on behalf of one), `ownerMyAppId` is that MyApp's id.
-    /// A `sendNotification` call whose `target.myAppId` points at a *different*
-    /// MyApp is rejected — otherwise MyApp-A could schedule a banner that, on
-    /// tap, opens MyApp-B and injects a `runAgent`/`populateChat` prompt into
-    /// it, breaking app isolation. `nil` (the orchestrator / memory scope) is
-    /// unrestricted: that surface legitimately opens any myApp it manages.
+    /// Any `target.myAppId` in the args is ignored and the owner's id injected
+    /// (`scopeNotificationRequest`) — otherwise MyApp-A could schedule a banner
+    /// that, on tap, opens MyApp-B and injects a `runAgent`/`populateChat`
+    /// prompt into it, breaking app isolation. `nil` (the orchestrator / memory
+    /// scope) is unrestricted: that surface legitimately opens any myApp it
+    /// manages.
     @MainActor
     public static func registerNotificationTools(
         on registry: ToolRegistry,
@@ -2109,8 +2110,9 @@ public enum AppTools {
                 // myApp can't route a banner into another (see
                 // `scopeNotificationRequest`).
                 let request = AppTools.scopeNotificationRequest(parsed, ownerMyAppId: ownerMyAppId)
+                let origin = AppTools.notificationOrigin(ownerMyAppId: ownerMyAppId)
                 do {
-                    let scheduled = try await coordinator.schedule(request)
+                    let scheduled = try await coordinator.schedule(request, origin: origin)
                     return .object([
                         "ok": .bool(true),
                         "id": .string(scheduled.id),
@@ -2178,6 +2180,13 @@ public enum AppTools {
                 ])
             }
         ))
+    }
+
+    /// Who the notification log should credit for a `sendNotification` call.
+    /// Same scope signal as `scopeNotificationRequest`, different question:
+    /// that one decides where a tap *lands*, this one who *created* it.
+    static func notificationOrigin(ownerMyAppId: UUID?) -> NotificationOrigin {
+        ownerMyAppId.map { .myApp($0) } ?? .orchestrator
     }
 
     /// Bind a `sendNotification` request to the scope of the agent that called

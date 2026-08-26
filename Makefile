@@ -35,7 +35,8 @@ ui-test:  ## Run the simulator UI tests, exporting screenshots to build/shots (S
 	  -destination 'platform=iOS Simulator,name=$(SIM)' \
 	  -resultBundlePath build/uitest.xcresult \
 	  -parallel-testing-enabled NO \
-	  -only-testing:PupaHostUITests/ChatFlowUITests
+	  -only-testing:PupaHostUITests/ChatFlowUITests \
+	  -only-testing:PupaHostUITests/NotificationsFlowUITests
 	@xcrun xcresulttool export attachments --path build/uitest.xcresult \
 	  --output-path build/shots >/dev/null 2>&1 || true
 	@echo "screenshots (if any) → build/shots"

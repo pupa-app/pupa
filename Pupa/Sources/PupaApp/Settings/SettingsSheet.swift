@@ -13,8 +13,9 @@ import SwiftUI
 ///   - **Agents** — hub for everything agent-governing: the roster, the
 ///     tools agents may call (shell approval + per-tool backend toggles),
 ///     the A2A / turn limits, and the conversation threads.
-///   - **Notifications** — lists pending scheduled notifications and lets
-///     the user cancel them (`NotificationCenterCoordinator`).
+///   - **Notifications** — Active (grouped by who scheduled them) and Past
+///     (fired / cancelled), backed by `NotificationLogStore`; rows can be
+///     edited or cancelled.
 ///   - **Examples** — add a sample workspace to the sidebar.
 public struct SettingsSheet: View {
     @Bindable var settings: SettingsStore
@@ -134,7 +135,7 @@ public struct SettingsSheet: View {
                 }
                 NavigationLink(value: SettingsCategory.notifications) {
                     SettingsHubRow(icon: "bell.badge", title: "Notifications",
-                                caption: "Pending scheduled notifications")
+                                caption: "Scheduled & past, by who set them")
                 }
                 if onRestoreExample != nil {
                     NavigationLink(value: SettingsCategory.examples) {
@@ -304,7 +305,7 @@ public struct SettingsSheet: View {
                     stats: stats, modelCatalog: modelCatalog, coordinator: coordinator
                 )
             case .notifications:
-                PendingNotificationsList().navigationTitle("Notifications")
+                NotificationsList(store: store).navigationTitle("Notifications")
             case .examples:
                 Form { examplesSection }.navigationTitle("Examples")
             case .sharing:
@@ -635,132 +636,246 @@ private struct ArchivedAppsView: View {
     }
 }
 
-/// Settings → Notifications screen: lists pending scheduled notifications
-/// (agent-scheduled and user-created), soonest-first, with their delivery
-/// time. Tap the `+` to compose a new one; swipe / context-menu to cancel.
-/// Reads the app-wide `NotificationCenterCoordinator.shared` singleton directly.
-private struct PendingNotificationsList: View {
-    @State private var items: [NotificationCenterCoordinator.PendingNotification] = []
-    @State private var loaded = false
-    @State private var showComposer = false
+/// Settings → Notifications screen. Two lists over `NotificationLogStore`:
+/// **Active** (still in the OS queue), grouped by who scheduled it — one
+/// section per myApp, then the orchestrator, then the user — and **Past**
+/// (fired or cancelled), newest first.
+///
+/// Reads the log rather than the OS queue directly: the queue holds only
+/// pending requests, so a fired one-shot has already vanished from it.
+/// Opening the screen reconciles the two.
+private struct NotificationsList: View {
+    var store: MyAppStore?
+
+    private let log = NotificationLogStore.shared
+    @State private var tab: Tab = .active
+    @State private var composing: ComposerTarget?
+
+    enum Tab: String, CaseIterable, Identifiable {
+        case active = "Active"
+        case past = "Past"
+        var id: String { rawValue }
+    }
+
+    /// What the composer sheet is doing — nil `record` composes a new one.
+    /// Identifiable so `.sheet(item:)` rebuilds it when switching rows.
+    struct ComposerTarget: Identifiable {
+        var record: NotificationRecord?
+        var id: String { record?.id.uuidString ?? "new" }
+    }
+
+    private var active: [NotificationRecord] {
+        log.records.filter { $0.status == .scheduled }.sorted(by: NotificationRecord.bySoonest)
+    }
+
+    private var past: [NotificationRecord] {
+        log.records.filter { $0.status != .scheduled }.sorted(by: NotificationRecord.byMostRecent)
+    }
+
+    /// Active records bucketed by Origin, myApps first (alphabetical), then
+    /// the orchestrator, the user, and finally anything adopted from a build
+    /// that predates the log.
+    private var activeGroups: [NotificationOriginGroup] {
+        NotificationOriginGroup.grouped(active) { id in
+            guard let store, let app = store.myApp(withId: id) else { return nil }
+            return (app.name, app.iconSystemName, Color.color(atIndex: store.colorIndex(for: id)))
+        }
+    }
 
     var body: some View {
         List {
-            Section {
-                if !loaded {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text("Loading…").foregroundStyle(.secondary)
-                    }
-                } else if items.isEmpty {
-                    Text("No scheduled notifications.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(items) { item in
-                        row(item)
-                    }
-                }
-            } footer: {
-                Text("Scheduled notifications that haven't fired yet. Swipe (or use the context menu) to cancel one.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            Picker("View", selection: $tab) {
+                ForEach(Tab.allCases) { t in Text(t.rawValue).tag(t) }
+            }
+            .pickerStyle(.segmented)
+            .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
+            #if os(iOS)
+            .listRowBackground(Color.clear)
+            #endif
+
+            switch tab {
+            case .active: activeContent
+            case .past: pastContent
             }
         }
-        .task { await reload() }
+        .task { await reconcile() }
+        // A notification that fires while this screen is open leaves the queue
+        // without telling us, so the row would sit in Active looking pending
+        // until the next foreground. Switching tabs is the moment the staleness
+        // would show.
+        .onChange(of: tab) { _, _ in Task { await reconcile() } }
         #if os(iOS)
-        .refreshable { await reload() }
+        .refreshable { await reconcile() }
         #endif
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button { showComposer = true } label: {
+                Button { composing = ComposerTarget(record: nil) } label: {
                     Image(systemName: "plus")
                 }
             }
         }
-        .sheet(isPresented: $showComposer) {
-            NotificationComposerSheet(
-                onScheduled: {
-                    showComposer = false
-                    Task { await reload() }
-                },
-                onCancel: { showComposer = false }
-            )
+        .sheet(item: $composing) { target in
+            NotificationComposerSheet(editing: target.record)
         }
     }
 
-    private func row(_ item: NotificationCenterCoordinator.PendingNotification) -> some View {
+    @ViewBuilder
+    private var activeContent: some View {
+        let groups = activeGroups
+        if groups.isEmpty {
+            Section {
+                Text("No scheduled notifications.").foregroundStyle(.secondary)
+            } footer: {
+                Text("Notifications waiting to fire, grouped by who scheduled them.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        } else {
+            ForEach(groups) { group in
+                Section {
+                    ForEach(group.rows) { row($0) }
+                } header: {
+                    Label {
+                        Text(group.title)
+                    } icon: {
+                        Image(systemName: group.icon).foregroundStyle(group.tint ?? .secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var pastContent: some View {
+        let past = self.past
+        if past.isEmpty {
+            Section {
+                Text("Nothing has fired yet.").foregroundStyle(.secondary)
+            } footer: {
+                Text("The last \(NotificationLogStore.cap) notifications that fired or were cancelled.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        } else {
+            Section {
+                ForEach(past) { row($0) }
+            } footer: {
+                Button("Clear history", role: .destructive) { log.clearHistory() }
+                    .font(.caption)
+            }
+        }
+    }
+
+    private func row(_ item: NotificationRecord) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(item.title.isEmpty ? "(no title)" : item.title)
+            HStack(spacing: 4) {
+                Text(item.title.isEmpty ? "(no title)" : item.title)
+                    .foregroundStyle(item.status == .cancelled ? .secondary : .primary)
+                if item.editedByUser {
+                    Image(systemName: "pencil")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
+            }
             if !item.body.isEmpty {
                 Text(item.body)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             }
-            if let date = item.deliveryAt {
-                HStack(spacing: 4) {
-                    if item.repeats {
-                        Image(systemName: "repeat")
-                    }
+            HStack(spacing: 4) {
+                if item.status != .scheduled {
+                    Image(systemName: item.status == .fired ? "checkmark.circle" : "slash.circle")
+                }
+                if item.repeats && item.status == .scheduled {
+                    Image(systemName: "repeat")
+                }
+                if let date = item.displayDate {
                     Text(date, format: .dateTime.weekday().month().day().hour().minute())
                 }
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
             }
-            if item.myAppId != nil {
-                let label = item.componentId.map { "→ \($0)" } ?? "→ app"
-                Text(label)
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+            if let componentId = item.componentId {
+                Text("→ \(componentId)")
                     .font(.caption2)
                     .foregroundStyle(.tint)
             }
         }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard item.isEditable else { return }
+            composing = ComposerTarget(record: item)
+        }
         #if os(iOS)
         .swipeActions(edge: .trailing) {
-            Button(role: .destructive) { cancel(item) } label: {
-                Label("Cancel", systemImage: "trash")
+            if item.status == .scheduled {
+                Button(role: .destructive) { cancel(item) } label: {
+                    Label("Cancel", systemImage: "trash")
+                }
+            } else {
+                Button(role: .destructive) { log.deleteFromHistory(id: item.id) } label: {
+                    Label("Delete", systemImage: "trash")
+                }
             }
         }
         #endif
         .contextMenu {
-            Button(role: .destructive) { cancel(item) } label: {
-                Label("Cancel notification", systemImage: "trash")
+            if item.isEditable {
+                Button { composing = ComposerTarget(record: item) } label: {
+                    Label("Edit", systemImage: "pencil")
+                }
+            }
+            if item.status == .scheduled {
+                Button(role: .destructive) { cancel(item) } label: {
+                    Label("Cancel notification", systemImage: "trash")
+                }
+            } else {
+                Button(role: .destructive) { log.deleteFromHistory(id: item.id) } label: {
+                    Label("Delete from history", systemImage: "trash")
+                }
             }
         }
     }
 
-    private func cancel(_ item: NotificationCenterCoordinator.PendingNotification) {
+    private func cancel(_ item: NotificationRecord) {
         Task {
-            _ = await NotificationCenterCoordinator.shared.cancel(id: item.id)
-            await reload()
+            let coordinator = NotificationCenterCoordinator.shared
+            // Not pending means it fired between the last reconcile and the
+            // tap — otherwise the row would just sit there looking untouched.
+            if await !coordinator.cancel(id: item.unId) {
+                await coordinator.reconcileLog()
+            }
         }
     }
 
-    private func reload() async {
-        items = await NotificationCenterCoordinator.shared.pendingNotifications()
-        loaded = true
+    private func reconcile() async {
+        await NotificationCenterCoordinator.shared.reconcileLog()
     }
 }
 
-/// Sheet for composing a user-initiated notification. Reuses `NotificationRequest`
-/// and `NotificationCenterCoordinator.schedule(_:)` — the same path the agent takes.
+/// Sheet for composing a notification, or editing a scheduled one whatever its
+/// Origin. Reuses `NotificationRequest` and the coordinator — the same path the
+/// agent takes.
 private struct NotificationComposerSheet: View {
-    var onScheduled: () -> Void
-    var onCancel: () -> Void
+    /// The record being edited, or nil to compose a new one. Editing is
+    /// cancel + reschedule — UN can't mutate a request — so the row keeps its
+    /// Origin and deep-link Target while the OS identifier churns.
+    var editing: NotificationRecord?
 
-    enum TriggerKind: String, CaseIterable, Identifiable {
-        case now = "Now"
-        case after = "In..."
-        case atDate = "At..."
-        var id: String { rawValue }
-    }
-
-    @State private var title = ""
-    @State private var message = ""
-    @State private var triggerKind: TriggerKind = .now
-    @State private var delayMinutes = 5
-    @State private var atDate = Date().addingTimeInterval(3_600)
+    @Environment(\.dismiss) private var dismiss
+    @State private var title: String
+    @State private var message: String
+    @State private var draft: NotificationTriggerDraft
     @State private var isScheduling = false
     @State private var errorMessage: String?
+
+    init(editing: NotificationRecord?) {
+        self.editing = editing
+        let request = editing?.request
+        _title = State(initialValue: request?.title ?? "")
+        _message = State(initialValue: request?.body ?? "")
+        _draft = State(initialValue: request.map {
+            NotificationTriggerDraft(trigger: $0.trigger, deliveryAt: editing?.deliveryAt)
+        } ?? NotificationTriggerDraft())
+    }
 
     private var titleTrimmed: String { title.trimmingCharacters(in: .whitespaces) }
     private var bodyTrimmed: String { message.trimmingCharacters(in: .whitespaces) }
@@ -789,25 +904,41 @@ private struct NotificationComposerSheet: View {
                 }
 
                 Section("When") {
-                    Picker("Trigger", selection: $triggerKind) {
-                        ForEach(TriggerKind.allCases) { k in Text(k.rawValue).tag(k) }
+                    Picker("Trigger", selection: $draft.kind) {
+                        ForEach(NotificationTriggerDraft.Kind.allCases) { k in
+                            Text(k.rawValue).tag(k)
+                        }
                     }
-                    .pickerStyle(.segmented)
 
-                    switch triggerKind {
+                    switch draft.kind {
                     case .now:
                         EmptyView()
                     case .after:
                         Stepper(
-                            "In \(delayMinutes) \(delayMinutes == 1 ? "minute" : "minutes")",
-                            value: $delayMinutes, in: 1...60
+                            "In \(draft.delayMinutes) \(draft.delayMinutes == 1 ? "minute" : "minutes")",
+                            value: $draft.delayMinutes,
+                            in: NotificationTriggerDraft.delayMinutesRange
                         )
                     case .atDate:
                         DatePicker(
                             "Date & time",
-                            selection: $atDate,
+                            selection: $draft.atDate,
                             in: Date()...,
                             displayedComponents: [.date, .hourAndMinute]
+                        )
+                    case .daily:
+                        DatePicker("Time", selection: $draft.timeOfDay, displayedComponents: [.hourAndMinute])
+                    case .weekly:
+                        Picker("Day", selection: $draft.weekday) {
+                            ForEach(1...7, id: \.self) { d in
+                                Text(NotificationTriggerDraft.weekdayName(d)).tag(d)
+                            }
+                        }
+                        DatePicker("Time", selection: $draft.timeOfDay, displayedComponents: [.hourAndMinute])
+                    case .everyNHours:
+                        Stepper(
+                            "Every \(draft.everyHours) \(draft.everyHours == 1 ? "hour" : "hours")",
+                            value: $draft.everyHours, in: NotificationRequest.everyNHoursRange
                         )
                     }
                 }
@@ -818,19 +949,19 @@ private struct NotificationComposerSheet: View {
                     }
                 }
             }
-            .navigationTitle("New Reminder")
+            .navigationTitle(editing == nil ? "New Reminder" : "Edit Reminder")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel", action: onCancel)
+                    Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     if isScheduling {
                         ProgressView().controlSize(.small)
                     } else {
-                        Button("Schedule") { Task { await schedule() } }
+                        Button(editing == nil ? "Schedule" : "Save") { Task { await schedule() } }
                             .disabled(!canSchedule)
                     }
                 }
@@ -841,20 +972,25 @@ private struct NotificationComposerSheet: View {
     private func schedule() async {
         isScheduling = true
         errorMessage = nil
-        let trigger: NotificationRequest.Trigger
-        switch triggerKind {
-        case .now:   trigger = .now
-        case .after: trigger = .after(seconds: delayMinutes * 60)
-        case .atDate: trigger = .atDate(atDate)
-        }
-        let request = NotificationRequest(
+        let request = NotificationRequest.edited(
             title: titleTrimmed,
             body: bodyTrimmed,
-            trigger: trigger
+            trigger: draft.trigger,
+            preserving: editing?.request
         )
         do {
-            _ = try await NotificationCenterCoordinator.shared.schedule(request)
-            onScheduled()
+            let coordinator = NotificationCenterCoordinator.shared
+            if let editing {
+                _ = try await coordinator.reschedule(
+                    recordId: editing.id,
+                    previousUnId: editing.unId,
+                    with: request,
+                    origin: editing.origin
+                )
+            } else {
+                _ = try await coordinator.schedule(request, origin: .user)
+            }
+            dismiss()
         } catch NotificationCenterCoordinator.ScheduleError.notAuthorised {
             errorMessage = "Notification permission denied. Enable it in Settings → Pupa."
             isScheduling = false

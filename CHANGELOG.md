@@ -3,6 +3,22 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.267] — 2026-08-25
+
+### Added
+
+- **Notifications now keep a history, and say who set them.** Settings →
+  Notifications splits into **Active** and **Past**. Active is grouped by who
+  scheduled each one — a section per myApp, then the orchestrator, then your
+  own — instead of one undifferentiated list. Past keeps the last 200 that
+  fired or were cancelled, so a reminder that went off while you weren't
+  looking is no longer simply gone; cancelled ones are shown distinctly, so an
+  agent quietly dropping your reminder is visible.
+- **Reminders can be edited.** Tap a scheduled row to retime or reword it. The
+  composer now covers the recurring presets too (daily / weekly / every N
+  hours), so editing an agent's repeating reminder no longer flattens it to a
+  one-shot. An edited reminder keeps whatever it deep-linked to.
+
 ## [0.0.266] — 2026-08-24
 
 ### Added

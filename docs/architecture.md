@@ -1479,9 +1479,10 @@ see [App Sandbox & entitlements](#app-sandbox--entitlements).
   data overview, version; no auth/login of its own), Backend, **Agents** (the
   hub — Roster/Tools/Limits/Threads; shell approval + backend tool toggles
   under Tools, the `AgentInvocationGate` conversation-rounds + chain-depth
-  limits under Limits; see below), Notifications (lists/cancels
-  pending scheduled notifications — one-shot or recurring presets
-  daily / weekly / everyNHours, repeating rows badged), and Examples.
+  limits under Limits; see below), Notifications (Active / Past over
+  `NotificationLogStore`; Active is grouped by Origin — a section per myApp,
+  then Orchestrator, then You — and rows can be edited or cancelled), and
+  Examples.
 - **Notifications** → `NotificationCenterCoordinator` (singleton wrapper
   over `UNUserNotificationCenter`). `sendNotification` builds a
   `NotificationRequest` whose `trigger` is one-shot (`now` / `after` /
@@ -1510,6 +1511,37 @@ see [App Sandbox & entitlements](#app-sandbox--entitlements).
     another. Delivery-side, `handleNotificationTap` re-checks the target still
     exists (`store.myApp(withId:)`) and drops the tap with a "Reminder
     unavailable" popup if the myApp was deleted after scheduling.
+  - **The log** (`NotificationLogStore`, `NotificationRecord`): the OS queue
+    holds only *pending* requests, so a fired one-shot vanishes from it
+    entirely — there is no way to tell "fired" from "cancelled" from "never
+    existed", and no record of who scheduled what. Every `schedule` writes a
+    record; `cancel` marks one cancelled; `reconcileLog` (app foreground + on
+    opening the screen) folds the queue back in: a `.scheduled` record missing
+    from it becomes `.fired` if its instant has passed, `.cancelled` if not,
+    while repeats stay scheduled with their next date refreshed. A pending
+    request the log has no record of (its file lost or reset while the queue
+    kept going) is adopted so it stays visible and cancellable — `request` is
+    nil for those, so they can't be edited.
+    - **Origin** — who *created* it (`user` / `orchestrator` / `myApp(id)` /
+      `unknown`), distinct from the deep-link Target above and the field the
+      Active list groups by. Set from the caller's scope
+      (`AppTools.notificationOrigin`) and mirrored into `userInfo` as
+      `pupa.origin` so an adopted record can recover it; an unreadable marker
+      leaves the row `unknown` rather than guessing.
+    - **Editing** is cancel + reschedule — UN can't mutate a request. The
+      record keeps its `id` and Origin while `unId` churns, preserves the
+      Target and `tapAction` it was scheduled with, and is flagged
+      `editedByUser`.
+    - **Occurrences are not modelled.** A repeating record stays Active for
+      as long as it's scheduled and never enters Past; the log answers "what
+      happened to this reminder", not "did it fire last Tuesday".
+    - **Local-only**, at `activeRoot/notifications/log.json` via plain
+      `FileManager` — deliberately outside the mirrored `state/` subtree. A
+      record's identity is a UN identifier in *this* device's queue; mirrored,
+      a second device would find every id absent from its own queue and
+      reconcile the lot to `fired`. Retention: FIFO cap 200 on *finished*
+      records (a `.scheduled` one is never evicted), plus a Clear history
+      button.
 - **Agent activity stats** → `UserDefaults` blob `pupa.agentstats.v1`,
   owned by `AgentStatsStore`. Device-local, **not** iCloud-synced (advisory
   counters only). Deliberately schema-free: a flat
