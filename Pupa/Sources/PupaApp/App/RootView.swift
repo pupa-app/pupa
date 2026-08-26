@@ -1,3 +1,4 @@
+import AGUIKit
 import SwiftUI
 
 /// Top-level coordinator that layers the launch splash and first-install
@@ -38,9 +39,34 @@ public struct RootView: View {
     @State private var phase: Phase = .splash
     @AppStorage(OnboardingKeys.completed) private var onboardingCompleted = false
 
+    /// Diagnostics are off in a release build; this is how a user chasing a
+    /// bug on their own device turns the trace on. Applied before any session
+    /// exists, so a turn started from a cold launch is covered.
+    private static let diagnostics: Void = {
+        // Only when the user has actually chosen. Seeding the key from this
+        // build's default would leave a debug run's `true` behind for the next
+        // release build in the same container — diagnostics silently on.
+        guard UserDefaults.standard.object(forKey: DiagnosticsKeys.enabled) != nil
+        else { return }
+        AGUIKitLog.enabled = UserDefaults.standard.bool(forKey: DiagnosticsKeys.enabled)
+    }()
+
     private static func makeSettings() -> SettingsStore {
+        _ = diagnostics
         // Touching `launch` forces the launch arguments to apply first.
-        SettingsStore(backendURL: launch.backendURL)
+        guard let token = launch.backendToken else {
+            return SettingsStore(backendURL: launch.backendURL, harnessID: launch.harnessID)
+        }
+        // A driven launch reaches a paired backend without the Keychain, which
+        // a UI test can't seed. The backend's UUID only exists once the store
+        // is built, so the token goes in after.
+        let credentials = InMemoryCredentialStore()
+        let settings = SettingsStore(
+            backendURL: launch.backendURL,
+            harnessID: launch.harnessID,
+            credentials: credentials)
+        try? credentials.setToken(token, for: settings.activeBackend.id)
+        return settings
     }
 
     public init() {

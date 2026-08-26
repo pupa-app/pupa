@@ -10,6 +10,60 @@ tool" first — it is the spec these scenarios check. For the layers that *are*
 automatable — headless whole-turn scenarios and `PupaCtl` against a live
 backend — see [testing.md](testing.md).
 
+**Several scenarios below are now automated.** `TurnRecoveryUITests`
+(`make ui-test-recovery`) drives a real simulator process through
+background/foreground, a kill mid-stream, and a kill inside the park window —
+the last made sittable rather than raced by the scripted `fail: "hang"`. What
+stays here is what it still cannot reach: a *real* backend park with real
+timers, a real network drop, real jetsam, and the multi-park and expired-park
+endings. Note also that the simulator never suspends a backgrounded app, so its
+~30s grace never fires there — only a device tells you the truth about that.
+
+## On a real device
+
+The simulator cannot reach the case that matters most: it never suspends a
+backgrounded app, so the `beginBackgroundTask` grace never expires, sockets stay
+alive, and jetsam never happens. Everything the suite covers passes there —
+including a backgrounded-then-killed relaunch — so a turn still lost in real use
+is a device-only path.
+
+Diagnostics are off in a release build. Settings → Profile → **Diagnostic
+logging** turns them on live, no relaunch, and every line goes to the unified
+log, which survives the app being suspended, killed, or relaunched:
+
+```sh
+# The phone must be on USB — `log` cannot reach a Wi-Fi-paired device, and
+# `collect` fails "Device not configured (6)". Needs root; `log stream` has
+# no device option at all on macOS 26.
+sudo log collect --device-udid <udid> --last 2h --output build/device.logarchive
+log show build/device.logarchive --predicate 'subsystem BEGINSWITH "dev.pupa"' \
+  --style compact > build/trace.log
+```
+
+`xcrun devicectl list devices` prints the udid. (It also prints an app
+version, but that is the project's stale `MARKETING_VERSION` — synced only at
+release — so it cannot tell you which branch is installed. Settings ▸ Profile ▸
+Version reads `PupaAppVersion` and can.)
+
+These lines log at `.default` so they persist to disk. `.info` would survive a
+live `log stream` and be gone by the time anyone collected an archive. Console.app with the phone
+selected and `dev.pupa` in the filter is the same thing by hand. Two categories:
+`session` is the round-by-round narrative, `probe` is one line of turn state per
+change — the same JSON the UI suite asserts on, so a trace from the field lines
+up with what the tests check.
+
+What to look for, in order: `send() user=` (the turn started), `round N → POST`,
+`stream dropped … reattach N/4` (the retry ladder ran), `reattach tail empty`
+(the resume never landed), `foreground reattach: thread=`, `rewound replay
+cursor`, and how it ends — `settled → completed(produced)` versus
+`completed(silent(…))`. In the probe line, `tif` staying 1 across a relaunch and
+`pd` staying non-nil are the two tells that recovery never completed.
+
+Outside a debug build nothing of the user's is logged — the prompt, tool
+results, and backend errors all come out as a byte count, and the backend URL
+as a bare path. Turn diagnostics back off afterwards regardless: the lines are
+public in the device log.
+
 ## The mechanism in one paragraph
 
 The backend closes its SSE and **parks** while the app runs an on-device tool.

@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Tiny diagnostic logger.
 ///
@@ -12,6 +13,14 @@ import Foundation
 /// Output uses stable prefixes for grep:
 ///   `[AGUIKit clt] …`  – AgentClient: HTTP + raw events
 ///   `[AGUIKit ses] …`  – AgentSession: round + tool dispatch
+///   `[AGUIKit prb] …`  – host turn-state probe (driven launches only)
+///
+/// Every line is also mirrored to the unified log under subsystem
+/// `dev.pupa.aguikit`, because a simulator-launched app's stderr goes
+/// nowhere a test runner can read:
+///
+///     xcrun simctl spawn booted log stream --level info \
+///       --predicate 'subsystem BEGINSWITH "dev.pupa"'
 public enum AGUIKitLog {
     nonisolated(unsafe) public static var enabled: Bool = {
         if let v = ProcessInfo.processInfo.environment["AGUIKIT_LOG"] {
@@ -28,10 +37,21 @@ public enum AGUIKitLog {
     /// occasionally be buffered or routed to the unified log when the
     /// process is a foreground GUI app; this guarantees the terminal sees
     /// each line immediately.
-    private static func emit(_ line: String) {
+    private static func emit(_ line: String, _ log: OSLog = AGUIKitLog.sessionLog) {
         let data = (line + "\n").data(using: .utf8) ?? Data()
         FileHandle.standardError.write(data)
+        // `%{public}@` is load-bearing: without it the message redacts to
+        // `<private>`. `.default`, not `.info`, is equally load-bearing: the
+        // unified log keeps `.info` in a memory ring and never writes it to
+        // disk, so it survives a live `log stream` but is gone by the time
+        // anyone runs `log collect` — which is the whole point here, since a
+        // user reproduces first and collects afterwards. These lines are
+        // opt-in and low-volume; persistence is what they are for.
+        os_log("%{public}@", log: log, type: .default, line)
     }
+
+    private static let sessionLog = OSLog(subsystem: "dev.pupa.aguikit", category: "session")
+    private static let probeLog = OSLog(subsystem: "dev.pupa.aguikit", category: "probe")
 
     public static func client(_ message: @autoclosure () -> String) {
         guard enabled else { return }
@@ -43,12 +63,45 @@ public enum AGUIKitLog {
         emit("[AGUIKit ses] \(message())")
     }
 
+    /// Whether log lines may carry the user's own words.
+    ///
+    /// Diagnostics can be switched on in a release build to chase a bug on a
+    /// real device, and every line goes to the unified log as `%{public}@` —
+    /// readable by anyone who can pull logs off the phone. Turn recovery is
+    /// explained by structure (cursors, parks, retries), never by what the
+    /// user typed, so the prompt is logged as a length outside DEBUG.
+    /// `text` when logging the user's own material is allowed, a bare size
+    /// otherwise. Everything a tool returns is the user's: tracker rows, memory
+    /// file contents, canvas state.
+    public static func redactable(_ text: @autoclosure () -> String) -> String {
+        includesUserContent ? text() : "<\(text().utf8.count)B>"
+    }
+
+    nonisolated(unsafe) public static var includesUserContent: Bool = {
+        #if DEBUG
+        return true
+        #else
+        return false
+        #endif
+    }()
+
+    /// Host turn state, one line per change. Its own category so a trace can
+    /// isolate the state series from the round narrative — and the only
+    /// channel that keeps reporting while the app is backgrounded, where
+    /// there is no accessibility tree to query.
+    ///
+    /// Not gated on `enabled`: a driven launch always wants it, and nothing
+    /// else calls it.
+    public static func probe(_ message: @autoclosure () -> String) {
+        emit("[AGUIKit prb] \(message())", probeLog)
+    }
+
     /// Compact one-line label for an `AgentEvent` so logs stay scannable.
     public static func shortLabel(_ event: AgentEvent) -> String {
         switch event {
         case .runStarted(let s):       return "RUN_STARTED runId=\(s.runId), threadId=\(s.threadId)"
         case .runFinished(let f):      return "RUN_FINISHED runId=\(f.runId), threadId=\(f.threadId)"
-        case .runError(let e):         return "RUN_ERROR \(e.message)"
+        case .runError(let e):         return "RUN_ERROR \(redactable(e.message))"
         case .textMessageStart(let s): return "TEXT_START messageId=\(s.messageId)"
         case .textMessageContent(let c): return "TEXT_CONTENT messageId=\(c.messageId) +\(c.delta.count)c"
         case .textMessageEnd(let e):   return "TEXT_END messageId=\(e.messageId)"

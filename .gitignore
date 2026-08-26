@@ -36,3 +36,5 @@ skills-lock.json
 .claude/skills/app-store-review
 
 docs/superpowers
+# Live-backend config for make ui-test-live — holds a device token.
+PupaHost/PupaHostUITests/Fixtures/live-backend.json

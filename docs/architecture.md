@@ -407,7 +407,9 @@ cap), so the cache is a text-history fallback.
 applied frame; the VM mirrors that into `appliedEventSeq` (main-actor, never
 ahead of the rendered bubbles). Recovery layers, innermost out: (1) mid-turn
 drops — including mid-stream socket death and edge 5xx/408/429 (flaky
-tunnel/proxy) — re-attach in-flight with backoff (`command.reattach.after_seq`);
+tunnel/proxy) — re-attach in-flight with backoff (`command.reattach.after_seq`), each attempt
+yielding `.reattaching` so the banner says "Reconnecting…" *during* the backoff
+rather than only once it is spent (any frame that follows clears it);
 (2) short backgrounds ride a ~30s UIKit background task, then foreground
 re-attach (`reattachIfNeeded`) resumes any turn that surfaced a
 `connectionIssue`; (3) an **app kill** mid-turn is recovered at next open:
@@ -424,12 +426,27 @@ handler can tell a slow tool from a dead app; scene-phase background sends one
 foreground re-arms the short liveness grace
 (`ChatSessionCoordinator.setAllHostBackgrounded`).
 
-Layer (4) is the user: both connection banners in `ChatPanel` carry a
-**Continue** button (`ChatViewModel.continueDroppedTurn`) that picks the turn
-back up — including on `.reconnecting`, where a dropped send otherwise parks
-until a foreground reattach. It is deliberately user-initiated (recovery spends
-a turn, or reveals the backend already answered) and inert unless something is
-stuck: nothing in flight, no pending interrupt, a live `connectionIssue`.
+Layer (4) is the user. A stopped turn reaches the UI two disjoint ways, and
+`ChatPanel.turnEndedBanner` renders both the same: the **throw** ending sets
+`connectionIssue` (`.reconnecting` / `.failed`), while the **notice** ending is
+a clean `.completed` carrying a `noticeReason`, which sets `stoppedNotice`. The
+notice ending is by far the commoner — `runOneRound` swallows reattachable
+drops into its retry ladder and only rethrows once the budget is spent — so
+while the **Continue** button (`ChatViewModel.continueDroppedTurn`) was gated on
+`connectionIssue` alone it rarely appeared, and the notice instead told the user
+to type "continue" by hand. Both endings now carry the button; a `.backend`
+reason is the one that doesn't (`isResumable == false`: the agent reported a
+real failure, and there is nothing to continue from). Continue is deliberately
+user-initiated — recovery spends a turn, or reveals the backend already
+answered — and inert unless something is stuck: nothing in flight, no pending
+interrupt, and either a live `connectionIssue` or a `stoppedNotice`.
+
+Notices are *state*, not transcript bubbles: the affordance disappears once it
+is spent, rather than leaving a permanent instruction behind. And the notice
+ending routes by *why*, not by cursor — the run finished, so there is nothing to
+re-attach to (a clean completion always leaves `appliedEventSeq` set, which the
+cursor test below would otherwise read as "re-attach", find an empty tail, and
+settle the turn all over again). It sends "continue" for the user instead.
 
 What it *does* is decided by what the backend still holds. A parked dispatch
 (`pendingDispatchAfterSeq`) or a replay tail already being consumed
@@ -458,11 +475,17 @@ reported settled and lost. Two pieces recover it:
   interrupt, so reattaching at it replays nothing — via
   `rewindReplayCursor(to:)`, the one non-monotonic cursor setter, reserved for
   exactly this. `.frontendDispatchResolved` clears the rewind point once the
-  resume lands; it is yielded from **inside** the round, on its first frame, so
-  it always precedes a *new* park announced later in that same round (a resolve
-  emitted after the round would wipe the fresh rewind point of a turn that parks
-  twice). A `RUN_ERROR` frame is the one exception — the backend answered but
-  rejected the resume, which proves nothing. Nothing new is persisted about the
+  resume lands; it is yielded from **inside** the round, on its first frame that
+  proves anything, so it always precedes a *new* park announced later in that
+  same round (a resolve emitted after the round would wipe the fresh rewind
+  point of a turn that parks twice). `RUN_ERROR` and `RUN_STARTED` are both
+  excluded: the first is the backend answering the POST and rejecting it, the
+  second is it acknowledging receipt, and every round opens with one. Neither
+  says the round produced anything. Confirming on `RUN_STARTED` cost a real
+  turn on a device — park at 256, resume POSTed, `RUN_STARTED` at 259, the app
+  killed 0.4s later; the rewind point and journal were already gone, so the
+  relaunch seeded from 259 instead of rewinding, and the backend had nothing
+  buffered there. Nothing new is persisted about the
   calls themselves:
   the backend's replay log outlives the park (~6h vs 300s), so it is always the
   cheaper source of truth. An unstamped interrupt frame yields no rewind point
@@ -496,8 +519,9 @@ resume is re-POSTed directly: a bare re-attach carrying `after_seq: -1` and an
 empty message list isn't short-circuited by the replay middleware and would land
 on a real agent loop.
 
-The journal is cleared only once the resume's first frame arrives (a kill
-mid-POST must replay, not re-run), and reaped four ways: that confirmation,
+The journal is cleared only once the resume's first *meaningful* frame arrives
+(a kill mid-POST, or mid-acknowledgement, must replay rather than re-run), and
+reaped four ways: that confirmation,
 thread deletion, an explicit Stop, and a 24h launch sweep
 (`FrontendDispatchJournalStore.sweep`, well past the 300s park wall). An empty
 reattach tail deliberately does **not** reap it — the reattach may simply have

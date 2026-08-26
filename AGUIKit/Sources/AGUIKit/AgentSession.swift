@@ -47,6 +47,10 @@ public enum SessionEvent: Sendable {
     /// The resume carrying that batch's results reached the backend. The
     /// persisted `afterSeq` is spent and the journal has been cleared.
     case frontendDispatchResolved
+    /// A dropped socket is being retried. Yielded once per attempt, before the
+    /// retry goes out, so the host can say "Reconnecting…" during the backoff
+    /// rather than only once the budget is spent.
+    case reattaching(attempt: Int, of: Int)
 }
 
 /// How a `send` / `reattach` settled, so the host can decide whether to show
@@ -194,8 +198,10 @@ public actor AgentSession {
 
     /// Transport drops mid-round are retried this many times (exponential
     /// backoff, base 0.5s) before the error is surfaced to the caller.
-    private let maxReattachAttempts = 4
-    private let reattachBaseDelayNanos: UInt64 = 500_000_000
+    /// Injected rather than fixed so a test can collapse the 7.5s of backoff
+    /// an exhaustion case would otherwise pay.
+    private let maxReattachAttempts: Int
+    private let reattachBaseDelayNanos: UInt64
 
     /// Liveness heartbeat (pupa-backend#82): while a frontend-tool dispatch is
     /// in flight the backend's handler is parked with no open socket, so the
@@ -223,7 +229,9 @@ public actor AgentSession {
         initialMessages: [AgentMessage] = [],
         maxRounds: Int? = nil,
         keepaliveInterval: TimeInterval = 10,
-        journal: FrontendDispatchJournal? = nil
+        journal: FrontendDispatchJournal? = nil,
+        maxReattachAttempts: Int? = nil,
+        reattachBaseDelayNanos: UInt64? = nil
     ) {
         self.client = client
         self.registry = registry
@@ -232,6 +240,8 @@ public actor AgentSession {
         self.maxRounds = maxRounds
         self.keepaliveIntervalNanos = UInt64(max(0.01, keepaliveInterval) * 1_000_000_000)
         self.journal = journal
+        self.maxReattachAttempts = max(1, maxReattachAttempts ?? 4)
+        self.reattachBaseDelayNanos = reattachBaseDelayNanos ?? 500_000_000
         let toolNames = registry.descriptors.map(\.name).sorted().joined(separator: ",")
         AGUIKitLog.session(
             "AgentSession init thread=\(threadId) maxRounds=\(Self.capDescription(maxRounds)) " +
@@ -502,7 +512,9 @@ public actor AgentSession {
         lastSendSettledCleanly = false
         let imageNote = images.isEmpty ? "" :
             " images=\(images.count)/\(images.reduce(0) { $0 + $1.data.count })B"
-        AGUIKitLog.session("send() user=\(snippet(userText))\(imageNote) thread=\(threadId) maxRounds=\(Self.capDescription(maxRounds))")
+        let userNote = AGUIKitLog.includesUserContent
+            ? snippet(userText) : "<\(userText.count) chars>"
+        AGUIKitLog.session("send() user=\(userNote)\(imageNote) thread=\(threadId) maxRounds=\(Self.capDescription(maxRounds))")
 
         // True if ANY round this turn emitted assistant text. Accumulated
         // across rounds so a turn that narrated in round 1 then settled
@@ -886,7 +898,11 @@ public actor AgentSession {
                 ])
             }
             let resultString: String = encodeJSONString(result)
-            AGUIKitLog.session("done    tool=\(call.name) call=\(call.id) result=\(snippet(resultString))")
+            // The result is the user's own material — tracker rows, memory file
+            // contents, canvas state — and every line is public in the device log.
+            AGUIKitLog.session(
+                "done    tool=\(call.name) call=\(call.id) " +
+                "result=\(AGUIKitLog.redactable(snippet(resultString)))")
             yield(.toolCallFinished(id: call.id, name: call.name, arguments: call.args, result: result))
             results.append(.object([
                 "toolCallId": .string(call.id),
@@ -1068,6 +1084,7 @@ public actor AgentSession {
                 "\(attempt)/\(maxReattachAttempts) " +
                 "after_seq=\(lastEventSeq.map(String.init) ?? "-1")"
             )
+            yield(.reattaching(attempt: attempt, of: maxReattachAttempts))
             do {
                 let retry = resend ? original : reattachInput()
                 let sawFramesBefore = state.outcome.sawAnyFrame
@@ -1102,12 +1119,28 @@ public actor AgentSession {
             // resolve emitted after the round would land on top of that fresh
             // park and wipe it, leaving the second dispatch unrecoverable.
             //
-            // A `RUN_ERROR` is the one frame that proves nothing: the backend
-            // answered the POST but rejected it (an expired park replies exactly
-            // that). Confirming on it would drop the journal and spend the
-            // rewind point before the host can tell the two apart.
+            // Two frames prove nothing and must not confirm. `RUN_ERROR` is
+            // the backend answering the POST but rejecting it (an expired park
+            // replies exactly that). `RUN_STARTED` is the backend
+            // acknowledging receipt — it says the resume arrived, not that the
+            // round produced anything, and every round opens with one.
+            //
+            // Confirming on either drops the journal and spends the rewind
+            // point while the round is still empty, so an app killed in that
+            // window has neither handle left: the relaunch seeds from the last
+            // applied seq instead of rewinding, the backend has nothing
+            // buffered there, and the turn settles with the work gone. Seen on
+            // a device — park at 256, RUN_STARTED at 259, killed 0.4s later,
+            // relaunch reattached at 259 to "nothing buffered".
+            //
+            // Waiting one frame is safe: the resolve still yields before any
+            // new park announced later in the same round, since it is emitted
+            // ahead of the frame's own switch.
             var confirmsThisFrame = state.confirmsResume
-            if case .runError = sequenced.event { confirmsThisFrame = false }
+            switch sequenced.event {
+            case .runError, .runStarted: confirmsThisFrame = false
+            default: break
+            }
             if confirmsThisFrame {
                 state.confirmsResume = false
                 await journal?.clear()

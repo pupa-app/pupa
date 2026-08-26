@@ -1,3 +1,4 @@
+import AGUIKit
 import SwiftUI
 
 /// Read-only Account screen pushed from `SettingsSheet`.
@@ -236,6 +237,12 @@ struct ProfileSettingsView: View {
         }
     }
 
+    /// Seeded from what this build is actually doing, not from the key —
+    /// a debug build logs by default, and a toggle reading "off" while the
+    /// log fills up is worse than no toggle. `RootView` has already applied
+    /// the stored choice by the time Settings can be opened.
+    @State private var diagnosticsEnabled = AGUIKitLog.enabled
+
     private static let webLinks = [
         WebLink("Website", ""),
         WebLink("Privacy Policy", "/privacy"),
@@ -244,8 +251,17 @@ struct ProfileSettingsView: View {
     ]
 
     private var supportSection: some View {
-        Section("Support") {
+        Section {
             LabeledContent("Version", value: PupaAppVersion)
+            Toggle("Diagnostic logging", isOn: $diagnosticsEnabled)
+                .onChange(of: diagnosticsEnabled) { _, on in
+                    // Live, so a reproduction doesn't need a relaunch. Turning
+                    // it off stops new lines; what is already in the system log
+                    // stays until the device rotates it.
+                    AGUIKitLog.enabled = on
+                    UserDefaults.standard.set(on, forKey: DiagnosticsKeys.enabled)
+                    AGUIKitLog.session("diagnostics \(on ? "enabled" : "disabled") by the user")
+                }
             ForEach(Self.webLinks) { link in
                 Link(destination: link.url) {
                     HStack {
@@ -256,6 +272,19 @@ struct ProfileSettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+            }
+        } header: {
+            Text("Support")
+        } footer: {
+            if diagnosticsEnabled {
+                Text("Recording what the agent does, so a dropped reply can be "
+                     + "diagnosed. Read it with Console on a Mac, filtering "
+                     + "dev.pupa. Your messages are not recorded — only their "
+                     + "length. Turn this off when you're done.")
+            } else {
+                Text("Turn on Diagnostic logging only if you've been asked to — "
+                     + "it records what the agent is doing so a dropped reply "
+                     + "can be traced.")
             }
         }
     }

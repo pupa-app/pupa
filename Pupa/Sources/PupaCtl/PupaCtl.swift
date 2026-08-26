@@ -31,9 +31,13 @@ enum PupaCtl {
     Options
       --root DIR       storage root (default ~/.pupa-ctl); persists between runs
       --backend URL    AG-UI endpoint (default http://localhost:8004/)
+      --harness ID     backend agent harness, e.g. claude_code (or
+                       PUPA_CTL_HARNESS); omit for the backend's default
       --send "<text>"  prompt for replay / record
       --token TOKEN    paired-device token (or PUPA_CTL_TOKEN); live backends
                        answer 401 without one. Never written to the Keychain.
+      --trim BYTES     cap text deltas when recording, so a fixture fits in a
+                       UI test's launch environment (default 4096; 0 = off)
       --type KIND      MyApp type to seed on a fresh root (default tracker)
       --new-session    wipe the root first
       --json           machine-readable report
@@ -120,9 +124,11 @@ enum PupaCtl {
         await scenario.hydrate()
         await run(prompt, in: scenario, options: options)
         do {
-            let script = Script(rounds: RecordingTransport.rounds)
+            var script = Script(rounds: RecordingTransport.rounds)
+            if options.trim > 0 { script = script.trimmed(maxDeltaBytes: options.trim) }
             try script.jsonl().write(toFile: path, atomically: true, encoding: .utf8)
-            print("\nrecorded \(script.rounds.count) round(s) → \(path)")
+            let bytes = (try? Data(contentsOf: URL(fileURLWithPath: path)).count) ?? 0
+            print("\nrecorded \(script.rounds.count) round(s), \(bytes) bytes → \(path)")
         } catch {
             fail("could not write script: \(error)")
         }
@@ -164,7 +170,8 @@ enum PupaCtl {
             urlSession: urlSession,
             typeId: options.typeId,
             reset: options.newSession,
-            token: options.token)
+            token: options.token,
+            harnessID: options.harness)
     }
 
     /// A plain session for a live backend. Cert pinning is a settings concern
@@ -213,8 +220,10 @@ enum PupaCtl {
             .appendingPathComponent(".pupa-ctl", isDirectory: true)
         var backend = URL(string: "http://localhost:8004/")!
         var send: String?
+        var harness = ProcessInfo.processInfo.environment["PUPA_CTL_HARNESS"]
         var token = ProcessInfo.processInfo.environment["PUPA_CTL_TOKEN"]
         var typeId = MyAppType.tracker.id
+        var trim = 4096
         var newSession = false
         var json = false
         var noWire = false
@@ -233,9 +242,11 @@ enum PupaCtl {
                 switch arg {
                 case "--root": if let v = value() { root = URL(fileURLWithPath: v) }
                 case "--backend": if let v = value(), let url = URL(string: v) { backend = url }
+                case "--harness": harness = value()
                 case "--send": send = value()
                 case "--token": token = value()
                 case "--type": if let v = value() { typeId = v }
+                case "--trim": if let v = value(), let n = Int(v) { trim = n }
                 case "--timeout": if let v = value(), let n = TimeInterval(v) { timeout = n }
                 case "--new-session": newSession = true
                 // Accepted and ignored: continuing is the default, but saying so

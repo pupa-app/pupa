@@ -315,6 +315,30 @@ public final class ChatViewModel {
     public private(set) var isStreaming = false
     /// Inline connection banner state; `nil` when the stream is healthy.
     public private(set) var connectionIssue: ChatConnectionState?
+    /// A turn that ended cleanly but unsettled — the *notice* ending. Disjoint
+    /// from `connectionIssue` (the *throw* ending) right up to the UI, where
+    /// both mean the same thing to the user: the turn stopped, and there is
+    /// something to pick back up. This is by far the commoner of the two —
+    /// `AgentSession.runOneRound` swallows reattachable drops into its retry
+    /// ladder and only rethrows once the budget is spent — so for a long time
+    /// the Continue button was wired to the ending nobody hit.
+    public private(set) var stoppedNotice: StoppedNotice?
+
+    public struct StoppedNotice: Equatable, Sendable {
+        public let reason: SilentReason
+        /// The agent had already replied, so the text above the notice is
+        /// partial rather than absent.
+        public let truncated: Bool
+        public var message: String {
+            ChatViewModel.stoppedTurnMessage(reason, truncated: truncated)
+        }
+        /// `.backend` is the agent reporting a real failure: worth keeping on
+        /// screen, with nothing sensible to continue from.
+        public var isResumable: Bool {
+            if case .backend = reason { return false }
+            return true
+        }
+    }
     /// Highest replay seq whose event has been APPLIED to `bubbles` — driven
     /// by `.cursorAdvanced` on the main actor, so it can never run ahead of
     /// the rendered state the way `AgentSession.lastEventSeq` can (the session
@@ -330,7 +354,23 @@ public final class ChatViewModel {
     /// Set while a relaunch is attempting to answer a parked turn, so the
     /// settle path can tell "resumed the turn" from "the park was already
     /// gone" and surface a notice for the latter.
-    private var isRecoveringParkedDispatch = false
+    private(set) var isRecoveringParkedDispatch = false
+    /// Why the last turn stopped short, as a bare string for the debug probe.
+    /// `nil` once a new turn starts.
+    private(set) var lastNoticeReason: String?
+    /// Which reattach attempt is in flight, 0 when none is.
+    private(set) var reattachAttempt = 0
+    /// How many times this turn has parked on a frontend tool. Unbounded on
+    /// purpose: `probeEvents` keeps only the last 12 kinds, so it cannot
+    /// answer "did this park twice?" — the question a multi-park recovery
+    /// test asks.
+    private(set) var parkCount = 0
+    /// Last few applied event kinds, for the debug probe's `ev` field. Only
+    /// recorded on a driven launch.
+    private(set) var probeEvents: [String] = []
+    /// Bumped on every probe-visible change, so a UI test can wait for "the
+    /// state moved" without naming the value it moved to.
+    private(set) var probeGeneration = 0
     /// True when a turn finished while this thread was not on screen — drives
     /// the "unviewed answer" badge on the pupa circle / thread lists. Set when
     /// a real turn settles (see `setStreaming`); cleared by `markViewed()` when
@@ -973,7 +1013,9 @@ public final class ChatViewModel {
             registry: registry,
             threadId: threadId,
             maxRounds: settings.effectiveMaxToolRounds,
-            journal: FrontendDispatchJournalStore(threadId: threadId)
+            journal: FrontendDispatchJournalStore(threadId: threadId),
+            maxReattachAttempts: LaunchOptions.current.reattachAttempts,
+            reattachBaseDelayNanos: LaunchOptions.current.reattachDelayNanos
         )
         self.sessionBackendURL = initialURL
         self.sessionAuthHeaders = initialHeaders
@@ -1002,7 +1044,9 @@ public final class ChatViewModel {
             registry: registry,
             threadId: threadId,
             maxRounds: settings.effectiveMaxToolRounds,
-            journal: FrontendDispatchJournalStore(threadId: threadId)
+            journal: FrontendDispatchJournalStore(threadId: threadId),
+            maxReattachAttempts: LaunchOptions.current.reattachAttempts,
+            reattachBaseDelayNanos: LaunchOptions.current.reattachDelayNanos
         )
         sessionBackendURL = url
         sessionAuthHeaders = headers
@@ -1072,6 +1116,10 @@ public final class ChatViewModel {
 
         setStreaming(true)
         connectionIssue = nil
+        stoppedNotice = nil
+        lastNoticeReason = nil
+        reattachAttempt = 0
+        parkCount = 0
         didUserStop = false
 
         rebuildSessionIfSettingsChanged()
@@ -1251,6 +1299,7 @@ public final class ChatViewModel {
         guard connectionIssue != nil else { return }   // nothing was interrupted
         AGUIKitLog.session("foreground reattach: thread=\(threadId)")
         connectionIssue = nil
+        stoppedNotice = nil
         setStreaming(true)
         // A turn parked on a frontend tool needs the same rewind as the relaunch
         // path (pupa#258): the live cursor sits PAST the `on_interrupt` frame, so
@@ -1310,6 +1359,7 @@ public final class ChatViewModel {
             }
             self?.setStreaming(false)
             self?.streamTask = nil
+            self?.reapPendingToolEntries()
             self?.finishParkedDispatchRecovery()
             // Turn settled — persist the full transcript (assistant + tool bubbles).
             self?.persistTranscript()
@@ -1317,6 +1367,29 @@ public final class ChatViewModel {
             // was torn down by an explicit Stop (`cancel`), which clears the
             // queue anyway. `drainQueue` re-checks error / interrupt state.
             if !cancelled { self?.drainQueue() }
+        }
+    }
+
+    /// Close out anything the settled turn left open.
+    ///
+    /// An entry only leaves `.pending` when its own `.toolCallFinished`
+    /// arrives, so a call cut off by a kill or a dead socket span forever — a
+    /// spinner in the transcript, and `isToolRunning` latched true so the
+    /// thread reads as busy from then on. Once the stream is done no such
+    /// frame can arrive, which is exactly when it is safe to say so.
+    ///
+    /// Internal so tests can drive it without a stream. Called from the settle
+    /// path, never mid-round: a late `.toolCallFinished` (after a Stop, say)
+    /// still patches its own entry, and reaping early would flash it failed
+    /// first.
+    func reapPendingToolEntries() {
+        for bubble in bubbles where bubble.role == .toolRound {
+            guard bubble.toolEntries.contains(where: { $0.state == .pending }) else { continue }
+            mutateBubble(id: bubble.id) { bubble in
+                for idx in bubble.toolEntries.indices where bubble.toolEntries[idx].state == .pending {
+                    bubble.toolEntries[idx].state = .failed
+                }
+            }
         }
     }
 
@@ -1375,7 +1448,18 @@ public final class ChatViewModel {
     ///   `AgentSession` replaces a trailing user message that never settled, so
     ///   sending anything else here would erase what the user actually asked.
     public func continueDroppedTurn() {
-        guard connectionIssue != nil, !isStreaming, !isAwaitingHumanInput else { return }
+        guard connectionIssue != nil || stoppedNotice != nil else { return }
+        guard !isStreaming, !isAwaitingHumanInput else { return }
+        // The notice ending means the run *finished* — there is no live run to
+        // re-attach to. Routing it by cursor would send it to `reattachIfNeeded`
+        // (a clean completion always leaves `appliedEventSeq` set), which would
+        // read an empty tail and declare the turn settled all over again: the
+        // user presses Continue and watches nothing happen. Say "continue" for
+        // them instead, which is what the old copy asked them to type.
+        if connectionIssue == nil, stoppedNotice != nil {
+            stoppedNotice = nil
+            return send(Self.continueDroppedTurnText)
+        }
         guard pendingDispatchAfterSeq == nil, appliedEventSeq == nil else {
             return reattachIfNeeded()
         }
@@ -1617,7 +1701,26 @@ public final class ChatViewModel {
     /// particular the `toolRound` lifecycle) are subtle enough to warrant
     /// focused unit tests at this layer.
     func apply(_ event: SessionEvent) {
+        if LaunchOptions.current.isDriven { recordProbe(event) }
+        if AGUIKitLog.enabled { logProbeIfSignificant(event) }
+        // A frame after a retry means the socket came back, so the banner that
+        // retry raised must not outlive it — a latched "Reconnecting…" reads as
+        // a turn stuck forever, and the two existing clear sites (`send`,
+        // foreground reattach) neither of them runs mid-stream. Keyed on the
+        // attempt counter, not on the banner: a banner raised by an earlier
+        // dead stream is somebody else's to clear, and clearing it here would
+        // strand the Continue button's `connectionIssue != nil` gate.
+        if case .reattaching = event {} else if reattachAttempt > 0 {
+            reattachAttempt = 0
+            if case .reconnecting? = connectionIssue { connectionIssue = nil }
+        }
         switch event {
+        case .reattaching(let attempt, _):
+            // Say so during the backoff. Without this the user watches
+            // "Working…" for the whole retry budget and then either recovers
+            // or is handed a banner with no account of the gap.
+            reattachAttempt = attempt
+            connectionIssue = .reconnecting
         case .assistantMessageStart(let id):
             // LLM is resuming narration after any tool batch — close the open
             // tool-round bubble so the next .toolCallStarted opens a fresh one.
@@ -1659,10 +1762,12 @@ public final class ChatViewModel {
             if let reason = outcome.noticeReason, !didUserStop {
                 var truncated = false
                 if case .truncated = outcome { truncated = true }
-                appendBubble(ChatBubble(
-                    role: .system,
-                    text: Self.silentStopMessage(reason, truncated: truncated)
-                ))
+                lastNoticeReason = "\(reason)"
+                // State, not a bubble: the notice comes with a Continue button
+                // now, and both should disappear once it is spent. A bubble
+                // would sit in the transcript forever, still telling the user
+                // to do something they have already done.
+                stoppedNotice = StoppedNotice(reason: reason, truncated: truncated)
             }
         case .error(let message, let code):
             openToolRoundId = nil
@@ -1686,6 +1791,7 @@ public final class ChatViewModel {
             // Persist the rewind point straight away — a kill can land at any
             // moment from here until the resume POST goes out (pupa#258).
             pendingDispatchAfterSeq = afterSeq
+            parkCount += 1
             persistTranscript()
         case .frontendDispatchResolved:
             pendingDispatchAfterSeq = nil
@@ -1709,18 +1815,24 @@ public final class ChatViewModel {
     /// User-facing note for a turn that ended before the agent settled.
     /// `truncated` means the agent had already replied, so the text above the
     /// note is partial rather than absent.
-    static func silentStopMessage(_ reason: SilentReason, truncated: Bool = false) -> String {
+    ///
+    /// No call to action in any of them: the banner carries a Continue button,
+    /// and a button beside a sentence telling the user to type the same word
+    /// reads as a bug.
+    nonisolated static func stoppedTurnMessage(
+        _ reason: SilentReason, truncated: Bool = false
+    ) -> String {
         switch reason {
         case .emptyTurn:
-            return "The agent finished its turn without a reply. Say \u{201C}continue\u{201D} to nudge it."
+            return "The agent finished its turn without a reply."
         case .maxRounds:
-            return "Stopped after the tool-round safety limit. Say \u{201C}continue\u{201D} to resume."
+            return "Stopped after the tool-round safety limit."
         case .droppedStream:
             return truncated
-                ? "The connection closed mid-reply. Say \u{201C}continue\u{201D} or try again."
-                : "The connection closed before the agent replied. Say \u{201C}continue\u{201D} or try again."
+                ? "The connection closed mid-reply."
+                : "The connection closed before the agent replied."
         case .droppedInterrupt:
-            return "The agent\u{2019}s last action didn\u{2019}t come through. Say \u{201C}continue\u{201D} to retry it."
+            return "The agent\u{2019}s last action didn\u{2019}t come through."
         case .backend(let detail):
             return "The agent stopped: \(detail)"
         }
@@ -2163,4 +2275,83 @@ private func prettyJSONString(_ value: AnyJSON) -> String {
         return s
     }
     return ""
+}
+
+// MARK: - Debug probe (driven launches only)
+
+extension ChatViewModel {
+
+    /// Three-letter code per applied event, for the probe's `ev` ring. Short
+    /// because the whole payload rides in one accessibility value.
+    private static func probeCode(_ event: SessionEvent) -> String {
+        switch event {
+        case .assistantMessageStart: return "ams"
+        case .assistantMessageDelta: return "amd"
+        case .assistantMessageEnd: return "ame"
+        case .toolCallStarted: return "tcs"
+        case .toolCallFinished: return "tcf"
+        case .roundFinished: return "rnd"
+        case .completed: return "cmp"
+        case .error: return "err"
+        case .cursorAdvanced: return "cur"
+        case .frontendDispatchParked: return "fdp"
+        case .frontendDispatchResolved: return "fdr"
+        case .reattaching: return "rea"
+        }
+    }
+
+    /// Keep the last 12 event kinds, and bump the generation so a waiting test
+    /// can tell "state moved" from "state happens to match".
+    func recordProbe(_ event: SessionEvent) {
+        probeEvents.append(Self.probeCode(event))
+        if probeEvents.count > 12 { probeEvents.removeFirst(probeEvents.count - 12) }
+        probeGeneration &+= 1
+    }
+
+    /// Emit the turn state to the device log, on the events that decide a
+    /// recovery bug and no others.
+    ///
+    /// Straight from the event path, never through a view: `probeStateJSON`
+    /// reads `appliedEventSeq`, so a SwiftUI view rendering it re-renders on
+    /// every streamed token, and driving logging from that put a log write and
+    /// a root-view invalidation on the main thread per token. It was enough to
+    /// stall the app on a phone.
+    ///
+    /// Deltas and cursor advances are excluded for the same reason they are
+    /// noise in a trace: hundreds a turn, and none of them the reason a turn
+    /// was lost.
+    func logProbeIfSignificant(_ event: SessionEvent) {
+        switch event {
+        case .assistantMessageDelta, .cursorAdvanced, .assistantMessageStart:
+            return
+        default:
+            AGUIKitLog.probe(probeStateJSON)
+        }
+    }
+
+    /// Everything that decides a turn-recovery bug, in under a kilobyte.
+    /// Single-letter keys: this rides in one accessibility value, and XCTest
+    /// truncates long attribute strings in its own failure output.
+    var probeStateJSON: String {
+        var fields: [String] = [
+            "\"g\":\(probeGeneration)",
+            "\"s\":\(isStreaming ? 1 : 0)",
+            "\"tif\":\(isStreaming || connectionIssue == .reconnecting ? 1 : 0)",
+            "\"rec\":\(isRecoveringParkedDispatch ? 1 : 0)",
+            "\"awh\":\(isAwaitingHumanInput ? 1 : 0)",
+            "\"ra\":\(reattachAttempt)",
+            "\"pc\":\(parkCount)",
+        ]
+        switch connectionIssue {
+        case .none: fields.append("\"ci\":null")
+        case .reconnecting: fields.append("\"ci\":\"reconnecting\"")
+        case .failed: fields.append("\"ci\":\"failed\"")
+        }
+        fields.append("\"pd\":\(pendingDispatchAfterSeq.map(String.init) ?? "null")")
+        fields.append("\"seq\":\(appliedEventSeq.map(String.init) ?? "null")")
+        fields.append("\"nr\":\(lastNoticeReason.map { "\"\($0)\"" } ?? "null")")
+        fields.append("\"th\":\"\(threadId)\"")
+        fields.append("\"ev\":\"\(probeEvents.joined(separator: ","))\"")
+        return "{\(fields.joined(separator: ","))}"
+    }
 }

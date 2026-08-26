@@ -49,13 +49,16 @@ public final class Scenario {
     ///     is what multi-turn `PupaCtl --continue` needs.
     ///   - token: paired-device token for a live backend. Held in memory only
     ///     — see `TokenCredentialStore`. Scripted runs don't need one.
+    ///   - harnessID: backend agent harness (`claude_code`, `deepagents`).
+    ///     `nil` posts to the backend's default harness at `POST /`.
     public init(
         root: URL,
         backend: URL,
         urlSession: URLSession,
         typeId: String = MyAppType.tracker.id,
         reset: Bool = true,
-        token: String? = nil
+        token: String? = nil,
+        harnessID: String? = nil
     ) {
         if reset { try? FileManager.default.removeItem(at: root) }
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -80,7 +83,9 @@ public final class Scenario {
         // set above, so the tree lands exactly where the app puts it.
         self.memory = MemoryStore()
         self.settings = SettingsStore(
-            backendURL: backend, credentials: TokenCredentialStore(token: token))
+            backendURL: backend,
+            harnessID: harnessID,
+            credentials: TokenCredentialStore(token: token))
         self.coordinator = ChatSessionCoordinator(
             store: store, memory: memory, settings: settings, urlSession: urlSession)
     }

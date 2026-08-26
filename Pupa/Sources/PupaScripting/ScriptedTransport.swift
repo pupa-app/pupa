@@ -18,6 +18,11 @@ public struct ScriptedRound: Codable, Sendable {
         case connect
         /// Deliver `events` up to `failAfter`, then kill the connection.
         case midStream
+        /// Accept the POST, deliver `events`, then hold the socket open and
+        /// answer nothing more. Freezes the app exactly where the round left
+        /// it with no clock of its own — the lever for "killed while parked",
+        /// which is otherwise a race against the backend's own timers.
+        case hang
     }
 
     public var round: Int?
@@ -25,6 +30,9 @@ public struct ScriptedRound: Codable, Sendable {
     public var fail: Failure?
     /// Events emitted before a `midStream` failure. Defaults to half of them.
     public var failAfter: Int?
+    /// How long a `hang` holds before finishing cleanly. Nil holds forever
+    /// (until the session's own timeout, or the process dies).
+    public var holdMillis: Int?
     public var events: [AnyJSON]
 
     public init(
@@ -32,12 +40,14 @@ public struct ScriptedRound: Codable, Sendable {
         status: Int? = nil,
         fail: Failure? = nil,
         failAfter: Int? = nil,
+        holdMillis: Int? = nil,
         events: [AnyJSON]
     ) {
         self.round = round
         self.status = status
         self.fail = fail
         self.failAfter = failAfter
+        self.holdMillis = holdMillis
         self.events = events
     }
 }
@@ -83,6 +93,44 @@ public struct Script: Sendable {
             return Script(rounds: rounds)
         }
         return Script(rounds: rounds)
+    }
+
+    /// Shrink a live recording to fixture size.
+    ///
+    /// A real turn's tool results and narration run to hundreds of kilobytes,
+    /// and a UI test carries its script inline through `launchEnvironment`,
+    /// where env and arguments share one ~1MB `posix_spawn` budget. Caps text
+    /// deltas and drops state-snapshot payloads, neither of which any recovery
+    /// assertion reads — and a capped fixture is legible besides.
+    ///
+    /// Structure is untouched: same rounds, same events, same order, so the
+    /// park and the cursor stamps a recovery test keys off all survive.
+    public func trimmed(maxDeltaBytes: Int) -> Script {
+        Script(rounds: rounds.map { round in
+            var round = round
+            round.events = round.events.map { Self.trim($0, maxDeltaBytes: maxDeltaBytes) }
+            return round
+        })
+    }
+
+    private static func trim(_ event: AnyJSON, maxDeltaBytes: Int) -> AnyJSON {
+        guard case .object(var fields) = event,
+              let type = fields["type"]?.stringValue else { return event }
+        switch type {
+        case "STATE_SNAPSHOT", "STATE_DELTA", "MESSAGES_SNAPSHOT":
+            // Replayed state the client recomputes anyway; only the frame's
+            // presence and its seq matter.
+            fields["snapshot"] = .object([:])
+            fields["delta"] = .array([])
+            fields["messages"] = .array([])
+        default:
+            for key in ["delta", "content", "result"] {
+                guard let text = fields[key]?.stringValue, text.utf8.count > maxDeltaBytes
+                else { continue }
+                fields[key] = .string(String(text.prefix(maxDeltaBytes)) + "…")
+            }
+        }
+        return .object(fields)
     }
 
     /// Serialize back to `.jsonl` — what `record` mode writes.
@@ -186,6 +234,17 @@ public final class ScriptedTransport: URLProtocol, @unchecked Sendable {
             client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
             return
         }
+        if round.fail == .hang {
+            serve(status: round.status ?? 200,
+                  body: round.events.isEmpty ? nil : Self.sseBody(round.events),
+                  finish: false)
+            guard let hold = round.holdMillis else { return }
+            DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(hold)) { [weak self] in
+                guard let self else { return }
+                self.client?.urlProtocolDidFinishLoading(self)
+            }
+            return
+        }
         guard round.fail == .midStream else {
             return serve(status: round.status ?? 200, body: Self.sseBody(round.events))
         }
@@ -193,7 +252,16 @@ public final class ScriptedTransport: URLProtocol, @unchecked Sendable {
         serve(status: round.status ?? 200,
               body: Self.sseBody(Array(round.events.prefix(cut))),
               finish: false)
-        client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
+        // Failing in the same turn of the runloop throws the buffered bytes
+        // away: `URLSession.bytes(for:)` surfaces the error before it hands
+        // the prefix to its consumer, so "half a reply, then the socket dies"
+        // arrived as "nothing, then the socket dies" — no events applied and
+        // no replay cursor, which is precisely what a reattach needs. Let the
+        // delivery land first.
+        DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(50)) { [weak self] in
+            guard let self else { return }
+            self.client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
+        }
     }
 
     public override func stopLoading() {}

@@ -5,6 +5,13 @@ import Foundation
 /// `SettingsStore` snapshot lives in) rather than a JSON snapshot — there are
 /// only two flags and both are read from more than one view, so plain keys
 /// keep the wiring obvious.
+/// Opt-in diagnostics, for chasing a bug on a real device.
+enum DiagnosticsKeys {
+    /// Turns `AGUIKitLog` on in a release build, where it is off by default.
+    /// Read once at launch by `RootView`; the toggle also applies it live.
+    static let enabled = "pupa.diagnostics.enabled"
+}
+
 enum OnboardingKeys {
     /// Set once the user finishes (or skips through) onboarding. Gates the
     /// whole `OnboardingFlowView`. Absent on a fresh install; `RootView`

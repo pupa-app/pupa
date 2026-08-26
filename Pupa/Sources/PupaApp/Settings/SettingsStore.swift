@@ -221,6 +221,7 @@ public final class SettingsStore {
     public init(
         disabledBackendTools: Set<String>? = nil,
         backendURL: URL? = nil,
+        harnessID: String? = nil,
         shellApprovalDisabled: Bool? = nil,
         credentials: (any BackendCredentialStore)? = nil
     ) {
@@ -242,9 +243,14 @@ public final class SettingsStore {
         self.threadCapMB = snapshot.threadCapMB
         self.credentials = credentials ?? KeychainCredentialStore()
 
-        // Init override (tests + previews) edits the *active* backend's URL.
+        // Init override (tests + previews) edits the *active* backend's URL
+        // and harness. Neither is persisted, so a driven launch can never
+        // rewrite the real backend list.
         if let backendURL {
             mutateActive { $0.url = backendURL }
+        }
+        if let harnessID {
+            mutateActive { $0.harnessID = harnessID }
         }
     }
 

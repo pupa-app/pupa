@@ -213,6 +213,14 @@ public final class ChatSessionCoordinator {
         session(for: scope, threadId: store.currentThreadId(for: scope))
     }
 
+    /// The session for a scope **if one already exists**. Unlike `session(for:)`
+    /// this never creates one, so it is safe to call from a SwiftUI `body` —
+    /// creating would write `sessions` mid-update and spin the view loop.
+    /// Used by the debug probe, which has to observe without participating.
+    public func existingSession(for scope: ChatScope) -> ChatViewModel? {
+        sessions[SessionKey(scope: scope, threadId: store.currentThreadId(for: scope))]
+    }
+
     /// Live status of one conversation, for the thread-list badges. Threads
     /// that never opened a session have no VM → `.idle` (no badge).
     public func status(for scope: ChatScope, threadId: String) -> ChatActivityStatus {

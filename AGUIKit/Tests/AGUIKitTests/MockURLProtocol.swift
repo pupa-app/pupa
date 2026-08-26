@@ -79,7 +79,16 @@ final class MockURLProtocol: URLProtocol, @unchecked Sendable {
             )!
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             if !prefix.isEmpty { client?.urlProtocol(self, didLoad: prefix) }
-            client?.urlProtocol(self, didFailWithError: err)
+            // Failing in the same runloop turn as the delivery throws the
+            // prefix away: `URLSession.bytes(for:)` surfaces the error before
+            // handing it to its consumer, so "these frames, then the socket
+            // dies" arrived as "nothing, then the socket dies" — and a test
+            // asserting on what those frames did would pass for the wrong
+            // reason. Let the delivery land first.
+            DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(50)) { [weak self] in
+                guard let self else { return }
+                self.client?.urlProtocol(self, didFailWithError: err)
+            }
             return
         }
 
