@@ -32,10 +32,16 @@ logging** turns them on live, no relaunch, and every line goes to the unified
 log, which survives the app being suspended, killed, or relaunched:
 
 ```sh
-log stream --device --predicate 'subsystem BEGINSWITH "dev.pupa"' > trace.log
+# The phone must be on USB — `log` cannot reach a Wi-Fi-paired device, and
+# `collect` fails "Device not configured (6)". Needs root; `log stream` has
+# no device option at all on macOS 26.
+sudo log collect --device-udid <udid> --last 2h --output build/device.logarchive
+log show build/device.logarchive --predicate 'subsystem BEGINSWITH "dev.pupa"' \
+  --style compact --info > build/trace.log
 ```
 
-or Console.app with the phone selected, filtering `dev.pupa`. Two categories:
+`xcrun devicectl list devices` prints the udid. Console.app with the phone
+selected and `dev.pupa` in the filter is the same thing by hand. Two categories:
 `session` is the round-by-round narrative, `probe` is one line of turn state per
 change — the same JSON the UI suite asserts on, so a trace from the field lines
 up with what the tests check.
