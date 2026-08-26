@@ -43,6 +43,87 @@ struct ScenarioHarnessTests {
     ]}
     """
 
+    /// A resume that is accepted and never answered. The real park window is
+    /// a race against the backend's own timers; `hang` makes it a state the
+    /// test can simply sit in, which is what lets the UI suite kill the app
+    /// there (pupa#258).
+    private static let parkThenHangScript = """
+    {"events":[
+      {"type":"RUN_STARTED","threadId":"t","runId":"r1"},
+      {"type":"TOOL_CALL_START","toolCallId":"call_1","toolCallName":"addComponent"},
+      {"type":"TOOL_CALL_ARGS","toolCallId":"call_1","delta":"{\\"kind\\":\\"tracker\\",\\"name\\":\\"Books\\"}"},
+      {"type":"TOOL_CALL_END","toolCallId":"call_1"},
+      {"type":"CUSTOM","name":"on_interrupt","value":"{\\"frontend_tool_calls\\":[{\\"id\\":\\"call_1\\",\\"name\\":\\"addComponent\\",\\"args\\":{\\"kind\\":\\"tracker\\",\\"name\\":\\"Books\\"}}]}"},
+      {"type":"RUN_FINISHED","threadId":"t","runId":"r1"}
+    ]}
+    {"fail":"hang","events":[]}
+    """
+
+    /// A recording only reaches the UI suite if it fits in one `posix_spawn`
+    /// environment, and only stays useful if trimming leaves the shape alone.
+    @Test("trimming shrinks payloads without disturbing the replayable shape")
+    func trimming_keepsStructure() throws {
+        let long = String(repeating: "x", count: 5000)
+        let source = """
+        {"events":[
+          {"type":"RUN_STARTED","threadId":"t","runId":"r1"},
+          {"type":"TEXT_MESSAGE_CONTENT","messageId":"m1","delta":"\(long)"},
+          {"type":"STATE_SNAPSHOT","snapshot":{"big":"\(long)"}},
+          {"type":"CUSTOM","name":"on_interrupt","value":"{}"}
+        ]}
+        """
+        let trimmed = try Script.parse(source).trimmed(maxDeltaBytes: 64)
+
+        #expect(trimmed.rounds.count == 1)
+        let events = trimmed.rounds[0].events
+        #expect(events.count == 4, "no event is dropped — a missing frame shifts every seq")
+
+        func field(_ i: Int, _ key: String) -> AnyJSON? {
+            guard case .object(let o) = events[i] else { return nil }
+            return o[key]
+        }
+        #expect(field(0, "type")?.stringValue == "RUN_STARTED")
+        #expect((field(1, "delta")?.stringValue?.count ?? 0) < 100, "the delta was capped")
+        #expect(field(2, "snapshot") == .object([:]), "replayed state is recomputed anyway")
+        // The park is the whole point of a recovery fixture.
+        #expect(field(3, "name")?.stringValue == "on_interrupt")
+        #expect(field(3, "value")?.stringValue == "{}", "short payloads are untouched")
+
+        #expect(try trimmed.jsonl().utf8.count < source.utf8.count / 8)
+    }
+
+    @Test("a hung resume leaves the turn parked, with the rewind point on disk")
+    func hungResume_leavesTheTurnRecoverable() async throws {
+        ScriptedTransport.reset()
+        ScriptedTransport.script = try Script.parse(Self.parkThenHangScript)
+        defer { ScriptedTransport.reset() }
+
+        let scenario = Scenario(
+            root: makeRoot(),
+            backend: URL(string: "http://scripted.invalid/")!,
+            urlSession: ScriptedTransport.session(timeout: 30))
+        defer { scenario.restoreStorageRoot() }
+
+        let settled = await scenario.send("add a Books tracker", timeout: 3)
+        #expect(!settled, "the resume was accepted and never answered — nothing can settle")
+
+        // The side effect ran: this is the window where a naive relaunch would
+        // run it a second time.
+        let components = scenario.store.myApps
+            .first { $0.id == scenario.myAppId }?.components.count ?? 0
+        #expect(components > 0, "the frontend tool ran before the resume hung")
+
+        #expect(scenario.vm.pendingDispatchAfterSeq != nil,
+                "the rewind point is what a relaunch resumes from")
+        let recovery = scenario.report().recovery
+        #expect(recovery?.turnInFlight == true, "a killed app must see the turn as unfinished")
+        #expect(recovery?.pendingDispatchAfterSeq != nil, "the rewind point reached disk")
+        #expect(scenario.report().journal != nil,
+                "the recorded result is what stops the side effect running twice")
+
+        scenario.vm.cancel()
+    }
+
     @Test("a scripted turn runs the real tool and lands on the canvas")
     func scriptedTurn_executesFrontendTool() async throws {
         ScriptedTransport.reset()
