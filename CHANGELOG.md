@@ -3,6 +3,16 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.268] — 2026-08-26
+
+### Added
+
+- **Folders in the MyApps sidebar.** Group apps to keep a long list readable:
+  a row's menu offers Move to Folder → an existing folder or New Folder…, and a
+  folder row collapses, renames, or ungroups. Folders are cosmetic — they sync
+  across devices but never touch a `.pupa` bundle, so export and import are
+  unchanged. A folder disappears when its last app leaves it.
+
 ## [0.0.267] — 2026-08-25
 
 ### Added

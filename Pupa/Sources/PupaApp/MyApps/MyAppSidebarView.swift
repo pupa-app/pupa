@@ -27,6 +27,15 @@ public struct MyAppSidebarView: View, Equatable {
     @State private var tour = GuidedTourStore.shared
     /// The myApp whose combined edit sheet (name + icon + color) is open.
     @State private var editingMyAppId: UUID?
+    /// Collapsed sidebar folders, comma-joined ids. Per-device chrome, so it
+    /// stays out of the mirrored `index.json` — collapsing on the Mac must not
+    /// collapse on the iPad. Absent id = expanded, so a new folder opens.
+    @AppStorage("sidebar.collapsedMyAppFolders") private var collapsedFolderIds = ""
+    /// The myApp a pending "New Folder…" will hold, and the name being typed.
+    @State private var newFolderSeedApp: UUID?
+    /// The folder being renamed.
+    @State private var renamingFolderId: String?
+    @State private var folderNameDraft = ""
 
     public init(
         store: MyAppStore,
@@ -117,6 +126,32 @@ public struct MyAppSidebarView: View, Equatable {
         }
         .sheet(isPresented: $newSheetPresented) {
             NewMyAppSheet(store: store) { newSheetPresented = false }
+        }
+        .alert("New Folder", isPresented: Binding(
+            get: { newFolderSeedApp != nil },
+            set: { if !$0 { newFolderSeedApp = nil } }
+        )) {
+            TextField("Name", text: $folderNameDraft)
+            Button("Cancel", role: .cancel) { newFolderSeedApp = nil }
+            Button("Create") {
+                if let seed = newFolderSeedApp {
+                    store.createMyAppFolder(name: folderNameDraft, containing: seed)
+                }
+                newFolderSeedApp = nil
+            }
+        }
+        .alert("Rename Folder", isPresented: Binding(
+            get: { renamingFolderId != nil },
+            set: { if !$0 { renamingFolderId = nil } }
+        )) {
+            TextField("Name", text: $folderNameDraft)
+            Button("Cancel", role: .cancel) { renamingFolderId = nil }
+            Button("Rename") {
+                if let fid = renamingFolderId {
+                    store.renameMyAppFolder(folderId: fid, name: folderNameDraft)
+                }
+                renamingFolderId = nil
+            }
         }
         .sheet(isPresented: $settingsSheetPresented) {
             settingsSheet
@@ -241,10 +276,60 @@ public struct MyAppSidebarView: View, Equatable {
         )
     }
 
+    /// One rendered sidebar row: a loose MyApp, or a folder with its visible
+    /// members. Folders sit at the position of their first visible member, so
+    /// grouping never reshuffles the roster order the user already knows.
+    private enum SidebarEntry: Identifiable {
+        case myApp(MyApp)
+        case folder(MyAppFolder, [MyApp])
+
+        var id: String {
+            switch self {
+            case .myApp(let a): return "app-\(a.id.uuidString)"
+            case .folder(let f, _): return "folder-\(f.id)"
+            }
+        }
+    }
+
+    /// Group `visibleMyApps` by the folder layout. A folder whose members are
+    /// all archived emits nothing — the layout keeps the assignments, so
+    /// unarchiving brings the folder back with its apps.
+    private var sidebarEntries: [SidebarEntry] {
+        let layout = store.myAppFolders
+        var emitted = Set<String>()
+        var out: [SidebarEntry] = []
+        for myApp in store.visibleMyApps {
+            guard let fid = layout.folderId(forMyApp: myApp.id),
+                  let folder = layout.folder(id: fid) else {
+                out.append(.myApp(myApp))
+                continue
+            }
+            guard emitted.insert(fid).inserted else { continue }
+            let members = store.visibleMyApps.filter { layout.folderId(forMyApp: $0.id) == fid }
+            out.append(.folder(folder, members))
+        }
+        return out
+    }
+
+    private var collapsedFolders: Set<String> {
+        Set(collapsedFolderIds.split(separator: ",").map(String.init))
+    }
+
+    private func setFolder(_ folderId: String, expanded: Bool) {
+        var ids = collapsedFolders
+        if expanded { ids.remove(folderId) } else { ids.insert(folderId) }
+        collapsedFolderIds = ids.sorted().joined(separator: ",")
+    }
+
     private var myAppsSection: some View {
         Section {
-            ForEach(store.visibleMyApps) { myApp in
-                myAppRow(myApp)
+            ForEach(sidebarEntries) { entry in
+                switch entry {
+                case .myApp(let myApp):
+                    myAppRow(myApp)
+                case .folder(let folder, let members):
+                    folderRow(folder, members)
+                }
             }
         } header: {
             HStack(spacing: 6) {
@@ -269,6 +354,70 @@ public struct MyAppSidebarView: View, Equatable {
     /// deleting another app never slides this dot's color onto a neighbour.
     private func colorIndex(for myApp: MyApp) -> Int {
         store.colorIndex(for: myApp.id)
+    }
+
+    private func folderRow(_ folder: MyAppFolder, _ members: [MyApp]) -> some View {
+        DisclosureGroup(
+            isExpanded: Binding(
+                get: { !collapsedFolders.contains(folder.id) },
+                set: { setFolder(folder.id, expanded: $0) }
+            )
+        ) {
+            ForEach(members) { myAppRow($0) }
+        } label: {
+            Label {
+                Text(folder.name).lineLimit(1)
+            } icon: {
+                Image(systemName: "folder")
+                    .foregroundStyle(.secondary)
+            }
+            .contextMenu {
+                Button {
+                    folderNameDraft = folder.name
+                    renamingFolderId = folder.id
+                } label: {
+                    Label("Rename Folder", systemImage: "pencil")
+                }
+                Button {
+                    store.removeMyAppFolder(folderId: folder.id)
+                } label: {
+                    Label("Ungroup", systemImage: "folder.badge.minus")
+                }
+            }
+        }
+    }
+
+    /// Folder moves for one row. Folders are only ever created holding an app,
+    /// so there is no bare "new empty folder" action.
+    @ViewBuilder
+    private func moveToFolderMenu(_ myApp: MyApp) -> some View {
+        let current = store.myAppFolders.folderId(forMyApp: myApp.id)
+        Menu {
+            ForEach(store.myAppFolders.folders) { folder in
+                Button {
+                    store.setMyAppFolder(myAppId: myApp.id, folderId: folder.id)
+                } label: {
+                    Label(folder.name, systemImage: folder.id == current ? "checkmark" : "folder")
+                }
+                .disabled(folder.id == current)
+            }
+            Button {
+                folderNameDraft = ""
+                newFolderSeedApp = myApp.id
+            } label: {
+                Label("New Folder…", systemImage: "folder.badge.plus")
+            }
+            if current != nil {
+                Divider()
+                Button {
+                    store.setMyAppFolder(myAppId: myApp.id, folderId: nil)
+                } label: {
+                    Label("Remove from Folder", systemImage: "folder.badge.minus")
+                }
+            }
+        } label: {
+            Label("Move to Folder", systemImage: "folder")
+        }
     }
 
     private func myAppRow(_ myApp: MyApp) -> some View {
@@ -303,6 +452,7 @@ public struct MyAppSidebarView: View, Equatable {
             } label: {
                 Label("Edit", systemImage: "pencil")
             }
+            moveToFolderMenu(myApp)
             Button {
                 onArchiveMyApp(myApp.id)
             } label: {
