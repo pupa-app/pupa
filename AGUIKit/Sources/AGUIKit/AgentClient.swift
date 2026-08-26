@@ -108,8 +108,14 @@ public struct AgentClient: Sendable {
                     // is sorted where it is built, see its `encoding:` init.)
                     encoder.outputFormatting = [.sortedKeys]
                     req.httpBody = try encoder.encode(input)
+                    // Path only outside DEBUG: the host is the user's own
+                    // backend, often a private tailnet name, and the path is
+                    // what carries the diagnostic value (which harness).
+                    let target = AGUIKitLog.includesUserContent
+                        ? endpoint.absoluteString
+                        : (endpoint.path.isEmpty ? "/" : endpoint.path)
                     AGUIKitLog.client(
-                        "POST \(endpoint) " +
+                        "POST \(target) " +
                         "threadId=\(input.threadId) runId=\(input.runId) " +
                         "msgs=\(input.messages.count) tools=\(input.tools.count) " +
                         "body=\(req.httpBody?.count ?? 0)B"

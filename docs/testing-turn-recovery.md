@@ -59,8 +59,10 @@ cursor`, and how it ends — `settled → completed(produced)` versus
 `completed(silent(…))`. In the probe line, `tif` staying 1 across a relaunch and
 `pd` staying non-nil are the two tells that recovery never completed.
 
-Messages are not logged — only their length. Turn diagnostics back off
-afterwards: the lines are public in the device log.
+Outside a debug build nothing of the user's is logged — the prompt, tool
+results, and backend errors all come out as a byte count, and the backend URL
+as a bare path. Turn diagnostics back off afterwards regardless: the lines are
+public in the device log.
 
 ## The mechanism in one paragraph
 

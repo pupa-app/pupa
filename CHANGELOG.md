@@ -9,8 +9,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
 
 - **Diagnostic logging, in Settings → Profile.** Off by default. Turn it on to
   record what the agent is doing so a dropped reply can be traced from a real
-  device — read it with Console on a Mac, filtering `dev.pupa`. Your messages
-  are never recorded, only their length.
+  device — read it with Console on a Mac, filtering `dev.pupa`. Nothing of
+  yours is recorded: your messages, what tools return, and your backend's
+  address all come out as a size or a bare path.
 
 ### Fixed
 

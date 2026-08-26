@@ -898,7 +898,11 @@ public actor AgentSession {
                 ])
             }
             let resultString: String = encodeJSONString(result)
-            AGUIKitLog.session("done    tool=\(call.name) call=\(call.id) result=\(snippet(resultString))")
+            // The result is the user's own material — tracker rows, memory file
+            // contents, canvas state — and every line is public in the device log.
+            AGUIKitLog.session(
+                "done    tool=\(call.name) call=\(call.id) " +
+                "result=\(AGUIKitLog.redactable(snippet(resultString)))")
             yield(.toolCallFinished(id: call.id, name: call.name, arguments: call.args, result: result))
             results.append(.object([
                 "toolCallId": .string(call.id),

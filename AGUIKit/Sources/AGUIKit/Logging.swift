@@ -70,6 +70,13 @@ public enum AGUIKitLog {
     /// readable by anyone who can pull logs off the phone. Turn recovery is
     /// explained by structure (cursors, parks, retries), never by what the
     /// user typed, so the prompt is logged as a length outside DEBUG.
+    /// `text` when logging the user's own material is allowed, a bare size
+    /// otherwise. Everything a tool returns is the user's: tracker rows, memory
+    /// file contents, canvas state.
+    public static func redactable(_ text: @autoclosure () -> String) -> String {
+        includesUserContent ? text() : "<\(text().utf8.count)B>"
+    }
+
     nonisolated(unsafe) public static var includesUserContent: Bool = {
         #if DEBUG
         return true
@@ -94,7 +101,7 @@ public enum AGUIKitLog {
         switch event {
         case .runStarted(let s):       return "RUN_STARTED runId=\(s.runId), threadId=\(s.threadId)"
         case .runFinished(let f):      return "RUN_FINISHED runId=\(f.runId), threadId=\(f.threadId)"
-        case .runError(let e):         return "RUN_ERROR \(e.message)"
+        case .runError(let e):         return "RUN_ERROR \(redactable(e.message))"
         case .textMessageStart(let s): return "TEXT_START messageId=\(s.messageId)"
         case .textMessageContent(let c): return "TEXT_CONTENT messageId=\(c.messageId) +\(c.delta.count)c"
         case .textMessageEnd(let e):   return "TEXT_END messageId=\(e.messageId)"
