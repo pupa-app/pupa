@@ -18,6 +18,45 @@ import AGUIKit
 @Suite("Tool-round bubble state machine")
 struct ToolRoundBubbleTests {
 
+    /// A tool call that never reports back leaves its entry `.pending`
+    /// forever: a spinner in the transcript, and `isToolRunning` latched true
+    /// so the thread reads as busy from then on. Nothing reaped it, because
+    /// the only thing that resolves an entry is its own `.toolCallFinished`.
+    ///
+    /// Seen on a device: the app was killed mid-round, and the rehydrated
+    /// transcript came back with a tool still spinning that could never stop.
+    @Test("A tool call still open when the turn settles stops spinning")
+    func pendingEntry_isReapedWhenTheTurnSettles() {
+        let vm = makeViewModel()
+        vm.apply(.toolCallStarted(id: "call_A", name: "listTrackerItems"))
+        #expect(vm.isToolRunning, "setup: the call is in flight")
+
+        vm.reapPendingToolEntries()
+
+        #expect(!vm.isToolRunning, "the spinner outlived the turn")
+        let entry = vm.bubbles
+            .flatMap(\.toolEntries)
+            .first { $0.id == "call_A" }
+        #expect(entry?.state == .failed, "an unfinished call is not a successful one")
+    }
+
+    /// The reap must not rewrite history: a call that did report back keeps
+    /// what it reported.
+    @Test("A finished call is left alone when the turn settles")
+    func finishedEntry_survivesTheReap() {
+        let vm = makeViewModel()
+        vm.apply(.toolCallStarted(id: "call_A", name: "listTrackerItems"))
+        vm.apply(.toolCallFinished(
+            id: "call_A", name: "listTrackerItems",
+            arguments: .object([:]), result: .object(["ok": .bool(true)])))
+
+        vm.reapPendingToolEntries()
+
+        let entry = vm.bubbles.flatMap(\.toolEntries).first { $0.id == "call_A" }
+        #expect(entry?.state == .done)
+        #expect(!vm.isToolRunning)
+    }
+
     // MARK: - Helpers
 
     private func makeViewModel() -> ChatViewModel {

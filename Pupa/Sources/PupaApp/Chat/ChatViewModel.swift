@@ -1359,6 +1359,7 @@ public final class ChatViewModel {
             }
             self?.setStreaming(false)
             self?.streamTask = nil
+            self?.reapPendingToolEntries()
             self?.finishParkedDispatchRecovery()
             // Turn settled — persist the full transcript (assistant + tool bubbles).
             self?.persistTranscript()
@@ -1366,6 +1367,29 @@ public final class ChatViewModel {
             // was torn down by an explicit Stop (`cancel`), which clears the
             // queue anyway. `drainQueue` re-checks error / interrupt state.
             if !cancelled { self?.drainQueue() }
+        }
+    }
+
+    /// Close out anything the settled turn left open.
+    ///
+    /// An entry only leaves `.pending` when its own `.toolCallFinished`
+    /// arrives, so a call cut off by a kill or a dead socket span forever — a
+    /// spinner in the transcript, and `isToolRunning` latched true so the
+    /// thread reads as busy from then on. Once the stream is done no such
+    /// frame can arrive, which is exactly when it is safe to say so.
+    ///
+    /// Internal so tests can drive it without a stream. Called from the settle
+    /// path, never mid-round: a late `.toolCallFinished` (after a Stop, say)
+    /// still patches its own entry, and reaping early would flash it failed
+    /// first.
+    func reapPendingToolEntries() {
+        for bubble in bubbles where bubble.role == .toolRound {
+            guard bubble.toolEntries.contains(where: { $0.state == .pending }) else { continue }
+            mutateBubble(id: bubble.id) { bubble in
+                for idx in bubble.toolEntries.indices where bubble.toolEntries[idx].state == .pending {
+                    bubble.toolEntries[idx].state = .failed
+                }
+            }
         }
     }
 
