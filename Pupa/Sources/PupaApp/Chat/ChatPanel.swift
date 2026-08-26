@@ -173,31 +173,7 @@ public struct ChatPanel: View {
                             .id("modelWorkingSpinner")
                             .transition(.opacity)
                         }
-                        switch viewModel.connectionIssue {
-                        case .reconnecting:
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack(spacing: 6) {
-                                    ProgressView().controlSize(.small)
-                                    Text("Reconnecting…")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                continueDroppedTurnButton
-                            }
-                            .padding(.horizontal, 12)
-                            .transition(.opacity)
-                        case .failed(let message):
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(message)
-                                    .font(.caption)
-                                    .foregroundStyle(.red)
-                                    .lineLimit(3)
-                                continueDroppedTurnButton
-                            }
-                            .padding(.horizontal, 12)
-                        case nil:
-                            EmptyView()
-                        }
+                        turnEndedBanner
                     }
                     .padding(12)
                     // Clearance so the last message can scroll clear above the
@@ -416,6 +392,50 @@ public struct ChatPanel: View {
         guard isAtBottom else { return }
         withAnimation(.easeOut(duration: 0.15)) {
             proxy.scrollTo(Self.bottomMarkerID, anchor: .bottom)
+        }
+    }
+
+    /// The turn stopped, and there is something to pick back up. Three ways in,
+    /// one affordance: a reattachable drop, an outright failure, and a turn that
+    /// ended cleanly but unsettled. The last is the commonest of the three and
+    /// used to render nothing at all — just a transcript bubble telling the user
+    /// to type "continue" by hand.
+    @ViewBuilder
+    private var turnEndedBanner: some View {
+        switch viewModel.connectionIssue {
+        case .reconnecting:
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Reconnecting…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                continueDroppedTurnButton
+            }
+            .padding(.horizontal, 12)
+            .transition(.opacity)
+        case .failed(let message):
+            VStack(alignment: .leading, spacing: 4) {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .lineLimit(3)
+                continueDroppedTurnButton
+            }
+            .padding(.horizontal, 12)
+        case nil:
+            if let notice = viewModel.stoppedNotice {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(notice.message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                    if notice.isResumable { continueDroppedTurnButton }
+                }
+                .padding(.horizontal, 12)
+                .transition(.opacity)
+            }
         }
     }
 

@@ -315,6 +315,30 @@ public final class ChatViewModel {
     public private(set) var isStreaming = false
     /// Inline connection banner state; `nil` when the stream is healthy.
     public private(set) var connectionIssue: ChatConnectionState?
+    /// A turn that ended cleanly but unsettled — the *notice* ending. Disjoint
+    /// from `connectionIssue` (the *throw* ending) right up to the UI, where
+    /// both mean the same thing to the user: the turn stopped, and there is
+    /// something to pick back up. This is by far the commoner of the two —
+    /// `AgentSession.runOneRound` swallows reattachable drops into its retry
+    /// ladder and only rethrows once the budget is spent — so for a long time
+    /// the Continue button was wired to the ending nobody hit.
+    public private(set) var stoppedNotice: StoppedNotice?
+
+    public struct StoppedNotice: Equatable, Sendable {
+        public let reason: SilentReason
+        /// The agent had already replied, so the text above the notice is
+        /// partial rather than absent.
+        public let truncated: Bool
+        public var message: String {
+            ChatViewModel.stoppedTurnMessage(reason, truncated: truncated)
+        }
+        /// `.backend` is the agent reporting a real failure: worth keeping on
+        /// screen, with nothing sensible to continue from.
+        public var isResumable: Bool {
+            if case .backend = reason { return false }
+            return true
+        }
+    }
     /// Highest replay seq whose event has been APPLIED to `bubbles` — driven
     /// by `.cursorAdvanced` on the main actor, so it can never run ahead of
     /// the rendered state the way `AgentSession.lastEventSeq` can (the session
@@ -1087,6 +1111,7 @@ public final class ChatViewModel {
 
         setStreaming(true)
         connectionIssue = nil
+        stoppedNotice = nil
         lastNoticeReason = nil
         reattachAttempt = 0
         didUserStop = false
@@ -1268,6 +1293,7 @@ public final class ChatViewModel {
         guard connectionIssue != nil else { return }   // nothing was interrupted
         AGUIKitLog.session("foreground reattach: thread=\(threadId)")
         connectionIssue = nil
+        stoppedNotice = nil
         setStreaming(true)
         // A turn parked on a frontend tool needs the same rewind as the relaunch
         // path (pupa#258): the live cursor sits PAST the `on_interrupt` frame, so
@@ -1392,7 +1418,18 @@ public final class ChatViewModel {
     ///   `AgentSession` replaces a trailing user message that never settled, so
     ///   sending anything else here would erase what the user actually asked.
     public func continueDroppedTurn() {
-        guard connectionIssue != nil, !isStreaming, !isAwaitingHumanInput else { return }
+        guard connectionIssue != nil || stoppedNotice != nil else { return }
+        guard !isStreaming, !isAwaitingHumanInput else { return }
+        // The notice ending means the run *finished* — there is no live run to
+        // re-attach to. Routing it by cursor would send it to `reattachIfNeeded`
+        // (a clean completion always leaves `appliedEventSeq` set), which would
+        // read an empty tail and declare the turn settled all over again: the
+        // user presses Continue and watches nothing happen. Say "continue" for
+        // them instead, which is what the old copy asked them to type.
+        if connectionIssue == nil, stoppedNotice != nil {
+            stoppedNotice = nil
+            return send(Self.continueDroppedTurnText)
+        }
         guard pendingDispatchAfterSeq == nil, appliedEventSeq == nil else {
             return reattachIfNeeded()
         }
@@ -1695,10 +1732,11 @@ public final class ChatViewModel {
                 var truncated = false
                 if case .truncated = outcome { truncated = true }
                 lastNoticeReason = "\(reason)"
-                appendBubble(ChatBubble(
-                    role: .system,
-                    text: Self.silentStopMessage(reason, truncated: truncated)
-                ))
+                // State, not a bubble: the notice comes with a Continue button
+                // now, and both should disappear once it is spent. A bubble
+                // would sit in the transcript forever, still telling the user
+                // to do something they have already done.
+                stoppedNotice = StoppedNotice(reason: reason, truncated: truncated)
             }
         case .error(let message, let code):
             openToolRoundId = nil
@@ -1745,18 +1783,24 @@ public final class ChatViewModel {
     /// User-facing note for a turn that ended before the agent settled.
     /// `truncated` means the agent had already replied, so the text above the
     /// note is partial rather than absent.
-    static func silentStopMessage(_ reason: SilentReason, truncated: Bool = false) -> String {
+    ///
+    /// No call to action in any of them: the banner carries a Continue button,
+    /// and a button beside a sentence telling the user to type the same word
+    /// reads as a bug.
+    nonisolated static func stoppedTurnMessage(
+        _ reason: SilentReason, truncated: Bool = false
+    ) -> String {
         switch reason {
         case .emptyTurn:
-            return "The agent finished its turn without a reply. Say \u{201C}continue\u{201D} to nudge it."
+            return "The agent finished its turn without a reply."
         case .maxRounds:
-            return "Stopped after the tool-round safety limit. Say \u{201C}continue\u{201D} to resume."
+            return "Stopped after the tool-round safety limit."
         case .droppedStream:
             return truncated
-                ? "The connection closed mid-reply. Say \u{201C}continue\u{201D} or try again."
-                : "The connection closed before the agent replied. Say \u{201C}continue\u{201D} or try again."
+                ? "The connection closed mid-reply."
+                : "The connection closed before the agent replied."
         case .droppedInterrupt:
-            return "The agent\u{2019}s last action didn\u{2019}t come through. Say \u{201C}continue\u{201D} to retry it."
+            return "The agent\u{2019}s last action didn\u{2019}t come through."
         case .backend(let detail):
             return "The agent stopped: \(detail)"
         }

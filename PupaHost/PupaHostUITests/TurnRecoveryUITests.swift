@@ -304,6 +304,10 @@ final class TurnRecoveryUITests: XCTestCase {
         app.launchArguments = [
             "-PupaStorageRoot", "ephemeral:\(root)",
             "-PupaSkipOnboarding", "1",
+            // The drawer covers the bottom bar with a bar of its own, and its
+            // open state persists. Start on the canvas; `NotificationsFlow`
+            // passes YES because the Settings gear lives in the drawer.
+            "-pupa.ui.sidebarOpen", "NO",
         ] + (reset ? ["-PupaStorageReset", "1"] : []) + extra
         app.launchEnvironment["PUPA_SCRIPT"] = script
         // Forwarded by `make ui-test-live`; absent for a scripted run.
@@ -330,7 +334,7 @@ final class TurnRecoveryUITests: XCTestCase {
     /// The MyApps drawer carries its own bottom bar, laid directly over the
     /// main one — so while it is open the chat toggle exists, and even reports
     /// hittable, while a tap at its point lands on the drawer's Settings
-    /// button instead. A driven launch closes it (`-PupaSidebarOpen`).
+    /// button instead. These launches start with it closed.
     ///
     /// Fails loudly when it can't get through: the previous `if
     /// toggle.isHittable` silently did nothing, which turned every downstream

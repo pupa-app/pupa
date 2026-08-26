@@ -10,6 +10,15 @@ tool" first — it is the spec these scenarios check. For the layers that *are*
 automatable — headless whole-turn scenarios and `PupaCtl` against a live
 backend — see [testing.md](testing.md).
 
+**Several scenarios below are now automated.** `TurnRecoveryUITests`
+(`make ui-test-recovery`) drives a real simulator process through
+background/foreground, a kill mid-stream, and a kill inside the park window —
+the last made sittable rather than raced by the scripted `fail: "hang"`. What
+stays here is what it still cannot reach: a *real* backend park with real
+timers, a real network drop, real jetsam, and the multi-park and expired-park
+endings. Note also that the simulator never suspends a backgrounded app, so its
+~30s grace never fires there — only a device tells you the truth about that.
+
 ## The mechanism in one paragraph
 
 The backend closes its SSE and **parks** while the app runs an on-device tool.

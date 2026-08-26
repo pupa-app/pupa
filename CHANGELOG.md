@@ -3,6 +3,20 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.269] — 2026-08-26
+
+### Changed
+
+- **A turn that stops short now offers a Continue button.** Previously only a
+  turn whose connection *failed* got one; a turn that ended cleanly but
+  unsettled — no reply, the round-cap, a dropped stream the retries could not
+  recover — instead left a note in the transcript telling you to type
+  "continue" yourself. That was the far commoner ending, so the button rarely
+  appeared and the instruction usually did. Both endings now show the same
+  banner with the same button, and the note is gone from the transcript.
+- **"Reconnecting…" now appears while a dropped stream is being retried,**
+  rather than after the retries are exhausted. A recovered turn clears it.
+
 ## [0.0.268] — 2026-08-26
 
 ### Added
