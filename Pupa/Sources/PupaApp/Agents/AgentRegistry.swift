@@ -85,7 +85,7 @@ public enum AgentRegistry {
             id: "prompt",
             label: "Prompt",
             value: .link(
-                label: promptPath,
+                label: promptDisplayPath(promptPath),
                 destination: .myAppMemoryFile(myApp.id, promptPath)
             ),
             note: promptOnDisk
@@ -218,7 +218,7 @@ public enum AgentRegistry {
             id: "prompt",
             label: "Prompt",
             value: .link(
-                label: promptPath,
+                label: promptDisplayPath(promptPath),
                 destination: .myAppMemoryFile(myApp.id, promptPath)
             ),
             note: "Edit this AGENTS.md to change the persona, tools (frontmatter `tools`), or model (`model`/`provider`)."
@@ -314,6 +314,14 @@ public enum AgentRegistry {
     }
 
     // MARK: - Shared property builders
+
+    /// Drop a myApp's UUID folder from a memory path before showing it.
+    /// The link's destination is already myApp-scoped, so the id is noise.
+    static func promptDisplayPath(_ path: String) -> String {
+        let head = path.prefix(while: { $0 != "/" })
+        guard UUID(uuidString: String(head)) != nil else { return path }
+        return String(path.dropFirst(head.count + 1))
+    }
 
     @MainActor
     private static func modelProperty(
