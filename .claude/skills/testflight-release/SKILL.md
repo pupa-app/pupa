@@ -57,14 +57,14 @@ Branch names default to `dev`/`main`; override with `DEV_BRANCH=` / `MAIN_BRANCH
 2. Checks the icons: `icon_1024.png` has no alpha (App Store Connect silently shows the wireframe placeholder for icons with transparency), and `AppIcon.icon` still has its alpha-backed `mark.png` and `"glass": false`.
 3. Reads `PupaAppVersion` from `Version.swift`, syncs `MARKETING_VERSION` in `project.pbxproj` if they differ.
 4. Sets `CURRENT_PROJECT_VERSION` to the commit count (floored at current+1, so it can only ever rise) for the app target's buildSettings blocks only (matched by the app `MARKETING_VERSION`; test targets stay at `1`).
-5. If pbxproj changed, commits the bump on the current branch (`dev` under `--flow`) with a generic `chore(ios): bump build to N` message. Decides whether a commit is needed *before* editing anything, and refuses outright on `main` or a detached HEAD — leaving the file untouched. Stops if working tree is otherwise dirty.
+5. If pbxproj changed, commits the bump on the current branch (`dev` under `--flow`) with a generic `chore(ios): bump build to N` message. Decides whether a commit is needed *before* editing anything, and refuses — leaving the file untouched — on `main`, on a detached HEAD, or if `project.pbxproj` already carries changes of the user's own. Stops if working tree is otherwise dirty.
 6. With `--flow` only: fast-forwards `main` from `dev` (`--ff-only`; aborts if diverged) and archives `main`. Otherwise archives the current checkout.
 7. Runs `xcodebuild archive` twice: `-destination generic/platform=iOS` into `build/Pupa.xcarchive`, then `-destination generic/platform=macOS` into `build/Pupa-macOS.xcarchive`.
 8. Checks the macOS archive's signed entitlements against the expected set (sandbox,
    network client + server, user-selected files). The signature is the only ground
    truth here — the `com.apple.security.*` keys are synthesized from `ENABLE_*` build
    settings and never appear in `PupaHost.entitlements`.
-9. Verifies each archive's `Info.plist` reports the expected version + build + bundle ID.
+9. Reads and prints each archive's `Info.plist` version + build + bundle ID. It does *not* assert them — check the printed values against what you expected. (`dmg-release` does assert its equivalent; the two channels differ here.)
 
 Nothing is pushed. Under `--flow` the script prints the `git push origin dev main` command for a human to run; by default no branch moved, so there is nothing to push.
 
@@ -103,6 +103,10 @@ If the user wants to skip Organizer and upload via CLI: `xcrun altool --upload-a
   `EXPECTED_SECURITY` here and the entitlement table in `docs/architecture.md`
   in the same commit.
 - **Working tree dirty (non-pbxproj files)**: refuse and ask the user to commit/stash first.
+- **Working tree dirty (`project.pbxproj` itself)**: allowed on arrival, but refused
+  once a bump or `MARKETING_VERSION` sync is actually needed — `git add` stages the
+  whole file, so the user's own edit would land in a commit titled "bump build to N".
+  Ask them to commit or stash just that file.
 - **`main` can't fast-forward from `dev`**: `main` has commits not on `dev` (they diverged). The script aborts before archiving. Resolve the branch state manually (or merge `main` into `dev`), then re-run. Under `--flow` the bump commit is already on `dev` at this point — no harm in re-running.
 - **Archive fails on signing**: usually means agreements unaccepted at `developer.apple.com` or the Xcode Apple ID needs re-auth. Direct the user there; don't try to fix from the CLI.
 - **`ITMS-` validation errors**: these only surface during upload (in Organizer), not archive. Out of scope for this skill — if Apple emails a rejection, address the specific error code.
