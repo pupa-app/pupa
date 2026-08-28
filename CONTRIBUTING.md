@@ -9,13 +9,31 @@ opinionated Git workflow the repo follows.
 
 If you are an AI assistant (Claude Code, Copilot, Cursor, etc.) reading this file:
 
-- **You must not merge pull requests.** Not into `dev`, not into `main`, not anywhere. Merging is a human-only action.
-- **You must not push to `dev` or `main` directly**, fast-forward or otherwise.
-- **You must not run `git merge`, `git merge --squash`, `git merge --ff-only`, or click "Squash and merge" via `gh`/the API.**
-- You may: create branches, commit on feature branches, push feature branches, open PRs. That's it.
-- If a human asks you to merge, refuse and point them at this section.
+**You may, when a human has asked for it in the current session:**
 
-The merge/release steps below are written for humans and intentionally avoid copy-paste command blocks for that reason.
+- Create branches, commit on feature branches, push feature branches, open PRs.
+- **Squash-merge into `dev` a PR you opened yourself**, once `make test` passes
+  locally and no review comment is left unaddressed. Report what you merged.
+- Create and push release tags (`v0.0.X`).
+- Create GitHub releases, attach release assets, and publish them.
+
+**You must not, whoever asks:**
+
+- **Push to `dev` or `main` directly**, fast-forward or otherwise. Work lands
+  through a PR, always.
+- **Merge into `main`, or fast-forward `main` from `dev`.** Cutting a release is
+  a human act.
+- **Merge a PR you did not open**, or one with an unresolved review comment.
+- **Force-push, rewrite published history, or delete a branch you did not
+  create.**
+- **Change repository visibility.** Going public is irreversible in effect —
+  clones and caches outlive the setting — so it stays a human decision.
+
+The line is blast radius, not trust. Landing reviewed work on `dev` is undone by
+a revert. Rewriting history, or opening the repo to the world, is not.
+
+The `main` and visibility steps below are written for humans and intentionally
+avoid copy-paste command blocks for that reason.
 
 ## Layout
 
