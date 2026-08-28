@@ -23,6 +23,7 @@ STAGE="build/dmg-stage"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
 SKIP_NOTARIZE=0
 DEV_SIGNING=0
+PUBLISH=0
 usage() {
   cat <<EOF
 usage: $0 [--notary-profile NAME] [--skip-notarize] [--development-signing]
@@ -31,6 +32,11 @@ usage: $0 [--notary-profile NAME] [--skip-notarize] [--development-signing]
   --skip-notarize        Archive, export and package only. The DMG will be
                          signed but NOT notarized — Gatekeeper will refuse it on
                          any other Mac. Local validation only.
+  --publish              After notarizing, attach the DMG to a DRAFT GitHub
+                         release on tag v<version> and print its URL. The tag
+                         must already exist on origin — tagging is a human step
+                         (see CONTRIBUTING). The release is left as a draft for a
+                         human to publish. Refused for un-notarized builds.
   --development-signing  Smoke-test this pipeline with an Apple Development
                          identity, for contributors with no Developer ID
                          certificate. Implies --skip-notarize (an Apple
@@ -44,6 +50,7 @@ while [[ $# -gt 0 ]]; do
     --notary-profile) NOTARY_PROFILE="${2:-}"; shift 2;;
     --skip-notarize) SKIP_NOTARIZE=1; shift;;
     --development-signing) DEV_SIGNING=1; SKIP_NOTARIZE=1; shift;;
+    --publish) PUBLISH=1; shift;;
     -h|--help) usage; exit 0;;
     *) echo "unknown flag: $1" >&2; usage >&2; exit 2;;
   esac
@@ -89,6 +96,16 @@ if [[ $SKIP_NOTARIZE -eq 0 ]]; then
   xcrun --find notarytool >/dev/null 2>&1 || die "notarytool not found. Needs Xcode 13+."
 fi
 
+# A DMG that isn't notarized is refused by Gatekeeper on every machine but the
+# one that built it. Publishing one would hand users a download that cannot be
+# opened, so the two flags are mutually exclusive rather than merely unwise.
+if [[ $PUBLISH -eq 1 ]]; then
+  [[ $SKIP_NOTARIZE -eq 0 ]] \
+    || die "--publish cannot be combined with --skip-notarize or --development-signing.
+       Only a notarized, stapled DMG may be published."
+  command -v gh >/dev/null || die "gh not on PATH — needed for --publish."
+fi
+
 VERSION=$(grep 'PupaAppVersion: String' "$VERSION_SWIFT" | sed -E 's/.*"([^"]+)".*/\1/')
 [[ -n "$VERSION" ]] || die "Could not read PupaAppVersion from $VERSION_SWIFT."
 if [[ $DEV_SIGNING -eq 1 ]]; then
@@ -98,6 +115,13 @@ else
   DMG="build/Pupa-$VERSION.dmg"
   EXPORT_METHOD="developer-id"
 fi
+if [[ $PUBLISH -eq 1 ]]; then
+  # Check before the 5-minute archive rather than after it.
+  git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1 \
+    || die "Tag v$VERSION does not exist on origin. Tagging a release is a human step:
+       git tag v$VERSION && git push origin v$VERSION"
+fi
+
 note "building Pupa $VERSION for the Developer ID channel"
 
 # project.pbxproj carries whatever MARKETING_VERSION the last TestFlight release
@@ -181,7 +205,18 @@ ln -s /Applications "$STAGE/Applications"
 rm -f "$DMG"
 hdiutil create -volname "Pupa" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null \
   || die "hdiutil create failed."
-note "packaged $DMG"
+# Sign the disk image itself, not just the app inside it. Notarization staples a
+# ticket to the DMG either way, but Gatekeeper still evaluates the image's own
+# signature — an unsigned one is "rejected: no usable signature" no matter how
+# well the app inside is signed. Sign before submitting: signing after would
+# invalidate the staple.
+DEVID=$(security find-identity -v -p codesigning 2>/dev/null \
+  | awk '/Developer ID Application/ { print $2; exit }')
+[[ -n "$DEVID" ]] || die "Could not resolve a Developer ID Application identity to sign the DMG."
+codesign --force --sign "$DEVID" --timestamp "$DMG" 2>/dev/null \
+  || die "codesign failed on $DMG."
+codesign --verify --strict "$DMG" 2>/dev/null || die "codesign --verify failed on $DMG."
+note "packaged and signed $DMG"
 
 BUNDLE_SHORT=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist" 2>/dev/null || echo '?')
 BUNDLE_BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist" 2>/dev/null || echo '?')
@@ -239,12 +274,47 @@ SPCTL=$(spctl -a -t open --context context:primary-signature -v "$DMG" 2>&1 || t
   || die "spctl rejected $DMG — Gatekeeper would refuse it:
        $SPCTL"
 
+if [[ $PUBLISH -eq 1 ]]; then
+  # Upload under a constant filename so the website can hardcode one permanent
+  # link — https://github.com/<owner>/<repo>/releases/latest/download/Pupa.dmg
+  # only resolves when the asset name is the same in every release. The version
+  # lives in the tag and title.
+  STABLE="build/Pupa.dmg"
+  cp "$DMG" "$STABLE"
+
+  # Release notes are the CHANGELOG section for this version, verbatim.
+  NOTES=$(mktemp -t pupa-notes)
+  trap 'rm -f "$NOTES"' EXIT
+  awk -v v="## [$VERSION]" '
+    index($0, v) == 1 { inside = 1; next }
+    inside && /^## \[/ { exit }
+    inside { print }
+  ' CHANGELOG.md > "$NOTES"
+  [[ -s "$NOTES" ]] || die "No CHANGELOG section found for $VERSION — write one before publishing."
+
+  if gh release view "v$VERSION" >/dev/null 2>&1; then
+    note "release v$VERSION exists — replacing its asset"
+    gh release upload "v$VERSION" "$STABLE" --clobber >/dev/null \
+      || die "gh release upload failed."
+  else
+    gh release create "v$VERSION" "$STABLE" \
+      --draft --title "Pupa $VERSION" --notes-file "$NOTES" >/dev/null \
+      || die "gh release create failed."
+  fi
+  RELEASE_URL=$(gh release view "v$VERSION" --json url -q .url)
+  note "draft release ready: $RELEASE_URL"
+fi
+
 cat <<EOF
 
 DMG READY
   $DMG
   Bundle reports $BUNDLE_SHORT (build $BUNDLE_BUILD), notarized and stapled,
-  Gatekeeper accepted
+  Gatekeeper accepted${RELEASE_URL:+
+
+  Draft release: $RELEASE_URL
+  Review it and publish by hand — publishing is a human step. Note that while
+  the repo is private, the download link only works for authenticated users.}
 
 Verify on a machine that has never seen this build (or clear the quarantine
 cache) before publishing. Upload it wherever the download link points, and

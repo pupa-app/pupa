@@ -190,6 +190,29 @@ embedded profile matters.
 Never publish a `--skip-notarize` build: Gatekeeper refuses it everywhere except
 the machine that built it.
 
+### Publishing a DMG
+
+The DMG is distributed as a GitHub Release asset on this repo — attached to the
+release, not committed, so the repository never carries binaries. Tag first
+(human step), then:
+
+```bash
+git tag v0.0.X && git push origin v0.0.X
+.claude/skills/dmg-release/release.sh --notary-profile <name> --publish
+```
+
+`--publish` attaches the DMG to a **draft** release for tag `v0.0.X`, using that
+version's CHANGELOG section as the notes, and prints the URL. A human reviews and
+publishes it. It is refused for un-notarized builds, since publishing one would
+hand users a download their Mac won't open.
+
+The asset is uploaded as `Pupa.dmg` — a constant filename, so
+`releases/latest/download/Pupa.dmg` stays a permanent link the website can
+hardcode. The version lives in the tag and title.
+
+**While this repo is private, release downloads require a GitHub login.** The
+link in the README only works for everyone once the repo is public.
+
 ## Branches
 
 | Branch | Role |
