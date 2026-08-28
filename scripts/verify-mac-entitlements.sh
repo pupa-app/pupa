@@ -54,7 +54,9 @@ fi
 [[ -d "$APP" ]] || die "No app bundle at $APP."
 [[ -f "$CONTAINER_SOURCE" ]] || die "Run from the repo root. Could not find $CONTAINER_SOURCE."
 
-EXPECTED_CONTAINER=$(grep 'containerID = ' "$CONTAINER_SOURCE" | sed -E 's/.*"([^"]+)".*/\1/')
+# `|| true` so the explicit guard below reports the problem. Without it, a failing
+# substitution trips `set -e` and the script dies with no message at all.
+EXPECTED_CONTAINER=$(grep 'containerID = ' "$CONTAINER_SOURCE" | sed -E 's/.*"([^"]+)".*/\1/' || true)
 [[ -n "$EXPECTED_CONTAINER" ]] || die "Could not read PupaStorage.containerID from $CONTAINER_SOURCE."
 
 ENT=$(mktemp -t pupa-entitlements)

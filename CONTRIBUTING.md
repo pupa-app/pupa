@@ -276,8 +276,36 @@ Before a human cuts the release:
 
 - Bump versions per [CLAUDE.md → Versioning](CLAUDE.md#versioning) (patch-only unless explicitly told otherwise). AI assistants may prepare these bumps on a feature branch and open a PR into `dev`.
 - Add a CHANGELOG entry under the new version on `dev`. Same rule — AI may prepare it on a branch and open a PR; the human merges.
+- **Bump `CURRENT_PROJECT_VERSION` in that same PR**, rather than letting
+  `archive.sh` do it afterwards. Validate the number with
+  `archive.sh --no-bump --no-flow` first.
 - After the human fast-forwards `main` and pushes, they tag the release (`v0.0.X`) and push the tag.
 - Ship to TestFlight via the `testflight-release` skill (syncs `MARKETING_VERSION` to `PupaAppVersion`, bumps the build number, archives). Upload the `.xcarchive` through Xcode Organizer.
+
+### The order matters, and why
+
+1. Feature work lands on `dev` as squash-merged PRs.
+2. **One release PR** into `dev`: `PupaAppVersion`, `AGUIKitVersion` if touched,
+   CHANGELOG section, README badge, **and `CURRENT_PROJECT_VERSION`**.
+3. Human fast-forwards `main` from `dev`, pushes both.
+4. Human tags `v0.0.X` at that SHA and pushes the tag. `main`, `dev` and the tag
+   now name one commit.
+5. From that checkout: `archive.sh --no-bump --no-flow` → both `.xcarchive`s →
+   Organizer.
+6. From the **same** checkout: `release.sh --notary-profile <name> --publish` →
+   DMG and GitHub release.
+
+Two invariants this exists to protect:
+
+- **Both artifacts must build from the tagged commit.** `release.sh --publish`
+  refuses a dirty tree or a `HEAD` that isn't the tag, because a published
+  download nobody can reproduce is worse than no download.
+- **`CFBundleVersion` must be identical across both channels for a given
+  marketing version.** Sparkle orders updates by build number alone and ignores
+  the marketing string, so the same version shipping as build 215 on the App
+  Store and 216 in the DMG is two different builds as far as an updater is
+  concerned. Putting the bump in step 2 makes them agree by construction rather
+  than by luck; `release.sh` asserts it.
 
 ## Commit messages
 

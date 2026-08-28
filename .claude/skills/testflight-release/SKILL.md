@@ -13,6 +13,12 @@ Run `archive.sh` next to this file. Do not re-implement its logic with sequentia
 
 User wants `.xcarchive`s ready for TestFlight upload. Typical phrasings: "ship to TestFlight", "archive for TestFlight", "make a build for TestFlight", "release the iOS app". Pupa ships iOS + macOS under one Universal Purchase App Store Connect record, so the script always archives both platforms from the single `PupaHost` target (`SUPPORTED_PLATFORMS` covers both — same `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION`, no per-platform version skew possible). The skill stops at producing the `.xcarchive`s — uploading is done manually via Xcode Organizer (avoids needing App Store Connect API credentials).
 
+> **Assistants must pass `--no-flow`.** Without it the script commits a build
+> bump straight onto `dev` and fast-forwards `main` — both forbidden by the AI
+> rules in `CONTRIBUTING.md`. With `--no-flow` it bumps and archives the current
+> branch in place, which is safe. Branch movement, tagging `main`, and pushing
+> are the human's steps.
+
 ## Before invoking the script
 
 1. **Confirm git state.** The script bumps on `dev`, fast-forwards `main` from `dev`, then archives `main`. Verify with the user:
@@ -69,11 +75,12 @@ Nothing is pushed — both branches are aligned locally and the script prints th
      >
      > If an archive doesn't appear, close and reopen Organizer.
 
-3. **Push both branches yourself to conclude the realignment — but only once every step above succeeded** (both archives produced + verified, `open` registered them with Organizer). Do not push on any earlier failure. The script bumped `dev` and fast-forwarded `main` from it, so they share the same history (no realign needed). The push is a plain fast-forward, no `--force`, so run it directly without asking:
+3. **Print this for the human to run — do not run it yourself.** Moving `main`
+   and pushing it are human-only under the AI rules in `CONTRIBUTING.md`:
    ```bash
    git push origin dev main
    ```
-   Confirm both refs advanced to the same SHA, then report the pushed SHA to the user.
+   Report the local SHAs so they can confirm both refs advanced together.
 
 If the user wants to skip Organizer and upload via CLI: `xcrun altool --upload-app -f build/Pupa.xcarchive ...` needs an App-Specific Password or API key — out of scope for this skill.
 
