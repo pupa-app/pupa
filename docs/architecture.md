@@ -1789,6 +1789,7 @@ container and iCloud container — so a user moving between them keeps their dat
 | Provisioning profile | Apple supplies | **must be embedded in the app** |
 | Updates | automatic | manual today (pupa#246 step 4) |
 | Tooling | `testflight-release` | `dmg-release` |
+| Hosting | App Store | GitHub Release asset on this repo (`releases/latest/download/Pupa.dmg`) |
 
 **The embedded profile is the trap.** iCloud is a *restricted* entitlement:
 Apple has to grant it, and on a Developer ID build that grant travels in a

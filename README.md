@@ -53,13 +53,27 @@ no dependency on Pupa, embeddable in any project.
 
 ## Get Pupa
 
-**App Store: coming soon.** Email
-[support@pupa-app.com](mailto:support@pupa-app.com) for a TestFlight
-invite and try it early. One app covers iPhone, iPad and Mac — the invite
-includes the Mac build, and a single Universal Purchase will cover all
-three.
+One app covers iPhone, iPad and Mac, and a single Universal Purchase will
+cover all three.
 
-To build from source, see [CONTRIBUTING.md](CONTRIBUTING.md).
+**Mac — download now.** Grab the latest notarized build:
+
+**[⬇ Download Pupa for macOS](https://github.com/pupa-app/pupa/releases/latest/download/Pupa.dmg)**
+· [all releases](https://github.com/pupa-app/pupa/releases)
+
+Open the `.dmg` and drag Pupa to Applications. macOS 14 or later. The build is
+signed and notarized by Apple, so it opens without a Gatekeeper warning.
+
+**iPhone and iPad — App Store coming soon.** Email
+[support@pupa-app.com](mailto:support@pupa-app.com) for a TestFlight invite and
+try it early; the invite covers the Mac build too.
+
+**Building from source** is a different path — see
+[CONTRIBUTING.md](CONTRIBUTING.md). You do not need to build anything to use
+Pupa; the download above is the whole app.
+
+> The Mac download updates by re-downloading — there is no in-app updater yet.
+> Watch [releases](https://github.com/pupa-app/pupa/releases) for new builds.
 
 ## Docs
 
