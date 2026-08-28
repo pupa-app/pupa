@@ -157,6 +157,14 @@ else
   NEW_BUILD=$(( COMMIT_COUNT > CURRENT_BUILD ? COMMIT_COUNT : CURRENT_BUILD + 1 ))
 fi
 
+# A dirty pbxproj is tolerated by the gate above, and when nothing needs syncing
+# the refusal below never runs — so an uncommitted hand-edit would be archived
+# and reported as the tag's build. Not fatal (CONTRIBUTING step 5 is a --no-bump
+# run from a clean tag checkout), but say so rather than ship it silently.
+if ! git diff --quiet HEAD -- "$PBXPROJ" 2>/dev/null; then
+  echo "warning: $PBXPROJ has uncommitted changes; the archive will carry them." >&2
+fi
+
 # --- apply pbxproj edits --------------------------------------------------
 # Work out whether an edit is needed *before* making one. The commit below is not
 # gated on --flow (a MARKETING_VERSION sync sets NEEDS_COMMIT even under
@@ -169,8 +177,13 @@ NEEDS_COMMIT=0
 
 if [[ $NEEDS_COMMIT -eq 1 ]]; then
   BRANCH=$(git rev-parse --abbrev-ref HEAD)
-  case "$BRANCH" in
-    "$MAIN_BRANCH"|HEAD)
+  # --flow checks out $DEV_BRANCH on purpose to commit there, and is human-only;
+  # without it, a commit on $DEV_BRANCH is one the assistant may not push
+  # (CONTRIBUTING: work lands through a PR), so it would sit local and diverge.
+  REFUSE_ON="$MAIN_BRANCH|HEAD"
+  [[ $FLOW -eq 0 ]] && REFUSE_ON="$REFUSE_ON|$DEV_BRANCH"
+  case "|$REFUSE_ON|" in
+    *"|$BRANCH|"*)
       # List only what is actually pending, and only offer --no-bump when it
       # would change anything — a message naming 215 → 215, or suggesting a flag
       # the operator already passed, is the kind of dead-end remedy this script
@@ -184,6 +197,8 @@ if [[ $NEEDS_COMMIT -eq 1 ]]; then
       [[ $NO_BUMP -eq 0 && "$NEW_BUILD" != "$CURRENT_BUILD" && "$CURRENT_MV" == "$TARGET_MV" ]] \
         && REMEDY="
        Or pass --no-bump if the build number is already correct."
+      [[ $FLOW -eq 1 && -n "${START_BRANCH:-}" && "$START_BRANCH" != "$BRANCH" ]] \
+        && git checkout -q "$START_BRANCH" 2>/dev/null
       die "Refusing to change $PBXPROJ on '$BRANCH' — it would need a commit here.
        Pending: ${PENDING}.
        Land it in the release PR on ${DEV_BRANCH} and re-tag (see CONTRIBUTING → Releases).${REMEDY}" ;;
@@ -234,10 +249,20 @@ fi
 
 if [[ $NEEDS_COMMIT -eq 1 ]]; then
   git add "$PBXPROJ"
-  git commit -m "$(printf 'chore(ios): bump build to %s\n\nAI generated' "$NEW_BUILD")" >/dev/null \
+  if [[ "$NEW_BUILD" != "$CURRENT_BUILD" && "$CURRENT_MV" != "$TARGET_MV" ]]; then
+    SUBJECT="chore(ios): bump build to $NEW_BUILD, sync MARKETING_VERSION to $TARGET_MV"
+  elif [[ "$NEW_BUILD" != "$CURRENT_BUILD" ]]; then
+    SUBJECT="chore(ios): bump build to $NEW_BUILD"
+  else
+    SUBJECT="chore(ios): sync MARKETING_VERSION to $TARGET_MV"
+  fi
+  git commit -m "$(printf '%s\n\nAI generated' "$SUBJECT")" >/dev/null \
     || die "Committing $PBXPROJ failed — a pre-commit hook, most likely (this repo has one that
        rejects a non-empty DEVELOPMENT_TEAM). The bump is staged but not committed; see it with:
        git diff --cached -- $PBXPROJ"
+  # Unstage it: left staged, the next run's absorb guard reports the script's own
+  # bump as the user's uncommitted work.
+  git reset -q -- "$PBXPROJ" 2>/dev/null || true
   note "committed pbxproj changes on '${BRANCH}' (not pushed)"
 fi
 
@@ -283,9 +308,14 @@ scripts/verify-mac-entitlements.sh "$ARCHIVE_MACOS"
 verify_archive() {
   local archive_path="$1"
   local v b i
-  v=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleShortVersionString" "$archive_path/Info.plist")
-  b=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleVersion" "$archive_path/Info.plist")
-  i=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleIdentifier" "$archive_path/Info.plist")
+  # `|| echo '?'` as release.sh does: inside $( ) inside a function, a PlistBuddy
+  # failure does not propagate under set -e on bash 3.2, so a malformed archive
+  # would otherwise print blank values beneath "ARCHIVES READY".
+  v=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleShortVersionString" "$archive_path/Info.plist" 2>/dev/null || echo '?')
+  b=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleVersion" "$archive_path/Info.plist" 2>/dev/null || echo '?')
+  i=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleIdentifier" "$archive_path/Info.plist" 2>/dev/null || echo '?')
+  [[ "$v" != "?" && "$b" != "?" && "$i" != "?" ]] \
+    || die "Could not read version/build/bundle id from $archive_path — the archive is malformed."
   echo "$v|$b|$i"
 }
 

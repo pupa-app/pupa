@@ -16,7 +16,9 @@ User wants `.xcarchive`s ready for TestFlight upload. Typical phrasings: "ship t
 > **The `dev`→`main` dance is opt-in (`--flow`), and human-only.** By default the
 > script bumps and archives the current branch in place. It still *commits* the
 > bump there — it moves no branch ref other than the one you are already on — so
-> an assistant can run it without tripping the AI rules in `CONTRIBUTING.md`.
+> an assistant can run it without tripping the AI rules in `CONTRIBUTING.md` —
+> it refuses to commit on `main`, on a detached HEAD, or on `dev`, so the bump
+> can only land somewhere a PR can carry it.
 > Assistants should also pass `--no-bump`.
 >
 > Neither flag stops the script *committing*: a `MARKETING_VERSION` sync sets
@@ -57,7 +59,13 @@ Branch names default to `dev`/`main`; override with `DEV_BRANCH=` / `MAIN_BRANCH
 2. Checks the icons: `icon_1024.png` has no alpha (App Store Connect silently shows the wireframe placeholder for icons with transparency), and `AppIcon.icon` still has its alpha-backed `mark.png` and `"glass": false`.
 3. Reads `PupaAppVersion` from `Version.swift`, syncs `MARKETING_VERSION` in `project.pbxproj` if they differ.
 4. Sets `CURRENT_PROJECT_VERSION` to the commit count (floored at current+1, so it can only ever rise) for the app target's buildSettings blocks only (matched by the app `MARKETING_VERSION`; test targets stay at `1`).
-5. If pbxproj changed, commits the bump on the current branch (`dev` under `--flow`) with a generic `chore(ios): bump build to N` message. Decides whether a commit is needed *before* editing anything, and refuses — leaving the file untouched — on `main`, on a detached HEAD, or if `project.pbxproj` already carries changes of the user's own. Stops if working tree is otherwise dirty.
+5. If pbxproj changed, commits on the current branch, with a subject naming what
+   actually changed (build number, `MARKETING_VERSION`, or both). It decides
+   whether a commit is needed *before* editing anything, and refuses — leaving the
+   file untouched — on `main`, on a detached HEAD, on `dev` unless `--flow`, or if
+   `project.pbxproj` already carries changes of the user's own. So by default the
+   bump lands on a feature branch, which is the only place an assistant may put it.
+   Stops if the working tree is otherwise dirty.
 6. With `--flow` only: fast-forwards `main` from `dev` (`--ff-only`; aborts if diverged) and archives `main`. Otherwise archives the current checkout.
 7. Runs `xcodebuild archive` twice: `-destination generic/platform=iOS` into `build/Pupa.xcarchive`, then `-destination generic/platform=macOS` into `build/Pupa-macOS.xcarchive`.
 8. Checks the macOS archive's signed entitlements against the expected set (sandbox,
@@ -66,7 +74,9 @@ Branch names default to `dev`/`main`; override with `DEV_BRANCH=` / `MAIN_BRANCH
    settings and never appear in `PupaHost.entitlements`.
 9. Reads and prints each archive's `Info.plist` version + build + bundle ID. It does *not* assert them — check the printed values against what you expected. (`dmg-release` does assert its equivalent; the two channels differ here.)
 
-Nothing is pushed. Under `--flow` the script prints the `git push origin dev main` command for a human to run; by default no branch moved, so there is nothing to push.
+Nothing is pushed. Under `--flow` the script prints the `git push origin dev main`
+command for a human to run. By default the bump commit sits on your feature
+branch — land it through a PR like any other change.
 
 ## After the script
 
@@ -88,7 +98,8 @@ Nothing is pushed. Under `--flow` the script prints the `git push origin dev mai
    git push origin dev main
    ```
    Report the local SHAs so they can confirm both refs advanced together. By
-   default no branch moved and there is nothing to push.
+   default the bump is a commit on your feature branch; land it through a PR
+   rather than pushing a branch this script moved.
 
 If the user wants to skip Organizer and upload via CLI: `xcrun altool --upload-app -f build/Pupa.xcarchive ...` needs an App-Specific Password or API key — out of scope for this skill.
 
@@ -113,7 +124,7 @@ If the user wants to skip Organizer and upload via CLI: `xcrun altool --upload-a
 
 ## Don't
 
-- Don't push *before* the archive succeeds and is verified. Under `--flow` the script moves branches *locally* only; the push is a human step afterwards. By default nothing moved, so there is nothing to push.
+- Don't push *before* the archive succeeds and is verified. Under `--flow` the script moves branches *locally* only; the push is a human step afterwards. By default `main` and `dev` are untouched — the bump is a commit on your feature branch, for a PR.
 - Don't force-push. `dev`→`main` is a fast-forward; if a plain push is rejected, the branches diverged — stop and surface it, never `--force`.
 - Don't upload to App Store Connect from this skill — Organizer step is intentional (avoids credential handling).
 - Don't touch `Version.swift` / `PupaAppVersion` — that bump is part of the project release flow (CHANGELOG), not this skill's job.
