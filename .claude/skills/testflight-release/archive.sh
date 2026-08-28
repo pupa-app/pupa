@@ -27,16 +27,22 @@ MAIN_BRANCH="${MAIN_BRANCH:-main}"
 BUILD_OVERRIDE=""
 NO_BUMP=0
 SKIP_ICON=0
-NO_FLOW=0
+# The dev→main dance is opt-in. Moving `main` is forbidden to assistants and is
+# a human release act either way (CONTRIBUTING → AI assistants), so the default
+# is to bump and archive in place and let a human move branches.
+FLOW=0
 usage() {
   cat <<EOF
-usage: $0 [--build N] [--no-bump] [--skip-icon-check] [--no-flow]
+usage: $0 [--build N] [--no-bump] [--skip-icon-check] [--flow]
   --build N            Set CURRENT_PROJECT_VERSION to N (must exceed the current
                        build; default: commit count, see below)
   --no-bump            Don't change the build number
   --skip-icon-check    Skip the icon_1024.png / AppIcon.icon integrity checks
-  --no-flow            Bump + archive the current branch in place; skip the
-                       $DEV_BRANCH→$MAIN_BRANCH fast-forward (local validation builds)
+  --flow               Also switch to $DEV_BRANCH, commit the bump there, and
+                       fast-forward $MAIN_BRANCH from it before archiving. Human-only:
+                       moving $MAIN_BRANCH is forbidden to assistants. Off by default,
+                       in which case the current branch is bumped and archived in
+                       place and branch movement is left to you.
 EOF
 }
 while [[ $# -gt 0 ]]; do
@@ -44,7 +50,8 @@ while [[ $# -gt 0 ]]; do
     --build) BUILD_OVERRIDE="${2:-}"; shift 2;;
     --no-bump) NO_BUMP=1; shift;;
     --skip-icon-check) SKIP_ICON=1; shift;;
-    --no-flow) NO_FLOW=1; shift;;
+    --flow) FLOW=1; shift;;
+    --no-flow) FLOW=0; shift;;   # accepted for compatibility; now the default
     -h|--help) usage; exit 0;;
     *) echo "unknown flag: $1" >&2; usage >&2; exit 2;;
   esac
@@ -72,11 +79,11 @@ fi
 # fast-forwarded from it after the commit (see below). This keeps both
 # branches pointing at the same SHA — no need to realign main→dev afterward.
 START_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-if [[ $NO_FLOW -eq 0 ]]; then
+if [[ $FLOW -eq 1 ]]; then
   git rev-parse --verify --quiet "$DEV_BRANCH" >/dev/null \
-    || die "Branch '$DEV_BRANCH' not found (use --no-flow to bump+archive the current branch)."
+    || die "Branch '$DEV_BRANCH' not found (only needed with --flow)."
   git rev-parse --verify --quiet "$MAIN_BRANCH" >/dev/null \
-    || die "Branch '$MAIN_BRANCH' not found (use --no-flow to bump+archive the current branch)."
+    || die "Branch '$MAIN_BRANCH' not found (only needed with --flow)."
   if [[ "$START_BRANCH" != "$DEV_BRANCH" ]]; then
     git checkout "$DEV_BRANCH" >/dev/null 2>&1 || die "Could not checkout '$DEV_BRANCH'."
     note "switched to '$DEV_BRANCH' to land the build bump"
@@ -88,7 +95,7 @@ fi
 #   icon_1024.png            master source art, must be OPAQUE
 #   AppIcon.icon/…/mark.png  Icon Composer layer, must HAVE alpha
 if [[ $SKIP_ICON -eq 0 ]]; then
-  ALPHA=$(sips -g hasAlpha "$ICON" 2>/dev/null | awk '/hasAlpha/{print $2}')
+  ALPHA=$(sips -g hasAlpha "$ICON" 2>/dev/null | awk '/hasAlpha/{print $2}' || true)
   if [[ "$ALPHA" != "no" ]]; then
     die "$ICON has alpha channel (App Store Connect rejects 1024×1024 icons with alpha — shows wireframe placeholder). Flatten it before archiving."
   fi
@@ -96,7 +103,7 @@ if [[ $SKIP_ICON -eq 0 ]]; then
 
   [[ -f "$ICON_BUNDLE/icon.json" ]] || die "Missing $ICON_BUNDLE/icon.json."
   [[ -f "$ICON_MARK" ]] || die "Missing $ICON_MARK — run: swift scripts/gen-icon-mark.swift"
-  MARK_ALPHA=$(sips -g hasAlpha "$ICON_MARK" 2>/dev/null | awk '/hasAlpha/{print $2}')
+  MARK_ALPHA=$(sips -g hasAlpha "$ICON_MARK" 2>/dev/null | awk '/hasAlpha/{print $2}' || true)
   [[ "$MARK_ALPHA" == "yes" ]] \
     || die "$ICON_MARK has no alpha (the mark must be transparent-backed). Regenerate: swift scripts/gen-icon-mark.swift"
   grep -q '"glass" : false' "$ICON_BUNDLE/icon.json" \
@@ -106,11 +113,11 @@ fi
 
 # --- read versions --------------------------------------------------------
 # PupaAppVersion (source of truth for marketing version)
-TARGET_MV=$(grep 'PupaAppVersion: String' "$VERSION_SWIFT" | sed -E 's/.*"([^"]+)".*/\1/')
+TARGET_MV=$(grep 'PupaAppVersion: String' "$VERSION_SWIFT" | sed -E 's/.*"([^"]+)".*/\1/' || true)
 [[ -n "$TARGET_MV" ]] || die "Could not read PupaAppVersion from $VERSION_SWIFT."
 
 # Current MARKETING_VERSION for app target (the one ≠ "1.0", which is the test target default)
-CURRENT_MV=$(grep -E 'MARKETING_VERSION = [^;]+;' "$PBXPROJ" | grep -v '= 1\.0;' | head -1 | awk '{print $3}' | tr -d ';')
+CURRENT_MV=$(grep -E 'MARKETING_VERSION = [^;]+;' "$PBXPROJ" | grep -v '= 1\.0;' | awk 'NR==1{print $3}' | tr -d ';' || true)
 [[ -n "$CURRENT_MV" ]] || die "Could not read app target's MARKETING_VERSION from $PBXPROJ."
 
 # Current CURRENT_PROJECT_VERSION for the app target. Identify the app target's
@@ -190,14 +197,14 @@ fi
 
 if [[ $NEEDS_COMMIT -eq 1 ]]; then
   BRANCH=$(git rev-parse --abbrev-ref HEAD)
-  # Note this commit is NOT gated on --no-flow: a MARKETING_VERSION sync sets
+  # Note this commit is NOT gated on --flow: a MARKETING_VERSION sync sets
   # NEEDS_COMMIT even under --no-bump. On a release checkout that is `main` or a
   # detached tag, committing here would put a commit on `main` and move HEAD off
   # the tag — the second of which makes dmg-release refuse to publish. Sync
   # MARKETING_VERSION in the release PR instead (see CONTRIBUTING → Releases).
   case "$BRANCH" in
     main|HEAD)
-      git diff --stat "$PBXPROJ" >&2
+      git diff HEAD --stat "$PBXPROJ" >&2
       die "Refusing to commit on '$BRANCH'. $PBXPROJ needs the change above — land it
        in the release PR on dev, then re-tag, rather than committing here." ;;
   esac
@@ -209,7 +216,7 @@ fi
 # --- fast-forward main from dev, then archive on main ---------------------
 # Done unconditionally (even when nothing was committed) so an already-bumped
 # dev still advances main. --ff-only refuses if the branches diverged.
-if [[ $NO_FLOW -eq 0 ]]; then
+if [[ $FLOW -eq 1 ]]; then
   git checkout "$MAIN_BRANCH" >/dev/null 2>&1 || die "Could not checkout '$MAIN_BRANCH'."
   git merge --ff-only "$DEV_BRANCH" >/dev/null 2>&1 \
     || die "Cannot fast-forward $MAIN_BRANCH from $DEV_BRANCH — they have diverged. Resolve manually, then re-run."
@@ -260,7 +267,7 @@ IFS='|' read -r IOS_VERSION IOS_BUILD IOS_BUNDLE <<< "$IOS_INFO"
 IFS='|' read -r MACOS_VERSION MACOS_BUILD MACOS_BUNDLE <<< "$MACOS_INFO"
 
 PUSH_HINT=""
-[[ $NO_FLOW -eq 0 ]] && PUSH_HINT="
+[[ $FLOW -eq 1 ]] && PUSH_HINT="
   Branches: $DEV_BRANCH and $MAIN_BRANCH aligned locally — push both:
             git push origin $DEV_BRANCH $MAIN_BRANCH"
 

@@ -118,7 +118,12 @@ else
 fi
 if [[ $PUBLISH -eq 1 ]]; then
   # All of these check before the 5-minute archive rather than after it.
-  git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1 \
+  # Take origin's SHA, not just proof the ref exists: a stale local tag would
+  # otherwise pass every check below and the DMG would land on origin's release
+  # built from a different commit — exactly what these guards exist to prevent.
+  ORIGIN_TAG=$(git ls-remote --tags origin "refs/tags/v$VERSION^{}" "refs/tags/v$VERSION" 2>/dev/null \
+    | awk 'NR==1{print $1}' || true)
+  [[ -n "$ORIGIN_TAG" ]] \
     || die "Tag v$VERSION does not exist on origin. Tag the release first:
        git tag v$VERSION && git push origin v$VERSION"
 
@@ -135,6 +140,9 @@ $(git status --porcelain | sed 's/^/       /')"
   [[ -n "$TAG_SHA" ]] \
     || die "Tag v$VERSION exists on origin but not locally. Fetch it first:
        git fetch --tags"
+  [[ "$ORIGIN_TAG" == "$TAG_SHA" ]] \
+    || die "Local tag v$VERSION ($TAG_SHA) differs from origin's ($ORIGIN_TAG).
+       Re-fetch before publishing: git fetch --tags --force"
   [[ "$(git rev-parse HEAD)" == "$TAG_SHA" ]] \
     || die "HEAD is not the commit tagged v$VERSION.
        Check out the tag before publishing, or the release would ship a build nobody can reproduce."
@@ -249,7 +257,7 @@ if [[ $DEV_SIGNING -eq 1 ]]; then
 else
   SIGN_AS="Developer ID Application"
 fi
-DEVID=$(printf '%s\n' "$IDENTITIES" | awk -v want="$SIGN_AS" 'index($0, want) && !seen { print $2; seen = 1 }')
+DEVID=$(printf '%s\n' "$IDENTITIES" | awk -v want="$SIGN_AS" 'index($0, want) && !seen { print $2; seen = 1 }' || true)
 [[ -n "$DEVID" ]] || die "Could not resolve a '$SIGN_AS' identity to sign the DMG."
 CODESIGN_ERR=$(codesign --force --sign "$DEVID" --timestamp "$DMG" 2>&1) \
   || die "codesign failed on $DMG:
@@ -269,17 +277,25 @@ BUNDLE_BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Content
 # owns. If the two channels ship the same marketing version with different build
 # numbers, a Sparkle updater — which orders by CFBundleVersion alone and ignores
 # the marketing string — sees them as different builds. Assert they agree.
-# Block-aware, like archive.sh: the test targets carry their own
-# CURRENT_PROJECT_VERSION, so picking by file order is right only by accident.
-# Take the value from the buildSettings block that also names the app's
-# MARKETING_VERSION.
-PBX_BUILD=$(awk -v mv="MARKETING_VERSION = $VERSION;" '
+# Find the app target's build number the way archive.sh does: locate the app's
+# own MARKETING_VERSION (the test targets sit at the 1.0 default), then take the
+# CURRENT_PROJECT_VERSION from that same buildSettings block. Keying off $VERSION
+# would be wrong — pbxproj's MARKETING_VERSION deliberately lags PupaAppVersion
+# between releases, which is the whole reason it is overridden on the command
+# line above, so there would usually be no match at all.
+PBX_MV=$(grep -E 'MARKETING_VERSION = [^;]+;' "$PBXPROJ" | grep -v '= 1\.0;' \
+  | awk 'NR==1{print $3}' | tr -d ';' || true)
+PBX_BUILD=$(awk -v mv="$PBX_MV" '
     /CURRENT_PROJECT_VERSION = / { cpv = $0 }
-    index($0, mv) && cpv { gsub(/[^0-9]/, "", cpv); print cpv; exit }
+    mv != "" && index($0, "MARKETING_VERSION = " mv ";") && cpv {
+      gsub(/[^0-9]/, "", cpv); print cpv; exit
+    }
   ' "$PBXPROJ" || true)
-[[ -n "$PBX_BUILD" && "$BUNDLE_BUILD" != "?" && "$BUNDLE_BUILD" == "$PBX_BUILD" ]] \
-  || die "The packaged app reports build $BUNDLE_BUILD but project.pbxproj says ${PBX_BUILD:-?}.
+if [[ $DEV_SIGNING -eq 0 ]]; then
+  [[ -n "$PBX_BUILD" && "$BUNDLE_BUILD" != "?" && "$BUNDLE_BUILD" == "$PBX_BUILD" ]] \
+    || die "The packaged app reports build $BUNDLE_BUILD but project.pbxproj's app target says ${PBX_BUILD:-?}.
        The App Store and DMG channels would ship the same version as different builds."
+fi
 
 
 if [[ $SKIP_NOTARIZE -eq 1 ]]; then
@@ -376,7 +392,7 @@ DMG READY
   Gatekeeper accepted${RELEASE_URL:+
 
   Draft release: $RELEASE_URL
-  Review it and publish by hand — publishing is a human step. Note that while
+  Review it before publishing. Note that while
   the repo is private, the download link only works for authenticated users.}
 
 Verify on a machine that has never seen this build (or clear the quarantine

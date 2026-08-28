@@ -3,7 +3,7 @@ name: testflight-release
 description: Archive Pupa iOS + macOS for TestFlight upload (one Universal Purchase record, both ship together). Verifies the App Store icon is opaque, syncs MARKETING_VERSION to PupaAppVersion, bumps CURRENT_PROJECT_VERSION, runs xcodebuild archive for both platforms, checks the macOS entitlement set, and reports both .xcarchive paths so the user can upload via Xcode Organizer. Invoke when the user says "ship to TestFlight", "archive for TestFlight", "release ios", "distribute ios", or "/testflight-release".
 ---
 
-> **Workflow note:** The script lands the build-number bump on `dev`, then fast-forwards `main` from `dev`, then archives `main`. So the bump is part of `dev`'s history *before* it reaches `main`, and the branches stay aligned — no post-hoc realign. You don't need to be on any particular branch first; the script switches to `dev` itself. (Use `--no-flow` to bump+archive the current branch in place, skipping the dev→main dance — for local validation builds only.)
+> **Workflow note:** By default the script bumps and archives **the current branch in place** and moves no branches — run it from a clean checkout of the release tag. Passing `--flow` opts into the old behaviour: land the bump on `dev`, fast-forward `main` from it, then archive `main`. That path moves `main`, so it is human-only.
 
 Run `archive.sh` next to this file. Do not re-implement its logic with sequential commands.
 
@@ -13,21 +13,21 @@ Run `archive.sh` next to this file. Do not re-implement its logic with sequentia
 
 User wants `.xcarchive`s ready for TestFlight upload. Typical phrasings: "ship to TestFlight", "archive for TestFlight", "make a build for TestFlight", "release the iOS app". Pupa ships iOS + macOS under one Universal Purchase App Store Connect record, so the script always archives both platforms from the single `PupaHost` target (`SUPPORTED_PLATFORMS` covers both — same `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION`, no per-platform version skew possible). The skill stops at producing the `.xcarchive`s — uploading is done manually via Xcode Organizer (avoids needing App Store Connect API credentials).
 
-> **Assistants must pass `--no-bump --no-flow`.** Without `--no-flow` the script
-> checks out `dev` and fast-forwards `main`; without `--no-bump` it bumps the
-> build number. Both are forbidden by the AI rules in `CONTRIBUTING.md`.
+> **The `dev`→`main` dance is opt-in (`--flow`), and human-only.** By default the
+> script bumps and archives the current branch in place and touches no branch,
+> so an assistant can run it without tripping the AI rules in `CONTRIBUTING.md`.
+> Assistants should also pass `--no-bump`.
 >
-> `--no-flow` does **not** stop the script committing. A `MARKETING_VERSION`
-> sync sets `NEEDS_COMMIT` even under `--no-bump`, so on a release checkout the
-> script would still try to commit — which is why it now refuses outright on
+> Neither flag stops the script *committing*: a `MARKETING_VERSION` sync sets
+> `NEEDS_COMMIT` even under `--no-bump`, which is why it refuses outright on
 > `main` or a detached tag. Sync `MARKETING_VERSION` and the build number in the
-> release PR (see `CONTRIBUTING.md` → Releases) so there is nothing left to
-> commit at archive time. Branch movement and pushing remain the human's.
+> release PR (see `CONTRIBUTING.md` → Releases) so nothing is left to commit at
+> archive time.
 
 ## Before invoking the script
 
 1. **Confirm git state.** The script bumps on `dev`, fast-forwards `main` from `dev`, then archives `main`. Verify with the user:
-   - `dev` holds the release-ready commits (features merged, `Version.swift`/CHANGELOG bumped). The script fast-forwards `main` from it — if `main` has commits not on `dev`, the FF aborts and the script stops.
+   - With `--flow`: `dev` holds the release-ready commits and `main` can fast-forward from it. Without it (the default) only the current checkout matters.
    - Working tree should be clean (no uncommitted changes) so the archive matches a known git SHA. If dirty, ask whether to commit/stash first.
 
 2. **Confirm what changed since the last successful TestFlight upload.** Specifically:
@@ -38,26 +38,26 @@ User wants `.xcarchive`s ready for TestFlight upload. Typical phrasings: "ship t
 ## Invocation
 
 ```bash
-.claude/skills/testflight-release/archive.sh [--build N] [--no-bump] [--skip-icon-check] [--no-flow]
+.claude/skills/testflight-release/archive.sh [--build N] [--no-bump] [--skip-icon-check] [--flow]
 ```
 
 | Flag | Meaning |
 |---|---|
 | `--build N` | Set `CURRENT_PROJECT_VERSION` explicitly; must exceed the current build (default: commit count) |
-| `--no-bump` | Don't change the build number at all (rare — only for local validation builds) |
+| `--no-bump` | Don't change the build number. Correct whenever the release PR already set it. |
 | `--skip-icon-check` | Skip the `icon_1024.png` / `AppIcon.icon` integrity checks (don't use unless you know why) |
-| `--no-flow` | Bump + archive the current branch in place; skip the `dev`→`main` fast-forward (local validation builds) |
+| `--flow` | Opt into switching to `dev`, committing there, and fast-forwarding `main` before archiving. Human-only. |
 
 Branch names default to `dev`/`main`; override with `DEV_BRANCH=` / `MAIN_BRANCH=` env vars if needed.
 
 ## What the script does
 
-1. Switches to `dev` (unless `--no-flow`) so the bump lands there first.
+1. With `--flow` only: switches to `dev` so the bump lands there first. Otherwise stays put.
 2. Checks the icons: `icon_1024.png` has no alpha (App Store Connect silently shows the wireframe placeholder for icons with transparency), and `AppIcon.icon` still has its alpha-backed `mark.png` and `"glass": false`.
 3. Reads `PupaAppVersion` from `Version.swift`, syncs `MARKETING_VERSION` in `project.pbxproj` if they differ.
 4. Sets `CURRENT_PROJECT_VERSION` to the commit count (floored at current+1, so it can only ever rise) for the app target's buildSettings blocks only (matched by the app `MARKETING_VERSION`; test targets stay at `1`).
 5. If pbxproj changed, commits the bump on `dev` with a generic `chore(ios): bump build to N` message. Stops if working tree is otherwise dirty.
-6. Fast-forwards `main` from `dev` (`--ff-only`; aborts if diverged), then archives `main`.
+6. With `--flow` only: fast-forwards `main` from `dev` (`--ff-only`; aborts if diverged) and archives `main`. Otherwise archives the current checkout.
 7. Runs `xcodebuild archive` twice: `-destination generic/platform=iOS` into `build/Pupa.xcarchive`, then `-destination generic/platform=macOS` into `build/Pupa-macOS.xcarchive`.
 8. Checks the macOS archive's signed entitlements against the expected set (sandbox,
    network client + server, user-selected files). The signature is the only ground
@@ -65,7 +65,7 @@ Branch names default to `dev`/`main`; override with `DEV_BRANCH=` / `MAIN_BRANCH
    settings and never appear in `PupaHost.entitlements`.
 9. Verifies each archive's `Info.plist` reports the expected version + build + bundle ID.
 
-Nothing is pushed — both branches are aligned locally and the script prints the `git push origin dev main` command for you to run.
+Nothing is pushed. Under `--flow` the script prints the `git push origin dev main` command for a human to run; by default no branch moved, so there is nothing to push.
 
 ## After the script
 
@@ -97,7 +97,7 @@ If the user wants to skip Organizer and upload via CLI: `xcrun altool --upload-a
   but the build lost (that feature is dead at runtime, as in pupa#229), `>` lines are keys
   the build gained that no code uses (review risk). Don't relax the expected set to make it
   pass; find the `ENABLE_*` build setting that moved. If the change is deliberate, update
-  `MACOS_ENTITLEMENTS_EXPECTED` here and the entitlement table in `docs/architecture.md`
+  `EXPECTED_SECURITY` here and the entitlement table in `docs/architecture.md`
   in the same commit.
 - **Working tree dirty (non-pbxproj files)**: refuse and ask the user to commit/stash first.
 - **`main` can't fast-forward from `dev`**: `main` has commits not on `dev` (they diverged). The script aborts before archiving. Resolve the branch state manually (or merge `main` into `dev`), then re-run. The bump commit is already on `dev` at this point — no harm in re-running.

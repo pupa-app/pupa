@@ -181,7 +181,7 @@ Invoke through Claude Code's `/testflight-release`, or run the script
 directly:
 
 ```bash
-.claude/skills/testflight-release/archive.sh [--build N] [--no-bump] [--skip-icon-check] [--no-flow]
+.claude/skills/testflight-release/archive.sh [--build N] [--no-bump] [--skip-icon-check] [--flow]
 ```
 
 ## DMG (direct download)
@@ -217,6 +217,7 @@ then, from a clean checkout of that tag:
 
 ```bash
 git tag v0.0.X && git push origin v0.0.X
+git checkout v0.0.X
 .claude/skills/dmg-release/release.sh --notary-profile <name> --publish
 ```
 
@@ -281,9 +282,9 @@ Before a human cuts the release:
 - Add a CHANGELOG entry under the new version on `dev`. Same rule — AI may prepare it on a branch and open a PR; the human merges.
 - **Bump `CURRENT_PROJECT_VERSION` in that same PR**, rather than letting
   `archive.sh` do it afterwards. Validate the number with
-  `archive.sh --no-bump --no-flow` first.
+  `archive.sh --no-bump` first.
 - After the human fast-forwards `main` and pushes, tag the release (`v0.0.X`) and push the tag — an assistant may do this when asked.
-- Ship to TestFlight via the `testflight-release` skill (syncs `MARKETING_VERSION` to `PupaAppVersion`, bumps the build number, archives). Upload the `.xcarchive` through Xcode Organizer.
+- Ship to TestFlight via the `testflight-release` skill (archives both platforms and gates the entitlement set). Upload the `.xcarchive` through Xcode Organizer.
 
 ### The order matters, and why
 
@@ -298,8 +299,9 @@ Before a human cuts the release:
 4. Tag `v0.0.X` at that SHA and push the tag, so `main`, `dev` and the tag name
    one commit. An assistant may do this when asked (see the rules at the top);
    moving `main` in step 3 is human-only.
-5. From that checkout: `archive.sh --no-bump --no-flow` → both `.xcarchive`s →
-   Organizer.
+5. From that checkout: `archive.sh --no-bump` → both `.xcarchive`s → Organizer.
+   It moves no branches by default; `--flow` opts into the `dev`→`main` dance and
+   is human-only.
 6. From the **same** checkout: `release.sh --notary-profile <name> --publish` →
    DMG and GitHub release.
 
