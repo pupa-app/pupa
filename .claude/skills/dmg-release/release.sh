@@ -117,38 +117,25 @@ else
   EXPORT_METHOD="developer-id"
 fi
 if [[ $PUBLISH -eq 1 ]]; then
-  # All of these check before the 5-minute archive rather than after it.
-  # Take origin's SHA, not just proof the ref exists: a stale local tag would
-  # otherwise pass every check below and the DMG would land on origin's release
-  # built from a different commit — exactly what these guards exist to prevent.
-  ORIGIN_TAG=$(git ls-remote --tags origin "refs/tags/v$VERSION^{}" "refs/tags/v$VERSION" 2>/dev/null \
-    | awk 'NR==1{print $1}' || true)
-  [[ -n "$ORIGIN_TAG" ]] \
-    || die "Tag v$VERSION does not exist on origin. Tag the release first:
+  # Checked before the 5-minute archive rather than after it.
+  #
+  # Deliberately *not* checked: that the tree is clean, that HEAD is the tagged
+  # commit, or that the local tag matches origin's. Each of those guards was
+  # tried and each produced a false rejection of a legitimate release — the last
+  # one refused every annotated tag with a remedy that could not fix it.
+  # Reproducibility is real, but a growing pile of shell guards is the wrong
+  # instrument for it: build from a clean checkout of the tag, as
+  # CONTRIBUTING → Releases describes. See pupa#297.
+  if ! git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
+    # Distinguish "no such tag" from "could not reach origin" — reporting the
+    # second as the first sends the user off to re-create a tag that exists.
+    git ls-remote origin >/dev/null 2>&1 \
+      || die "Could not reach origin to check for tag v$VERSION."
+    die "Tag v$VERSION does not exist on origin. Tag the release first:
        git tag v$VERSION && git push origin v$VERSION"
-
-  # The archive is built from the working tree, so without these two checks a DMG
-  # built from uncommitted edits — or from a different commit entirely — can be
-  # published under a release tag with nothing to reveal it.
-  [[ -z "$(git status --porcelain)" ]] \
-    || die "Working tree is dirty. A published artifact must be reproducible from its tag:
-$(git status --porcelain | sed 's/^/       /')"
-  # Resolve the tag separately: ls-remote above only proves it exists on origin,
-  # so a tag pushed from another machine and never fetched here would make
-  # rev-parse fail and report the wrong problem.
-  TAG_SHA=$(git rev-parse --verify --quiet "v$VERSION^{commit}" || true)
-  [[ -n "$TAG_SHA" ]] \
-    || die "Tag v$VERSION exists on origin but not locally. Fetch it first:
-       git fetch --tags"
-  [[ "$ORIGIN_TAG" == "$TAG_SHA" ]] \
-    || die "Local tag v$VERSION ($TAG_SHA) differs from origin's ($ORIGIN_TAG).
-       Re-fetch before publishing: git fetch --tags --force"
-  [[ "$(git rev-parse HEAD)" == "$TAG_SHA" ]] \
-    || die "HEAD is not the commit tagged v$VERSION.
-       Check out the tag before publishing, or the release would ship a build nobody can reproduce."
+  fi
 
   # Notes come from the CHANGELOG, and an empty section would publish blank notes.
-  # Checked here so it fails in seconds rather than after notarization is spent.
   [[ -n "$(awk -v v="## [$VERSION]" '
       index($0, v) == 1 { inside = 1; next }
       inside && /^## \[/ { exit }
@@ -277,25 +264,12 @@ BUNDLE_BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Content
 # owns. If the two channels ship the same marketing version with different build
 # numbers, a Sparkle updater — which orders by CFBundleVersion alone and ignores
 # the marketing string — sees them as different builds. Assert they agree.
-# Find the app target's build number the way archive.sh does: locate the app's
-# own MARKETING_VERSION (the test targets sit at the 1.0 default), then take the
-# CURRENT_PROJECT_VERSION from that same buildSettings block. Keying off $VERSION
-# would be wrong — pbxproj's MARKETING_VERSION deliberately lags PupaAppVersion
-# between releases, which is the whole reason it is overridden on the command
-# line above, so there would usually be no match at all.
-PBX_MV=$(grep -E 'MARKETING_VERSION = [^;]+;' "$PBXPROJ" | grep -v '= 1\.0;' \
-  | awk 'NR==1{print $3}' | tr -d ';' || true)
-PBX_BUILD=$(awk -v mv="$PBX_MV" '
-    /CURRENT_PROJECT_VERSION = / { cpv = $0 }
-    mv != "" && index($0, "MARKETING_VERSION = " mv ";") && cpv {
-      gsub(/[^0-9]/, "", cpv); print cpv; exit
-    }
-  ' "$PBXPROJ" || true)
-if [[ $DEV_SIGNING -eq 0 ]]; then
-  [[ -n "$PBX_BUILD" && "$BUNDLE_BUILD" != "?" && "$BUNDLE_BUILD" == "$PBX_BUILD" ]] \
-    || die "The packaged app reports build $BUNDLE_BUILD but project.pbxproj's app target says ${PBX_BUILD:-?}.
-       The App Store and DMG channels would ship the same version as different builds."
-fi
+# Not asserted here: that CFBundleVersion matches project.pbxproj. Two attempts
+# at that guard both false-rejected ordinary states (pupa#297). The invariant is
+# real — Sparkle orders updates by build number alone, so the two channels must
+# agree — but it belongs in the release procedure, not in a grep of the pbxproj.
+# CONTRIBUTING → Releases puts both version bumps in the release PR, which makes
+# them agree by construction.
 
 
 if [[ $SKIP_NOTARIZE -eq 1 ]]; then

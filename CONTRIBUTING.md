@@ -292,24 +292,26 @@ Before a human cuts the release:
 2. **One release PR** into `dev`: `PupaAppVersion`, `AGUIKitVersion` if touched,
    CHANGELOG section, README badge, and **both** pbxproj numbers —
    `CURRENT_PROJECT_VERSION` **and `MARKETING_VERSION`**.
-   Miss `MARKETING_VERSION` and step 5 syncs it itself and commits, which puts a
-   commit on `main` and moves `HEAD` off the tag — so step 6 then refuses to
-   publish. `archive.sh` now refuses that commit outright rather than doing it.
+   Both matter because `archive.sh` syncs `MARKETING_VERSION` itself if it
+   differs, and would then try to commit — which it refuses to do on `main` or a
+   detached tag checkout, stopping the release. Setting both in the release PR
+   leaves it nothing to sync.
 3. Human fast-forwards `main` from `dev`, pushes both.
 4. Tag `v0.0.X` at that SHA and push the tag, so `main`, `dev` and the tag name
    one commit. An assistant may do this when asked (see the rules at the top);
    moving `main` in step 3 is human-only.
 5. From that checkout: `archive.sh --no-bump` → both `.xcarchive`s → Organizer.
-   It moves no branches by default; `--flow` opts into the `dev`→`main` dance and
-   is human-only.
+   It moves no branch other than the one you are on; `--flow` opts into the
+   `dev`→`main` dance and is human-only.
 6. From the **same** checkout: `release.sh --notary-profile <name> --publish` →
    DMG and GitHub release.
 
 Two invariants this exists to protect:
 
-- **Both artifacts must build from the tagged commit.** `release.sh --publish`
-  refuses a dirty tree or a `HEAD` that isn't the tag, because a published
-  download nobody can reproduce is worse than no download.
+- **Both artifacts must build from the tagged commit** — check the tag out
+  first. This is procedure, not enforcement: guards that tried to check it
+  mechanically kept rejecting legitimate releases instead (pupa#297), so the
+  responsibility sits here rather than in the script.
 - **`CFBundleVersion` must be identical across both channels for a given
   marketing version.** Sparkle orders updates by build number alone and ignores
   the marketing string, so the same version shipping as build 215 on the App

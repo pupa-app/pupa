@@ -63,12 +63,10 @@ notarization is spent:
   download nobody can reproduce is worse than no download
 - the CHANGELOG has a non-empty section for that version
 
-And after packaging: the app's `CFBundleShortVersionString` matches
-`PupaAppVersion`, and its `CFBundleVersion` matches the app target's
-`CURRENT_PROJECT_VERSION` in `project.pbxproj`. That last one matters because
-Sparkle orders updates by build number alone — the same marketing version
-shipping as two different builds across the App Store and DMG channels would
-read as two different updates.
+After packaging, on every run, the app's `CFBundleShortVersionString` must match
+`PupaAppVersion` — that one catches a `MARKETING_VERSION` override that didn't
+take. Build-number agreement across the two channels is a procedure, not a check
+here; see `CONTRIBUTING.md` → Releases.
 
 The asset uploads as `Pupa.dmg`, a constant name, so
 `releases/latest/download/Pupa.dmg` is a permanent link. Replacing the asset on

@@ -203,8 +203,11 @@ if [[ $NEEDS_COMMIT -eq 1 ]]; then
   # the tag — the second of which makes dmg-release refuse to publish. Sync
   # MARKETING_VERSION in the release PR instead (see CONTRIBUTING → Releases).
   case "$BRANCH" in
-    main|HEAD)
+    "$MAIN_BRANCH"|HEAD)
       git diff HEAD --stat "$PBXPROJ" >&2
+      # The bump already rewrote the file; leaving it would hand the next step a
+      # dirty tree caused entirely by this refusal.
+      git checkout -- "$PBXPROJ" 2>/dev/null || true
       die "Refusing to commit on '$BRANCH'. $PBXPROJ needs the change above — land it
        in the release PR on dev, then re-tag, rather than committing here." ;;
   esac
@@ -214,7 +217,7 @@ if [[ $NEEDS_COMMIT -eq 1 ]]; then
 fi
 
 # --- fast-forward main from dev, then archive on main ---------------------
-# Done unconditionally (even when nothing was committed) so an already-bumped
+# Only under --flow. Runs even when nothing was committed, so an already-bumped
 # dev still advances main. --ff-only refuses if the branches diverged.
 if [[ $FLOW -eq 1 ]]; then
   git checkout "$MAIN_BRANCH" >/dev/null 2>&1 || die "Could not checkout '$MAIN_BRANCH'."
