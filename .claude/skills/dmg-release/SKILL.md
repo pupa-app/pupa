@@ -58,10 +58,14 @@ Xcode build already uses.
 All of these run *before* the archive, so they fail in seconds rather than after
 notarization is spent:
 
-- the tag `v<version>` exists on origin, and is fetched locally
-- `HEAD` **is** that tagged commit, and the working tree is clean — a published
-  download nobody can reproduce is worse than no download
+- the tag `v<version>` exists on origin
 - the CHANGELOG has a non-empty section for that version
+
+It does **not** check that you built from that tag's commit, or that the tree is
+clean. Guards for both were tried and both rejected legitimate releases — the
+last refused every annotated tag with a remedy that could not fix it (pupa#297).
+Checking the tag out before you build is procedure, in `CONTRIBUTING.md` →
+Releases.
 
 After packaging, on every run, the app's `CFBundleShortVersionString` must match
 `PupaAppVersion` — that one catches a `MARKETING_VERSION` override that didn't

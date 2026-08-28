@@ -224,9 +224,9 @@ git checkout v0.0.X
 `--publish` attaches the DMG to a **draft** release for tag `v0.0.X`, using that
 version's CHANGELOG section as the notes, and prints the URL for review before
 it goes live. It is refused for un-notarized builds, since publishing one would
-hand users a download their Mac won't open, and refused if the working tree is
-dirty or `HEAD` isn't the tagged commit, since a published artifact has to be
-reproducible from its tag.
+hand users a download their Mac won't open. It does **not** verify that you built
+from the tag — check it out first; that is why the `git checkout` is in the block
+above.
 
 The asset is uploaded as `Pupa.dmg` — a constant filename, so
 `releases/latest/download/Pupa.dmg` stays a permanent link the website can
@@ -317,7 +317,8 @@ Two invariants this exists to protect:
   the marketing string, so the same version shipping as build 215 on the App
   Store and 216 in the DMG is two different builds as far as an updater is
   concerned. Putting the bump in step 2 makes them agree by construction rather
-  than by luck; `release.sh` asserts it.
+  than by luck — which is why it is procedure here rather than a check in the
+  script.
 
 ## Commit messages
 

@@ -33,11 +33,12 @@ usage: $0 [--notary-profile NAME] [--skip-notarize] [--development-signing]
                          signed but NOT notarized — Gatekeeper will refuse it on
                          any other Mac. Local validation only.
   --publish              After notarizing, attach the DMG to a DRAFT GitHub
-                         release on tag v<version> and print its URL. The tag
-                         must already exist on origin, and HEAD must be that
-                         commit with a clean tree, so the artifact is
-                         reproducible. Left as a draft to be reviewed before
-                         publishing. Refused for un-notarized builds.
+                         release on tag v<version> and print its URL. Checks
+                         that the tag exists on origin and that the CHANGELOG has
+                         a section for it — building from that tag's commit is
+                         your job, not the script's. Left as a draft to be
+                         reviewed before publishing. Refused for un-notarized
+                         builds.
   --development-signing  Smoke-test this pipeline with an Apple Development
                          identity, for contributors with no Developer ID
                          certificate. Implies --skip-notarize (an Apple
@@ -263,7 +264,7 @@ BUNDLE_BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Content
 # The DMG inherits CURRENT_PROJECT_VERSION from project.pbxproj, which archive.sh
 # owns. If the two channels ship the same marketing version with different build
 # numbers, a Sparkle updater — which orders by CFBundleVersion alone and ignores
-# the marketing string — sees them as different builds. Assert they agree.
+# the marketing string — sees them as different builds.
 # Not asserted here: that CFBundleVersion matches project.pbxproj. Two attempts
 # at that guard both false-rejected ordinary states (pupa#297). The invariant is
 # real — Sparkle orders updates by build number alone, so the two channels must

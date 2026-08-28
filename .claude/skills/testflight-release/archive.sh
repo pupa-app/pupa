@@ -158,12 +158,29 @@ else
 fi
 
 # --- apply pbxproj edits --------------------------------------------------
+# Work out whether an edit is needed *before* making one. The commit below is not
+# gated on --flow (a MARKETING_VERSION sync sets NEEDS_COMMIT even under
+# --no-bump), and committing on `main` or a detached tag checkout is refused — so
+# refuse first and leave the file alone. Restoring it afterwards was worse: `git
+# checkout --` also discards any pbxproj edit the user had made themselves, which
+# the dirty-tree gate above deliberately permits.
 NEEDS_COMMIT=0
+[[ "$CURRENT_MV" != "$TARGET_MV" || "$NEW_BUILD" != "$CURRENT_BUILD" ]] && NEEDS_COMMIT=1
+
+if [[ $NEEDS_COMMIT -eq 1 ]]; then
+  BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  case "$BRANCH" in
+    "$MAIN_BRANCH"|HEAD)
+      die "Refusing to change $PBXPROJ on '$BRANCH' — it would need a commit here.
+       MARKETING_VERSION ${CURRENT_MV} → ${TARGET_MV}, CURRENT_PROJECT_VERSION ${CURRENT_BUILD} → ${NEW_BUILD}.
+       Land both in the release PR on ${DEV_BRANCH} and re-tag (see CONTRIBUTING → Releases),
+       or pass --no-bump if the build number is already correct." ;;
+  esac
+fi
 
 if [[ "$CURRENT_MV" != "$TARGET_MV" ]]; then
   sed -i '' "s/MARKETING_VERSION = ${CURRENT_MV};/MARKETING_VERSION = ${TARGET_MV};/g" "$PBXPROJ"
   note "synced MARKETING_VERSION ${CURRENT_MV} → ${TARGET_MV} (from PupaAppVersion)"
-  NEEDS_COMMIT=1
 fi
 
 if [[ "$NEW_BUILD" != "$CURRENT_BUILD" ]]; then
@@ -192,25 +209,9 @@ if [[ "$NEW_BUILD" != "$CURRENT_BUILD" ]]; then
     { print }
   ' "$PBXPROJ" > "${PBXPROJ}.tmp" && mv "${PBXPROJ}.tmp" "$PBXPROJ"
   note "bumped CURRENT_PROJECT_VERSION ${CURRENT_BUILD} → ${NEW_BUILD} (app target only)"
-  NEEDS_COMMIT=1
 fi
 
 if [[ $NEEDS_COMMIT -eq 1 ]]; then
-  BRANCH=$(git rev-parse --abbrev-ref HEAD)
-  # Note this commit is NOT gated on --flow: a MARKETING_VERSION sync sets
-  # NEEDS_COMMIT even under --no-bump. On a release checkout that is `main` or a
-  # detached tag, committing here would put a commit on `main` and move HEAD off
-  # the tag — the second of which makes dmg-release refuse to publish. Sync
-  # MARKETING_VERSION in the release PR instead (see CONTRIBUTING → Releases).
-  case "$BRANCH" in
-    "$MAIN_BRANCH"|HEAD)
-      git diff HEAD --stat "$PBXPROJ" >&2
-      # The bump already rewrote the file; leaving it would hand the next step a
-      # dirty tree caused entirely by this refusal.
-      git checkout -- "$PBXPROJ" 2>/dev/null || true
-      die "Refusing to commit on '$BRANCH'. $PBXPROJ needs the change above — land it
-       in the release PR on dev, then re-tag, rather than committing here." ;;
-  esac
   git add "$PBXPROJ"
   git commit -m "$(printf 'chore(ios): bump build to %s\n\nAI generated' "$NEW_BUILD")" >/dev/null
   note "committed pbxproj changes on '${BRANCH}' (not pushed)"
