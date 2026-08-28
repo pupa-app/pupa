@@ -51,6 +51,28 @@ Xcode build already uses.
 | `--notary-profile NAME` | notarytool keychain profile (or set `NOTARY_PROFILE`) |
 | `--skip-notarize` | Archive, export and package only. The DMG is signed but **not** notarized, so Gatekeeper refuses it on every machine but this one. Never publish that output. |
 | `--development-signing` | Smoke-test the pipeline with an Apple Development identity, for contributors with no Developer ID certificate. Implies `--skip-notarize` — Apple only notarizes Developer ID signatures — and names the output `…-dev-signed-DO-NOT-DISTRIBUTE.dmg`. |
+| `--publish` | Attach the DMG to a **draft** GitHub release on tag `v<version>`, with that version's CHANGELOG section as the notes, and print the URL. Refused for un-notarized or development-signed builds. |
+
+### What `--publish` checks before it does anything
+
+All of these run *before* the archive, so they fail in seconds rather than after
+notarization is spent:
+
+- the tag `v<version>` exists on origin, and is fetched locally
+- `HEAD` **is** that tagged commit, and the working tree is clean — a published
+  download nobody can reproduce is worse than no download
+- the CHANGELOG has a non-empty section for that version
+
+And after packaging: the app's `CFBundleShortVersionString` matches
+`PupaAppVersion`, and its `CFBundleVersion` matches the app target's
+`CURRENT_PROJECT_VERSION` in `project.pbxproj`. That last one matters because
+Sparkle orders updates by build number alone — the same marketing version
+shipping as two different builds across the App Store and DMG channels would
+read as two different updates.
+
+The asset uploads as `Pupa.dmg`, a constant name, so
+`releases/latest/download/Pupa.dmg` is a permanent link. Replacing the asset on
+an already-**published** release is refused; drafts may be replaced freely.
 
 Building a `--development-signing` DMG claims nothing and blocks nothing: a
 later release under any Developer ID, on any team, is an independent signature

@@ -13,11 +13,16 @@ Run `archive.sh` next to this file. Do not re-implement its logic with sequentia
 
 User wants `.xcarchive`s ready for TestFlight upload. Typical phrasings: "ship to TestFlight", "archive for TestFlight", "make a build for TestFlight", "release the iOS app". Pupa ships iOS + macOS under one Universal Purchase App Store Connect record, so the script always archives both platforms from the single `PupaHost` target (`SUPPORTED_PLATFORMS` covers both — same `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION`, no per-platform version skew possible). The skill stops at producing the `.xcarchive`s — uploading is done manually via Xcode Organizer (avoids needing App Store Connect API credentials).
 
-> **Assistants must pass `--no-flow`.** Without it the script commits a build
-> bump straight onto `dev` and fast-forwards `main` — both forbidden by the AI
-> rules in `CONTRIBUTING.md`. With `--no-flow` it bumps and archives the current
-> branch in place, which is safe. Branch movement, tagging `main`, and pushing
-> are the human's steps.
+> **Assistants must pass `--no-bump --no-flow`.** Without `--no-flow` the script
+> checks out `dev` and fast-forwards `main`; without `--no-bump` it bumps the
+> build number. Both are forbidden by the AI rules in `CONTRIBUTING.md`.
+>
+> `--no-flow` does **not** stop the script committing. A `MARKETING_VERSION`
+> sync sets `NEEDS_COMMIT` even under `--no-bump`, so on a release checkout the
+> script would still try to commit — which is why it now refuses outright on
+> `main` or a detached tag. Sync `MARKETING_VERSION` and the build number in the
+> release PR (see `CONTRIBUTING.md` → Releases) so there is nothing left to
+> commit at archive time. Branch movement and pushing remain the human's.
 
 ## Before invoking the script
 

@@ -34,9 +34,10 @@ usage: $0 [--notary-profile NAME] [--skip-notarize] [--development-signing]
                          any other Mac. Local validation only.
   --publish              After notarizing, attach the DMG to a DRAFT GitHub
                          release on tag v<version> and print its URL. The tag
-                         must already exist on origin — tagging is a human step
-                         (see CONTRIBUTING). The release is left as a draft for a
-                         human to publish. Refused for un-notarized builds.
+                         must already exist on origin, and HEAD must be that
+                         commit with a clean tree, so the artifact is
+                         reproducible. Left as a draft to be reviewed before
+                         publishing. Refused for un-notarized builds.
   --development-signing  Smoke-test this pipeline with an Apple Development
                          identity, for contributors with no Developer ID
                          certificate. Implies --skip-notarize (an Apple
@@ -125,8 +126,16 @@ if [[ $PUBLISH -eq 1 ]]; then
   # built from uncommitted edits — or from a different commit entirely — can be
   # published under a release tag with nothing to reveal it.
   [[ -z "$(git status --porcelain)" ]] \
-    || die "Working tree is dirty. A published artifact must be reproducible from its tag."
-  [[ "$(git rev-parse HEAD)" == "$(git rev-parse "v$VERSION^{commit}")" ]] \
+    || die "Working tree is dirty. A published artifact must be reproducible from its tag:
+$(git status --porcelain | sed 's/^/       /')"
+  # Resolve the tag separately: ls-remote above only proves it exists on origin,
+  # so a tag pushed from another machine and never fetched here would make
+  # rev-parse fail and report the wrong problem.
+  TAG_SHA=$(git rev-parse --verify --quiet "v$VERSION^{commit}" || true)
+  [[ -n "$TAG_SHA" ]] \
+    || die "Tag v$VERSION exists on origin but not locally. Fetch it first:
+       git fetch --tags"
+  [[ "$(git rev-parse HEAD)" == "$TAG_SHA" ]] \
     || die "HEAD is not the commit tagged v$VERSION.
        Check out the tag before publishing, or the release would ship a build nobody can reproduce."
 
@@ -260,8 +269,15 @@ BUNDLE_BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Content
 # owns. If the two channels ship the same marketing version with different build
 # numbers, a Sparkle updater — which orders by CFBundleVersion alone and ignores
 # the marketing string — sees them as different builds. Assert they agree.
-PBX_BUILD=$(grep -m1 'CURRENT_PROJECT_VERSION = ' "$PBXPROJ" | sed -E 's/.*= *([0-9]+).*/\1/' || true)
-[[ -n "$PBX_BUILD" && "$BUNDLE_BUILD" == "$PBX_BUILD" ]] \
+# Block-aware, like archive.sh: the test targets carry their own
+# CURRENT_PROJECT_VERSION, so picking by file order is right only by accident.
+# Take the value from the buildSettings block that also names the app's
+# MARKETING_VERSION.
+PBX_BUILD=$(awk -v mv="MARKETING_VERSION = $VERSION;" '
+    /CURRENT_PROJECT_VERSION = / { cpv = $0 }
+    index($0, mv) && cpv { gsub(/[^0-9]/, "", cpv); print cpv; exit }
+  ' "$PBXPROJ" || true)
+[[ -n "$PBX_BUILD" && "$BUNDLE_BUILD" != "?" && "$BUNDLE_BUILD" == "$PBX_BUILD" ]] \
   || die "The packaged app reports build $BUNDLE_BUILD but project.pbxproj says ${PBX_BUILD:-?}.
        The App Store and DMG channels would ship the same version as different builds."
 

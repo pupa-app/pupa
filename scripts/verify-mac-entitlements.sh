@@ -92,7 +92,11 @@ container_values() {
 
 for key in com.apple.developer.icloud-container-identifiers \
            com.apple.developer.ubiquity-container-identifiers; do
-  actual=$(container_values "$key")
+  # `|| true` for the same reason as the read above: container_values is a
+  # pipeline whose first command exits 1 on a missing key, so without it `set -e`
+  # kills the script before the die below — silently, on exactly the condition
+  # this guard exists to report.
+  actual=$(container_values "$key" || true)
   [[ -n "$actual" ]] || die "$APP is missing $key.
        On a Developer ID build this usually means no .provisionprofile is embedded — iCloud
        is a restricted entitlement, so the app will launch fine and then never sync."

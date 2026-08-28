@@ -211,8 +211,9 @@ the machine that built it.
 ### Publishing a DMG
 
 The DMG is distributed as a GitHub Release asset on this repo — attached to the
-release, not committed, so the repository never carries binaries. Tag first
-(human step), then:
+release, not committed, so the repository never carries binaries. Tag first —
+an assistant may do this when asked, per the rules at the top of this file —
+then, from a clean checkout of that tag:
 
 ```bash
 git tag v0.0.X && git push origin v0.0.X
@@ -220,9 +221,11 @@ git tag v0.0.X && git push origin v0.0.X
 ```
 
 `--publish` attaches the DMG to a **draft** release for tag `v0.0.X`, using that
-version's CHANGELOG section as the notes, and prints the URL. A human reviews and
-publishes it. It is refused for un-notarized builds, since publishing one would
-hand users a download their Mac won't open.
+version's CHANGELOG section as the notes, and prints the URL for review before
+it goes live. It is refused for un-notarized builds, since publishing one would
+hand users a download their Mac won't open, and refused if the working tree is
+dirty or `HEAD` isn't the tagged commit, since a published artifact has to be
+reproducible from its tag.
 
 The asset is uploaded as `Pupa.dmg` — a constant filename, so
 `releases/latest/download/Pupa.dmg` stays a permanent link the website can
@@ -279,17 +282,22 @@ Before a human cuts the release:
 - **Bump `CURRENT_PROJECT_VERSION` in that same PR**, rather than letting
   `archive.sh` do it afterwards. Validate the number with
   `archive.sh --no-bump --no-flow` first.
-- After the human fast-forwards `main` and pushes, they tag the release (`v0.0.X`) and push the tag.
+- After the human fast-forwards `main` and pushes, tag the release (`v0.0.X`) and push the tag — an assistant may do this when asked.
 - Ship to TestFlight via the `testflight-release` skill (syncs `MARKETING_VERSION` to `PupaAppVersion`, bumps the build number, archives). Upload the `.xcarchive` through Xcode Organizer.
 
 ### The order matters, and why
 
 1. Feature work lands on `dev` as squash-merged PRs.
 2. **One release PR** into `dev`: `PupaAppVersion`, `AGUIKitVersion` if touched,
-   CHANGELOG section, README badge, **and `CURRENT_PROJECT_VERSION`**.
+   CHANGELOG section, README badge, and **both** pbxproj numbers —
+   `CURRENT_PROJECT_VERSION` **and `MARKETING_VERSION`**.
+   Miss `MARKETING_VERSION` and step 5 syncs it itself and commits, which puts a
+   commit on `main` and moves `HEAD` off the tag — so step 6 then refuses to
+   publish. `archive.sh` now refuses that commit outright rather than doing it.
 3. Human fast-forwards `main` from `dev`, pushes both.
-4. Human tags `v0.0.X` at that SHA and pushes the tag. `main`, `dev` and the tag
-   now name one commit.
+4. Tag `v0.0.X` at that SHA and push the tag, so `main`, `dev` and the tag name
+   one commit. An assistant may do this when asked (see the rules at the top);
+   moving `main` in step 3 is human-only.
 5. From that checkout: `archive.sh --no-bump --no-flow` → both `.xcarchive`s →
    Organizer.
 6. From the **same** checkout: `release.sh --notary-profile <name> --publish` →

@@ -190,6 +190,17 @@ fi
 
 if [[ $NEEDS_COMMIT -eq 1 ]]; then
   BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  # Note this commit is NOT gated on --no-flow: a MARKETING_VERSION sync sets
+  # NEEDS_COMMIT even under --no-bump. On a release checkout that is `main` or a
+  # detached tag, committing here would put a commit on `main` and move HEAD off
+  # the tag — the second of which makes dmg-release refuse to publish. Sync
+  # MARKETING_VERSION in the release PR instead (see CONTRIBUTING → Releases).
+  case "$BRANCH" in
+    main|HEAD)
+      git diff --stat "$PBXPROJ" >&2
+      die "Refusing to commit on '$BRANCH'. $PBXPROJ needs the change above — land it
+       in the release PR on dev, then re-tag, rather than committing here." ;;
+  esac
   git add "$PBXPROJ"
   git commit -m "$(printf 'chore(ios): bump build to %s\n\nAI generated' "$NEW_BUILD")" >/dev/null
   note "committed pbxproj changes on '${BRANCH}' (not pushed)"
