@@ -171,10 +171,22 @@ if [[ $NEEDS_COMMIT -eq 1 ]]; then
   BRANCH=$(git rev-parse --abbrev-ref HEAD)
   case "$BRANCH" in
     "$MAIN_BRANCH"|HEAD)
+      # List only what is actually pending, and only offer --no-bump when it
+      # would change anything — a message naming 215 → 215, or suggesting a flag
+      # the operator already passed, is the kind of dead-end remedy this script
+      # has produced before.
+      PENDING=""
+      [[ "$CURRENT_MV" != "$TARGET_MV" ]] \
+        && PENDING="MARKETING_VERSION ${CURRENT_MV} → ${TARGET_MV}"
+      [[ "$NEW_BUILD" != "$CURRENT_BUILD" ]] \
+        && PENDING="${PENDING:+$PENDING, }CURRENT_PROJECT_VERSION ${CURRENT_BUILD} → ${NEW_BUILD}"
+      REMEDY=""
+      [[ $NO_BUMP -eq 0 && "$NEW_BUILD" != "$CURRENT_BUILD" ]] \
+        && REMEDY="
+       Or pass --no-bump if the build number is already correct."
       die "Refusing to change $PBXPROJ on '$BRANCH' — it would need a commit here.
-       MARKETING_VERSION ${CURRENT_MV} → ${TARGET_MV}, CURRENT_PROJECT_VERSION ${CURRENT_BUILD} → ${NEW_BUILD}.
-       Land both in the release PR on ${DEV_BRANCH} and re-tag (see CONTRIBUTING → Releases),
-       or pass --no-bump if the build number is already correct." ;;
+       Pending: ${PENDING}.
+       Land it in the release PR on ${DEV_BRANCH} and re-tag (see CONTRIBUTING → Releases).${REMEDY}" ;;
   esac
 fi
 
@@ -212,8 +224,17 @@ if [[ "$NEW_BUILD" != "$CURRENT_BUILD" ]]; then
 fi
 
 if [[ $NEEDS_COMMIT -eq 1 ]]; then
+  # `git add` stages the whole file, so a pbxproj edit of the user's own — which
+  # the dirty gate above deliberately permits — would be swept into a commit
+  # titled "bump build to N" and, under --flow, fast-forwarded onto $MAIN_BRANCH.
+  git diff --quiet HEAD -- "$PBXPROJ" \
+    || die "You have uncommitted changes in $PBXPROJ. The bump commit would absorb them.
+       Commit or stash them first:  git stash push -- $PBXPROJ"
   git add "$PBXPROJ"
-  git commit -m "$(printf 'chore(ios): bump build to %s\n\nAI generated' "$NEW_BUILD")" >/dev/null
+  git commit -m "$(printf 'chore(ios): bump build to %s\n\nAI generated' "$NEW_BUILD")" >/dev/null \
+    || die "Committing $PBXPROJ failed — a pre-commit hook, most likely (this repo has one that
+       rejects a non-empty DEVELOPMENT_TEAM). The bump is staged but not committed; see it with:
+       git diff --cached -- $PBXPROJ"
   note "committed pbxproj changes on '${BRANCH}' (not pushed)"
 fi
 

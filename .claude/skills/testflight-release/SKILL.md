@@ -57,7 +57,7 @@ Branch names default to `dev`/`main`; override with `DEV_BRANCH=` / `MAIN_BRANCH
 2. Checks the icons: `icon_1024.png` has no alpha (App Store Connect silently shows the wireframe placeholder for icons with transparency), and `AppIcon.icon` still has its alpha-backed `mark.png` and `"glass": false`.
 3. Reads `PupaAppVersion` from `Version.swift`, syncs `MARKETING_VERSION` in `project.pbxproj` if they differ.
 4. Sets `CURRENT_PROJECT_VERSION` to the commit count (floored at current+1, so it can only ever rise) for the app target's buildSettings blocks only (matched by the app `MARKETING_VERSION`; test targets stay at `1`).
-5. If pbxproj changed, commits the bump on the current branch (`dev` under `--flow`) with a generic `chore(ios): bump build to N` message. Refuses outright on `main` or a detached HEAD. Stops if working tree is otherwise dirty.
+5. If pbxproj changed, commits the bump on the current branch (`dev` under `--flow`) with a generic `chore(ios): bump build to N` message. Decides whether a commit is needed *before* editing anything, and refuses outright on `main` or a detached HEAD — leaving the file untouched. Stops if working tree is otherwise dirty.
 6. With `--flow` only: fast-forwards `main` from `dev` (`--ff-only`; aborts if diverged) and archives `main`. Otherwise archives the current checkout.
 7. Runs `xcodebuild archive` twice: `-destination generic/platform=iOS` into `build/Pupa.xcarchive`, then `-destination generic/platform=macOS` into `build/Pupa-macOS.xcarchive`.
 8. Checks the macOS archive's signed entitlements against the expected set (sandbox,

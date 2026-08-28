@@ -281,8 +281,9 @@ Before a human cuts the release:
 - Bump versions per [CLAUDE.md → Versioning](CLAUDE.md#versioning) (patch-only unless explicitly told otherwise). AI assistants may prepare these bumps on a feature branch and open a PR into `dev`.
 - Add a CHANGELOG entry under the new version on `dev`. Same rule — AI may prepare it on a branch and open a PR; the human merges.
 - **Bump `CURRENT_PROJECT_VERSION` in that same PR**, rather than letting
-  `archive.sh` do it afterwards. Validate the number with
-  `archive.sh --no-bump` first.
+  `archive.sh` do it afterwards. Set it by hand: `--no-bump` archives with
+  whatever the pbxproj already says and asserts nothing about it, so it is not a
+  check.
 - After the human fast-forwards `main` and pushes, tag the release (`v0.0.X`) and push the tag — an assistant may do this when asked.
 - Ship to TestFlight via the `testflight-release` skill (archives both platforms and gates the entitlement set). Upload the `.xcarchive` through Xcode Organizer.
 

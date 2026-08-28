@@ -26,7 +26,7 @@ DEV_SIGNING=0
 PUBLISH=0
 usage() {
   cat <<EOF
-usage: $0 [--notary-profile NAME] [--skip-notarize] [--development-signing]
+usage: $0 [--notary-profile NAME] [--skip-notarize] [--publish] [--development-signing]
   --notary-profile NAME  notarytool keychain profile (or set NOTARY_PROFILE).
                          Create once with: xcrun notarytool store-credentials
   --skip-notarize        Archive, export and package only. The DMG will be
@@ -36,9 +36,10 @@ usage: $0 [--notary-profile NAME] [--skip-notarize] [--development-signing]
                          release on tag v<version> and print its URL. Checks
                          that the tag exists on origin and that the CHANGELOG has
                          a section for it — building from that tag's commit is
-                         your job, not the script's. Left as a draft to be
-                         reviewed before publishing. Refused for un-notarized
-                         builds.
+                         your job, not the script's. Needs the gh CLI. Left as a draft
+                         to be reviewed before publishing; replacing the asset on
+                         an already-published release is refused. Not available
+                         for un-notarized builds.
   --development-signing  Smoke-test this pipeline with an Apple Development
                          identity, for contributors with no Developer ID
                          certificate. Implies --skip-notarize (an Apple
