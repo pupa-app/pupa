@@ -72,7 +72,7 @@ Branch names default to `dev`/`main`; override with `DEV_BRANCH=` / `MAIN_BRANCH
    network client + server, user-selected files). The signature is the only ground
    truth here — the `com.apple.security.*` keys are synthesized from `ENABLE_*` build
    settings and never appear in `PupaHost.entitlements`.
-9. Reads and prints each archive's `Info.plist` version + build + bundle ID. It does *not* assert them — check the printed values against what you expected. (`dmg-release` does assert its equivalent; the two channels differ here.)
+9. Reads each archive's `Info.plist` version + build + bundle ID, asserts they are present, and prints them. It does not compare them against `PupaAppVersion` — `dmg-release` does that for its own build.
 
 Nothing is pushed. Under `--flow` the script prints the `git push origin dev main`
 command for a human to run. By default the bump commit sits on your feature
@@ -116,7 +116,7 @@ If the user wants to skip Organizer and upload via CLI: `xcrun altool --upload-a
 - **Working tree dirty (non-pbxproj files)**: refuse and ask the user to commit/stash first.
 - **Working tree dirty (`project.pbxproj` itself)**: allowed on arrival, but refused
   once a bump or `MARKETING_VERSION` sync is actually needed — `git add` stages the
-  whole file, so the user's own edit would land in a commit titled "bump build to N".
+  whole file, so the user's own edit would land in the bump commit.
   Ask them to commit or stash just that file.
 - **`main` can't fast-forward from `dev`**: `main` has commits not on `dev` (they diverged). The script aborts before archiving. Resolve the branch state manually (or merge `main` into `dev`), then re-run. Under `--flow` the bump commit is already on `dev` at this point — no harm in re-running.
 - **Archive fails on signing**: usually means agreements unaccepted at `developer.apple.com` or the Xcode Apple ID needs re-auth. Direct the user there; don't try to fix from the CLI.

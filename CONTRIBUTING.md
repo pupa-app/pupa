@@ -294,8 +294,8 @@ Before a human cuts the release:
    CHANGELOG section, README badge, and **both** pbxproj numbers —
    `CURRENT_PROJECT_VERSION` **and `MARKETING_VERSION`**.
    Both matter because `archive.sh` syncs `MARKETING_VERSION` itself if it
-   differs, and would then try to commit — which it refuses to do on `main` or a
-   detached tag checkout, stopping the release. Setting both in the release PR
+   differs, and would then try to commit — which it refuses to do on `main`, on a detached tag checkout, or on `dev`
+   without `--flow` — stopping the release. Setting both in the release PR
    leaves it nothing to sync.
 3. Human fast-forwards `main` from `dev`, pushes both.
 4. Tag `v0.0.X` at that SHA and push the tag, so `main`, `dev` and the tag name

@@ -43,6 +43,12 @@ usage: $0 [--build N] [--no-bump] [--skip-icon-check] [--flow]
                        moving $MAIN_BRANCH is forbidden to assistants. Off by default,
                        in which case the current branch is bumped and archived in
                        place and branch movement is left to you.
+
+If a bump or MARKETING_VERSION sync is needed, committing it is refused on
+$MAIN_BRANCH, on a detached HEAD, on $DEV_BRANCH without --flow, and when
+$PBXPROJ already carries changes of your own — so by default the bump can only
+land on a feature branch, where a PR can carry it. Nothing is refused when
+there is nothing to commit.
 EOF
 }
 while [[ $# -gt 0 ]]; do
@@ -58,6 +64,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 die() { echo "error: $*" >&2; exit 1; }
+# --flow checks out $DEV_BRANCH early, so a later refusal would otherwise leave
+# the operator on a branch they did not start on — with their own dirty file
+# dragged along. Skipped for a detached start, where there is no branch to name.
+return_to_start() {
+  [[ $FLOW -eq 1 && -n "${START_BRANCH:-}" && "$START_BRANCH" != "HEAD" ]] || return 0
+  [[ "$START_BRANCH" != "$(git rev-parse --abbrev-ref HEAD)" ]] || return 0
+  git checkout -q "$START_BRANCH" 2>/dev/null || true
+}
 note() { echo "→ $*"; }
 
 # --- preconditions --------------------------------------------------------
@@ -161,14 +175,19 @@ fi
 # the refusal below never runs — so an uncommitted hand-edit would be archived
 # and reported as the tag's build. Not fatal (CONTRIBUTING step 5 is a --no-bump
 # run from a clean tag checkout), but say so rather than ship it silently.
-if ! git diff --quiet HEAD -- "$PBXPROJ" 2>/dev/null; then
+
+
+# Only true when nothing needs committing — otherwise the refusal above has
+# already stopped the run, and saying "the archive will carry them" contradicts it.
+if [[ $NEEDS_COMMIT -eq 0 ]] && ! git diff --quiet HEAD -- "$PBXPROJ" 2>/dev/null; then
   echo "warning: $PBXPROJ has uncommitted changes; the archive will carry them." >&2
 fi
 
 # --- apply pbxproj edits --------------------------------------------------
 # Work out whether an edit is needed *before* making one. The commit below is not
 # gated on --flow (a MARKETING_VERSION sync sets NEEDS_COMMIT even under
-# --no-bump), and committing on `main` or a detached tag checkout is refused — so
+# --no-bump), and committing is refused on `main`, a detached HEAD, or $DEV_BRANCH
+# without --flow — so
 # refuse first and leave the file alone. Restoring it afterwards was worse: `git
 # checkout --` also discards any pbxproj edit the user had made themselves, which
 # the dirty-tree gate above deliberately permits.
@@ -180,10 +199,12 @@ if [[ $NEEDS_COMMIT -eq 1 ]]; then
   # --flow checks out $DEV_BRANCH on purpose to commit there, and is human-only;
   # without it, a commit on $DEV_BRANCH is one the assistant may not push
   # (CONTRIBUTING: work lands through a PR), so it would sit local and diverge.
-  REFUSE_ON="$MAIN_BRANCH|HEAD"
-  [[ $FLOW -eq 0 ]] && REFUSE_ON="$REFUSE_ON|$DEV_BRANCH"
-  case "|$REFUSE_ON|" in
-    *"|$BRANCH|"*)
+  # Compared one at a time rather than joined into a string: `main|HEAD` is a
+  # legal branch name and would false-match a delimiter-joined test.
+  REFUSED=0
+  [[ "$BRANCH" == "$MAIN_BRANCH" || "$BRANCH" == "HEAD" ]] && REFUSED=1
+  [[ $FLOW -eq 0 && "$BRANCH" == "$DEV_BRANCH" ]] && REFUSED=1
+  if [[ $REFUSED -eq 1 ]]; then
       # List only what is actually pending, and only offer --no-bump when it
       # would change anything — a message naming 215 → 215, or suggesting a flag
       # the operator already passed, is the kind of dead-end remedy this script
@@ -197,21 +218,22 @@ if [[ $NEEDS_COMMIT -eq 1 ]]; then
       [[ $NO_BUMP -eq 0 && "$NEW_BUILD" != "$CURRENT_BUILD" && "$CURRENT_MV" == "$TARGET_MV" ]] \
         && REMEDY="
        Or pass --no-bump if the build number is already correct."
-      [[ $FLOW -eq 1 && -n "${START_BRANCH:-}" && "$START_BRANCH" != "$BRANCH" ]] \
-        && git checkout -q "$START_BRANCH" 2>/dev/null
+      return_to_start
       die "Refusing to change $PBXPROJ on '$BRANCH' — it would need a commit here.
        Pending: ${PENDING}.
-       Land it in the release PR on ${DEV_BRANCH} and re-tag (see CONTRIBUTING → Releases).${REMEDY}" ;;
-  esac
+       Land it in the release PR on ${DEV_BRANCH} and re-tag (see CONTRIBUTING → Releases).${REMEDY}"
+  fi
 
   # Also before editing: `git add` below stages the whole file, so a pbxproj edit
   # of the user's own — which the dirty gate deliberately permits — would be swept
-  # into a commit titled "bump build to N", and under --flow onto $MAIN_BRANCH.
+  # into the bump commit, and under --flow onto $MAIN_BRANCH.
   # Tested after the edits this can only ever see the script's own change, and
   # would refuse every legitimate bump.
-  git diff --quiet HEAD -- "$PBXPROJ" \
-    || die "You have uncommitted changes in $PBXPROJ. The bump commit would absorb them.
+  if ! git diff --quiet HEAD -- "$PBXPROJ"; then
+    return_to_start
+    die "You have uncommitted changes in $PBXPROJ. The bump commit would absorb them.
        Commit or stash them first:  git stash push -- $PBXPROJ"
+  fi
 fi
 
 if [[ "$CURRENT_MV" != "$TARGET_MV" ]]; then
@@ -256,13 +278,16 @@ if [[ $NEEDS_COMMIT -eq 1 ]]; then
   else
     SUBJECT="chore(ios): sync MARKETING_VERSION to $TARGET_MV"
   fi
-  git commit -m "$(printf '%s\n\nAI generated' "$SUBJECT")" >/dev/null \
-    || die "Committing $PBXPROJ failed — a pre-commit hook, most likely (this repo has one that
-       rejects a non-empty DEVELOPMENT_TEAM). The bump is staged but not committed; see it with:
-       git diff --cached -- $PBXPROJ"
-  # Unstage it: left staged, the next run's absorb guard reports the script's own
-  # bump as the user's uncommitted work.
-  git reset -q -- "$PBXPROJ" 2>/dev/null || true
+  # `cmd || die` puts the cleanup on the success side; it has to be an `if` so the
+  # unstage runs when the commit actually fails. Left staged, the next run's
+  # absorb guard reports the script's own bump as the user's work and tells them
+  # to stash it, which buries the bump.
+  if ! git commit -m "$(printf '%s\n\nAI generated' "$SUBJECT")" >/dev/null; then
+    git reset -q -- "$PBXPROJ" 2>/dev/null || true
+    die "Committing $PBXPROJ failed — a pre-commit hook, most likely (this repo has one that
+       rejects a non-empty DEVELOPMENT_TEAM). The bump is in your working tree, unstaged:
+       git diff -- $PBXPROJ"
+  fi
   note "committed pbxproj changes on '${BRANCH}' (not pushed)"
 fi
 
@@ -314,7 +339,7 @@ verify_archive() {
   v=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleShortVersionString" "$archive_path/Info.plist" 2>/dev/null || echo '?')
   b=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleVersion" "$archive_path/Info.plist" 2>/dev/null || echo '?')
   i=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleIdentifier" "$archive_path/Info.plist" 2>/dev/null || echo '?')
-  [[ "$v" != "?" && "$b" != "?" && "$i" != "?" ]] \
+  [[ -n "$v" && -n "$b" && -n "$i" && "$v" != "?" && "$b" != "?" && "$i" != "?" ]] \
     || die "Could not read version/build/bundle id from $archive_path — the archive is malformed."
   echo "$v|$b|$i"
 }
