@@ -98,13 +98,15 @@ if [[ $FLOW -eq 1 ]]; then
     || die "Branch '$DEV_BRANCH' not found (only needed with --flow)."
   git rev-parse --verify --quiet "$MAIN_BRANCH" >/dev/null \
     || die "Branch '$MAIN_BRANCH' not found (only needed with --flow)."
+  # Every failure from here on would otherwise leave the operator on a branch they
+  # did not start from; a trap covers them all, where calling the helper before
+  # each is how siblings get missed. Registered *before* the conditional checkout:
+  # starting --flow from $DEV_BRANCH skips that branch, and $MAIN_BRANCH is still
+  # checked out below, so otherwise those runs get no coverage at all. Cleared on
+  # success, because a completed --flow run is meant to end on $MAIN_BRANCH.
+  trap return_to_start EXIT
   if [[ "$START_BRANCH" != "$DEV_BRANCH" ]]; then
     git checkout "$DEV_BRANCH" >/dev/null 2>&1 || die "Could not checkout '$DEV_BRANCH'."
-  # Every failure from here on would otherwise leave the operator on a branch
-  # they did not start from. There are seventeen such exits; a trap covers them
-  # all, where calling the helper before each is how siblings get missed. Cleared
-  # on success, because a completed --flow run is *meant* to end on $MAIN_BRANCH.
-  trap return_to_start EXIT
     note "switched to '$DEV_BRANCH' to land the build bump"
   fi
 fi
@@ -294,8 +296,8 @@ if [[ $NEEDS_COMMIT -eq 1 ]]; then
     # is safe and leaves the next run clean.
     git checkout -q HEAD -- "$PBXPROJ" 2>/dev/null || true
     die "Committing $PBXPROJ failed — a pre-commit hook, most likely (this repo has one that
-       rejects a non-empty DEVELOPMENT_TEAM). The bump is in your working tree, unstaged:
-       git diff -- $PBXPROJ"
+       rejects a non-empty DEVELOPMENT_TEAM). Nothing was left behind — the bump was
+       reverted. Fix what the hook objects to and re-run."
   fi
   note "committed pbxproj changes on '${BRANCH}' (not pushed)"
 fi
@@ -347,9 +349,12 @@ verify_archive() {
   # `|| echo '?'` as release.sh does: inside $( ) inside a function, a PlistBuddy
   # failure does not propagate under set -e on bash 3.2, so a malformed archive
   # would otherwise print blank values beneath "ARCHIVES READY".
-  v=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleShortVersionString" "$archive_path/Info.plist" 2>/dev/null || echo '?')
-  b=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleVersion" "$archive_path/Info.plist" 2>/dev/null || echo '?')
-  i=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleIdentifier" "$archive_path/Info.plist" 2>/dev/null || echo '?')
+  # `|| v='?'` outside the substitution, not `$(… || echo '?')` inside it:
+  # PlistBuddy writes "Error Reading File" to *stdout*, so the inside form appends
+  # the sentinel to that text and the value is neither empty nor '?'.
+  v=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleShortVersionString" "$archive_path/Info.plist" 2>/dev/null) || v='?'
+  b=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleVersion" "$archive_path/Info.plist" 2>/dev/null) || b='?'
+  i=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleIdentifier" "$archive_path/Info.plist" 2>/dev/null) || i='?'
   [[ -n "$v" && -n "$b" && -n "$i" && "$v" != "?" && "$b" != "?" && "$i" != "?" ]] \
     || die "Could not read version/build/bundle id from $archive_path — the archive is malformed."
   echo "$v|$b|$i"

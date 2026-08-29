@@ -356,7 +356,9 @@ if [[ $PUBLISH -eq 1 ]]; then
       --draft --title "Pupa $VERSION" --notes-file "$NOTES" >/dev/null \
       || die "gh release create failed."
   fi
-  RELEASE_URL=$(gh release view "v$VERSION" --json url -q .url)
+  RELEASE_URL=$(gh release view "v$VERSION" --json url -q .url) \
+    || die "The asset uploaded but reading the release URL failed. Find it with:
+       gh release view v$VERSION"
   note "draft release ready: $RELEASE_URL"
 fi
 
