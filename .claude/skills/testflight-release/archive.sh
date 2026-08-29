@@ -100,6 +100,11 @@ if [[ $FLOW -eq 1 ]]; then
     || die "Branch '$MAIN_BRANCH' not found (only needed with --flow)."
   if [[ "$START_BRANCH" != "$DEV_BRANCH" ]]; then
     git checkout "$DEV_BRANCH" >/dev/null 2>&1 || die "Could not checkout '$DEV_BRANCH'."
+  # Every failure from here on would otherwise leave the operator on a branch
+  # they did not start from. There are seventeen such exits; a trap covers them
+  # all, where calling the helper before each is how siblings get missed. Cleared
+  # on success, because a completed --flow run is *meant* to end on $MAIN_BRANCH.
+  trap return_to_start EXIT
     note "switched to '$DEV_BRANCH' to land the build bump"
   fi
 fi
@@ -177,12 +182,6 @@ fi
 # run from a clean tag checkout), but say so rather than ship it silently.
 
 
-# Only true when nothing needs committing — otherwise the refusal above has
-# already stopped the run, and saying "the archive will carry them" contradicts it.
-if [[ $NEEDS_COMMIT -eq 0 ]] && ! git diff --quiet HEAD -- "$PBXPROJ" 2>/dev/null; then
-  echo "warning: $PBXPROJ has uncommitted changes; the archive will carry them." >&2
-fi
-
 # --- apply pbxproj edits --------------------------------------------------
 # Work out whether an edit is needed *before* making one. The commit below is not
 # gated on --flow (a MARKETING_VERSION sync sets NEEDS_COMMIT even under
@@ -193,6 +192,14 @@ fi
 # the dirty-tree gate above deliberately permits.
 NEEDS_COMMIT=0
 [[ "$CURRENT_MV" != "$TARGET_MV" || "$NEW_BUILD" != "$CURRENT_BUILD" ]] && NEEDS_COMMIT=1
+
+# Only meaningful when nothing needs committing: otherwise the refusal below
+# stops the run, and "the archive will carry them" would contradict it. Must come
+# after NEEDS_COMMIT is assigned — reading it earlier aborted every invocation
+# under `set -u`.
+if [[ $NEEDS_COMMIT -eq 0 ]] && ! git diff --quiet HEAD -- "$PBXPROJ" 2>/dev/null; then
+  echo "warning: $PBXPROJ has uncommitted changes; the archive will carry them." >&2
+fi
 
 if [[ $NEEDS_COMMIT -eq 1 ]]; then
   BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -218,7 +225,6 @@ if [[ $NEEDS_COMMIT -eq 1 ]]; then
       [[ $NO_BUMP -eq 0 && "$NEW_BUILD" != "$CURRENT_BUILD" && "$CURRENT_MV" == "$TARGET_MV" ]] \
         && REMEDY="
        Or pass --no-bump if the build number is already correct."
-      return_to_start
       die "Refusing to change $PBXPROJ on '$BRANCH' — it would need a commit here.
        Pending: ${PENDING}.
        Land it in the release PR on ${DEV_BRANCH} and re-tag (see CONTRIBUTING → Releases).${REMEDY}"
@@ -230,7 +236,6 @@ if [[ $NEEDS_COMMIT -eq 1 ]]; then
   # Tested after the edits this can only ever see the script's own change, and
   # would refuse every legitimate bump.
   if ! git diff --quiet HEAD -- "$PBXPROJ"; then
-    return_to_start
     die "You have uncommitted changes in $PBXPROJ. The bump commit would absorb them.
        Commit or stash them first:  git stash push -- $PBXPROJ"
   fi
@@ -283,7 +288,11 @@ if [[ $NEEDS_COMMIT -eq 1 ]]; then
   # absorb guard reports the script's own bump as the user's work and tells them
   # to stash it, which buries the bump.
   if ! git commit -m "$(printf '%s\n\nAI generated' "$SUBJECT")" >/dev/null; then
-    git reset -q -- "$PBXPROJ" 2>/dev/null || true
+    # `git reset` only unstages; the absorb guard compares worktree *and* index
+    # against HEAD, so the next run would still refuse. The guard above already
+    # proved the file carried no edit of the user's, so reverting our own change
+    # is safe and leaves the next run clean.
+    git checkout -q HEAD -- "$PBXPROJ" 2>/dev/null || true
     die "Committing $PBXPROJ failed — a pre-commit hook, most likely (this repo has one that
        rejects a non-empty DEVELOPMENT_TEAM). The bump is in your working tree, unstaged:
        git diff -- $PBXPROJ"
@@ -333,6 +342,8 @@ scripts/verify-mac-entitlements.sh "$ARCHIVE_MACOS"
 verify_archive() {
   local archive_path="$1"
   local v b i
+  [[ -f "$archive_path/Info.plist" ]] \
+    || die "No Info.plist in $archive_path — the archive is malformed."
   # `|| echo '?'` as release.sh does: inside $( ) inside a function, a PlistBuddy
   # failure does not propagate under set -e on bash 3.2, so a malformed archive
   # would otherwise print blank values beneath "ARCHIVES READY".
@@ -353,6 +364,8 @@ PUSH_HINT=""
 [[ $FLOW -eq 1 ]] && PUSH_HINT="
   Branches: $DEV_BRANCH and $MAIN_BRANCH aligned locally — push both:
             git push origin $DEV_BRANCH $MAIN_BRANCH"
+
+trap - EXIT
 
 cat <<EOF
 
