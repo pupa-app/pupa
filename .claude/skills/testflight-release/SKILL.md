@@ -7,6 +7,10 @@ description: Archive Pupa iOS + macOS for TestFlight upload (one Universal Purch
 
 Run `archive.sh` next to this file. Do not re-implement its logic with sequential commands.
 
+If you change `archive.sh`, run `make test-scripts` — the fixture suite in
+`scripts/test-release-scripts.sh` exercises its refusals, the absorb guard, the
+commit-failure recovery and the `--flow` branch trap against a synthetic repo.
+
 **Script path:** `.claude/skills/testflight-release/archive.sh`
 
 ## When to use

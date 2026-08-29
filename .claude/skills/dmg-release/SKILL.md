@@ -53,6 +53,9 @@ Xcode build already uses.
 | `--development-signing` | Smoke-test the pipeline with an Apple Development identity, for contributors with no Developer ID certificate. Implies `--skip-notarize` — Apple only notarizes Developer ID signatures — and names the output `…-dev-signed-DO-NOT-DISTRIBUTE.dmg`. |
 | `--publish` | Attach the DMG to a **draft** GitHub release on tag `v<version>`, with that version's CHANGELOG section as the notes, and print the URL. Refused for un-notarized or development-signed builds. |
 
+If you change `release.sh`, run `make test-scripts` — the fixture suite in
+`scripts/test-release-scripts.sh` covers the `--publish` preconditions.
+
 ### What `--publish` checks before it does anything
 
 All of these run *before* the archive, so they fail in seconds rather than after

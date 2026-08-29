@@ -1,6 +1,7 @@
 .DEFAULT_GOAL := help
 .PHONY: help build build-aguikit build-pupa test test-aguikit test-pupa ui-test \
-        ui-test-recovery ui-test-live record-fixture ctl mac-demo clean
+        ui-test-recovery ui-test-live record-fixture ctl mac-demo clean \
+        test-scripts
 
 AGUIKIT := AGUIKit
 PUPA := Pupa
@@ -27,6 +28,11 @@ test-pupa:  ## Run Pupa app tests (use FILTER=Foo to scope)
 	# dir (TestStorage) and share backend singletons, so parallel suites
 	# clobber each other and fail nondeterministically. Serial run is ~3s.
 	swift test --package-path $(PUPA) --no-parallel $(if $(FILTER),--filter $(FILTER),)
+
+test-scripts:  ## Run the release-script fixture suite (archive.sh / release.sh guards)
+	# Not part of `make test`: ~40s of git fixtures against the Swift suite's
+	# ~3s. Run it after touching either release script.
+	./scripts/test-release-scripts.sh
 
 SIM ?= iPhone 17 Pro Max
 BACKEND ?= http://localhost:8004

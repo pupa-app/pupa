@@ -106,7 +106,13 @@ overridden storage root).
 make test                # both packages
 make test-aguikit        # AGUIKit only (use FILTER=Foo to scope)
 make test-pupa           # PupaApp only
+make test-scripts        # release-script guards (archive.sh / release.sh)
 ```
+
+`make test-scripts` is separate because it is ~40s of git fixtures against the
+Swift suite's ~3s. It runs the release scripts against a synthetic repo seeded
+with the real `project.pbxproj` — refusals, the absorb guard, recovery from a
+rejected commit, the `--flow` branch trap. Run it after touching either script.
 
 ## Architecture
 
