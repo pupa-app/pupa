@@ -30,9 +30,13 @@ public struct RootView: View {
     /// content's fade-in run back-to-back, never simultaneously.
     private enum Phase { case splash, transitioning, content }
 
-    /// Launch arguments are applied here — the first thing that runs in any
-    /// entry point, since all three build a `RootView` and nothing else may
+    /// Launch arguments are applied here — the first thing that builds any
+    /// store, since all three entry points build a `RootView` and nothing may
     /// construct a store before `PupaStorage.overrideRoot` is set.
+    ///
+    /// Not the first thing to run, though: `PupaAppDelegate` fires at the
+    /// platform launch hook, before this. Nothing on that path may touch
+    /// storage — it only installs the notification delegate.
     private static let launch = LaunchOptions.apply()
 
     @State private var settings = RootView.makeSettings()

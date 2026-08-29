@@ -7,9 +7,12 @@ import AppKit
 
 /// Library-provided scene, for a host that wants the whole app in one symbol.
 ///
-/// The shipping app (`PupaHost`) and the macOS demo declare their own `@main`
-/// instead, so they must attach `PupaAppDelegate` themselves — mounting
-/// `RootView` alone is not enough. See `PupaHostApp`.
+/// The shipping app declares its own `@main` instead and attaches
+/// `PupaAppDelegate` there — mounting `RootView` alone is not enough. See
+/// `PupaHostApp`. The macOS demo cannot: an `App` carries one
+/// `NSApplicationDelegate` and `DemoApp` already spends it. That costs the demo
+/// nothing, since an unsigned `swift run` binary has no bundle identifier and
+/// `bootstrap()` no-ops there anyway.
 public struct PupaApp: App {
     @PupaAppDelegateAdaptor private var appDelegate: PupaAppDelegate
 

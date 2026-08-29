@@ -114,10 +114,11 @@ public struct AppView: View {
     /// don't care (previews, the macOS demo) pass nothing and get a fresh one.
     public init(settings injectedSettings: SettingsStore? = nil) {
         MyAppTypeRegistry.shared.registerBuiltins()
-        // Idempotent fallback. The shipping app installs the notification
-        // delegate far earlier, from `PupaAppDelegate` on the `@main` scene
-        // (before the cold-launch tap is dispatched); this call only covers
-        // preview/demo entry that mounts the view with no delegate attached.
+        // Idempotent fallback, and a no-op in the shipping app: there
+        // `PupaAppDelegate` already installed the notification delegate at the
+        // platform launch hook, before the cold-launch tap was dispatched. What
+        // this call still covers is preview/demo entry, which mounts the view
+        // with no delegate attached.
         NotificationCenterCoordinator.shared.bootstrap()
         // Kick a background iCloud mirror pass (covers demo/preview entry that
         // bypasses `PupaApp`). The stores below load from the local canonical
