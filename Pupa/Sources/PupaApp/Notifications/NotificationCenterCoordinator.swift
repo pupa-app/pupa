@@ -110,10 +110,12 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
         super.init()
     }
 
-    /// Idempotent. Installs the delegate so foreground banners actually
-    /// surface. Call once from the app entry (`AppView.init` or the demo
-    /// `App` struct). No-ops in hosts without a bundle identifier (unsigned
-    /// `swift run` macOS binaries, SwiftPM test process).
+    /// Idempotent. Installs the delegate so foreground banners surface, and so
+    /// a cold-launch tap is not dropped. Called from `PupaAppDelegate` at the
+    /// platform launch hook — late is the same as never for a launch tap;
+    /// `AppView.init` repeats it as a fallback for preview/demo entry, where no
+    /// delegate is attached. No-ops in hosts without a bundle identifier
+    /// (unsigned `swift run` macOS binaries, SwiftPM test process).
     public func bootstrap() {
         guard !didBootstrap, Self.isHostSupported else { return }
         didBootstrap = true

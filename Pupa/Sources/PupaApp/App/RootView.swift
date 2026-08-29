@@ -34,9 +34,10 @@ public struct RootView: View {
     /// store, since all three entry points build a `RootView` and nothing may
     /// construct a store before `PupaStorage.overrideRoot` is set.
     ///
-    /// Not the first thing to run, though: `PupaAppDelegate` fires at the
-    /// platform launch hook, before this. Nothing on that path may touch
-    /// storage — it only installs the notification delegate.
+    /// Not the first thing to run, though: in the shipping app
+    /// `PupaAppDelegate` fires at the platform launch hook, before this.
+    /// Nothing on that path may touch storage — it only installs the
+    /// notification delegate.
     private static let launch = LaunchOptions.apply()
 
     @State private var settings = RootView.makeSettings()

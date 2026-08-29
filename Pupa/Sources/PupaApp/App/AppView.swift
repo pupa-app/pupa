@@ -120,9 +120,10 @@ public struct AppView: View {
         // this call still covers is preview/demo entry, which mounts the view
         // with no delegate attached.
         NotificationCenterCoordinator.shared.bootstrap()
-        // Kick a background iCloud mirror pass (covers demo/preview entry that
-        // bypasses `PupaApp`). The stores below load from the local canonical
-        // tree regardless; the mirror converges with iCloud off the main thread.
+        // Kick a background iCloud mirror pass. This is the only one in every
+        // entry point except `PupaApp`, which warms in its own init. The stores
+        // below load from the local canonical tree regardless; the mirror
+        // converges with iCloud off the main thread.
         PupaStorage.warm()
         let store = MyAppStore()
         // Guide skills are managed content, re-seeded (version-gated) into
