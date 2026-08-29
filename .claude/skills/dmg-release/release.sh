@@ -26,17 +26,20 @@ DEV_SIGNING=0
 PUBLISH=0
 usage() {
   cat <<EOF
-usage: $0 [--notary-profile NAME] [--skip-notarize] [--development-signing]
+usage: $0 [--notary-profile NAME] [--skip-notarize] [--publish] [--development-signing]
   --notary-profile NAME  notarytool keychain profile (or set NOTARY_PROFILE).
                          Create once with: xcrun notarytool store-credentials
   --skip-notarize        Archive, export and package only. The DMG will be
                          signed but NOT notarized — Gatekeeper will refuse it on
                          any other Mac. Local validation only.
   --publish              After notarizing, attach the DMG to a DRAFT GitHub
-                         release on tag v<version> and print its URL. The tag
-                         must already exist on origin — tagging is a human step
-                         (see CONTRIBUTING). The release is left as a draft for a
-                         human to publish. Refused for un-notarized builds.
+                         release on tag v<version> and print its URL. Checks
+                         that the tag exists on origin and that the CHANGELOG has
+                         a section for it — building from that tag's commit is
+                         your job, not the script's. Needs the gh CLI. Left as a draft
+                         to be reviewed before publishing; replacing the asset on
+                         an already-published release is refused. Not available
+                         for un-notarized builds.
   --development-signing  Smoke-test this pipeline with an Apple Development
                          identity, for contributors with no Developer ID
                          certificate. Implies --skip-notarize (an Apple
@@ -87,7 +90,7 @@ else
 fi
 
 [[ -f "$LOCAL_XCCONFIG" ]] || die "Missing $LOCAL_XCCONFIG (git-ignored). It must hold: DEVELOPMENT_TEAM = <your team id>"
-TEAM=$(grep -E '^[[:space:]]*DEVELOPMENT_TEAM[[:space:]]*=' "$LOCAL_XCCONFIG" | sed -E 's/.*=[[:space:]]*([A-Za-z0-9]+).*/\1/')
+TEAM=$(grep -E '^[[:space:]]*DEVELOPMENT_TEAM[[:space:]]*=' "$LOCAL_XCCONFIG" | sed -E 's/.*=[[:space:]]*([A-Za-z0-9]+).*/\1/' || true)
 [[ -n "$TEAM" ]] || die "Could not read DEVELOPMENT_TEAM from $LOCAL_XCCONFIG."
 
 if [[ $SKIP_NOTARIZE -eq 0 ]]; then
@@ -106,7 +109,7 @@ if [[ $PUBLISH -eq 1 ]]; then
   command -v gh >/dev/null || die "gh not on PATH — needed for --publish."
 fi
 
-VERSION=$(grep 'PupaAppVersion: String' "$VERSION_SWIFT" | sed -E 's/.*"([^"]+)".*/\1/')
+VERSION=$(grep 'PupaAppVersion: String' "$VERSION_SWIFT" | sed -E 's/.*"([^"]+)".*/\1/' || true)
 [[ -n "$VERSION" ]] || die "Could not read PupaAppVersion from $VERSION_SWIFT."
 if [[ $DEV_SIGNING -eq 1 ]]; then
   DMG="build/Pupa-$VERSION-dev-signed-DO-NOT-DISTRIBUTE.dmg"
@@ -116,10 +119,28 @@ else
   EXPORT_METHOD="developer-id"
 fi
 if [[ $PUBLISH -eq 1 ]]; then
-  # Check before the 5-minute archive rather than after it.
-  git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1 \
-    || die "Tag v$VERSION does not exist on origin. Tagging a release is a human step:
+  # Checked before the 5-minute archive rather than after it.
+  #
+  # Not checked: that the tree is clean, that HEAD is the tagged commit, or that
+  # the local tag matches origin's. Each was tried and each false-rejected a
+  # legitimate release (pupa#297). Build from a clean checkout of the tag instead
+  # — CONTRIBUTING → Releases.
+  if ! git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
+    # Distinguish "no such tag" from "could not reach origin" — reporting the
+    # second as the first sends the user off to re-create a tag that exists.
+    git ls-remote origin >/dev/null 2>&1 \
+      || die "Could not reach origin to check for tag v$VERSION."
+    die "Tag v$VERSION does not exist on origin. Tag the release first:
        git tag v$VERSION && git push origin v$VERSION"
+  fi
+
+  # Notes come from the CHANGELOG, and an empty section would publish blank notes.
+  [[ -n "$(awk -v v="## [$VERSION]" '
+      index($0, v) == 1 { inside = 1; next }
+      inside && /^## \[/ { exit }
+      inside { print }
+    ' CHANGELOG.md | tr -d '[:space:]')" ]] \
+    || die "CHANGELOG has no non-empty section for $VERSION — write one before publishing."
 fi
 
 note "building Pupa $VERSION for the Developer ID channel"
@@ -210,19 +231,41 @@ hdiutil create -volname "Pupa" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev
 # signature — an unsigned one is "rejected: no usable signature" no matter how
 # well the app inside is signed. Sign before submitting: signing after would
 # invalidate the staple.
-DEVID=$(security find-identity -v -p codesigning 2>/dev/null \
-  | awk '/Developer ID Application/ { print $2; exit }')
-[[ -n "$DEVID" ]] || die "Could not resolve a Developer ID Application identity to sign the DMG."
-codesign --force --sign "$DEVID" --timestamp "$DMG" 2>/dev/null \
-  || die "codesign failed on $DMG."
-codesign --verify --strict "$DMG" 2>/dev/null || die "codesign --verify failed on $DMG."
+# Sign with whichever identity this run is using — a smoke test has no Developer
+# ID, which is the point of --development-signing. The awk runs to EOF on purpose:
+# `{print; exit}` or `| head -1` stop early, SIGPIPE the producer, and make
+# pipefail report 141. A first-match flag is safe at any input size.
+if [[ $DEV_SIGNING -eq 1 ]]; then
+  SIGN_AS="Apple Development"
+else
+  SIGN_AS="Developer ID Application"
+fi
+DEVID=$(printf '%s\n' "$IDENTITIES" | awk -v want="$SIGN_AS" 'index($0, want) && !seen { print $2; seen = 1 }' || true)
+[[ -n "$DEVID" ]] || die "Could not resolve a '$SIGN_AS' identity to sign the DMG."
+CODESIGN_ERR=$(codesign --force --sign "$DEVID" --timestamp "$DMG" 2>&1) \
+  || die "codesign failed on $DMG:
+       $CODESIGN_ERR"
+CODESIGN_ERR=$(codesign --verify --strict "$DMG" 2>&1) \
+  || die "codesign --verify failed on $DMG:
+       $CODESIGN_ERR"
 note "packaged and signed $DMG"
 
-BUNDLE_SHORT=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist" 2>/dev/null || echo '?')
-BUNDLE_BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist" 2>/dev/null || echo '?')
+# Sentinel outside the substitution: PlistBuddy writes "Error Reading File" to
+# *stdout*, so `$(… || echo '?')` yields that text plus '?' and misreports an
+# unreadable plist as a wrong version.
+BUNDLE_SHORT=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist" 2>/dev/null) || BUNDLE_SHORT='?'
+BUNDLE_BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist" 2>/dev/null) || BUNDLE_BUILD='?'
+[[ "$BUNDLE_SHORT" != '?' ]] \
+  || die "Could not read the version from $APP/Contents/Info.plist — the export is malformed."
 [[ "$BUNDLE_SHORT" == "$VERSION" ]] \
   || die "The packaged app reports version $BUNDLE_SHORT, expected $VERSION.
        MARKETING_VERSION did not take — the DMG would advertise the wrong version."
+
+# Not asserted: that CFBundleVersion matches project.pbxproj. Both channels must
+# ship the same build number for a given marketing version (Sparkle orders by
+# CFBundleVersion alone), but two attempts at that guard false-rejected ordinary
+# states (pupa#297). CONTRIBUTING → Releases puts both bumps in the release PR,
+# which makes them agree by construction.
 
 if [[ $SKIP_NOTARIZE -eq 1 ]]; then
   if [[ $DEV_SIGNING -eq 1 ]]; then
@@ -293,7 +336,12 @@ if [[ $PUBLISH -eq 1 ]]; then
   [[ -s "$NOTES" ]] || die "No CHANGELOG section found for $VERSION — write one before publishing."
 
   if gh release view "v$VERSION" >/dev/null 2>&1; then
-    note "release v$VERSION exists — replacing its asset"
+    # Replacing the asset on a *published* release changes what users are
+    # already downloading. Drafts are fair game; live releases are not.
+    [[ "$(gh release view "v$VERSION" --json isDraft -q .isDraft)" == "true" ]] \
+      || die "Release v$VERSION is already published. Refusing to replace a live download.
+       Publish a new version instead, or delete the asset by hand if it is genuinely wrong."
+    note "draft release v$VERSION exists — replacing its asset"
     gh release upload "v$VERSION" "$STABLE" --clobber >/dev/null \
       || die "gh release upload failed."
   else
@@ -301,7 +349,9 @@ if [[ $PUBLISH -eq 1 ]]; then
       --draft --title "Pupa $VERSION" --notes-file "$NOTES" >/dev/null \
       || die "gh release create failed."
   fi
-  RELEASE_URL=$(gh release view "v$VERSION" --json url -q .url)
+  RELEASE_URL=$(gh release view "v$VERSION" --json url -q .url) \
+    || die "The asset uploaded but reading the release URL failed. Find it with:
+       gh release view v$VERSION"
   note "draft release ready: $RELEASE_URL"
 fi
 
@@ -313,7 +363,7 @@ DMG READY
   Gatekeeper accepted${RELEASE_URL:+
 
   Draft release: $RELEASE_URL
-  Review it and publish by hand — publishing is a human step. Note that while
+  Review it before publishing. Note that while
   the repo is private, the download link only works for authenticated users.}
 
 Verify on a machine that has never seen this build (or clear the quarantine

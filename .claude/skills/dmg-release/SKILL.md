@@ -51,6 +51,33 @@ Xcode build already uses.
 | `--notary-profile NAME` | notarytool keychain profile (or set `NOTARY_PROFILE`) |
 | `--skip-notarize` | Archive, export and package only. The DMG is signed but **not** notarized, so Gatekeeper refuses it on every machine but this one. Never publish that output. |
 | `--development-signing` | Smoke-test the pipeline with an Apple Development identity, for contributors with no Developer ID certificate. Implies `--skip-notarize` — Apple only notarizes Developer ID signatures — and names the output `…-dev-signed-DO-NOT-DISTRIBUTE.dmg`. |
+| `--publish` | Attach the DMG to a **draft** GitHub release on tag `v<version>`, with that version's CHANGELOG section as the notes, and print the URL. Refused for un-notarized or development-signed builds. |
+
+If you change `release.sh`, run `make test-scripts` — the fixture suite in
+`scripts/test-release-scripts.sh` covers the `--publish` preconditions.
+
+### What `--publish` checks before it does anything
+
+All of these run *before* the archive, so they fail in seconds rather than after
+notarization is spent:
+
+- the tag `v<version>` exists on origin
+- the CHANGELOG has a non-empty section for that version
+
+It does **not** check that you built from that tag's commit, or that the tree is
+clean. Guards for both were tried and both rejected legitimate releases — the
+last refused every annotated tag with a remedy that could not fix it (pupa#297).
+Checking the tag out before you build is procedure, in `CONTRIBUTING.md` →
+Releases.
+
+After packaging, on every run, the app's `CFBundleShortVersionString` must match
+`PupaAppVersion` — that one catches a `MARKETING_VERSION` override that didn't
+take. Build-number agreement across the two channels is a procedure, not a check
+here; see `CONTRIBUTING.md` → Releases.
+
+The asset uploads as `Pupa.dmg`, a constant name, so
+`releases/latest/download/Pupa.dmg` is a permanent link. Replacing the asset on
+an already-**published** release is refused; drafts may be replaced freely.
 
 Building a `--development-signing` DMG claims nothing and blocks nothing: a
 later release under any Developer ID, on any team, is an independent signature

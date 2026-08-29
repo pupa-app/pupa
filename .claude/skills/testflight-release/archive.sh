@@ -27,16 +27,27 @@ MAIN_BRANCH="${MAIN_BRANCH:-main}"
 BUILD_OVERRIDE=""
 NO_BUMP=0
 SKIP_ICON=0
-NO_FLOW=0
+# The dev→main dance is opt-in. Moving `main` is forbidden to assistants and is
+# a human release act either way (CONTRIBUTING → AI assistants), so the default
+# is to bump and archive in place and let a human move branches.
+FLOW=0
 usage() {
   cat <<EOF
-usage: $0 [--build N] [--no-bump] [--skip-icon-check] [--no-flow]
+usage: $0 [--build N] [--no-bump] [--skip-icon-check] [--flow]
   --build N            Set CURRENT_PROJECT_VERSION to N (must exceed the current
                        build; default: commit count, see below)
   --no-bump            Don't change the build number
   --skip-icon-check    Skip the icon_1024.png / AppIcon.icon integrity checks
-  --no-flow            Bump + archive the current branch in place; skip the
-                       $DEV_BRANCH→$MAIN_BRANCH fast-forward (local validation builds)
+  --flow               Also switch to $DEV_BRANCH, commit the bump there, and
+                       fast-forward $MAIN_BRANCH from it before archiving. Human-only:
+                       moving $MAIN_BRANCH is forbidden to assistants. Off by default,
+                       in which case the current branch is bumped and archived in
+                       place and branch movement is left to you.
+
+If a bump or MARKETING_VERSION sync is needed, committing it is refused on
+$MAIN_BRANCH, on a detached HEAD, on $DEV_BRANCH without --flow, and when
+$PBXPROJ already carries changes of your own. Nothing is refused when there is
+nothing to commit.
 EOF
 }
 while [[ $# -gt 0 ]]; do
@@ -44,13 +55,21 @@ while [[ $# -gt 0 ]]; do
     --build) BUILD_OVERRIDE="${2:-}"; shift 2;;
     --no-bump) NO_BUMP=1; shift;;
     --skip-icon-check) SKIP_ICON=1; shift;;
-    --no-flow) NO_FLOW=1; shift;;
+    --flow) FLOW=1; shift;;
     -h|--help) usage; exit 0;;
     *) echo "unknown flag: $1" >&2; usage >&2; exit 2;;
   esac
 done
 
 die() { echo "error: $*" >&2; exit 1; }
+# --flow checks out $DEV_BRANCH early, so a later refusal would otherwise leave
+# the operator on a branch they did not start on — with their own dirty file
+# dragged along. Skipped for a detached start, where there is no branch to name.
+return_to_start() {
+  [[ $FLOW -eq 1 && -n "${START_BRANCH:-}" && "$START_BRANCH" != "HEAD" ]] || return 0
+  [[ "$START_BRANCH" != "$(git rev-parse --abbrev-ref HEAD)" ]] || return 0
+  git checkout -q "$START_BRANCH" 2>/dev/null || true
+}
 note() { echo "→ $*"; }
 
 # --- preconditions --------------------------------------------------------
@@ -67,16 +86,21 @@ if [[ -n "$DIRTY" ]]; then
   die "Commit or stash these before archiving."
 fi
 
-# --- release flow: move to dev so the bump lands there first --------------
-# The build bump is committed on $DEV_BRANCH, then $MAIN_BRANCH is
-# fast-forwarded from it after the commit (see below). This keeps both
-# branches pointing at the same SHA — no need to realign main→dev afterward.
+# --- release flow (--flow only) -------------------------------------------
+# The bump is committed on $DEV_BRANCH and $MAIN_BRANCH is fast-forwarded from
+# it below, so both end at the same SHA. Without --flow none of this runs and
+# the current checkout is used as-is.
 START_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-if [[ $NO_FLOW -eq 0 ]]; then
+if [[ $FLOW -eq 1 ]]; then
   git rev-parse --verify --quiet "$DEV_BRANCH" >/dev/null \
-    || die "Branch '$DEV_BRANCH' not found (use --no-flow to bump+archive the current branch)."
+    || die "Branch '$DEV_BRANCH' not found (only needed with --flow)."
   git rev-parse --verify --quiet "$MAIN_BRANCH" >/dev/null \
-    || die "Branch '$MAIN_BRANCH' not found (use --no-flow to bump+archive the current branch)."
+    || die "Branch '$MAIN_BRANCH' not found (only needed with --flow)."
+  # A trap, not a call before each exit, so no exit is missed. Registered before
+  # the conditional checkout below: starting on $DEV_BRANCH skips it, yet
+  # $MAIN_BRANCH is still checked out further down. Cleared on success — a
+  # completed --flow run is meant to end on $MAIN_BRANCH.
+  trap return_to_start EXIT
   if [[ "$START_BRANCH" != "$DEV_BRANCH" ]]; then
     git checkout "$DEV_BRANCH" >/dev/null 2>&1 || die "Could not checkout '$DEV_BRANCH'."
     note "switched to '$DEV_BRANCH' to land the build bump"
@@ -88,7 +112,7 @@ fi
 #   icon_1024.png            master source art, must be OPAQUE
 #   AppIcon.icon/…/mark.png  Icon Composer layer, must HAVE alpha
 if [[ $SKIP_ICON -eq 0 ]]; then
-  ALPHA=$(sips -g hasAlpha "$ICON" 2>/dev/null | awk '/hasAlpha/{print $2}')
+  ALPHA=$(sips -g hasAlpha "$ICON" 2>/dev/null | awk '/hasAlpha/{print $2}' || true)
   if [[ "$ALPHA" != "no" ]]; then
     die "$ICON has alpha channel (App Store Connect rejects 1024×1024 icons with alpha — shows wireframe placeholder). Flatten it before archiving."
   fi
@@ -96,7 +120,7 @@ if [[ $SKIP_ICON -eq 0 ]]; then
 
   [[ -f "$ICON_BUNDLE/icon.json" ]] || die "Missing $ICON_BUNDLE/icon.json."
   [[ -f "$ICON_MARK" ]] || die "Missing $ICON_MARK — run: swift scripts/gen-icon-mark.swift"
-  MARK_ALPHA=$(sips -g hasAlpha "$ICON_MARK" 2>/dev/null | awk '/hasAlpha/{print $2}')
+  MARK_ALPHA=$(sips -g hasAlpha "$ICON_MARK" 2>/dev/null | awk '/hasAlpha/{print $2}' || true)
   [[ "$MARK_ALPHA" == "yes" ]] \
     || die "$ICON_MARK has no alpha (the mark must be transparent-backed). Regenerate: swift scripts/gen-icon-mark.swift"
   grep -q '"glass" : false' "$ICON_BUNDLE/icon.json" \
@@ -106,11 +130,11 @@ fi
 
 # --- read versions --------------------------------------------------------
 # PupaAppVersion (source of truth for marketing version)
-TARGET_MV=$(grep 'PupaAppVersion: String' "$VERSION_SWIFT" | sed -E 's/.*"([^"]+)".*/\1/')
+TARGET_MV=$(grep 'PupaAppVersion: String' "$VERSION_SWIFT" | sed -E 's/.*"([^"]+)".*/\1/' || true)
 [[ -n "$TARGET_MV" ]] || die "Could not read PupaAppVersion from $VERSION_SWIFT."
 
 # Current MARKETING_VERSION for app target (the one ≠ "1.0", which is the test target default)
-CURRENT_MV=$(grep -E 'MARKETING_VERSION = [^;]+;' "$PBXPROJ" | grep -v '= 1\.0;' | head -1 | awk '{print $3}' | tr -d ';')
+CURRENT_MV=$(grep -E 'MARKETING_VERSION = [^;]+;' "$PBXPROJ" | grep -v '= 1\.0;' | awk 'NR==1{print $3}' | tr -d ';' || true)
 [[ -n "$CURRENT_MV" ]] || die "Could not read app target's MARKETING_VERSION from $PBXPROJ."
 
 # Current CURRENT_PROJECT_VERSION for the app target. Identify the app target's
@@ -151,12 +175,58 @@ else
 fi
 
 # --- apply pbxproj edits --------------------------------------------------
+# Decide whether a commit is needed *before* editing, so the refusal below can
+# leave the file untouched. Restoring it afterwards was worse: `git checkout --`
+# also discards any pbxproj edit of the user's own, which the dirty-tree gate
+# above deliberately permits.
 NEEDS_COMMIT=0
+[[ "$CURRENT_MV" != "$TARGET_MV" || "$NEW_BUILD" != "$CURRENT_BUILD" ]] && NEEDS_COMMIT=1
+
+# The dirty gate above tolerates a hand-edited pbxproj, and with nothing to sync
+# the refusal below never fires — so say the archive will carry it. Only sound
+# once NEEDS_COMMIT is known: reading it earlier aborted every run under `set -u`.
+if [[ $NEEDS_COMMIT -eq 0 ]] && ! git diff --quiet HEAD -- "$PBXPROJ" 2>/dev/null; then
+  echo "warning: $PBXPROJ has uncommitted changes; the archive will carry them." >&2
+fi
+
+if [[ $NEEDS_COMMIT -eq 1 ]]; then
+  BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  # Without --flow a commit on $DEV_BRANCH is one nobody may push (CONTRIBUTING:
+  # work lands through a PR), so it would sit local and diverge. Compared one at
+  # a time: `main|HEAD` is a legal branch name and would false-match a joined test.
+  REFUSED=0
+  [[ "$BRANCH" == "$MAIN_BRANCH" || "$BRANCH" == "HEAD" ]] && REFUSED=1
+  [[ $FLOW -eq 0 && "$BRANCH" == "$DEV_BRANCH" ]] && REFUSED=1
+  if [[ $REFUSED -eq 1 ]]; then
+      # Name only what is actually pending, and offer --no-bump only when it
+      # would change something — "215 → 215", or a flag already passed, is a
+      # dead-end remedy.
+      PENDING=""
+      [[ "$CURRENT_MV" != "$TARGET_MV" ]] \
+        && PENDING="MARKETING_VERSION ${CURRENT_MV} → ${TARGET_MV}"
+      [[ "$NEW_BUILD" != "$CURRENT_BUILD" ]] \
+        && PENDING="${PENDING:+$PENDING, }CURRENT_PROJECT_VERSION ${CURRENT_BUILD} → ${NEW_BUILD}"
+      REMEDY=""
+      [[ $NO_BUMP -eq 0 && "$NEW_BUILD" != "$CURRENT_BUILD" && "$CURRENT_MV" == "$TARGET_MV" ]] \
+        && REMEDY="
+       Or pass --no-bump if the build number is already correct."
+      die "Refusing to change $PBXPROJ on '$BRANCH' — it would need a commit here.
+       Pending: ${PENDING}.
+       Land it in the release PR on ${DEV_BRANCH} and re-tag (see CONTRIBUTING → Releases).${REMEDY}"
+  fi
+
+  # Also before editing: `git add` stages the whole file, so a pbxproj edit of the
+  # user's own would be swept into the bump commit. Tested after the edits it
+  # could only ever see our own change and would refuse every legitimate bump.
+  if ! git diff --quiet HEAD -- "$PBXPROJ"; then
+    die "You have uncommitted changes in $PBXPROJ. The bump commit would absorb them.
+       Commit or stash them first:  git stash push -- $PBXPROJ"
+  fi
+fi
 
 if [[ "$CURRENT_MV" != "$TARGET_MV" ]]; then
   sed -i '' "s/MARKETING_VERSION = ${CURRENT_MV};/MARKETING_VERSION = ${TARGET_MV};/g" "$PBXPROJ"
   note "synced MARKETING_VERSION ${CURRENT_MV} → ${TARGET_MV} (from PupaAppVersion)"
-  NEEDS_COMMIT=1
 fi
 
 if [[ "$NEW_BUILD" != "$CURRENT_BUILD" ]]; then
@@ -185,20 +255,34 @@ if [[ "$NEW_BUILD" != "$CURRENT_BUILD" ]]; then
     { print }
   ' "$PBXPROJ" > "${PBXPROJ}.tmp" && mv "${PBXPROJ}.tmp" "$PBXPROJ"
   note "bumped CURRENT_PROJECT_VERSION ${CURRENT_BUILD} → ${NEW_BUILD} (app target only)"
-  NEEDS_COMMIT=1
 fi
 
 if [[ $NEEDS_COMMIT -eq 1 ]]; then
-  BRANCH=$(git rev-parse --abbrev-ref HEAD)
   git add "$PBXPROJ"
-  git commit -m "$(printf 'chore(ios): bump build to %s\n\nAI generated' "$NEW_BUILD")" >/dev/null
+  if [[ "$NEW_BUILD" != "$CURRENT_BUILD" && "$CURRENT_MV" != "$TARGET_MV" ]]; then
+    SUBJECT="chore(ios): bump build to $NEW_BUILD, sync MARKETING_VERSION to $TARGET_MV"
+  elif [[ "$NEW_BUILD" != "$CURRENT_BUILD" ]]; then
+    SUBJECT="chore(ios): bump build to $NEW_BUILD"
+  else
+    SUBJECT="chore(ios): sync MARKETING_VERSION to $TARGET_MV"
+  fi
+  # An `if`, not `cmd || die`, so the cleanup sits on the failing side. Revert
+  # rather than `git reset`: the absorb guard compares worktree *and* index
+  # against HEAD, so a merely-unstaged bump would still make the next run refuse.
+  # Safe because the guard above proved the file carried no edit of the user's.
+  if ! git commit -m "$(printf '%s\n\nAI generated' "$SUBJECT")" >/dev/null; then
+    git checkout -q HEAD -- "$PBXPROJ" 2>/dev/null || true
+    die "Committing $PBXPROJ failed — a pre-commit hook, most likely (the local one
+       many clones carry rejects a non-empty DEVELOPMENT_TEAM). Nothing was left
+       behind — the bump was reverted. Fix what the hook objects to and re-run."
+  fi
   note "committed pbxproj changes on '${BRANCH}' (not pushed)"
 fi
 
 # --- fast-forward main from dev, then archive on main ---------------------
-# Done unconditionally (even when nothing was committed) so an already-bumped
+# Only under --flow. Runs even when nothing was committed, so an already-bumped
 # dev still advances main. --ff-only refuses if the branches diverged.
-if [[ $NO_FLOW -eq 0 ]]; then
+if [[ $FLOW -eq 1 ]]; then
   git checkout "$MAIN_BRANCH" >/dev/null 2>&1 || die "Could not checkout '$MAIN_BRANCH'."
   git merge --ff-only "$DEV_BRANCH" >/dev/null 2>&1 \
     || die "Cannot fast-forward $MAIN_BRANCH from $DEV_BRANCH — they have diverged. Resolve manually, then re-run."
@@ -237,9 +321,17 @@ scripts/verify-mac-entitlements.sh "$ARCHIVE_MACOS"
 verify_archive() {
   local archive_path="$1"
   local v b i
-  v=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleShortVersionString" "$archive_path/Info.plist")
-  b=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleVersion" "$archive_path/Info.plist")
-  i=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleIdentifier" "$archive_path/Info.plist")
+  [[ -f "$archive_path/Info.plist" ]] \
+    || die "No Info.plist in $archive_path — the archive is malformed."
+  # Sentinel outside the substitution, not `$(… || echo '?')` inside it:
+  # PlistBuddy writes "Error Reading File" to *stdout*, so the inside form appends
+  # '?' to that text and the value is neither empty nor '?' — the assert passes
+  # and a malformed archive prints under "ARCHIVES READY" with exit 0.
+  v=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleShortVersionString" "$archive_path/Info.plist" 2>/dev/null) || v='?'
+  b=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleVersion" "$archive_path/Info.plist" 2>/dev/null) || b='?'
+  i=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleIdentifier" "$archive_path/Info.plist" 2>/dev/null) || i='?'
+  [[ -n "$v" && -n "$b" && -n "$i" && "$v" != "?" && "$b" != "?" && "$i" != "?" ]] \
+    || die "Could not read version/build/bundle id from $archive_path — the archive is malformed."
   echo "$v|$b|$i"
 }
 
@@ -249,9 +341,11 @@ IFS='|' read -r IOS_VERSION IOS_BUILD IOS_BUNDLE <<< "$IOS_INFO"
 IFS='|' read -r MACOS_VERSION MACOS_BUILD MACOS_BUNDLE <<< "$MACOS_INFO"
 
 PUSH_HINT=""
-[[ $NO_FLOW -eq 0 ]] && PUSH_HINT="
+[[ $FLOW -eq 1 ]] && PUSH_HINT="
   Branches: $DEV_BRANCH and $MAIN_BRANCH aligned locally — push both:
             git push origin $DEV_BRANCH $MAIN_BRANCH"
+
+trap - EXIT
 
 cat <<EOF
 

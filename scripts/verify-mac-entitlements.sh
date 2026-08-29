@@ -54,7 +54,9 @@ fi
 [[ -d "$APP" ]] || die "No app bundle at $APP."
 [[ -f "$CONTAINER_SOURCE" ]] || die "Run from the repo root. Could not find $CONTAINER_SOURCE."
 
-EXPECTED_CONTAINER=$(grep 'containerID = ' "$CONTAINER_SOURCE" | sed -E 's/.*"([^"]+)".*/\1/')
+# `|| true` so the explicit guard below reports the problem. Without it, a failing
+# substitution trips `set -e` and the script dies with no message at all.
+EXPECTED_CONTAINER=$(grep 'containerID = ' "$CONTAINER_SOURCE" | sed -E 's/.*"([^"]+)".*/\1/' || true)
 [[ -n "$EXPECTED_CONTAINER" ]] || die "Could not read PupaStorage.containerID from $CONTAINER_SOURCE."
 
 ENT=$(mktemp -t pupa-entitlements)
@@ -90,7 +92,11 @@ container_values() {
 
 for key in com.apple.developer.icloud-container-identifiers \
            com.apple.developer.ubiquity-container-identifiers; do
-  actual=$(container_values "$key")
+  # `|| true` for the same reason as the read above: container_values is a
+  # pipeline whose first command exits 1 on a missing key, so without it `set -e`
+  # kills the script before the die below — silently, on exactly the condition
+  # this guard exists to report.
+  actual=$(container_values "$key" || true)
   [[ -n "$actual" ]] || die "$APP is missing $key.
        On a Developer ID build this usually means no .provisionprofile is embedded — iCloud
        is a restricted entitlement, so the app will launch fine and then never sync."

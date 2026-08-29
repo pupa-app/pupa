@@ -106,7 +106,13 @@ overridden storage root).
 make test                # both packages
 make test-aguikit        # AGUIKit only (use FILTER=Foo to scope)
 make test-pupa           # PupaApp only
+make test-scripts        # release-script guards (archive.sh / release.sh)
 ```
+
+`make test-scripts` is separate because it is ~40s of git fixtures against the
+Swift suite's ~3s. It runs the release scripts against a synthetic repo seeded
+with the real `project.pbxproj` — refusals, the absorb guard, recovery from a
+rejected commit, the `--flow` branch trap. Run it after touching either script.
 
 ## Architecture
 
@@ -181,7 +187,7 @@ Invoke through Claude Code's `/testflight-release`, or run the script
 directly:
 
 ```bash
-.claude/skills/testflight-release/archive.sh [--build N] [--no-bump] [--skip-icon-check] [--no-flow]
+.claude/skills/testflight-release/archive.sh [--build N] [--no-bump] [--skip-icon-check] [--flow]
 ```
 
 ## DMG (direct download)
@@ -211,18 +217,22 @@ the machine that built it.
 ### Publishing a DMG
 
 The DMG is distributed as a GitHub Release asset on this repo — attached to the
-release, not committed, so the repository never carries binaries. Tag first
-(human step), then:
+release, not committed, so the repository never carries binaries. Tag first —
+an assistant may do this when asked, per the rules at the top of this file —
+then, from a clean checkout of that tag:
 
 ```bash
 git tag v0.0.X && git push origin v0.0.X
+git checkout v0.0.X
 .claude/skills/dmg-release/release.sh --notary-profile <name> --publish
 ```
 
 `--publish` attaches the DMG to a **draft** release for tag `v0.0.X`, using that
-version's CHANGELOG section as the notes, and prints the URL. A human reviews and
-publishes it. It is refused for un-notarized builds, since publishing one would
-hand users a download their Mac won't open.
+version's CHANGELOG section as the notes, and prints the URL for review before
+it goes live. It is refused for un-notarized builds, since publishing one would
+hand users a download their Mac won't open. It does **not** verify that you built
+from the tag — check it out first; that is why the `git checkout` is in the block
+above.
 
 The asset is uploaded as `Pupa.dmg` — a constant filename, so
 `releases/latest/download/Pupa.dmg` stays a permanent link the website can
@@ -276,8 +286,46 @@ Before a human cuts the release:
 
 - Bump versions per [CLAUDE.md → Versioning](CLAUDE.md#versioning) (patch-only unless explicitly told otherwise). AI assistants may prepare these bumps on a feature branch and open a PR into `dev`.
 - Add a CHANGELOG entry under the new version on `dev`. Same rule — AI may prepare it on a branch and open a PR; the human merges.
-- After the human fast-forwards `main` and pushes, they tag the release (`v0.0.X`) and push the tag.
-- Ship to TestFlight via the `testflight-release` skill (syncs `MARKETING_VERSION` to `PupaAppVersion`, bumps the build number, archives). Upload the `.xcarchive` through Xcode Organizer.
+- **Bump `CURRENT_PROJECT_VERSION` in that same PR**, rather than letting
+  `archive.sh` do it afterwards. Set it by hand: `--no-bump` archives with
+  whatever the pbxproj already says and asserts nothing about it, so it is not a
+  check.
+- After the human fast-forwards `main` and pushes, tag the release (`v0.0.X`) and push the tag — an assistant may do this when asked.
+- Ship to TestFlight via the `testflight-release` skill (archives both platforms and gates the entitlement set). Upload the `.xcarchive` through Xcode Organizer.
+
+### The order matters, and why
+
+1. Feature work lands on `dev` as squash-merged PRs.
+2. **One release PR** into `dev`: `PupaAppVersion`, `AGUIKitVersion` if touched,
+   CHANGELOG section, README badge, and **both** pbxproj numbers —
+   `CURRENT_PROJECT_VERSION` **and `MARKETING_VERSION`**.
+   Both matter because `archive.sh` syncs `MARKETING_VERSION` itself if it
+   differs, and would then try to commit — which it refuses to do on `main`, on a detached tag checkout, or on `dev`
+   without `--flow` — stopping the release. Setting both in the release PR
+   leaves it nothing to sync.
+3. Human fast-forwards `main` from `dev`, pushes both.
+4. Tag `v0.0.X` at that SHA and push the tag, so `main`, `dev` and the tag name
+   one commit. An assistant may do this when asked (see the rules at the top);
+   moving `main` in step 3 is human-only.
+5. From that checkout: `archive.sh --no-bump` → both `.xcarchive`s → Organizer.
+   It moves no branch other than the one you are on; `--flow` opts into the
+   `dev`→`main` dance and is human-only.
+6. From the **same** checkout: `release.sh --notary-profile <name> --publish` →
+   DMG and GitHub release.
+
+Two invariants this exists to protect:
+
+- **Both artifacts must build from the tagged commit** — check the tag out
+  first. This is procedure, not enforcement: guards that tried to check it
+  mechanically kept rejecting legitimate releases instead (pupa#297), so the
+  responsibility sits here rather than in the script.
+- **`CFBundleVersion` must be identical across both channels for a given
+  marketing version.** Sparkle orders updates by build number alone and ignores
+  the marketing string, so the same version shipping as build 215 on the App
+  Store and 216 in the DMG is two different builds as far as an updater is
+  concerned. Putting the bump in step 2 makes them agree by construction rather
+  than by luck — which is why it is procedure here rather than a check in the
+  script.
 
 ## Commit messages
 
