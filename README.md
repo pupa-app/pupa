@@ -107,6 +107,7 @@ branch). There is no CLA.
 | Everything else | [MPL-2.0](LICENSE). File-level copyleft: fixes to Pupa's files come back, and the app still ships on the App Store. |
 
 Full terms in
-[CONTRIBUTING.md](CONTRIBUTING.md#licensing-of-contributions).
+[CONTRIBUTING.md](CONTRIBUTING.md#licensing-of-contributions). Third-party code
+shipped in the binaries is attributed in [NOTICE.md](NOTICE.md).
 
 Copyright © 2026 Pupa.
