@@ -46,9 +46,8 @@ usage: $0 [--build N] [--no-bump] [--skip-icon-check] [--flow]
 
 If a bump or MARKETING_VERSION sync is needed, committing it is refused on
 $MAIN_BRANCH, on a detached HEAD, on $DEV_BRANCH without --flow, and when
-$PBXPROJ already carries changes of your own — so by default the bump can only
-land on a feature branch, where a PR can carry it. Nothing is refused when
-there is nothing to commit.
+$PBXPROJ already carries changes of your own. Nothing is refused when there is
+nothing to commit.
 EOF
 }
 while [[ $# -gt 0 ]]; do
@@ -57,7 +56,6 @@ while [[ $# -gt 0 ]]; do
     --no-bump) NO_BUMP=1; shift;;
     --skip-icon-check) SKIP_ICON=1; shift;;
     --flow) FLOW=1; shift;;
-    --no-flow) FLOW=0; shift;;   # accepted for compatibility; now the default
     -h|--help) usage; exit 0;;
     *) echo "unknown flag: $1" >&2; usage >&2; exit 2;;
   esac
@@ -88,22 +86,20 @@ if [[ -n "$DIRTY" ]]; then
   die "Commit or stash these before archiving."
 fi
 
-# --- release flow: move to dev so the bump lands there first --------------
-# The build bump is committed on $DEV_BRANCH, then $MAIN_BRANCH is
-# fast-forwarded from it after the commit (see below). This keeps both
-# branches pointing at the same SHA — no need to realign main→dev afterward.
+# --- release flow (--flow only) -------------------------------------------
+# The bump is committed on $DEV_BRANCH and $MAIN_BRANCH is fast-forwarded from
+# it below, so both end at the same SHA. Without --flow none of this runs and
+# the current checkout is used as-is.
 START_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 if [[ $FLOW -eq 1 ]]; then
   git rev-parse --verify --quiet "$DEV_BRANCH" >/dev/null \
     || die "Branch '$DEV_BRANCH' not found (only needed with --flow)."
   git rev-parse --verify --quiet "$MAIN_BRANCH" >/dev/null \
     || die "Branch '$MAIN_BRANCH' not found (only needed with --flow)."
-  # Every failure from here on would otherwise leave the operator on a branch they
-  # did not start from; a trap covers them all, where calling the helper before
-  # each is how siblings get missed. Registered *before* the conditional checkout:
-  # starting --flow from $DEV_BRANCH skips that branch, and $MAIN_BRANCH is still
-  # checked out below, so otherwise those runs get no coverage at all. Cleared on
-  # success, because a completed --flow run is meant to end on $MAIN_BRANCH.
+  # A trap, not a call before each exit, so no exit is missed. Registered before
+  # the conditional checkout below: starting on $DEV_BRANCH skips it, yet
+  # $MAIN_BRANCH is still checked out further down. Cleared on success — a
+  # completed --flow run is meant to end on $MAIN_BRANCH.
   trap return_to_start EXIT
   if [[ "$START_BRANCH" != "$DEV_BRANCH" ]]; then
     git checkout "$DEV_BRANCH" >/dev/null 2>&1 || die "Could not checkout '$DEV_BRANCH'."
@@ -178,46 +174,33 @@ else
   NEW_BUILD=$(( COMMIT_COUNT > CURRENT_BUILD ? COMMIT_COUNT : CURRENT_BUILD + 1 ))
 fi
 
-# A dirty pbxproj is tolerated by the gate above, and when nothing needs syncing
-# the refusal below never runs — so an uncommitted hand-edit would be archived
-# and reported as the tag's build. Not fatal (CONTRIBUTING step 5 is a --no-bump
-# run from a clean tag checkout), but say so rather than ship it silently.
-
-
 # --- apply pbxproj edits --------------------------------------------------
-# Work out whether an edit is needed *before* making one. The commit below is not
-# gated on --flow (a MARKETING_VERSION sync sets NEEDS_COMMIT even under
-# --no-bump), and committing is refused on `main`, a detached HEAD, or $DEV_BRANCH
-# without --flow — so
-# refuse first and leave the file alone. Restoring it afterwards was worse: `git
-# checkout --` also discards any pbxproj edit the user had made themselves, which
-# the dirty-tree gate above deliberately permits.
+# Decide whether a commit is needed *before* editing, so the refusal below can
+# leave the file untouched. Restoring it afterwards was worse: `git checkout --`
+# also discards any pbxproj edit of the user's own, which the dirty-tree gate
+# above deliberately permits.
 NEEDS_COMMIT=0
 [[ "$CURRENT_MV" != "$TARGET_MV" || "$NEW_BUILD" != "$CURRENT_BUILD" ]] && NEEDS_COMMIT=1
 
-# Only meaningful when nothing needs committing: otherwise the refusal below
-# stops the run, and "the archive will carry them" would contradict it. Must come
-# after NEEDS_COMMIT is assigned — reading it earlier aborted every invocation
-# under `set -u`.
+# The dirty gate above tolerates a hand-edited pbxproj, and with nothing to sync
+# the refusal below never fires — so say the archive will carry it. Only sound
+# once NEEDS_COMMIT is known: reading it earlier aborted every run under `set -u`.
 if [[ $NEEDS_COMMIT -eq 0 ]] && ! git diff --quiet HEAD -- "$PBXPROJ" 2>/dev/null; then
   echo "warning: $PBXPROJ has uncommitted changes; the archive will carry them." >&2
 fi
 
 if [[ $NEEDS_COMMIT -eq 1 ]]; then
   BRANCH=$(git rev-parse --abbrev-ref HEAD)
-  # --flow checks out $DEV_BRANCH on purpose to commit there, and is human-only;
-  # without it, a commit on $DEV_BRANCH is one the assistant may not push
-  # (CONTRIBUTING: work lands through a PR), so it would sit local and diverge.
-  # Compared one at a time rather than joined into a string: `main|HEAD` is a
-  # legal branch name and would false-match a delimiter-joined test.
+  # Without --flow a commit on $DEV_BRANCH is one nobody may push (CONTRIBUTING:
+  # work lands through a PR), so it would sit local and diverge. Compared one at
+  # a time: `main|HEAD` is a legal branch name and would false-match a joined test.
   REFUSED=0
   [[ "$BRANCH" == "$MAIN_BRANCH" || "$BRANCH" == "HEAD" ]] && REFUSED=1
   [[ $FLOW -eq 0 && "$BRANCH" == "$DEV_BRANCH" ]] && REFUSED=1
   if [[ $REFUSED -eq 1 ]]; then
-      # List only what is actually pending, and only offer --no-bump when it
-      # would change anything — a message naming 215 → 215, or suggesting a flag
-      # the operator already passed, is the kind of dead-end remedy this script
-      # has produced before.
+      # Name only what is actually pending, and offer --no-bump only when it
+      # would change something — "215 → 215", or a flag already passed, is a
+      # dead-end remedy.
       PENDING=""
       [[ "$CURRENT_MV" != "$TARGET_MV" ]] \
         && PENDING="MARKETING_VERSION ${CURRENT_MV} → ${TARGET_MV}"
@@ -232,11 +215,9 @@ if [[ $NEEDS_COMMIT -eq 1 ]]; then
        Land it in the release PR on ${DEV_BRANCH} and re-tag (see CONTRIBUTING → Releases).${REMEDY}"
   fi
 
-  # Also before editing: `git add` below stages the whole file, so a pbxproj edit
-  # of the user's own — which the dirty gate deliberately permits — would be swept
-  # into the bump commit, and under --flow onto $MAIN_BRANCH.
-  # Tested after the edits this can only ever see the script's own change, and
-  # would refuse every legitimate bump.
+  # Also before editing: `git add` stages the whole file, so a pbxproj edit of the
+  # user's own would be swept into the bump commit. Tested after the edits it
+  # could only ever see our own change and would refuse every legitimate bump.
   if ! git diff --quiet HEAD -- "$PBXPROJ"; then
     die "You have uncommitted changes in $PBXPROJ. The bump commit would absorb them.
        Commit or stash them first:  git stash push -- $PBXPROJ"
@@ -285,19 +266,15 @@ if [[ $NEEDS_COMMIT -eq 1 ]]; then
   else
     SUBJECT="chore(ios): sync MARKETING_VERSION to $TARGET_MV"
   fi
-  # `cmd || die` puts the cleanup on the success side; it has to be an `if` so the
-  # unstage runs when the commit actually fails. Left staged, the next run's
-  # absorb guard reports the script's own bump as the user's work and tells them
-  # to stash it, which buries the bump.
+  # An `if`, not `cmd || die`, so the cleanup sits on the failing side. Revert
+  # rather than `git reset`: the absorb guard compares worktree *and* index
+  # against HEAD, so a merely-unstaged bump would still make the next run refuse.
+  # Safe because the guard above proved the file carried no edit of the user's.
   if ! git commit -m "$(printf '%s\n\nAI generated' "$SUBJECT")" >/dev/null; then
-    # `git reset` only unstages; the absorb guard compares worktree *and* index
-    # against HEAD, so the next run would still refuse. The guard above already
-    # proved the file carried no edit of the user's, so reverting our own change
-    # is safe and leaves the next run clean.
     git checkout -q HEAD -- "$PBXPROJ" 2>/dev/null || true
-    die "Committing $PBXPROJ failed — a pre-commit hook, most likely (this repo has one that
-       rejects a non-empty DEVELOPMENT_TEAM). Nothing was left behind — the bump was
-       reverted. Fix what the hook objects to and re-run."
+    die "Committing $PBXPROJ failed — a pre-commit hook, most likely (the local one
+       many clones carry rejects a non-empty DEVELOPMENT_TEAM). Nothing was left
+       behind — the bump was reverted. Fix what the hook objects to and re-run."
   fi
   note "committed pbxproj changes on '${BRANCH}' (not pushed)"
 fi
@@ -346,12 +323,10 @@ verify_archive() {
   local v b i
   [[ -f "$archive_path/Info.plist" ]] \
     || die "No Info.plist in $archive_path — the archive is malformed."
-  # `|| echo '?'` as release.sh does: inside $( ) inside a function, a PlistBuddy
-  # failure does not propagate under set -e on bash 3.2, so a malformed archive
-  # would otherwise print blank values beneath "ARCHIVES READY".
-  # `|| v='?'` outside the substitution, not `$(… || echo '?')` inside it:
+  # Sentinel outside the substitution, not `$(… || echo '?')` inside it:
   # PlistBuddy writes "Error Reading File" to *stdout*, so the inside form appends
-  # the sentinel to that text and the value is neither empty nor '?'.
+  # '?' to that text and the value is neither empty nor '?' — the assert passes
+  # and a malformed archive prints under "ARCHIVES READY" with exit 0.
   v=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleShortVersionString" "$archive_path/Info.plist" 2>/dev/null) || v='?'
   b=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleVersion" "$archive_path/Info.plist" 2>/dev/null) || b='?'
   i=$(/usr/libexec/PlistBuddy -c "Print :ApplicationProperties:CFBundleIdentifier" "$archive_path/Info.plist" 2>/dev/null) || i='?'

@@ -121,13 +121,10 @@ fi
 if [[ $PUBLISH -eq 1 ]]; then
   # Checked before the 5-minute archive rather than after it.
   #
-  # Deliberately *not* checked: that the tree is clean, that HEAD is the tagged
-  # commit, or that the local tag matches origin's. Each of those guards was
-  # tried and each produced a false rejection of a legitimate release — the last
-  # one refused every annotated tag with a remedy that could not fix it.
-  # Reproducibility is real, but a growing pile of shell guards is the wrong
-  # instrument for it: build from a clean checkout of the tag, as
-  # CONTRIBUTING → Releases describes. See pupa#297.
+  # Not checked: that the tree is clean, that HEAD is the tagged commit, or that
+  # the local tag matches origin's. Each was tried and each false-rejected a
+  # legitimate release (pupa#297). Build from a clean checkout of the tag instead
+  # — CONTRIBUTING → Releases.
   if ! git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
     # Distinguish "no such tag" from "could not reach origin" — reporting the
     # second as the first sends the user off to re-create a tag that exists.
@@ -234,13 +231,10 @@ hdiutil create -volname "Pupa" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev
 # signature — an unsigned one is "rejected: no usable signature" no matter how
 # well the app inside is signed. Sign before submitting: signing after would
 # invalidate the staple.
-# Sign with whichever identity this run is using. A smoke test has no Developer
-# ID by definition — that is the whole reason --development-signing exists — so
-# demanding one here would break the flag for exactly the people it serves.
-# Read from the already-captured IDENTITIES, and let awk run to EOF. Both
-# `awk '{print; exit}'` and `awk … | head -1` stop reading early, which SIGPIPEs
-# the producer and makes pipefail report 141 — the trap SKILL.md warns about. A
-# first-match flag is the only shape here that is safe at any input size.
+# Sign with whichever identity this run is using — a smoke test has no Developer
+# ID, which is the point of --development-signing. The awk runs to EOF on purpose:
+# `{print; exit}` or `| head -1` stop early, SIGPIPE the producer, and make
+# pipefail report 141. A first-match flag is safe at any input size.
 if [[ $DEV_SIGNING -eq 1 ]]; then
   SIGN_AS="Apple Development"
 else
@@ -256,23 +250,22 @@ CODESIGN_ERR=$(codesign --verify --strict "$DMG" 2>&1) \
        $CODESIGN_ERR"
 note "packaged and signed $DMG"
 
-BUNDLE_SHORT=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist" 2>/dev/null || echo '?')
-BUNDLE_BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist" 2>/dev/null || echo '?')
+# Sentinel outside the substitution: PlistBuddy writes "Error Reading File" to
+# *stdout*, so `$(… || echo '?')` yields that text plus '?' and misreports an
+# unreadable plist as a wrong version.
+BUNDLE_SHORT=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist" 2>/dev/null) || BUNDLE_SHORT='?'
+BUNDLE_BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist" 2>/dev/null) || BUNDLE_BUILD='?'
+[[ "$BUNDLE_SHORT" != '?' ]] \
+  || die "Could not read the version from $APP/Contents/Info.plist — the export is malformed."
 [[ "$BUNDLE_SHORT" == "$VERSION" ]] \
   || die "The packaged app reports version $BUNDLE_SHORT, expected $VERSION.
        MARKETING_VERSION did not take — the DMG would advertise the wrong version."
 
-# The DMG inherits CURRENT_PROJECT_VERSION from project.pbxproj, which archive.sh
-# owns. If the two channels ship the same marketing version with different build
-# numbers, a Sparkle updater — which orders by CFBundleVersion alone and ignores
-# the marketing string — sees them as different builds.
-# Not asserted here: that CFBundleVersion matches project.pbxproj. Two attempts
-# at that guard both false-rejected ordinary states (pupa#297). The invariant is
-# real — Sparkle orders updates by build number alone, so the two channels must
-# agree — but it belongs in the release procedure, not in a grep of the pbxproj.
-# CONTRIBUTING → Releases puts both version bumps in the release PR, which makes
-# them agree by construction.
-
+# Not asserted: that CFBundleVersion matches project.pbxproj. Both channels must
+# ship the same build number for a given marketing version (Sparkle orders by
+# CFBundleVersion alone), but two attempts at that guard false-rejected ordinary
+# states (pupa#297). CONTRIBUTING → Releases puts both bumps in the release PR,
+# which makes them agree by construction.
 
 if [[ $SKIP_NOTARIZE -eq 1 ]]; then
   if [[ $DEV_SIGNING -eq 1 ]]; then

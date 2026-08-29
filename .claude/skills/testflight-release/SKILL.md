@@ -14,18 +14,17 @@ Run `archive.sh` next to this file. Do not re-implement its logic with sequentia
 User wants `.xcarchive`s ready for TestFlight upload. Typical phrasings: "ship to TestFlight", "archive for TestFlight", "make a build for TestFlight", "release the iOS app". Pupa ships iOS + macOS under one Universal Purchase App Store Connect record, so the script always archives both platforms from the single `PupaHost` target (`SUPPORTED_PLATFORMS` covers both — same `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION`, no per-platform version skew possible). The skill stops at producing the `.xcarchive`s — uploading is done manually via Xcode Organizer (avoids needing App Store Connect API credentials).
 
 > **The `dev`→`main` dance is opt-in (`--flow`), and human-only.** By default the
-> script bumps and archives the current branch in place. It still *commits* the
-> bump there — it moves no branch ref other than the one you are already on — so
-> an assistant can run it without tripping the AI rules in `CONTRIBUTING.md` —
-> it refuses to commit on `main`, on a detached HEAD, or on `dev`, so the bump
-> can only land somewhere a PR can carry it.
-> Assistants should also pass `--no-bump`.
+> script bumps and archives the current branch in place, moving no branch ref
+> other than the one you are already on. It still *commits* the bump there, but
+> refuses to on `main`, on a detached HEAD, or on `dev` — so the bump can only
+> land where a PR can carry it, which keeps an assistant inside the AI rules in
+> `CONTRIBUTING.md`.
 >
-> Neither flag stops the script *committing*: a `MARKETING_VERSION` sync sets
-> `NEEDS_COMMIT` even under `--no-bump`, which is why it refuses outright on
-> `main` or a detached tag. Sync `MARKETING_VERSION` and the build number in the
-> release PR (see `CONTRIBUTING.md` → Releases) so nothing is left to commit at
-> archive time.
+> Assistants should also pass `--no-bump` — but it does not stop the script
+> committing: a `MARKETING_VERSION` sync sets `NEEDS_COMMIT` on its own, which is
+> why the refusal is outright rather than conditional. Set `MARKETING_VERSION`
+> and the build number in the release PR (`CONTRIBUTING.md` → Releases) so
+> nothing is left to commit at archive time.
 
 ## Before invoking the script
 
@@ -111,8 +110,8 @@ If the user wants to skip Organizer and upload via CLI: `xcrun altool --upload-a
   but the build lost (that feature is dead at runtime, as in pupa#229), `>` lines are keys
   the build gained that no code uses (review risk). Don't relax the expected set to make it
   pass; find the `ENABLE_*` build setting that moved. If the change is deliberate, update
-  `EXPECTED_SECURITY` here and the entitlement table in `docs/architecture.md`
-  in the same commit.
+  `EXPECTED_SECURITY` in `scripts/verify-mac-entitlements.sh` and the entitlement
+  table in `docs/architecture.md` in the same commit.
 - **Working tree dirty (non-pbxproj files)**: refuse and ask the user to commit/stash first.
 - **Working tree dirty (`project.pbxproj` itself)**: allowed on arrival, but refused
   once a bump or `MARKETING_VERSION` sync is actually needed — `git add` stages the
