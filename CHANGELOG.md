@@ -3,6 +3,17 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.271] — 2026-08-29
+
+### Fixed
+
+- **Tapping a notification while the app is fully closed now opens the chat and
+  runs its action.** The tap handler was wired up, but the notification delegate
+  was installed too late in launch — after iOS had already delivered the tap
+  that woke the app — so a cold-launch tap was silently dropped: no chat, no
+  `runAgent`/prefill. It now installs at the platform launch hook, before that
+  tap arrives. Taps while the app was already open were unaffected.
+
 ## [0.0.270] — 2026-08-26
 
 ### Added

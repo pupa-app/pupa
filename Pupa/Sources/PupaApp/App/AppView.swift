@@ -114,12 +114,16 @@ public struct AppView: View {
     /// don't care (previews, the macOS demo) pass nothing and get a fresh one.
     public init(settings injectedSettings: SettingsStore? = nil) {
         MyAppTypeRegistry.shared.registerBuiltins()
-        // Install the UNUserNotificationCenter delegate before any agent
-        // turn can call `sendNotification`. Idempotent.
+        // Idempotent fallback, and a no-op in the shipping app: there
+        // `PupaAppDelegate` already installed the notification delegate at the
+        // platform launch hook, before the cold-launch tap was dispatched. What
+        // this call still covers is preview/demo entry, which mounts the view
+        // with no delegate attached.
         NotificationCenterCoordinator.shared.bootstrap()
-        // Kick a background iCloud mirror pass (covers demo/preview entry that
-        // bypasses `PupaApp`). The stores below load from the local canonical
-        // tree regardless; the mirror converges with iCloud off the main thread.
+        // Kick a background iCloud mirror pass. This is the only one in every
+        // entry point except `PupaApp`, which warms in its own init. The stores
+        // below load from the local canonical tree regardless; the mirror
+        // converges with iCloud off the main thread.
         PupaStorage.warm()
         let store = MyAppStore()
         // Guide skills are managed content, re-seeded (version-gated) into

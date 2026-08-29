@@ -1527,9 +1527,16 @@ see [App Sandbox & entitlements](#app-sandbox--entitlements).
   `everyNHours`, `repeats:true` — OS-scheduled, survives restarts, no live
   session). An optional `tapAction` (`foreground` / `populateChat` /
   `runAgent`) plus any deep-link `target` ride in the notification's
-  `userInfo`. On tap the delegate buffers a payload in `pendingTap` and
-  posts `.pupaNotificationTap`; `AppView` drains it (on receipt + on
-  appear, consume-once) → `setRoot` navigates to the owning scope, opens a
+  `userInfo`. The delegate is installed from the platform launch hook —
+  `PupaAppDelegate`, attached with `@PupaAppDelegateAdaptor` to the `@main`
+  scene (`PupaHostApp`; `PupaApp` for a library host) — before the OS delivers
+  a cold-launch tap. Attaching it to any other `App` type never instantiates
+  it, and installing it later (e.g. in a view `init` under the splash) drops
+  that tap. The macOS demo is the exception: its one `NSApplicationDelegate`
+  slot is already spent, so it falls back to `AppView.init` — moot there, since
+  `swift run` has no bundle identifier and `bootstrap()` no-ops. On tap the delegate buffers a payload in `pendingTap` and posts
+  `.pupaNotificationTap`; `AppView` drains it (on receipt + on appear,
+  consume-once) → `setRoot` navigates to the owning scope, opens a
   **fresh chat thread** there (`store.addThread`), then `populateChat` writes
   `GuidedTourStore.chatPrefill` / `runAgent` writes `chatAutoSend`, which
   `ChatPanel` mirrors into the composer / sends as a turn. A scheduled prompt
