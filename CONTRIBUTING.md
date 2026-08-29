@@ -12,28 +12,24 @@ If you are an AI assistant (Claude Code, Copilot, Cursor, etc.) reading this fil
 **You may, when a human has asked for it in the current session:**
 
 - Create branches, commit on feature branches, push feature branches, open PRs.
-- **Squash-merge into `dev` a PR you opened yourself**, once `make test` passes
-  locally and no review comment is left unaddressed. Report what you merged.
+- **Squash-merge PRs into `dev`**, once `make test` passes locally and no review
+  comment is left unaddressed. Report what you merged.
+- **Fast-forward `main` from `dev`** to cut a release.
 - Create and push release tags (`v0.0.X`).
 - Create GitHub releases, attach release assets, and publish them.
 
 **You must not, whoever asks:**
 
-- **Push to `dev` or `main` directly**, fast-forward or otherwise. Work lands
-  through a PR, always.
-- **Merge into `main`, or fast-forward `main` from `dev`.** Cutting a release is
-  a human act.
-- **Merge a PR you did not open**, or one with an unresolved review comment.
+- **Push commits to `dev` or `main` directly.** Work lands through a PR, always;
+  the only ref move on `main` is a fast-forward from `dev`.
 - **Force-push, rewrite published history, or delete a branch you did not
   create.**
 - **Change repository visibility.** Going public is irreversible in effect —
   clones and caches outlive the setting — so it stays a human decision.
 
-The line is blast radius, not trust. Landing reviewed work on `dev` is undone by
-a revert. Rewriting history, or opening the repo to the world, is not.
-
-The `main` and visibility steps below are written for humans and intentionally
-avoid copy-paste command blocks for that reason.
+The line is blast radius, not trust. Landing reviewed work on `dev`, or moving
+`main` forward from it, is undone by a revert. Rewriting history, or opening the
+repo to the world, is not.
 
 ## Layout
 
@@ -217,8 +213,7 @@ the machine that built it.
 ### Publishing a DMG
 
 The DMG is distributed as a GitHub Release asset on this repo — attached to the
-release, not committed, so the repository never carries binaries. Tag first —
-an assistant may do this when asked, per the rules at the top of this file —
+release, not committed, so the repository never carries binaries. Tag first,
 then, from a clean checkout of that tag:
 
 ```bash
@@ -272,25 +267,23 @@ If `dev` doesn't exist yet, create it once and push it: `git checkout -b dev mai
    gh pr create --base dev --head feature/kanban-component
    ```
 
-5. **Squash-merge into `dev`** — done by a human, via the GitHub UI's "Squash and merge" button. The squash subject is what shows up in `dev`'s history forever — write it for someone reading `git log` six months later. (AI assistants: do not perform this step. See the hard rules above.)
+5. **Squash-merge into `dev`** — via the GitHub UI's "Squash and merge" button, or `gh pr merge --squash`. The squash subject is what shows up in `dev`'s history forever — write it for someone reading `git log` six months later.
 
-6. **Delete the feature branch** after the human merge lands.
+6. **Delete the feature branch** after the merge lands.
 
 ## Releases
 
-**Release cuts are a human-only action.** AI assistants must not push to `main` or run any `git merge` against `main` — see the hard rules at the top of this file.
-
 Releasing means promoting whatever is on `dev` to `main` as a single fast-forward — no merge commit, no rewrite, just a pointer move. This guarantees `main` is always a strict prefix of `dev`. The fast-forward will fail if `dev` has been rewritten or `main` has diverged, which is the safety property we want.
 
-Before a human cuts the release:
+Before cutting the release:
 
-- Bump versions per [CLAUDE.md → Versioning](CLAUDE.md#versioning) (patch-only unless explicitly told otherwise). AI assistants may prepare these bumps on a feature branch and open a PR into `dev`.
-- Add a CHANGELOG entry under the new version on `dev`. Same rule — AI may prepare it on a branch and open a PR; the human merges.
+- Bump versions per [CLAUDE.md → Versioning](CLAUDE.md#versioning) (patch-only unless explicitly told otherwise). The bump goes on a feature branch, in a PR into `dev`.
+- Add a CHANGELOG entry under the new version, in that same PR.
 - **Bump `CURRENT_PROJECT_VERSION` in that same PR**, rather than letting
   `archive.sh` do it afterwards. Set it by hand: `--no-bump` archives with
   whatever the pbxproj already says and asserts nothing about it, so it is not a
   check.
-- After the human fast-forwards `main` and pushes, tag the release (`v0.0.X`) and push the tag — an assistant may do this when asked.
+- After `main` is fast-forwarded and pushed, tag the release (`v0.0.X`) and push the tag.
 - Ship to TestFlight via the `testflight-release` skill (archives both platforms and gates the entitlement set). Upload the `.xcarchive` through Xcode Organizer.
 
 ### The order matters, and why
@@ -303,13 +296,12 @@ Before a human cuts the release:
    differs, and would then try to commit — which it refuses to do on `main`, on a detached tag checkout, or on `dev`
    without `--flow` — stopping the release. Setting both in the release PR
    leaves it nothing to sync.
-3. Human fast-forwards `main` from `dev`, pushes both.
+3. Fast-forward `main` from `dev`, push both.
 4. Tag `v0.0.X` at that SHA and push the tag, so `main`, `dev` and the tag name
-   one commit. An assistant may do this when asked (see the rules at the top);
-   moving `main` in step 3 is human-only.
+   one commit.
 5. From that checkout: `archive.sh --no-bump` → both `.xcarchive`s → Organizer.
    It moves no branch other than the one you are on; `--flow` opts into the
-   `dev`→`main` dance and is human-only.
+   `dev`→`main` dance.
 6. From the **same** checkout: `release.sh --notary-profile <name> --publish` →
    DMG and GitHub release.
 
