@@ -1527,9 +1527,12 @@ see [App Sandbox & entitlements](#app-sandbox--entitlements).
   `everyNHours`, `repeats:true` — OS-scheduled, survives restarts, no live
   session). An optional `tapAction` (`foreground` / `populateChat` /
   `runAgent`) plus any deep-link `target` ride in the notification's
-  `userInfo`. On tap the delegate buffers a payload in `pendingTap` and
-  posts `.pupaNotificationTap`; `AppView` drains it (on receipt + on
-  appear, consume-once) → `setRoot` navigates to the owning scope, opens a
+  `userInfo`. The delegate is installed from the UIKit launch hook
+  (`PupaAppDelegate.application(_:didFinishLaunchingWithOptions:)`) — before iOS
+  delivers a cold-launch tap; installing it later (e.g. in a view `init` under
+  the splash) drops that tap. On tap the delegate buffers a payload in
+  `pendingTap` and posts `.pupaNotificationTap`; `AppView` drains it (on
+  receipt + on appear, consume-once) → `setRoot` navigates to the owning scope, opens a
   **fresh chat thread** there (`store.addThread`), then `populateChat` writes
   `GuidedTourStore.chatPrefill` / `runAgent` writes `chatAutoSend`, which
   `ChatPanel` mirrors into the composer / sends as a turn. A scheduled prompt

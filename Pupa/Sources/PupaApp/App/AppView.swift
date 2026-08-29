@@ -114,8 +114,10 @@ public struct AppView: View {
     /// don't care (previews, the macOS demo) pass nothing and get a fresh one.
     public init(settings injectedSettings: SettingsStore? = nil) {
         MyAppTypeRegistry.shared.registerBuiltins()
-        // Install the UNUserNotificationCenter delegate before any agent
-        // turn can call `sendNotification`. Idempotent.
+        // Idempotent fallback. On iOS the notification delegate is installed
+        // earlier by `PupaAppDelegate` (before the cold-launch tap is
+        // dispatched); this call only covers preview/demo entry that mounts the
+        // view without going through `PupaApp`.
         NotificationCenterCoordinator.shared.bootstrap()
         // Kick a background iCloud mirror pass (covers demo/preview entry that
         // bypasses `PupaApp`). The stores below load from the local canonical
