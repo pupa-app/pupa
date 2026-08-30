@@ -14,8 +14,6 @@ public enum PupaID {
     public static let chatToggle = "chat.toggle"
     /// Drawer toggle in the top-left toolbar. The drawer covers the bottom
     /// bar while open, so a test has to close it before anything down there
-    /// is hittable.
-    public static let sidebarToggle = "sidebar.toggle"
     /// The dropped-turn banner's Continue button.
     public static let chatContinue = "chat.continue"
     /// Machine-readable turn state, mounted only on a driven launch. See

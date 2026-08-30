@@ -3,6 +3,22 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.275] — 2026-08-31
+
+### Changed
+
+- **MyApps opens from the bottom, and the top-left hamburger is gone.** The
+  MyApps list slid in from the left — the only surface in the app with its own
+  idiom, while Settings, memory notes and every composer come up from the
+  bottom. It is now a sheet like the rest, reached from a **MyApps** row in the
+  bar's menu. Nothing sits in the top-left any more, so every page starts about
+  80pt higher.
+- **The bar's menu is the app's only menu**, and wears the hamburger icon it
+  inherited. Its rows are grouped one axis per section: this app's pages
+  (Agents, History), which app you're in (MyApps, Orchestrator), and app-wide
+  (Screen share, Settings) — three groups that mean different things, rather
+  than one flat list where History sat next to Settings.
+
 ## [0.0.274] — 2026-08-30
 
 ### Changed

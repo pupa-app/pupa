@@ -462,10 +462,6 @@ final class TurnRecoveryUITests: XCTestCase {
         app.launchArguments = [
             "-PupaStorageRoot", "ephemeral:\(root)",
             "-PupaSkipOnboarding", "1",
-            // The drawer covers the bottom bar with a bar of its own, and its
-            // open state persists. Start on the canvas; `NotificationsFlow`
-            // passes YES because the Settings gear lives in the drawer.
-            "-pupa.ui.sidebarOpen", "NO",
         ] + (reset ? ["-PupaStorageReset", "1"] : []) + extra
         if let live {
             app.launchArguments += [

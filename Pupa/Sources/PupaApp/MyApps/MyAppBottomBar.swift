@@ -41,6 +41,10 @@ public struct MyAppBottomBar: View {
     /// Present the Settings sheet. Owned by `AppView` — the bar is the only
     /// surface that reaches Settings now that the sidebar footer is gone.
     let onOpenSettings: () -> Void
+    /// Present the MyApps sheet. The bar is the only way there now that the
+    /// top-left hamburger is gone. `nil` on macOS, where the sidebar column is
+    /// always on screen and a row that opens it would be redundant.
+    let onOpenMyApps: (() -> Void)?
 
     /// Row height for each bar button.
     static let rowHeight: CGFloat = 30
@@ -56,7 +60,8 @@ public struct MyAppBottomBar: View {
         onSelect: @escaping (SidebarSelection) -> Void,
         onShowHistory: @escaping (UUID) -> Void,
         onToggleChat: @escaping () -> Void,
-        onOpenSettings: @escaping () -> Void
+        onOpenSettings: @escaping () -> Void,
+        onOpenMyApps: (() -> Void)? = nil
     ) {
         self.subject = subject
         self.currentPage = currentPage
@@ -67,6 +72,7 @@ public struct MyAppBottomBar: View {
         self.onShowHistory = onShowHistory
         self.onToggleChat = onToggleChat
         self.onOpenSettings = onOpenSettings
+        self.onOpenMyApps = onOpenMyApps
     }
 
     private var myAppId: UUID? {
@@ -177,13 +183,18 @@ public struct MyAppBottomBar: View {
         currentPage == .agents || currentPage == .history
     }
 
-    /// `⋯` overflow: the per-subject pages that don't earn a slot (Agents, and
-    /// History for a myApp) above the app-wide ones (Orchestrator, Screen
-    /// share, Settings). Components are deliberately absent — Home already
-    /// grids them, one tap away, and this is the only `⋯` in the app now.
+    /// The app's menu, grouped one axis per section — this scope's pages
+    /// (Agents, History), which scope you're in (MyApps, Orchestrator), then
+    /// app-wide (Screen share, Settings). Mixing those in one flat list put
+    /// History next to Settings, two rows that don't even apply to the same
+    /// thing; MyApps is a single row onto its own surface instead.
     ///
-    /// The orchestrator's own bar omits the Orchestrator item, the same way it
-    /// omits History: you're already there.
+    /// iOS flips a bottom-anchored menu, so the first group declared lands
+    /// nearest the thumb.
+    ///
+    /// Components are deliberately absent — Home already grids them. The
+    /// orchestrator's bar omits the Orchestrator row, the same way it omits
+    /// History: you're already there.
     private var moreMenu: some View {
         Menu {
             Button {
@@ -199,6 +210,11 @@ public struct MyAppBottomBar: View {
                 }
             }
             Divider()
+            if let onOpenMyApps {
+                Button(action: onOpenMyApps) {
+                    Label("MyApps", systemImage: "square.grid.2x2")
+                }
+            }
             if myAppId != nil {
                 Button {
                     onSelect(.orchestrator)
@@ -206,6 +222,7 @@ public struct MyAppBottomBar: View {
                     Label("Orchestrator", systemImage: "square.stack.3d.up.fill")
                 }
             }
+            Divider()
             Button {
                 onSelect(.screenShare)
             } label: {
@@ -215,7 +232,7 @@ public struct MyAppBottomBar: View {
                 Label("Settings", systemImage: "gearshape")
             }
         } label: {
-            Image(systemName: "ellipsis")
+            Image(systemName: "line.3.horizontal")
                 .font(.system(size: 18, weight: moreActive ? .semibold : .medium))
                 .foregroundStyle(moreActive ? appColor : appColor.opacity(0.7))
                 .frame(height: Self.rowHeight)
@@ -236,8 +253,8 @@ public struct MyAppBottomBar: View {
         // borderless menu collapses to its label's intrinsic width otherwise,
         // shoving `⋯` against the trailing edge.
         .frame(maxWidth: .infinity)
-        .help("More")
-        .accessibilityLabel("More")
+        .help("Menu")
+        .accessibilityLabel("Menu")
         .tourAnchor(.bottomBarMore)
     }
 }

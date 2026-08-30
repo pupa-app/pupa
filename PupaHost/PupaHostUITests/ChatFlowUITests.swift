@@ -73,10 +73,6 @@ final class ChatFlowUITests: XCTestCase {
         app.launchArguments = [
             "-PupaStorageRoot", "ephemeral",
             "-PupaSkipOnboarding", "1",
-            // The drawer covers the bottom bar with a bar of its own, and its
-            // open state persists. Start on the canvas; `NotificationsFlow`
-            // passes YES because the Settings gear lives in the drawer.
-            "-pupa.ui.sidebarOpen", "NO",
         ]
         app.launchEnvironment["PUPA_SCRIPT"] = script
         app.launch()

@@ -94,7 +94,10 @@ handlers.
 | [`Settings/`](../Pupa/Sources/PupaApp/Settings/) | `SettingsStore` (backend URL, API key, disabled tools), `SettingsSheet` + its category screens, `SettingsHubRow`, backend-tools client. |
 
 `AppView` lays this out as a fixed-width `HStack` split (sidebar `Divider`
-detail) on macOS and a custom slide-in drawer on iOS. (macOS deliberately
+detail) on macOS and, on iOS, a **bottom sheet** opened from the bar menu's
+**MyApps** row — the same idiom as Settings and memory notes, rather than the
+left-slide drawer it used to be. There is no toolbar hamburger; the bar's menu
+is the only menu. (macOS deliberately
 avoids `NavigationSplitView`: its sidebar fails to render in the unbundled
 `swift run` PupaDemo binary, leaving an empty column.) The sidebar lists the
 **visible** (non-archived) MyApps as compact, **non-expanding** rows (tap a row
@@ -315,11 +318,16 @@ renders through MarkdownUI, anything else verbatim as monospaced h-scrolling cod
 newlines and indentation. Edit mode is a monospaced `TextEditor` either way, so
 preview and buffer match byte for byte), the **Pupa** chat launcher (toggles
 `AppView.chatOpen`, carrying the scope's `StatusBadge`), and **More** (`⋯`) —
-the app's single overflow, holding **Agents** (`person.2`, opens
-`AgentsListView` / `AgentDetailView`), **History** (`clock`, pushes
-`ChangeHistoryView` via `.myAppHistory` — **myApp only**; the orchestrator has
-no canvas change-log so it omits this), then the app-wide **Orchestrator**,
-**Screen share** and **Settings**. The orchestrator's own bar omits the
+the app's only menu (`line.3.horizontal`), grouped one axis per section: this
+scope's pages — **Agents** (`person.2`, opens `AgentsListView` /
+`AgentDetailView`) and **History** (`clock`, pushes `ChangeHistoryView` via
+`.myAppHistory` — **myApp only**; the orchestrator has no canvas change-log so
+it omits this) — then *which* scope you're in (**MyApps**, which presents the
+sidebar as a sheet, and **Orchestrator**), then app-wide (**Screen share**,
+**Settings**). Flat-listing those axes put History next to Settings, two rows
+that don't apply to the same thing; MyApps is one row onto its own surface
+instead. iOS flips a bottom-anchored menu, so the first group declared lands
+nearest the thumb. The orchestrator's own bar omits the
 Orchestrator item for the same reason it omits History: you're already there.
 More lights up as the active slot while an Agents or History page is showing. Components are deliberately absent from it: the home page already
 grids them one tap away. Glyphs are tinted the

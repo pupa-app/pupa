@@ -39,9 +39,6 @@ struct TourStep: Identifiable, Equatable {
     /// and, via `dispatchSelection`, the chat scope). `nil` leaves the current
     /// selection in place.
     var selection: SidebarSelection?
-    /// Open the slide-in sidebar menu (iOS) so the user sees the app's
-    /// navigation. No-op on macOS, where the sidebar is always visible.
-    var opensSidebar: Bool
     /// Open the Settings sheet at this page. `nil` keeps it closed.
     var settingsPage: TourSettingsPage?
     /// Expand the chat overlay for this step.
@@ -60,7 +57,6 @@ struct TourStep: Identifiable, Equatable {
         body: String,
         placement: CardPlacement,
         selection: SidebarSelection? = nil,
-        opensSidebar: Bool = false,
         settingsPage: TourSettingsPage? = nil,
         opensChat: Bool = false,
         chatPrefill: String? = nil,
@@ -71,7 +67,6 @@ struct TourStep: Identifiable, Equatable {
         self.body = body
         self.placement = placement
         self.selection = selection
-        self.opensSidebar = opensSidebar
         self.settingsPage = settingsPage
         self.opensChat = opensChat
         self.chatPrefill = chatPrefill
@@ -90,11 +85,10 @@ enum TourContent {
             TourStep(
                 id: "welcome",
                 title: "Welcome to Pupa",
-                body: "Pupa is a workspace your agent can see and edit alongside you. This "
-                    + "is your menu — your MyApps, the orchestrator, and Settings all live "
-                    + "here. The tour takes about a minute; tap Next to begin.",
-                placement: .bottom,
-                opensSidebar: true
+                body: "Pupa is a workspace your agent can see and edit alongside you. "
+                    + "Everything you need is on the bar along the bottom. The tour takes "
+                    + "about a minute; tap Next to begin.",
+                placement: .bottom
             ),
             TourStep(
                 id: "settings-overview",
@@ -142,10 +136,11 @@ enum TourContent {
             // would just point at a closed menu.
             TourStep(
                 id: "bar-more",
-                title: "More",
-                body: "Everything else is behind More: this app's agents and its change "
-                    + "history, the Orchestrator that spans every MyApp, screen share, and "
-                    + "Settings. Four buttons and this menu are the whole app.",
+                title: "Menu",
+                body: "The menu holds everything else, grouped: this app's agents and "
+                    + "change history, then MyApps and the Orchestrator for moving between "
+                    + "workspaces, then screen share and Settings. Three buttons and this "
+                    + "menu are the whole app.",
                 placement: .bottom,
                 selection: .myAppHome(activeMyAppId),
                 highlight: .bottomBarMore

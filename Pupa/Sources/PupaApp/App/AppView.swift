@@ -18,14 +18,6 @@ import UIKit
 ///     file viewer) under a floating `ChatOverlay` anchored bottom-trailing.
 ///     The overlay rebinds to whichever `ChatViewModel` matches the current
 ///     selection — backgrounded sessions keep streaming until they finish.
-/// Persisted UI state keys shared with the launch seam, which pre-sets some
-/// of them so a driven app comes up in a known place.
-public enum UIStateKeys {
-    /// The MyApps drawer. Defaults open, and it lays its own bottom bar over
-    /// the main one while it is.
-    public static let sidebarOpen = "pupa.ui.sidebarOpen"
-}
-
 public struct AppView: View {
     /// Drives the resumable-SSE lifecycle hooks (background hold / foreground
     /// re-attach). See `handleScenePhase`.
@@ -69,11 +61,10 @@ public struct AppView: View {
     /// the same state it was left in; defaults to `true` so a fresh install
     /// lands on an open menu. Written through by the toolbar toggle and the
     /// auto-close on selection, so "last state" survives relaunch.
-    @AppStorage(UIStateKeys.sidebarOpen) private var showSidebar = true
-    /// Drives the slide-in menu width: on a regular width class (iPad, or a
-    /// large iPhone in landscape) the drawer stays slim instead of swallowing
-    /// the whole screen the way it does on compact iPhones.
-    @Environment(\.horizontalSizeClass) private var hSizeClass
+    /// Whether the MyApps sheet is up. Session state, not persisted: the drawer
+    /// used to restore its open/closed position across launches, but a *sheet*
+    /// that re-presents itself on launch is a modal nobody asked for.
+    @State private var showSidebar = false
     #endif
     /// Which chat session is shown in the overlay. Decoupled from `selection`
     /// so the agent dropdown can switch chat context without moving the canvas.
@@ -635,11 +626,9 @@ public struct AppView: View {
     private func applyTourStep() {
         guard tour.isActive, let step = tour.currentStep else { return }
         #if os(iOS)
-        // Only what the step asks for. Settings steps used to force the drawer
-        // open because the sidebar hosted the sheet; `AppView` presents it now,
-        // so a Settings step no longer has any reason to disturb the drawer.
-        // Animated by the scoped `.animation(value: showSidebar)` drivers.
-        showSidebar = step.opensSidebar
+        // No step opens MyApps any more — the tour walks the bar, and MyApps is
+        // one row in its menu. Close it if a step arrives while it is up.
+        showSidebar = false
         #endif
         tour.wantSettingsPage = step.settingsPage
         tour.wantSettingsOpen = step.settingsPage != nil
@@ -873,47 +862,17 @@ public struct AppView: View {
     }
 
     #if os(iOS)
-    /// Width of the slide-in menu drawer. Compact (iPhone portrait) keeps the
-    /// near-full-width drawer; regular (iPad, large iPhone landscape) caps it at
-    /// a slim sidebar width so most of the canvas stays visible behind it.
-    private var sidebarWidth: CGFloat {
-        if hSizeClass == .regular { return 320 }
-        return UIScreen.main.bounds.width - 56
-    }
-
     private var iOSBody: some View {
-        ZStack(alignment: .leading) {
+        Group {
             ZStack {
+                // No toolbar hamburger: MyApps is reached from the bar's menu
+                // like everything else, which leaves the top-left to the page.
                 NavigationStack(path: $detailPath) {
                     content
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .toolbar {
-                            ToolbarItem(placement: .topBarLeading) {
-                                Button {
-                                    PerfTrace.interaction(showSidebar ? "drawerClose" : "drawerOpen") {
-                                        showSidebar.toggle()
-                                    }
-                                } label: {
-                                    Image(systemName: "line.3.horizontal")
-                                }
-                                .accessibilityIdentifier(PupaID.sidebarToggle)
-                            }
-                        }
                         .navigationDestination(for: SidebarSelection.self) { dest in
                             detailView(for: dest)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .toolbar {
-                                    ToolbarItem(placement: .topBarLeading) {
-                                        Button {
-                                            PerfTrace.interaction(showSidebar ? "drawerClose" : "drawerOpen") {
-                                                showSidebar.toggle()
-                                            }
-                                        } label: {
-                                            Image(systemName: "line.3.horizontal")
-                                        }
-                                        .accessibilityIdentifier(PupaID.sidebarToggle)
-                                    }
-                                }
                         }
                 }
                 ChatOverlay(
@@ -940,55 +899,28 @@ public struct AppView: View {
                 myAppBottomBar
             }
 
-            // Drawer + scrim are ALWAYS mounted (keep-alive, like `DetailPane`):
-            // opening slides by offset instead of cold-constructing the sidebar
-            // List inside the tap transaction — the conditional mount measured
-            // ~90-135ms tap→frame warm and ~1.1s on first open (Debug, sim).
-            // Scrim: opacity-driven, never hit-testable while closed.
-            Color.black.opacity(showSidebar ? 0.4 : 0)
-                .ignoresSafeArea()
-                .onTapGesture { showSidebar = false }
-                .allowsHitTesting(showSidebar)
-                .animation(.snappy(duration: 0.25), value: showSidebar)
-
-            // Drawer: slides by offset. Gradient trailing edge replaces
-            // `.shadow(radius: 10)` — a per-frame shadow on a huge moving
-            // layer forced offscreen rasterization during the slide.
-            HStack(spacing: 0) {
-                MyAppSidebarView(
-                    store: store,
-                    selection: $selection,
-                    busyMyApps: coordinator.busyMyApps,
-                    onSelectionChange: setRoot,
-                    onDeleteMyApp: deleteMyApp,
-                    onArchiveMyApp: archiveMyApp
-                )
-                .equatable()
-                .frame(width: sidebarWidth)
-                // Bleed only the background behind the status bar / home
-                // indicator; the content keeps its safe-area insets so the
-                // brand header sits below the clock instead of under it.
-                .background(Color(uiColor: .systemBackground).ignoresSafeArea())
-
-                LinearGradient(
-                    colors: [.black.opacity(0.25), .clear],
-                    startPoint: .leading, endPoint: .trailing
-                )
-                .frame(width: 16)
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-            }
-            .offset(x: showSidebar ? 0 : -(sidebarWidth + 16))
-            .allowsHitTesting(showSidebar)
-            .accessibilityHidden(!showSidebar)
-            .animation(.snappy(duration: 0.25), value: showSidebar)
         }
-        // Ring the control the active step describes (sidebar footer, bottom-bar
-        // tab, or chat header) — over the drawer + canvas, under the coach card,
-        // never blocking input.
+        // MyApps arrives from the bottom, like every other overlay in the app —
+        // Settings, memory notes, the composers. It used to slide in from the
+        // left, which made it the only surface with its own idiom.
+        .sheet(isPresented: $showSidebar) {
+            MyAppSidebarView(
+                store: store,
+                selection: $selection,
+                busyMyApps: coordinator.busyMyApps,
+                onSelectionChange: setRoot,
+                onDeleteMyApp: deleteMyApp,
+                onArchiveMyApp: archiveMyApp
+            )
+            .equatable()
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
+        // Ring the control the active step describes (a bottom-bar slot or the
+        // chat header) — over the canvas, under the coach card, never blocking
+        // input.
         .tourHighlightLayer(tour)
-        // Coach card sits on top of everything (incl. the ring) so the welcome
-        // step keeps it visible while the menu is open.
+        // Coach card sits on top of everything (incl. the ring).
         .overlay {
             if tour.isActive {
                 GuidedTourView(tour: tour)
@@ -997,7 +929,7 @@ public struct AppView: View {
         .onChange(of: selection) { _, new in
             // Ignore our own clear-to-nil (below). Navigation itself happens in
             // `setRoot`, invoked by the sidebar's `onSelectionChange` — this
-            // handler only closes the drawer and re-arms the row highlight.
+            // handler only dismisses the sheet and re-arms the row highlight.
             guard new != nil else { return }
             showSidebar = false
             // List(selection:) won't re-fire onChange for an identical value, so a
@@ -1351,7 +1283,8 @@ public struct AppView: View {
                     }
                 },
                 onToggleChat: { toggleChat() },
-                onOpenSettings: { settingsSheetPresented = true }
+                onOpenSettings: { settingsSheetPresented = true },
+                onOpenMyApps: openMyApps
             )
         }
     }
@@ -1396,6 +1329,16 @@ public struct AppView: View {
                 settingsSheetPresented = false
             }
         )
+    }
+
+    /// Open the MyApps sheet. iOS only — macOS keeps a permanent sidebar
+    /// column, so its bar menu omits the row entirely.
+    private var openMyApps: (() -> Void)? {
+        #if os(iOS)
+        return { PerfTrace.interaction("myAppsOpen") { showSidebar = true } }
+        #else
+        return nil
+        #endif
     }
 
     private func toggleChat() {
