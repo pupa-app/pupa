@@ -20,7 +20,9 @@ REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 HOOK="$REPO_ROOT/scripts/hooks/pre-commit"
 CONFIG="$REPO_ROOT/.gitleaks.toml"
 
-TMP=$(mktemp -d -t pupa-hook-tests)
+# Not `mktemp -d -t NAME`: that is BSD-only, and GNU coreutils rejects a
+# template with no trailing X's — this suite runs on a Linux runner in CI.
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/pupa-hook-tests.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 
 PASS=0
