@@ -36,7 +36,7 @@ The task is well-scoped enough to hand off whole, and worth the cost of ~6 agent
 
 ## Guardrails
 
-- **The workflow itself doesn't merge.** Both PRs come back open; the winner is merged afterwards, by you or by whoever asked.
+- **The workflow itself doesn't merge.** Both PRs come back open. Ask the user which one to merge and wait for an explicit yes before merging anything — never merge off the judge's verdict alone.
 - **No self-signing, no personal info** in commits/PRs (repo rule).
 - CI here is billing-blocked — build agents verify with local `make test`, not green checks.
 - Tune the two lenses in `duel.workflow.js` (`LENSES`) if you want a different axis of competition (e.g. perf-first vs readability-first).

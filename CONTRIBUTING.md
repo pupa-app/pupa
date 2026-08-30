@@ -14,14 +14,17 @@ If you are an AI assistant (Claude Code, Copilot, Cursor, etc.) reading this fil
 - Create branches, commit on feature branches, push feature branches, open PRs.
 - **Squash-merge PRs into `dev`**, once `make test` passes locally and no review
   comment is left unaddressed. Report what you merged.
-- **Fast-forward `main` from `dev`** to cut a release.
+- **Fast-forward `main` from `dev`** to cut a release — but only when a human
+  asks for that step outright. Never initiate a release cut; propose it and wait
+  for an explicit yes.
 - Create and push release tags (`v0.0.X`).
 - Create GitHub releases, attach release assets, and publish them.
 
 **You must not, whoever asks:**
 
-- **Push commits to `dev` or `main` directly.** Work lands through a PR, always;
-  the only ref move on `main` is a fast-forward from `dev`.
+- **Push commits to `dev` or `main` directly.** Work lands through a PR, always.
+  The only ref move on `main` is a fast-forward from `dev`, and only on explicit
+  human approval in the current session.
 - **Force-push, rewrite published history, or delete a branch you did not
   create.**
 - **Change repository visibility.** Going public is irreversible in effect —
