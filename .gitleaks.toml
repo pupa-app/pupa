@@ -1,0 +1,34 @@
+# gitleaks config. Used by the pre-commit hook (`make hooks`) and by any
+# full-history scan: `gitleaks git --log-opts=--all --redact`.
+#
+# The default ruleset covers credentials. The rules below add what this repo
+# also forbids but no stock secret scanner looks for — personal information.
+# See CLAUDE.md: no developer account names, no machine paths.
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "personal-email"
+description = "Personal email address — repo rule forbids personal info"
+regex = '''[\w.+-]+@(?:gmail|googlemail|icloud|me|mac|outlook|hotmail|live|msn|yahoo|proton|protonmail|pm|fastmail|aol)\.[a-z]{2,}'''
+tags = ["pii"]
+
+  # This file names the domains it matches, and the fixture suite commits
+  # samples on purpose.
+  [rules.allowlist]
+  paths = ['''\.gitleaks\.toml$''', '''scripts/test-hooks\.sh$''']
+
+[[rules]]
+id = "developer-home-path"
+description = "Absolute /Users path — leaks a developer account name"
+regex = '''/Users/[A-Za-z0-9._-]+/'''
+tags = ["pii"]
+
+  [rules.allowlist]
+  paths = ['''\.gitleaks\.toml$''', '''scripts/test-hooks\.sh$''']
+
+# Role addresses on our own domains are contact details, not personal info.
+[allowlist]
+description = "Project contact addresses"
+regexes = ['''[\w.+-]+@(?:pupa-app\.com|users\.noreply\.github\.com)''']

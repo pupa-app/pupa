@@ -10,6 +10,7 @@ PUPAHOST := PupaHost
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
+build: | ensure-hooks
 build: build-aguikit build-pupa  ## Build both Swift packages
 
 build-aguikit:  ## Build the AGUIKit package
@@ -18,6 +19,7 @@ build-aguikit:  ## Build the AGUIKit package
 build-pupa:  ## Build the Pupa app package
 	swift build --package-path $(PUPA)
 
+test: | ensure-hooks
 test: test-aguikit test-pupa  ## Run all Swift package tests
 
 test-aguikit:  ## Run AGUIKit unit + e2e tests (use FILTER=Foo to scope)
@@ -33,6 +35,25 @@ test-scripts:  ## Run the release-script fixture suite (archive.sh / release.sh 
 	# Not part of `make test`: ~40s of git fixtures against the Swift suite's
 	# ~3s. Run it after touching either release script.
 	./scripts/test-release-scripts.sh
+
+test-hooks:  ## Run the pre-commit hook fixture suite
+	./scripts/test-hooks.sh
+
+hooks:  ## Install the versioned git hooks (signing guard + secret scan)
+	@git config core.hooksPath scripts/hooks
+	@echo "core.hooksPath -> $$(git config core.hooksPath)"
+	@command -v gitleaks >/dev/null 2>&1 \
+		|| echo "note: gitleaks not installed — the secret scan will skip. brew install gitleaks"
+
+# Git will not install hooks from a clone (that would make `git clone` execute
+# arbitrary code), so nobody can be relied on to remember `make hooks`. Every
+# build and test run installs them instead: one git config read, idempotent,
+# silent once set. Order-only so it never forces a rebuild.
+.PHONY: ensure-hooks
+ensure-hooks:
+	@[ "$$(git config core.hooksPath)" = "scripts/hooks" ] || { \
+		git config core.hooksPath scripts/hooks; \
+		echo "installed git hooks (core.hooksPath -> scripts/hooks)"; }
 
 SIM ?= iPhone 17 Pro Max
 BACKEND ?= http://localhost:8004
