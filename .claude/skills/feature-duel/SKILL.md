@@ -5,7 +5,7 @@ description: Run a competitive implementation of one feature. Two agents plan an
 
 # Feature Duel
 
-Point this at one feature or bugfix. It spawns two independent implementations (different lenses so they actually differ), opens two PRs, then a third agent picks the winner and grafts the loser's good bits onto it. It does **not** merge — a human does that (repo `CONTRIBUTING.md` forbids AI merges).
+Point this at one feature or bugfix. It spawns two independent implementations (different lenses so they actually differ), opens two PRs, then a third agent picks the winner and grafts the loser's good bits onto it. It stops at the graft, leaving the winner PR ready to merge.
 
 ## When to use
 
@@ -36,7 +36,7 @@ The task is well-scoped enough to hand off whole, and worth the cost of ~6 agent
 
 ## Guardrails
 
-- **Never merges.** Both PRs stay open; the human merges the winner. If asked to auto-merge, refuse and cite `CONTRIBUTING.md`.
+- **The workflow itself doesn't merge.** Both PRs come back open. Ask the user which one to merge and wait for an explicit yes before merging anything — never merge off the judge's verdict alone.
 - **No self-signing, no personal info** in commits/PRs (repo rule).
 - CI here is billing-blocked — build agents verify with local `make test`, not green checks.
 - Tune the two lenses in `duel.workflow.js` (`LENSES`) if you want a different axis of competition (e.g. perf-first vs readability-first).
