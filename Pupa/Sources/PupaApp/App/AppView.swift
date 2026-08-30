@@ -626,12 +626,11 @@ public struct AppView: View {
     private func applyTourStep() {
         guard tour.isActive, let step = tour.currentStep else { return }
         #if os(iOS)
-        // The Settings sheet is hosted by the sidebar, so open the drawer
-        // whenever a step opens Settings — even though the sheet then covers
-        // it. (The drawer is always mounted now, so the sheet could present
-        // from a closed drawer; keeping it open preserves tour semantics.)
+        // Only what the step asks for. Settings steps used to force the drawer
+        // open because the sidebar hosted the sheet; `AppView` presents it now,
+        // so a Settings step no longer has any reason to disturb the drawer.
         // Animated by the scoped `.animation(value: showSidebar)` drivers.
-        showSidebar = step.opensSidebar || step.settingsPage != nil
+        showSidebar = step.opensSidebar
         #endif
         tour.wantSettingsPage = step.settingsPage
         tour.wantSettingsOpen = step.settingsPage != nil
