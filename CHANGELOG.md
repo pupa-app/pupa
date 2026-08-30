@@ -16,6 +16,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   above the app-wide Orchestrator, Screen share and Settings, and lights up
   while an Agents or History page is showing. The sidebar is now the MyApps
   list and nothing else.
+- **The guided tour follows the new bar.** It walks Home · Memories · More ·
+  Pupa, rings More exactly once, and reaches what lives behind it by navigating
+  there — Share a MyApp now deep-links Settings ▸ Import & Export rather than
+  pointing at a menu the tour can't open.
 - **The `⋯` component-jump menu is gone.** `⋯` is now More, and a myapp's
   components are already a tap away on its home page. This also leaves one
   meaning for `⋯` in the app instead of two.

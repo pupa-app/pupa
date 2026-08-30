@@ -616,11 +616,10 @@ Once onboarding finishes, an **interactive guided tour** runs once
 card* explains each step while the tour programmatically navigates the **real**
 app to that surface — sixteen steps: welcome (opens the sidebar menu), Settings
 overview (the category list), Settings · Backend (deep-linked), then the MyApp
-bottom bar walked left to right — Home, Memories, then Agents and History (both
-under **More**, which the steps ring) — followed by chat, agents & threads, the
-Orchestrator introduced from More then opened (prefilled "create a new myapp"),
-slash commands, screen share (rings More), Share a MyApp (rings More —
-Settings ▸ Import & Export lives inside), Settings · Account (`settingsPage: .account` → the `.profile`
+bottom bar walked left to right — Home, Memories, **More**, then Agents and
+History as the pages behind it — followed by chat, agents & threads, the
+Orchestrator opened (prefilled "create a new myapp"), slash commands, screen
+share, Share a MyApp (deep-links Settings ▸ Import & Export), Settings · Account (`settingsPage: .account` → the `.profile`
 page; rings the iCloud rows and points at pupa-app.com for docs and support),
 and a closing "add an example" card that deep-links to
 Settings · Examples (`settingsPage: .examples`) and rings the example list
@@ -645,6 +644,9 @@ and `ChatPanel` adopts `chatPrefill` (including "/" to surface the
 streams it character by character after a short lead-in (instant under Reduce
 Motion or for single-char "/"). `wantHighlight` names a control
 (`TourHighlight`: a bottom-bar slot, the chat header, or a Settings section);
+Exactly one step rings More, enforced by a test: a SwiftUI `Menu` can't be
+opened programmatically, so a second ring would point at a closed menu. Steps
+describing what lives inside it navigate there or deep-link Settings instead.
 `TourHighlight.swift` provides a `.tourAnchor` preference those views publish
 (several views may share a role — the chat header rings the agent + thread
 pickers as one union) and a `TourHighlightOverlay` glow ring drawn by the
