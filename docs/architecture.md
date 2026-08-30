@@ -155,11 +155,12 @@ governs agents sits under **Agents**, a hub of its own:
 
 ```
 Account · Backend · Agents · Notifications · Examples · Import & Export
-                      │      · Pinned snapshots · Archive · Recently deleted
-                      ├── Roster    AgentRosterView    roster + lifetime stats
-                      ├── Tools     ToolsSettingsView  harness permissions
-                      ├── Limits    AgentLimitsView    A2A + turn limits
-                      └── Threads   AgentThreadsView   threads, tokens, cost
+   │                  │      · Pinned snapshots · Archive · Recently deleted
+   │                  ├── Roster    AgentRosterView    roster + lifetime stats
+   │                  ├── Tools     ToolsSettingsView  harness permissions
+   │                  ├── Limits    AgentLimitsView    A2A + turn limits
+   │                  └── Threads   AgentThreadsView   threads, tokens, cost
+   └── Acknowledgements   AcknowledgementsView   third-party notices
 ```
 
 Hub children are pushed with **closure** `NavigationLink`s (as in Import &
@@ -170,6 +171,21 @@ need the app stores and hide without them; Tools and Limits need only
 `ThreadUsageStore` each, so `POST /db/threads/usage` fires for the page you
 opened rather than for the whole Agents section. All category rows —
 root, Agents, Import & Export — render through the one `SettingsHubRow`.
+
+### Third-party attribution
+
+MIT and BSD require the notice to accompany the **binary**, and neither
+shipping channel carries a file next to the app — the DMG holds only
+`Pupa.app`, the App Store build nothing at all. So the notice is a screen:
+**Account ▸ Acknowledgements**, one row per package, each opening its licence
+in full.
+
+`Acknowledgement.all` (`Settings/Acknowledgements.swift`) holds name, project
+URL, SPDX licence, copyright holder and how the package reaches the binary;
+`LicenceText` holds each licence file verbatim, copied from the resolved SPM
+checkout. Adding or dropping a dependency means editing `NOTICE.md` **and**
+that list — `AcknowledgementsTests` parses `NOTICE.md`'s table and fails on any
+disagreement, so the two cannot drift apart silently.
 
 ### Measuring interaction latency
 

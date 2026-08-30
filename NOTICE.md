@@ -16,9 +16,12 @@ All four are permissive and impose no copyleft obligation on Pupa's own
 MPL-2.0 files, nor on `AGUIKit/`'s MIT ones. Attribution is the requirement
 they do impose, which is what this file satisfies.
 
-Adding or removing a dependency means updating this table. `swift-cmark` and
-`NetworkImage` are listed because they are linked into the shipped app, even
-though `Package.swift` never names them.
+Adding or removing a dependency means updating this table **and**
+`Acknowledgement.all` in the app, which shows the same list under Settings ▸
+Account ▸ Acknowledgements so the notice reaches the binary too. A test parses
+this table and fails if the two disagree. `swift-cmark` and `NetworkImage` are
+listed because they are linked into the shipped app, even though
+`Package.swift` never names them.
 
 Pupa's own licensing is in [README.md](README.md#license) — MIT for
 `AGUIKit/`, MPL-2.0 for everything else.
