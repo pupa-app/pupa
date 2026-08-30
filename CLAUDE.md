@@ -100,6 +100,11 @@ to `dev`, fast-forward `main` from `dev` for releases.
 - **Run the suite with `make test`** — not raw `swift test`. It covers
   both packages (AGUIKit + Pupa) and pins Pupa's `--no-parallel`. Narrow
   with `make test FILTER=SomeTests`.
+- **Install the hooks once per clone: `make hooks`.** Pre-commit refuses a
+  non-empty `DEVELOPMENT_TEAM` in `project.pbxproj`, and anything gitleaks
+  flags — credentials, plus personal emails and `/Users/…` paths, the rule
+  at the top of this file. If a commit is refused, fix the content; don't
+  reach for `--no-verify`. `make test-hooks` covers the guards.
 
 ## Run
 
