@@ -61,11 +61,12 @@ final class ScreenshotTests: XCTestCase {
     /// Frame 6 — settings root (backend / account / agents).
     @MainActor
     func testFrame06Settings() throws {
-        // Settings lives behind the bottom bar's More menu, so the drawer has
-        // to be shut for the bar to be reachable.
-        let app = launched()
+        // Launch with the drawer already shut rather than swiping it closed:
+        // opening a menu straight after the close animation races it, and the
+        // tap lands on the scrim. `NotificationsFlowUITests` reaches Settings
+        // the same way.
+        let app = launched(drawerOpen: false)
         dismissBanner(app)
-        closeDrawer(app)
         openSettings(app)
         _ = app.staticTexts.firstMatch.waitForExistence(timeout: 10)
         shoot("frame-06-settings")
@@ -85,9 +86,12 @@ final class ScreenshotTests: XCTestCase {
 
     // MARK: Helpers
 
+    /// `drawerOpen` writes the persisted `pupa.ui.sidebarOpen` default, so a
+    /// frame gets the drawer state it wants without swiping for it.
     @MainActor
-    private func launched() -> XCUIApplication {
+    private func launched(drawerOpen: Bool = true) -> XCUIApplication {
         let app = XCUIApplication()
+        app.launchArguments = ["-pupa.ui.sidebarOpen", drawerOpen ? "YES" : "NO"]
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 90), "app never foregrounded")
         _ = app.staticTexts["Daily Briefing"].waitForExistence(timeout: 45)
@@ -115,12 +119,19 @@ final class ScreenshotTests: XCTestCase {
     }
 
     /// Open Settings through the bottom bar's `⋯`. Needs the drawer shut.
+    @MainActor
     private func openSettings(_ app: XCUIApplication) {
         let more = app.buttons["More"]
         XCTAssertTrue(more.waitForExistence(timeout: 20), "no More button")
-        more.tap()
         let settings = app.buttons["Settings"]
-        XCTAssertTrue(settings.waitForExistence(timeout: 10), "no Settings item in More")
+        // SwiftUI reports the menu as a PopUpButton, and a tap that lands
+        // before it is ready opens nothing at all rather than failing — so
+        // confirm the menu actually came up, and tap again if it didn't.
+        for _ in 0..<3 {
+            more.tap()
+            if settings.waitForExistence(timeout: 5) { break }
+        }
+        XCTAssertTrue(settings.exists, "no Settings item in More")
         settings.tap()
     }
 
