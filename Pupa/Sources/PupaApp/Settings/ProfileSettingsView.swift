@@ -273,6 +273,10 @@ struct ProfileSettingsView: View {
                     }
                 }
             }
+            // Sits with the other legal/about rows rather than at the Settings
+            // root: it's the only place attribution reaches someone holding the
+            // binary, and the root list is already a long scroll.
+            NavigationLink("Acknowledgements") { AcknowledgementsView() }
         } header: {
             Text("Support")
         } footer: {

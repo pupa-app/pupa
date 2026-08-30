@@ -3,6 +3,16 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.272] — 2026-08-30
+
+### Added
+
+- **Acknowledgements, in Settings → Account.** The four open-source packages
+  Pupa links into its app, each with its licence, copyright holder, project
+  link and full licence text. MIT and BSD ask for that notice to travel with the
+  binary; until now it existed only as `NOTICE.md` in the source, so neither the
+  App Store build nor the DMG carried it.
+
 ## [0.0.271] — 2026-08-29
 
 ### Fixed
