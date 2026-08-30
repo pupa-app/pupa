@@ -30,6 +30,8 @@ public struct MyAppMemoriesView: View {
     @State private var expanded: Set<String> = []
     /// Active create / rename sheet (`.newNote` / `.newFolder` / `.rename`).
     @State private var activeSheet: MemorySheet?
+    /// A just-created note, opened once the composer that made it has closed.
+    @State private var pendingOpenPath: String?
     /// Node awaiting delete confirmation (context menu → Delete).
     @State private var pendingDelete: MemoryNode?
 
@@ -112,7 +114,16 @@ public struct MyAppMemoriesView: View {
             if !hasContent { await memory.reloadFromDisk() }
         }
         .background(Color.canvasBackground)
-        .sheet(item: $activeSheet) { sheet in
+        .sheet(item: $activeSheet, onDismiss: {
+            // Presenting the new note from `onCreated` raced the composer's own
+            // dismissal (~0.35s) — a `main.async` hop is a runloop turn and
+            // loses that race, and a dropped present leaves the route id stuck,
+            // making the note unopenable. `onDismiss` runs after the composer
+            // is actually gone, so there is nothing to race.
+            guard let path = pendingOpenPath else { return }
+            pendingOpenPath = nil
+            onNavigate(fileSelection(path))
+        }) { sheet in
             sheetView(sheet)
         }
         .confirmationDialog(
@@ -140,11 +151,7 @@ public struct MyAppMemoriesView: View {
             NewMemoryNoteSheet(memory: memory, parent: parent) {
                 activeSheet = nil
             } onCreated: { path in
-                // A runloop turn after the composer's own dismissal, so the
-                // host isn't already presenting when the note's sheet goes up.
-                // Without the hop the presentation is dropped *and* the route
-                // id sticks, which made the note unopenable until relaunch.
-                DispatchQueue.main.async { onNavigate(fileSelection(path)) }
+                pendingOpenPath = path
             }
         case .newFolder(let parent):
             NewMemoryFolderSheet(memory: memory, parent: parent) {

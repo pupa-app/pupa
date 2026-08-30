@@ -1531,8 +1531,10 @@ public struct AppView: View {
     }
 
     /// Memory files are presented as a sheet; everything else pushes. Both
-    /// route the chat scope first, so the agent still knows which file the user
-    /// is looking at (`memoryFocusedPath`) either way.
+    /// route the chat scope first, so opening a note still binds the chat the
+    /// same way it did when notes pushed. (Only the orchestrator arm of
+    /// `dispatchSelection` sets `memoryFocusedPath`; that asymmetry predates
+    /// this fork and is unchanged by it.)
     private func presentOrPush(_ sel: SidebarSelection) {
         dispatchSelection(sel)
         if let route = MemoryFileRoute(sel) {
@@ -1572,6 +1574,17 @@ public struct AppView: View {
             onClose: { memoryFileSheet = nil },
             onDeleted: { memoryFileSheet = nil }
         )
+        // Everything the push route carried, the sheet has to carry too. It is
+        // presented from `platformBody`, above every one of these injections,
+        // so it inherits nothing — an imported app's note would render with the
+        // *default* gate (`true`) and beacon on open. This is the trap
+        // `detailView(for:)` above already documents; the sheet is a third
+        // sibling and needs the same treatment.
+        .environment(\.remoteImagesAllowed, remoteImagesAllowed(for: route.myAppId))
+        .environment(\.enableRemoteImages, enableRemoteImages(for: route.myAppId))
+        // `pupa://` links inside a note route in-app, not to the system browser
+        // (which has no handler for the scheme, so the tap would do nothing).
+        .environment(\.openURL, chatLinkAction)
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
     }

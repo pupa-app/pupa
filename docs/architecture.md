@@ -300,7 +300,8 @@ semantics depending on how it was opened. The sheet carries an explicit Close
 (`⌘.`/Escape) because the drag indicator is iOS-only. Dismissing the sheet — swipe included —
 commits the edit (`MemoryFileDismiss.shouldSave`): a file that was only read is
 never rewritten, a locked file never written, and a failed write re-presents the
-sheet holding the rescued buffer. Direct editing
+sheet holding the rescued buffer with autosave disarmed — so Save retries it and
+a persistently failing write cannot cycle. Direct editing
 without the agent: the header `+` menu adds a Note / Folder at the scope root; a
 folder row's long-press menu adds inside it; any row can be renamed / moved or
 deleted. Rows funnel these through `MemoryRowActions` into the shared

@@ -72,38 +72,44 @@ final class MemoryFileSheetUITests: XCTestCase {
         )
     }
 
-    /// Reading a file and dismissing it must not rewrite it — no edit session,
-    /// no write.
+    /// Dismissing an edit session that changed nothing must leave the file
+    /// intact. This is the `isEditing == true, buffer == loaded` branch of
+    /// `MemoryFileDismiss.shouldSave` — distinct from never opening the editor
+    /// at all, and the one a careless "always write on dismiss" would break.
     ///
-    /// Asserted on the file's rendered content, which is the only thing that
-    /// would change if a stale buffer were written back. An earlier version of
-    /// this test checked that "• Unsaved changes" was absent, which is vacuous:
-    /// that label needs `isEditing`, and a freshly opened file never has it, so
-    /// the assertion passed no matter what dismissal did.
+    /// Scope, stated honestly: this proves the *content survives*. It cannot
+    /// prove no write occurred — that would need the file's mtime, which the UI
+    /// does not surface. `MemoryFileRouteTests.untouchedEditSessionWritesNothing`
+    /// covers the no-write claim directly.
+    ///
+    /// An earlier version tapped Edit then Cancel before swiping, which set
+    /// `isEditing = false` and so tested the trivial never-edited path instead,
+    /// and asserted the absence of a marker that is never typed in this storage
+    /// root. Both were theatre.
     @MainActor
-    func testDismissingWithoutEditingLeavesTheFileAlone() throws {
-        let app = launched(storage: "ephemeral:memsheet-readonly", reset: true)
+    func testDismissingAnUnchangedEditSessionLeavesTheFileIntact() throws {
+        let app = launched(storage: "ephemeral:memsheet-unchanged", reset: true)
         openAgentsFile(app)
         let heading = app.staticTexts["Example: Daily Briefing"]
         XCTAssertTrue(heading.waitForExistence(timeout: 20), "the memory file never opened")
 
-        // Open the editor and close it again without touching a key, so a
-        // dismissal that wrote unconditionally would have something to write.
+        // Enter the editor and change nothing, so the dismissal runs with
+        // `isEditing == true` and a buffer equal to what is on disk.
         app.buttons["Edit"].tap()
         XCTAssertTrue(app.textViews.firstMatch.waitForExistence(timeout: 10), "no editor")
-        app.buttons["Cancel"].tap()
-
-        // Straight back out, having only read it.
+        XCTAssertFalse(
+            app.staticTexts["• Unsaved changes"].exists,
+            "the editor reported changes before anything was typed"
+        )
         swipeSheetAway(app)
 
-        // The rendered content is byte-identical, and no marker from any other
-        // case in this suite leaked in.
+        // Reopened, the note still renders its real content — a dismissal that
+        // wrote an empty or truncated buffer would show up here.
         openAgentsFile(app)
         XCTAssertTrue(heading.waitForExistence(timeout: 20), "the memory file never reopened")
-        XCTAssertFalse(
-            app.descendants(matching: .any)
-                .matching(NSPredicate(format: "label CONTAINS %@", Self.marker)).firstMatch.exists,
-            "a file that was only read came back modified"
+        XCTAssertTrue(
+            app.staticTexts["Components"].exists,
+            "the note came back missing content it had before the dismissal"
         )
     }
 

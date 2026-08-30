@@ -16,8 +16,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
 - **Dismissing a memory file saves it.** Swipe-down commits the edit rather
   than dropping it: these files are the agent's long-term context, so silently
   losing an edit is worse than silently keeping one. A file that was only read
-  is never rewritten, a locked file is never written at all, and a write that
-  fails puts the sheet back with the text still in it rather than discarding it.
+  is never rewritten, and a locked file is never written at all. A write that
+  fails puts the sheet back with the text still in it and the error shown; that
+  second sheet does **not** autosave — Save retries it — so a write that keeps
+  failing cannot cycle forever.
 
 ## [0.0.273] — 2026-08-30
 
