@@ -106,12 +106,45 @@ make test                # both packages
 make test-aguikit        # AGUIKit only (use FILTER=Foo to scope)
 make test-pupa           # PupaApp only
 make test-scripts        # release-script guards (archive.sh / release.sh)
+make test-hooks          # pre-commit hook guards
 ```
 
 `make test-scripts` is separate because it is ~40s of git fixtures against the
 Swift suite's ~3s. It runs the release scripts against a synthetic repo seeded
 with the real `project.pbxproj` — refusals, the absorb guard, recovery from a
 rejected commit, the `--flow` branch trap. Run it after touching either script.
+
+### Git hooks
+
+```bash
+make hooks
+```
+
+Points `core.hooksPath` at the versioned `scripts/hooks/`. Do this once per
+clone — a hook living only in `.git/hooks` protects one machine and no one
+else's.
+
+The pre-commit hook refuses two things in the staged diff:
+
+- A non-empty `DEVELOPMENT_TEAM` in `project.pbxproj`. Xcode's Signing &
+  Capabilities editor writes it back whenever you touch signing; it belongs in
+  the gitignored `PupaHost/Local.xcconfig`.
+- Anything [gitleaks](https://github.com/gitleaks/gitleaks) flags — credentials
+  from its default ruleset, plus two rules of our own in `.gitleaks.toml` for
+  personal email addresses and absolute `/Users/…` paths, since
+  [CLAUDE.md](CLAUDE.md) forbids personal information and no stock secret
+  scanner looks for it.
+
+Without gitleaks installed (`brew install gitleaks`) the secret scan warns and
+skips rather than blocking; the signing guard still applies. To sweep all of
+history rather than one commit:
+
+```bash
+gitleaks git --log-opts=--all --redact
+```
+
+`make test-hooks` covers both guards, including that a false negative in either
+one fails the suite.
 
 ## Architecture
 

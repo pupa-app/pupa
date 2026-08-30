@@ -34,6 +34,15 @@ test-scripts:  ## Run the release-script fixture suite (archive.sh / release.sh 
 	# ~3s. Run it after touching either release script.
 	./scripts/test-release-scripts.sh
 
+test-hooks:  ## Run the pre-commit hook fixture suite
+	./scripts/test-hooks.sh
+
+hooks:  ## Install the versioned git hooks (signing guard + secret scan)
+	git config core.hooksPath scripts/hooks
+	@echo "core.hooksPath -> $$(git config core.hooksPath)"
+	@command -v gitleaks >/dev/null 2>&1 \
+		|| echo "note: gitleaks not installed — the secret scan will skip. brew install gitleaks"
+
 SIM ?= iPhone 17 Pro Max
 BACKEND ?= http://localhost:8004
 HARNESS ?= claude_code

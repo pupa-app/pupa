@@ -1,0 +1,31 @@
+#!/bin/sh
+# Versioned pre-commit hook. Install with `make hooks`.
+#
+# Two guards, both about what must never reach the repo:
+#   1. A real DEVELOPMENT_TEAM in project.pbxproj — Xcode's Signing &
+#      Capabilities dropdown writes it back every time you touch it.
+#   2. Secrets and personal info anywhere in the staged diff (gitleaks).
+#
+# Runs every check before exiting, so one commit reports every problem.
+
+fail=0
+
+if git diff --cached -U0 -- '*project.pbxproj' \
+   | grep -qE '^\+.*DEVELOPMENT_TEAM[[:space:]]*=[[:space:]]*[A-Za-z0-9]+;'; then
+  echo "pre-commit: refusing — non-empty DEVELOPMENT_TEAM staged in project.pbxproj."
+  echo "  Put it in PupaHost/Local.xcconfig (gitignored) instead."
+  fail=1
+fi
+
+if command -v gitleaks >/dev/null 2>&1; then
+  if ! gitleaks git --staged --redact --no-banner; then
+    echo "pre-commit: refusing — gitleaks flagged the staged diff (values redacted above)."
+    echo "  Genuine false positive? Add a scoped allowlist to .gitleaks.toml."
+    fail=1
+  fi
+else
+  echo "pre-commit: gitleaks not installed, secret scan SKIPPED."
+  echo "  brew install gitleaks"
+fi
+
+exit $fail
