@@ -1175,8 +1175,9 @@ public struct AppView: View {
     /// `CanvasView` as a direct sidebar tap on that component.
     /// Applies the per-app remote-image gate to every detail route. Done here
     /// because the routes showing imported content are siblings, not a tree —
-    /// `CanvasView` and `MemoryFileView` are separate cases below, so injecting
-    /// in one left the other reading the default.
+    /// `CanvasView` and the memory sheet are separate surfaces, so injecting in
+    /// one left the other reading the default. The sheet carries its own copy
+    /// (`memoryFileSheetView`) — it is presented above this.
     private func detailView(for sel: SidebarSelection) -> some View {
         detailContent(for: sel)
             .environment(\.remoteImagesAllowed, remoteImagesAllowed(for: sel.myAppId))

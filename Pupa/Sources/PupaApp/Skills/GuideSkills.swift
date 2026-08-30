@@ -198,8 +198,8 @@ enum GuideSkills {
       *inside* the app, not on the device's file system. Notes are markdown
       (`.md`); config notes can be `.json` and show verbatim as code, so
       indentation survives. Browse it from the Memories tab; a note opens over
-      whatever you were looking at, and closing it — including by swiping it
-      away — keeps your edit. The agent reads and writes it too. Persists
+      whatever you were looking at, and closing it — by swiping it away, or with
+      its Close button — keeps your edit. The agent reads and writes it too. Persists
       across sessions.
     - **Sessions** — "New session" starts a fresh conversation. The canvas
       and memories stay. Past conversations are kept on-device and re-open with

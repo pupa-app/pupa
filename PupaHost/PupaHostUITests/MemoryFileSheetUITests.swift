@@ -172,7 +172,85 @@ final class MemoryFileSheetUITests: XCTestCase {
         )
     }
 
+    /// A `pupa://memory/…` link inside a note swaps the sheet to the linked
+    /// note. Round 4 flagged this as the one path with no coverage: it does
+    /// `memoryFileSheet = nil` then re-assigns a runloop turn later, and a
+    /// dropped present there leaves the route id stuck and the file
+    /// unopenable — the failure mode this PR fixed elsewhere.
+    ///
+    /// Also pins the reason the swap cannot lose an edit: links are only
+    /// tappable in *preview*, and preview means `isEditing == false`, so
+    /// `shouldSave` is false. In the editor the same text is raw markdown.
+    @MainActor
+    func testALinkInsideANoteSwapsToTheLinkedNote() throws {
+        let app = launched(storage: "ephemeral:memsheet-notelink", reset: true)
+
+        let memories = app.buttons["Memories"]
+        XCTAssertTrue(memories.waitForExistence(timeout: 30), "no Memories button")
+        memories.tap()
+
+        newNote(app, named: "target", content: "# Landed in target")
+        // Dismiss the note the composer opened for us before making the next.
+        swipeSheetAway(app)
+        newNote(app, named: "source", content: "[go](pupa://memory/target.md)")
+        swipeSheetAway(app)
+
+        // Open the source note and tap its link.
+        let sourceRow = app.buttons["source.md"]
+        XCTAssertTrue(sourceRow.waitForExistence(timeout: 20), "no source.md row")
+        sourceRow.tap()
+        XCTAssertTrue(
+            app.staticTexts["source.md"].waitForExistence(timeout: 20),
+            "source note never opened"
+        )
+        let link = app.links["go"].exists ? app.links["go"] : app.buttons["go"]
+        XCTAssertTrue(link.waitForExistence(timeout: 10), "the note's link never rendered")
+        link.tap()
+
+        // The sheet swapped rather than being dropped.
+        XCTAssertTrue(
+            app.staticTexts["target.md"].waitForExistence(timeout: 20),
+            "the link did not swap the sheet to the linked note"
+        )
+        XCTAssertTrue(
+            app.staticTexts["Landed in target"].waitForExistence(timeout: 10),
+            "the linked note opened without its content"
+        )
+    }
+
     // MARK: Helpers
+
+    /// Create a note through the `+` menu on the Memories page.
+    @MainActor
+    private func newNote(_ app: XCUIApplication, named name: String, content: String) {
+        // Not `buttons["plus"]` — that also matches the sidebar's offscreen
+        // "New myapp". The Memories header labels its menu explicitly.
+        let plus = app.buttons["Add note or folder"]
+        XCTAssertTrue(plus.waitForExistence(timeout: 20), "no add menu on Memories")
+        plus.tap()
+        let newNote = app.buttons["New Note"]
+        XCTAssertTrue(newNote.waitForExistence(timeout: 10), "no New Note item")
+        newNote.tap()
+
+        let nameField = app.textFields.firstMatch
+        XCTAssertTrue(nameField.waitForExistence(timeout: 10), "no name field")
+        nameField.tap()
+        nameField.typeText(name)
+        let body = app.textViews.firstMatch
+        XCTAssertTrue(body.waitForExistence(timeout: 10), "no content editor")
+        body.tap()
+        body.typeText(content)
+        app.buttons["Create"].tap()
+
+        // The composer closes and the new note opens in its place. Waiting for
+        // it is also the assertion that the created note is reachable at all —
+        // presenting it while the composer was still up used to drop the
+        // present and strand the route id.
+        XCTAssertTrue(
+            app.staticTexts["\(name).md"].waitForExistence(timeout: 20),
+            "the created note never opened"
+        )
+    }
 
     private static let marker = "ZZMARKER"
 
@@ -223,8 +301,11 @@ final class MemoryFileSheetUITests: XCTestCase {
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08))
             .press(forDuration: 0.1,
                    thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)))
+        // Keyed on the sheet's Close button, not its title: a note at the tree
+        // root renders the *same* string in its row behind the sheet, so a
+        // title-based wait can never go false.
         XCTAssertTrue(
-            app.staticTexts["pupa/AGENTS.md"].waitForNonExistence(timeout: 20),
+            app.buttons["Close"].waitForNonExistence(timeout: 20),
             "the sheet never dismissed"
         )
     }
