@@ -62,6 +62,25 @@ done
 die() { echo "error: $*" >&2; exit 1; }
 note() { echo "→ $*"; }
 
+# Sets $TEAM, or dies naming the file. The signing team reaches the build only
+# through $LOCAL_XCCONFIG, which Config.xcconfig pulls in with `#include?` — so
+# a checkout without it configures fine and then fails minutes later, inside
+# xcodebuild, with a generic "requires a development team" pointing at the
+# project rather than at the missing file. Checked here instead. $TEAM also
+# lands in the export plist's teamID, so a junk read would misexport too.
+require_development_team() {
+  [[ -f "$LOCAL_XCCONFIG" ]] || die "Missing $LOCAL_XCCONFIG (git-ignored) — no signing team.
+       cp $LOCAL_XCCONFIG.example $LOCAL_XCCONFIG  and put your team id in it."
+  # sed -n …p, not grep | sed: a substitution that fails to match passes the
+  # whole line through, so an empty 'DEVELOPMENT_TEAM =' read as a valid team.
+  TEAM=$(sed -nE 's/^[[:space:]]*DEVELOPMENT_TEAM[[:space:]]*=[[:space:]]*([A-Za-z0-9]+).*/\1/p' \
+    "$LOCAL_XCCONFIG" | head -1)
+  [[ -n "$TEAM" ]] || die "$LOCAL_XCCONFIG sets no DEVELOPMENT_TEAM. It needs the line:
+       DEVELOPMENT_TEAM = <your Apple team id>"
+  [[ "$TEAM" != "YOURTEAMID" ]] || die "$LOCAL_XCCONFIG still holds the placeholder from $LOCAL_XCCONFIG.example.
+       Replace YOURTEAMID with your own Apple team id."
+}
+
 # --- preconditions --------------------------------------------------------
 [[ -f "$PBXPROJ" ]] || die "Run from repo root. Could not find $PBXPROJ."
 command -v xcodebuild >/dev/null || die "xcodebuild not on PATH."
@@ -89,9 +108,7 @@ else
        To smoke-test this script without one, pass --development-signing."
 fi
 
-[[ -f "$LOCAL_XCCONFIG" ]] || die "Missing $LOCAL_XCCONFIG (git-ignored). It must hold: DEVELOPMENT_TEAM = <your team id>"
-TEAM=$(grep -E '^[[:space:]]*DEVELOPMENT_TEAM[[:space:]]*=' "$LOCAL_XCCONFIG" | sed -E 's/.*=[[:space:]]*([A-Za-z0-9]+).*/\1/' || true)
-[[ -n "$TEAM" ]] || die "Could not read DEVELOPMENT_TEAM from $LOCAL_XCCONFIG."
+require_development_team
 
 if [[ $SKIP_NOTARIZE -eq 0 ]]; then
   [[ -n "$NOTARY_PROFILE" ]] || die "Pass --notary-profile NAME (or set NOTARY_PROFILE), or use --skip-notarize.

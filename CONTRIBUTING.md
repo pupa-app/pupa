@@ -86,14 +86,62 @@ Open `PupaHost/PupaHost.xcodeproj` in Xcode 16+; the host app pulls in
 `PupaApp` via the workspace's pinned SPM dependencies. Select an iOS
 simulator or "My Mac (Designed for iPad)" and run.
 
-> **Signing.** `DEVELOPMENT_TEAM` is intentionally blank in the checked-in
-> project. Before running on a device or archiving for TestFlight, put your
-> own team in `PupaHost/Local.xcconfig` (git-ignored, one line
-> `DEVELOPMENT_TEAM = XXXXXXXXXX`), or pass
-> `xcodebuild DEVELOPMENT_TEAM=...`. Do **not** use the `PupaHost` target →
-> Signing & Capabilities dropdown: it writes the team back into
+> **Signing.** The checked-in project sets no `DEVELOPMENT_TEAM` at all.
+> Before running on a device or archiving for TestFlight, put your own team in
+> `PupaHost/Local.xcconfig` — git-ignored; copy
+> [`PupaHost/Local.xcconfig.example`](PupaHost/Local.xcconfig.example) — or
+> pass `xcodebuild DEVELOPMENT_TEAM=...`. Do **not** use the `PupaHost` target
+> → Signing & Capabilities dropdown: it writes the team back into
 > `project.pbxproj` and leaks it into the repo. The `testflight-release`
 > skill does not set it for you.
+
+### Building a fork
+
+A fork cannot use pupa-app's Apple identifiers. Three are baked into the
+project and all three are yours to replace. None of this affects the simulator
+or `make mac-demo` — neither needs signing.
+
+**1. Signing team.** Copy the template and put your own team id in it:
+
+```bash
+cp PupaHost/Local.xcconfig.example PupaHost/Local.xcconfig
+```
+
+`PupaHost/Config.xcconfig` is the *project-level* base configuration, so that
+one line covers all three targets. It pulls the file in with `#include?` —
+optional — so a checkout without it still configures and only fails later,
+inside `xcodebuild`. Both release scripts check it up front instead.
+
+**2. Bundle identifiers.** `PRODUCT_BUNDLE_IDENTIFIER` in
+`PupaHost/PupaHost.xcodeproj/project.pbxproj` — six occurrences, Debug and
+Release for each target:
+
+| Target | Identifier |
+|---|---|
+| `PupaHost` | `com.pupa-app.client` |
+| `PupaHostTests` | `com.pupa-app.client.tests` |
+| `PupaHostUITests` | `com.pupa-app.client.uitests` |
+
+Signing style is `Automatic`, so Xcode registers the new ids against your team
+on first build.
+
+**3. iCloud container.** `PupaHost/PupaHost/PupaHost.entitlements` names
+`iCloud.com.pupa-app.client` under both
+`com.apple.developer.icloud-container-identifiers` and
+`…ubiquity-container-identifiers`, and `PupaStorage.containerID`
+([Pupa/Sources/PupaApp/Sync/PupaStorage.swift](Pupa/Sources/PupaApp/Sync/PupaStorage.swift))
+must match it — `scripts/verify-mac-entitlements.sh` compares the two against a
+signed archive.
+
+The container must exist on your team before device or archive signing
+succeeds, which needs a paid membership. **Or drop iCloud entirely** by
+deleting the three keys from the entitlements file: the app is built for that.
+The local Application Support tree is always the store of record and iCloud is
+only a lazily-resolved mirror, so without the capability
+`PupaStorage.documentsRoot` is `nil` and the app runs local-only. You lose
+sync, nothing else.
+
+There is no App Group to change — the entitlements carry only iCloud.
 
 ### Tests
 

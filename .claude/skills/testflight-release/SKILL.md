@@ -41,6 +41,8 @@ User wants `.xcarchive`s ready for TestFlight upload. Typical phrasings: "ship t
 
 3. **Build number is automatic and monotonic.** `CURRENT_PROJECT_VERSION` defaults to the branch's commit count and **never resets**, not even on a marketing-version bump. Sparkle (the direct-download DMG channel) orders updates by `CFBundleVersion` alone and ignores the marketing string, so a reset reads as a downgrade and silently strands DMG users on the old build. App Store Connect only needs uniqueness within a marketing version, so monotonic satisfies both channels. `--build N` is for manual correction only and is rejected unless `N` exceeds the current build. See pupa#246.
 
+4. **Signing team.** `PupaHost/Local.xcconfig` must hold a real `DEVELOPMENT_TEAM` (git-ignored; copy `PupaHost/Local.xcconfig.example`). The script refuses up front rather than letting `xcodebuild` fail minutes in.
+
 ## Invocation
 
 ```bash

@@ -1,0 +1,11 @@
+// Template for PupaHost/Local.xcconfig — the git-ignored signing override.
+//
+//   cp PupaHost/Local.xcconfig.example PupaHost/Local.xcconfig
+//
+// Then replace the placeholder with your own Apple Developer team id (Xcode →
+// Settings → Accounts, or developer.apple.com → Membership). This template is
+// committed; Local.xcconfig is not. Never put a real team id in this file.
+//
+// Config.xcconfig pulls Local.xcconfig in with `#include?`, so a checkout
+// without it still configures — signing then fails later, inside xcodebuild.
+DEVELOPMENT_TEAM = YOURTEAMID
