@@ -13,6 +13,7 @@ VERSION_SWIFT="Pupa/Sources/PupaApp/Version.swift"
 ICON="PupaHost/PupaHost/Assets.xcassets/AppIcon.appiconset/icon_1024.png"
 ICON_BUNDLE="PupaHost/PupaHost/AppIcon.icon"
 ICON_MARK="$ICON_BUNDLE/Assets/mark.png"
+LOCAL_XCCONFIG="PupaHost/Local.xcconfig"
 SCHEME="PupaHost"
 PROJECT="PupaHost/PupaHost.xcodeproj"
 ARCHIVE_IOS="build/Pupa.xcarchive"
@@ -72,11 +73,31 @@ return_to_start() {
 }
 note() { echo "→ $*"; }
 
+# Sets $TEAM, or dies naming the file. The signing team reaches the build only
+# through $LOCAL_XCCONFIG, which Config.xcconfig pulls in with `#include?` — so
+# a checkout without it configures fine and then fails minutes later, inside
+# xcodebuild, with a generic "requires a development team" pointing at the
+# project rather than at the missing file. Checked here instead.
+require_development_team() {
+  [[ -f "$LOCAL_XCCONFIG" ]] || die "Missing $LOCAL_XCCONFIG (git-ignored) — no signing team.
+       cp $LOCAL_XCCONFIG.example $LOCAL_XCCONFIG  and put your team id in it."
+  # sed -n …p, not grep | sed: a substitution that fails to match passes the
+  # whole line through, so an empty 'DEVELOPMENT_TEAM =' read as a valid team.
+  TEAM=$(sed -nE 's/^[[:space:]]*DEVELOPMENT_TEAM[[:space:]]*=[[:space:]]*([A-Za-z0-9]+).*/\1/p' \
+    "$LOCAL_XCCONFIG" | head -1)
+  [[ -n "$TEAM" ]] || die "$LOCAL_XCCONFIG sets no DEVELOPMENT_TEAM. It needs the line:
+       DEVELOPMENT_TEAM = <your Apple team id>"
+  [[ "$TEAM" != "YOURTEAMID" ]] || die "$LOCAL_XCCONFIG still holds the placeholder from $LOCAL_XCCONFIG.example.
+       Replace YOURTEAMID with your own Apple team id."
+}
+
 # --- preconditions --------------------------------------------------------
 [[ -f "$PBXPROJ" ]] || die "Run from repo root. Could not find $PBXPROJ."
 [[ -f "$VERSION_SWIFT" ]] || die "Could not find $VERSION_SWIFT."
 [[ -f "$ICON" ]] || die "Could not find $ICON."
 command -v xcodebuild >/dev/null || die "xcodebuild not on PATH."
+require_development_team
+note "signing team from $LOCAL_XCCONFIG"
 
 # Working tree: only pbxproj is allowed to be dirty (we may modify it below)
 DIRTY=$(git status --porcelain | awk '{print $2}' | grep -v "^${PBXPROJ}\$" || true)
