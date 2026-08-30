@@ -213,22 +213,17 @@ struct GuidedTourStoreTests {
         #expect(chat.chatPrefill == "Can you prepare my daily briefing while I get my coffee?")
     }
 
-    @Test("Global steps ring the Orchestrator row, then More, in order")
-    func globalStepsRingOrchestratorRowThenMore() {
+    @Test("Global steps all ring More, and none of them open the drawer")
+    func globalStepsRingMore() {
         let steps = TourContent.steps(activeMyAppId: UUID(), isPaired: true)
-        // The Orchestrator is introduced from its sidebar row, then opened —
-        // the only one of these that still needs the drawer. Screen share and
-        // Import & Export moved into the bar's More menu when the sidebar
-        // footer went away, so they ring that slot and leave the drawer shut.
-        let expected: [(String, TourHighlight, Bool)] = [
-            ("orchestrator-menu", .sidebarOrchestrator, true),
-            ("screen-share", .bottomBarMore, false),
-            ("share-myapp", .bottomBarMore, false),
-        ]
-        for (stepId, highlight, opensSidebar) in expected {
+        // Orchestrator, screen share and Import & Export are all app-wide, and
+        // all three moved into the bar's More menu when the sidebar footer went
+        // away. None of them needs the drawer any more.
+        let expected = ["orchestrator-menu", "screen-share", "share-myapp"]
+        for stepId in expected {
             let step = steps.first { $0.id == stepId }!
-            #expect(step.opensSidebar == opensSidebar)
-            #expect(step.highlight == highlight)
+            #expect(!step.opensSidebar)
+            #expect(step.highlight == .bottomBarMore)
             #expect(step.selection == nil)
         }
         // The menu intro for the Orchestrator comes right before opening it.

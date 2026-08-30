@@ -9,14 +9,13 @@ enum TourHighlight: Hashable {
     case bottomBarHome
     case bottomBarMemories
     case bottomBarChat
-    /// The bar's `⋯` overflow — Agents, History, Screen share, Settings all
-    /// live behind it, so every step describing one of those rings this.
+    /// The bar's `⋯` overflow — Agents, History, Orchestrator, Screen share
+    /// and Settings all live behind it, so every step describing one of those
+    /// rings this.
     case bottomBarMore
     /// The chat's agent switcher + thread selector — two adjacent controls
     /// ringed together as one region.
     case chatHeader
-    /// The Orchestrator row at the top of the sidebar list.
-    case sidebarOrchestrator
     /// The Settings · Account iCloud section.
     case settingsAccount
     /// The Settings · Examples list — the final step rings it so the user knows

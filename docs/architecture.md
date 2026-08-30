@@ -99,11 +99,10 @@ avoids `NavigationSplitView`: its sidebar fails to render in the unbundled
 `swift run` PupaDemo binary, leaving an empty column.) The sidebar lists the
 **visible** (non-archived) MyApps as compact, **non-expanding** rows (tap a row
 → its home; components, memories, and history are reached from the MyApp home +
-its bottom bar, not the sidebar), under an **Orchestrator** row that heads the
-list — it's a scope you switch to, the same class of thing as a MyApp. There is
-no sidebar footer: the bottom bar's **More** menu is the one place global
-actions live. A row's long-press menu offers Rename · **Move to Folder** ·
-**Archive** · Delete.
+its bottom bar, not the sidebar) and nothing else — no footer, no Orchestrator
+row. The bottom bar's **More** menu is the one place global actions live, the
+Orchestrator among them. A row's long-press menu offers Rename · **Move to
+Folder** · **Archive** · Delete.
 
 **Sidebar folders** group MyApp rows for readability and nothing else.
 `MyAppFolderLayout` (`folders` + `assignments: myAppUUID → folderId`) is
@@ -307,9 +306,10 @@ preview and buffer match byte for byte), the **Pupa** chat launcher (toggles
 the app's single overflow, holding **Agents** (`person.2`, opens
 `AgentsListView` / `AgentDetailView`), **History** (`clock`, pushes
 `ChangeHistoryView` via `.myAppHistory` — **myApp only**; the orchestrator has
-no canvas change-log so it omits this), then the app-wide **Screen share** and
-**Settings**. More lights up as the active slot while an Agents or History page
-is showing. Components are deliberately absent from it: the home page already
+no canvas change-log so it omits this), then the app-wide **Orchestrator**,
+**Screen share** and **Settings**. The orchestrator's own bar omits the
+Orchestrator item for the same reason it omits History: you're already there.
+More lights up as the active slot while an Agents or History page is showing. Components are deliberately absent from it: the home page already
 grids them one tap away. Glyphs are tinted the
 subject's color (a myApp's creation-order index via
 `MyAppStore.colorIndex(for:)`; `orchestratorColor` for the orchestrator), the
@@ -618,9 +618,9 @@ app to that surface — sixteen steps: welcome (opens the sidebar menu), Setting
 overview (the category list), Settings · Backend (deep-linked), then the MyApp
 bottom bar walked left to right — Home, Memories, then Agents and History (both
 under **More**, which the steps ring) — followed by chat, agents & threads, the
-Orchestrator introduced from its sidebar row then opened (prefilled "create a
-new myapp"), slash commands, screen share (rings More), Share a MyApp (rings
-More — Settings ▸ Import & Export lives inside), Settings · Account (`settingsPage: .account` → the `.profile`
+Orchestrator introduced from More then opened (prefilled "create a new myapp"),
+slash commands, screen share (rings More), Share a MyApp (rings More —
+Settings ▸ Import & Export lives inside), Settings · Account (`settingsPage: .account` → the `.profile`
 page; rings the iCloud rows and points at pupa-app.com for docs and support),
 and a closing "add an example" card that deep-links to
 Settings · Examples (`settingsPage: .examples`) and rings the example list
@@ -644,7 +644,7 @@ and `ChatPanel` adopts `chatPrefill` (including "/" to surface the
 `SlashCommandPalette`). A tour chat prefill is **typed in** — `ChatPanel`
 streams it character by character after a short lead-in (instant under Reduce
 Motion or for single-char "/"). `wantHighlight` names a control
-(`TourHighlight`: a bottom-bar slot, the chat header, or the Orchestrator row);
+(`TourHighlight`: a bottom-bar slot, the chat header, or a Settings section);
 `TourHighlight.swift` provides a `.tourAnchor` preference those views publish
 (several views may share a role — the chat header rings the agent + thread
 pickers as one union) and a `TourHighlightOverlay` glow ring drawn by the

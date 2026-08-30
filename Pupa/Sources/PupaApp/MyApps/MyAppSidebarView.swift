@@ -64,14 +64,12 @@ public struct MyAppSidebarView: View, Equatable {
             // binding silently swallowed SwiftUI's `nil` write.
             #if os(macOS)
             List(selection: $selection) {
-                orchestratorSection
                 myAppsSection
             }
             .listStyle(.sidebar)
             .frame(maxHeight: .infinity)
             #else
             List(selection: $selection) {
-                orchestratorSection
                 myAppsSection
             }
             .frame(maxHeight: .infinity)
@@ -175,32 +173,6 @@ public struct MyAppSidebarView: View, Equatable {
         var ids = collapsedFolders
         if expanded { ids.remove(folderId) } else { ids.insert(folderId) }
         collapsedFolderIds = ids.sorted().joined(separator: ",")
-    }
-
-    /// The orchestrator, as a peer of the MyApp rows. It's a scope you switch
-    /// to — the same class of thing as a myApp — so it belongs in the list the
-    /// sidebar exists to be, not in a footer of unrelated global actions.
-    private var orchestratorSection: some View {
-        let tag = SidebarSelection.orchestrator
-        return Section {
-            Label {
-                Text("Orchestrator").lineLimit(1)
-                    .foregroundStyle(.primary)
-            } icon: {
-                Image(systemName: "square.stack.3d.up.fill")
-                    .foregroundStyle(Color.orchestratorColor)
-            }
-            .tag(tag)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Open Orchestrator")
-            // Same reason as `myAppRow`: iOS `List(selection:)` won't tap-select
-            // outside edit mode, so drive the binding from a full-row tap.
-            #if os(iOS)
-            .contentShape(Rectangle())
-            .onTapGesture { selection = tag }
-            #endif
-            .tourAnchor(.sidebarOrchestrator)
-        }
     }
 
     private var myAppsSection: some View {

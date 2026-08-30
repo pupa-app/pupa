@@ -178,9 +178,12 @@ public struct MyAppBottomBar: View {
     }
 
     /// `⋯` overflow: the per-subject pages that don't earn a slot (Agents, and
-    /// History for a myApp) above the app-wide ones (Screen share, Settings).
-    /// Components are deliberately absent — Home already grids them, one tap
-    /// away, and this is the only `⋯` in the app now.
+    /// History for a myApp) above the app-wide ones (Orchestrator, Screen
+    /// share, Settings). Components are deliberately absent — Home already
+    /// grids them, one tap away, and this is the only `⋯` in the app now.
+    ///
+    /// The orchestrator's own bar omits the Orchestrator item, the same way it
+    /// omits History: you're already there.
     private var moreMenu: some View {
         Menu {
             Button {
@@ -196,6 +199,13 @@ public struct MyAppBottomBar: View {
                 }
             }
             Divider()
+            if myAppId != nil {
+                Button {
+                    onSelect(.orchestrator)
+                } label: {
+                    Label("Orchestrator", systemImage: "square.stack.3d.up.fill")
+                }
+            }
             Button {
                 onSelect(.screenShare)
             } label: {

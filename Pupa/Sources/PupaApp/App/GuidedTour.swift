@@ -185,12 +185,10 @@ enum TourContent {
             TourStep(
                 id: "orchestrator-menu",
                 title: "The Orchestrator",
-                body: "Open the menu and you'll find the Orchestrator at the top of the "
-                    + "list — a meta-agent that spans every MyApp. Tap it to start a "
-                    + "cross-app conversation.",
+                body: "Under More you'll find the Orchestrator — a meta-agent that spans "
+                    + "every MyApp. Tap it to start a cross-app conversation.",
                 placement: .top,
-                opensSidebar: true,
-                highlight: .sidebarOrchestrator
+                highlight: .bottomBarMore
             ),
             TourStep(
                 id: "orchestrator",
