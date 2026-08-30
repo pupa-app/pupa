@@ -3,6 +3,22 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.274] — 2026-08-30
+
+### Changed
+
+- **Memory files open as a sheet, not a full page.** Opening `AGENTS.md` used
+  to push over the canvas and evict it. A memory file is reference material you
+  read *while* talking to the agent — the same argument that makes chat an
+  overlay — so it now covers the canvas and a swipe puts it back. Files opened
+  from a link the agent wrote in chat behave the same way, which is the case
+  where keeping the canvas visible matters most.
+- **Dismissing a memory file saves it.** Swipe-down commits the edit rather
+  than dropping it: these files are the agent's long-term context, so silently
+  losing an edit is worse than silently keeping one. A file that was only read
+  is never rewritten, a locked file is never written at all, and a write that
+  fails puts the sheet back with the text still in it rather than discarding it.
+
 ## [0.0.273] — 2026-08-30
 
 ### Changed

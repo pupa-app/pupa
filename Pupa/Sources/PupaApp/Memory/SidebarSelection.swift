@@ -85,3 +85,66 @@ public enum SidebarSelection: Hashable, Sendable {
         }
     }
 }
+
+/// A memory file addressed for presentation as a sheet rather than a push.
+/// `Identifiable` so `AppView` can drive `.sheet(item:)` with it.
+///
+/// Memory files are reference material read *while* talking to the agent — the
+/// same argument that makes chat an overlay. Pushing one evicted the canvas;
+/// a sheet keeps it behind the note and a swipe puts it back.
+public struct MemoryFileRoute: Identifiable, Hashable, Sendable {
+    /// The myApp whose memory tree this file belongs to, or `nil` for the
+    /// orchestrator's shared tree.
+    public let myAppId: UUID?
+    /// Global-root-relative path, the space `MemoryStore` reads from.
+    public let path: String
+    /// Restored into the editor when a failed autosave re-presents the sheet,
+    /// so the user's text survives the round trip. `nil` loads from disk.
+    public let restoredBuffer: String?
+
+    public var id: String { "\(myAppId?.uuidString ?? "orchestrator"):\(path)" }
+
+    public init(myAppId: UUID?, path: String, restoredBuffer: String? = nil) {
+        self.myAppId = myAppId
+        self.path = path
+        self.restoredBuffer = restoredBuffer
+    }
+
+    /// The memory-file selections, and only those. Everything else still
+    /// navigates as a push.
+    public init?(_ selection: SidebarSelection) {
+        switch selection {
+        case .myAppMemoryFile(let id, let path):
+            self.init(myAppId: id, path: path)
+        case .memoryFile(let path):
+            self.init(myAppId: nil, path: path)
+        default:
+            return nil
+        }
+    }
+
+    /// Back to a selection, for the chat-scope routing that still keys off one.
+    public var selection: SidebarSelection {
+        if let myAppId { return .myAppMemoryFile(myAppId, path) }
+        return .memoryFile(path)
+    }
+}
+
+/// What dismissing a memory-file sheet should do with the editor buffer.
+///
+/// Swipe-down saves rather than discards: a memory file is a document, not a
+/// form, and these files are the agent's long-term context — silently losing an
+/// edit is worse than silently keeping one. Two guards keep that honest: a file
+/// that was only read is never rewritten (which would churn its mtime and the
+/// change log for nothing), and a locked file is never written at all.
+public enum MemoryFileDismiss {
+    public static func shouldSave(
+        readOnly: Bool,
+        isEditing: Bool,
+        buffer: String,
+        loaded: String
+    ) -> Bool {
+        guard !readOnly, isEditing else { return false }
+        return buffer != loaded
+    }
+}

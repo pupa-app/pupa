@@ -19,6 +19,15 @@ public struct MemoryFileView: View {
     /// When true (the file's app has locked memories), Edit / Delete are hidden
     /// and the note is preview-only.
     var readOnly: Bool = false
+    /// Presented as a sheet: a dismissal (swipe included) commits the edit
+    /// instead of dropping it. See `MemoryFileDismiss`.
+    var autosavesOnDismiss: Bool = false
+    /// Editor text to restore instead of loading from disk — set when a failed
+    /// autosave re-presents this file, so the user's work survives.
+    var restoredBuffer: String?
+    /// Called when an autosave on dismissal failed, with the message and the
+    /// buffer that didn't make it, so the host can put both back on screen.
+    var onAutosaveFailed: (String, String) -> Void = { _, _ in }
 
     /// False inside an imported app until the user opts in. See
     /// `MyApp.allowsRemoteImages`.
@@ -37,11 +46,17 @@ public struct MemoryFileView: View {
         store: MemoryStore,
         path: String,
         readOnly: Bool = false,
+        autosavesOnDismiss: Bool = false,
+        restoredBuffer: String? = nil,
+        onAutosaveFailed: @escaping (String, String) -> Void = { _, _ in },
         onDeleted: @escaping () -> Void
     ) {
         self.store = store
         self.path = path
         self.readOnly = readOnly
+        self.autosavesOnDismiss = autosavesOnDismiss
+        self.restoredBuffer = restoredBuffer
+        self.onAutosaveFailed = onAutosaveFailed
         self.onDeleted = onDeleted
     }
 
@@ -82,6 +97,26 @@ public struct MemoryFileView: View {
         .task(id: path) {
             isEditing = false
             reload()
+            // A failed autosave re-presents this file; drop the user back into
+            // the editor holding the text that didn't make it to disk.
+            if let restoredBuffer {
+                editBuffer = restoredBuffer
+                isEditing = true
+            }
+        }
+        .onDisappear {
+            guard autosavesOnDismiss else { return }
+            guard MemoryFileDismiss.shouldSave(
+                readOnly: readOnly,
+                isEditing: isEditing,
+                buffer: editBuffer,
+                loaded: loadedContent
+            ) else { return }
+            do {
+                try store.writeFile(path: path, content: editBuffer)
+            } catch {
+                onAutosaveFailed(error.localizedDescription, editBuffer)
+            }
         }
         .onChange(of: store.tree.id) { _, _ in
             // Agent-driven rescans refresh the preview, but only when the user

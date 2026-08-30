@@ -289,7 +289,15 @@ mounted via `.safeAreaInset(edge: .bottom)` so the page content insets above it
 instead of hiding under a floating overlay. It's keyed by `MyAppHomeView.Subject`
 (`.myApp(id)` / `.orchestrator`). Left to right: **Home** (`house`),
 **Memories** (`brain`, opens `MyAppMemoriesView` — a browse page of the subject's note tree;
-folders drill in, files push `.myAppMemoryFile` / `.memoryFile`. Direct editing
+folders drill in, files open as a **sheet** over the current page rather than
+pushing — `AppView.presentOrPush` turns a `.myAppMemoryFile` / `.memoryFile`
+selection into a `MemoryFileRoute` and presents it, and every other selection
+still pushes. A memory file is reference material read *while* talking to the
+agent, so it overlays the canvas the way chat does; a link the agent writes in
+chat routes through the same path. Dismissing the sheet — swipe included —
+commits the edit (`MemoryFileDismiss.shouldSave`): a file that was only read is
+never rewritten, a locked file never written, and a failed write re-presents the
+sheet holding the rescued buffer. Direct editing
 without the agent: the header `+` menu adds a Note / Folder at the scope root; a
 folder row's long-press menu adds inside it; any row can be renamed / moved or
 deleted. Rows funnel these through `MemoryRowActions` into the shared

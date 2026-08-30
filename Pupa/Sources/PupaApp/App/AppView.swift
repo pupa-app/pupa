@@ -43,6 +43,13 @@ public struct AppView: View {
     /// the `(ruleId, itemId)` in-flight lock (else it lingers to the timeout).
     @State private var reactionLocks: [String: (ruleId: String, itemId: UUID)] = [:]
     @State private var screenShare: ScreenShareViewModel
+    /// The memory file shown as a sheet over the current page. Memory files are
+    /// reference material read *while* talking to the agent, so they overlay the
+    /// canvas the way chat does instead of replacing it.
+    @State private var memoryFileSheet: MemoryFileRoute?
+    /// Message from an autosave that failed on dismissal. The sheet is put back
+    /// with the rescued buffer; this explains why.
+    @State private var memoryAutosaveError: String?
     /// Settings sheet presentation. Owned here, not by the sidebar: Settings
     /// is reached from the bottom bar's More menu now that the sidebar footer
     /// is gone, and the bar is mounted by `AppView`.
@@ -290,6 +297,17 @@ public struct AppView: View {
     public var body: some View {
         platformBody
             .sheet(isPresented: $settingsSheetPresented) { settingsSheet }
+            .sheet(item: $memoryFileSheet) { memoryFileSheetView($0) }
+            .alert(
+                "Couldn't save this note",
+                isPresented: Binding(
+                    get: { memoryAutosaveError != nil },
+                    set: { if !$0 { memoryAutosaveError = nil } })
+            ) {
+                Button("OK", role: .cancel) { memoryAutosaveError = nil }
+            } message: {
+                Text(memoryAutosaveError ?? "")
+            }
             // Guided tour drives the Settings sheet through its intent flag so
             // the step's coach card and the sheet stay in sync.
             .onChange(of: tour.wantSettingsOpen) { _, want in
@@ -1246,10 +1264,7 @@ public struct AppView: View {
                 store: store,
                 memory: memory,
                 subject: .myApp(id),
-                onNavigate: { dest in
-                    dispatchSelection(dest)
-                    detailPath.append(dest)
-                }
+                onNavigate: presentOrPush
             )
         case .myAppHistory(let id):
             ChangeHistoryView(store: store, myAppId: id)
@@ -1258,10 +1273,7 @@ public struct AppView: View {
                 store: store,
                 memory: memory,
                 subject: .orchestrator,
-                onNavigate: { dest in
-                    dispatchSelection(dest)
-                    detailPath.append(dest)
-                }
+                onNavigate: presentOrPush
             )
         case .myAppMemoryFile(let id, let path):
             MemoryFileView(store: memory, path: path, readOnly: store.isMemoryLocked(myAppId: id)) {
@@ -1521,8 +1533,46 @@ public struct AppView: View {
     /// target onto the detail stack — so Back returns to where the user was
     /// — and routes the chat scope to match (via `dispatchSelection`).
     private func openFromChat(_ sel: SidebarSelection) {
-        detailPath.append(sel)
+        presentOrPush(sel)
+    }
+
+    /// Memory files are presented as a sheet; everything else pushes. Both
+    /// route the chat scope first, so the agent still knows which file the user
+    /// is looking at (`memoryFocusedPath`) either way.
+    private func presentOrPush(_ sel: SidebarSelection) {
         dispatchSelection(sel)
+        if let route = MemoryFileRoute(sel) {
+            memoryFileSheet = route
+        } else {
+            detailPath.append(sel)
+        }
+    }
+
+    /// The memory-file sheet. Dismissing it — swipe included — commits the
+    /// edit; if that write fails the sheet comes back holding the text, rather
+    /// than dropping it on the floor.
+    @ViewBuilder
+    private func memoryFileSheetView(_ route: MemoryFileRoute) -> some View {
+        MemoryFileView(
+            store: memory,
+            path: route.path,
+            readOnly: route.myAppId.map { store.isMemoryLocked(myAppId: $0) } ?? false,
+            autosavesOnDismiss: true,
+            restoredBuffer: route.restoredBuffer,
+            onAutosaveFailed: { message, buffer in
+                // Re-present on the next runloop turn: re-entering `.sheet`
+                // from inside the dismissal that is still unwinding is ignored.
+                let retry = MemoryFileRoute(
+                    myAppId: route.myAppId, path: route.path, restoredBuffer: buffer)
+                DispatchQueue.main.async {
+                    memoryAutosaveError = message
+                    memoryFileSheet = retry
+                }
+            },
+            onDeleted: { memoryFileSheet = nil }
+        )
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
     }
 
     /// `OpenURLAction` that routes in-app `pupa://` links (chat + notes) to a
