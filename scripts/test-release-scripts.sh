@@ -388,6 +388,73 @@ expect_status 2
 expect_out "unknown flag: --no-flow"
 case_end
 
+echo
+echo "both scripts — the signing team guard"
+
+# Config.xcconfig includes Local.xcconfig with `#include?`, so a checkout
+# without it configures and only fails inside xcodebuild, minutes later, with a
+# message naming the project rather than the missing file. `reset` restores the
+# fixture's copy, so each case may delete or rewrite it freely.
+#
+# The empty-value case is the regression: the old `grep | sed` read let a
+# substitution that did not match pass the whole line through, so
+# 'DEVELOPMENT_TEAM =' tested non-empty and reached release.sh's export plist as
+# a teamID of "DEVELOPMENT_TEAM =".
+LOCAL_XCCONFIG="PupaHost/Local.xcconfig"
+
+case_start "archive.sh refuses when Local.xcconfig is absent"
+reset synced
+rm -f "$LOCAL_XCCONFIG"
+run "$ARCHIVE_SH" --no-bump --skip-icon-check
+expect_status 1
+expect_out "no signing team"
+expect_out "$LOCAL_XCCONFIG.example"
+case_end
+
+case_start "archive.sh refuses an empty DEVELOPMENT_TEAM"
+reset synced
+printf 'DEVELOPMENT_TEAM = \n' > "$LOCAL_XCCONFIG"
+run "$ARCHIVE_SH" --no-bump --skip-icon-check
+expect_status 1
+expect_out "sets no DEVELOPMENT_TEAM"
+case_end
+
+case_start "archive.sh refuses the placeholder team id"
+reset synced
+printf 'DEVELOPMENT_TEAM = YOURTEAMID\n' > "$LOCAL_XCCONFIG"
+run "$ARCHIVE_SH" --no-bump --skip-icon-check
+expect_status 1
+expect_out "still holds the placeholder"
+case_end
+
+# The point of the guard is that it lands before the slow, mutating part. If it
+# ever slipped below the bump, this is what would catch it.
+case_start "archive.sh's guard fires before the bump touches pbxproj"
+reset synced
+rm -f "$LOCAL_XCCONFIG"
+run "$ARCHIVE_SH" --skip-icon-check
+expect_status 1
+expect_out "no signing team"
+expect_no_out "bumped CURRENT_PROJECT_VERSION"
+expect_clean_pbxproj
+case_end
+
+case_start "release.sh refuses when Local.xcconfig is absent"
+reset synced
+rm -f "$LOCAL_XCCONFIG"
+run "$RELEASE_SH" --skip-notarize
+expect_status 1
+expect_out "no signing team"
+case_end
+
+case_start "release.sh refuses an empty DEVELOPMENT_TEAM"
+reset synced
+printf 'DEVELOPMENT_TEAM = \n' > "$LOCAL_XCCONFIG"
+run "$RELEASE_SH" --skip-notarize
+expect_status 1
+expect_out "sets no DEVELOPMENT_TEAM"
+case_end
+
 # verify_archive cannot be reached without a real archive, and archive.sh is not
 # sourceable — it runs top to bottom. Extracting the function is the only way to
 # exercise it, and it is worth exercising: the `$(cmd || echo '?')` shape it used
