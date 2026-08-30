@@ -7,17 +7,16 @@ import SwiftUI
 /// survives a redesign.
 enum TourHighlight: Hashable {
     case bottomBarHome
-    case bottomBarAgents
     case bottomBarMemories
-    case bottomBarHistory
     case bottomBarChat
+    /// The bar's `⋯` overflow — Agents, History, Screen share, Settings all
+    /// live behind it, so every step describing one of those rings this.
+    case bottomBarMore
     /// The chat's agent switcher + thread selector — two adjacent controls
     /// ringed together as one region.
     case chatHeader
-    /// The sidebar/menu footer actions.
+    /// The Orchestrator row at the top of the sidebar list.
     case sidebarOrchestrator
-    case sidebarScreenShare
-    case sidebarSettings
     /// The Settings · Account iCloud section.
     case settingsAccount
     /// The Settings · Examples list — the final step rings it so the user knows

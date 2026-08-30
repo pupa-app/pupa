@@ -43,6 +43,10 @@ public struct AppView: View {
     /// the `(ruleId, itemId)` in-flight lock (else it lingers to the timeout).
     @State private var reactionLocks: [String: (ruleId: String, itemId: UUID)] = [:]
     @State private var screenShare: ScreenShareViewModel
+    /// Settings sheet presentation. Owned here, not by the sidebar: Settings
+    /// is reached from the bottom bar's More menu now that the sidebar footer
+    /// is gone, and the bar is mounted by `AppView`.
+    @State private var settingsSheetPresented = false
     /// Watches the iCloud container for remote edits; reloads the synced
     /// stores so changes from another device appear live. Nil until started.
     @State private var cloudWatcher: CloudWatcher?
@@ -285,6 +289,17 @@ public struct AppView: View {
 
     public var body: some View {
         platformBody
+            .sheet(isPresented: $settingsSheetPresented) { settingsSheet }
+            // Guided tour drives the Settings sheet through its intent flag so
+            // the step's coach card and the sheet stay in sync.
+            .onChange(of: tour.wantSettingsOpen) { _, want in
+                settingsSheetPresented = want
+            }
+            // Covers launch with the flag already true, where `onChange` never
+            // fires. Reconcile on appear so the sheet still opens.
+            .onAppear {
+                if tour.wantSettingsOpen { settingsSheetPresented = true }
+            }
             // An overlay, not a child of any lazy container: the probe has to
             // exist in the accessibility tree from launch, whether or not the
             // chat panel is open. Costs a `Bool` on a normal launch.
@@ -639,11 +654,6 @@ public struct AppView: View {
         HStack(spacing: 0) {
             MyAppSidebarView(
                 store: store,
-                memory: memory,
-                settings: settings,
-                stats: coordinator.agentStats,
-                modelCatalog: modelCatalog,
-                coordinator: coordinator,
                 selection: $selection,
                 busyMyApps: coordinator.busyMyApps,
                 onSelectionChange: setRoot,
@@ -939,11 +949,6 @@ public struct AppView: View {
             HStack(spacing: 0) {
                 MyAppSidebarView(
                     store: store,
-                    memory: memory,
-                    settings: settings,
-                    stats: coordinator.agentStats,
-                    modelCatalog: modelCatalog,
-                    coordinator: coordinator,
                     selection: $selection,
                     busyMyApps: coordinator.busyMyApps,
                     onSelectionChange: setRoot,
@@ -1337,7 +1342,6 @@ public struct AppView: View {
         let effective = effectiveSelection
         if let subject = barSubject(for: effective), let page = barPage(for: effective) {
             MyAppBottomBar(
-                store: store,
                 subject: subject,
                 currentPage: page,
                 appColor: barColor(for: subject),
@@ -1352,9 +1356,52 @@ public struct AppView: View {
                         detailPath.append(dest)
                     }
                 },
-                onToggleChat: { toggleChat() }
+                onToggleChat: { toggleChat() },
+                onOpenSettings: { settingsSheetPresented = true }
             )
         }
+    }
+
+    /// Settings, reached from the bar's More menu. Moved here from the sidebar
+    /// along with the footer that used to hold it — this is also the only view
+    /// that still holds every store the sheet needs.
+    @ViewBuilder
+    private var settingsSheet: some View {
+        SettingsSheet(
+            settings: settings,
+            onRestoreExample: { example in
+                let id = store.restoreExample(example)
+                // Refresh the example's AGENTS.md files so the user-triggered
+                // restore writes any that are missing (idempotent — user edits
+                // stick).
+                example.seedAgentsMd(
+                    globalMemory: memory, appRoot: MemoryStore.appRoot(myAppId: id))
+                setRoot(.myAppHome(id))
+                settingsSheetPresented = false
+            },
+            onStartTour: {
+                // Dismiss the sheet, then restart the tour from the top. Uses
+                // the live active myApp + pairing state so route targets
+                // resolve and the chat copy adapts.
+                settingsSheetPresented = false
+                tour.start(
+                    activeMyAppId: store.activeMyAppId,
+                    isPaired: settings.isPaired(settings.activeBackend.id)
+                )
+            },
+            onClose: {
+                settingsSheetPresented = false
+            },
+            store: store,
+            memory: memory,
+            stats: coordinator.agentStats,
+            modelCatalog: modelCatalog,
+            coordinator: coordinator,
+            onImported: { id in
+                setRoot(.myAppHome(id))
+                settingsSheetPresented = false
+            }
+        )
     }
 
     private func toggleChat() {

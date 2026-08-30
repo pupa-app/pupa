@@ -3,6 +3,23 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.273] — 2026-08-30
+
+### Changed
+
+- **One bottom bar instead of two.** The sidebar's footer (Orchestrator ·
+  Screen share · Settings) and the page bar (Home · Memories · Agents ·
+  History · Pupa · ⋯) sat at the same screen position with different
+  contents — with the drawer open both were visible side by side and nothing
+  said which owned what. There is now a single bar: **Home · Memories · Pupa ·
+  More**. More holds Agents and History (the low-traffic per-subject pages)
+  above the app-wide Orchestrator, Screen share and Settings, and lights up
+  while an Agents or History page is showing. The sidebar is now the MyApps
+  list and nothing else.
+- **The `⋯` component-jump menu is gone.** `⋯` is now More, and a myapp's
+  components are already a tap away on its home page. This also leaves one
+  meaning for `⋯` in the app instead of two.
+
 ## [0.0.272] — 2026-08-30
 
 ### Added

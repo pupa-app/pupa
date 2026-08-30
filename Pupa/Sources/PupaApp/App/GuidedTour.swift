@@ -119,8 +119,8 @@ enum TourContent {
                 title: "Home",
                 body: "Each MyApp is a canvas of components, like trackers, calendars, "
                     + "checklists, that the agent reads and edits as you chat. The bar "
-                    + "below is how you move around one — let's walk it left to right, "
-                    + "starting here on Home.",
+                    + "below is the only one in the app — Home, Memories, Pupa, and More. "
+                    + "Let's walk it left to right, starting here on Home.",
                 placement: .bottom,
                 selection: .myAppHome(activeMyAppId),
                 highlight: .bottomBarHome
@@ -141,19 +141,21 @@ enum TourContent {
                 title: "Agents",
                 body: "Every MyApp has its own main agent. Here you can see the tools it "
                     + "can call, open its AGENTS.md persona file, and review the components "
-                    + "it manages.",
+                    + "it manages. It lives under More, along with everything else you reach "
+                    + "less often.",
                 placement: .bottom,
                 selection: .myAppAgents(activeMyAppId),
-                highlight: .bottomBarAgents
+                highlight: .bottomBarMore
             ),
             TourStep(
                 id: "myapp-history",
                 title: "History",
                 body: "Every change the agent makes to the canvas is logged here, so you "
-                    + "can see what happened and when. Tap the clock anytime to review it.",
+                    + "can see what happened and when. Also under More, whenever you want to "
+                    + "review it.",
                 placement: .bottom,
                 selection: .myAppHistory(activeMyAppId),
-                highlight: .bottomBarHistory
+                highlight: .bottomBarMore
             ),
             TourStep(
                 id: "chat",
@@ -183,9 +185,9 @@ enum TourContent {
             TourStep(
                 id: "orchestrator-menu",
                 title: "The Orchestrator",
-                body: "Open the menu and you'll find the Orchestrator down here — a "
-                    + "meta-agent that spans every MyApp. Tap it to start a cross-app "
-                    + "conversation.",
+                body: "Open the menu and you'll find the Orchestrator at the top of the "
+                    + "list — a meta-agent that spans every MyApp. Tap it to start a "
+                    + "cross-app conversation.",
                 placement: .top,
                 opensSidebar: true,
                 highlight: .sidebarOrchestrator
@@ -213,22 +215,20 @@ enum TourContent {
             TourStep(
                 id: "screen-share",
                 title: "Screen share",
-                body: "Next to it, screen share lets the agent see what's on your screen "
-                    + "in your backend — handy when you want to see what the backend agent "
-                    + "is cooking.",
+                body: "Back under More, screen share lets the agent see what's on your "
+                    + "screen in your backend — handy when you want to see what the backend "
+                    + "agent is cooking.",
                 placement: .top,
-                opensSidebar: true,
-                highlight: .sidebarScreenShare
+                highlight: .bottomBarMore
             ),
             TourStep(
                 id: "share-myapp",
                 title: "Share a MyApp",
-                body: "Inside Settings is Import & Export — send any MyApp as a bundle, or "
-                    + "import one a friend shared. Components, agent prompts, and memories "
-                    + "all travel with it.",
+                body: "Settings is under More too. Inside it is Import & Export — send any "
+                    + "MyApp as a bundle, or import one a friend shared. Components, agent "
+                    + "prompts, and memories all travel with it.",
                 placement: .top,
-                opensSidebar: true,
-                highlight: .sidebarSettings
+                highlight: .bottomBarMore
             ),
             TourStep(
                 id: "settings-account",

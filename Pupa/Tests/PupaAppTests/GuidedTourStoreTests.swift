@@ -189,13 +189,14 @@ struct GuidedTourStoreTests {
         let id = UUID()
         let steps = TourContent.steps(activeMyAppId: id, isPaired: true)
         // Ordered Home → Memories → Agents → History → Pupa(chat), each
-        // navigating to its page and highlighting the matching bottom-bar
-        // control. The Pupa step returns to the home canvas and opens the chat.
+        // navigating to its page and highlighting the bar control that reaches
+        // it. Agents and History live behind More, so both ring that one slot.
+        // The Pupa step returns to the home canvas and opens the chat.
         let expected: [(String, SidebarSelection?, TourHighlight)] = [
             ("myapp-home", .myAppHome(id), .bottomBarHome),
             ("myapp-memories", .myAppMemories(id), .bottomBarMemories),
-            ("myapp-agents", .myAppAgents(id), .bottomBarAgents),
-            ("myapp-history", .myAppHistory(id), .bottomBarHistory),
+            ("myapp-agents", .myAppAgents(id), .bottomBarMore),
+            ("myapp-history", .myAppHistory(id), .bottomBarMore),
             ("chat", .myAppHome(id), .bottomBarChat),
         ]
         // Indices are strictly increasing and contiguous in this order.
@@ -212,19 +213,21 @@ struct GuidedTourStoreTests {
         #expect(chat.chatPrefill == "Can you prepare my daily briefing while I get my coffee?")
     }
 
-    @Test("Menu steps open the sidebar and ring the right footer action, in order")
-    func menuStepsRingSidebarFooter() {
+    @Test("Global steps ring the Orchestrator row, then More, in order")
+    func globalStepsRingOrchestratorRowThenMore() {
         let steps = TourContent.steps(activeMyAppId: UUID(), isPaired: true)
-        // The Orchestrator is introduced from its menu button, then opened; then
-        // screen share, then Import & Export — each ringing its sidebar icon.
-        let expected: [(String, TourHighlight)] = [
-            ("orchestrator-menu", .sidebarOrchestrator),
-            ("screen-share", .sidebarScreenShare),
-            ("share-myapp", .sidebarSettings),
+        // The Orchestrator is introduced from its sidebar row, then opened —
+        // the only one of these that still needs the drawer. Screen share and
+        // Import & Export moved into the bar's More menu when the sidebar
+        // footer went away, so they ring that slot and leave the drawer shut.
+        let expected: [(String, TourHighlight, Bool)] = [
+            ("orchestrator-menu", .sidebarOrchestrator, true),
+            ("screen-share", .bottomBarMore, false),
+            ("share-myapp", .bottomBarMore, false),
         ]
-        for (stepId, highlight) in expected {
+        for (stepId, highlight, opensSidebar) in expected {
             let step = steps.first { $0.id == stepId }!
-            #expect(step.opensSidebar)
+            #expect(step.opensSidebar == opensSidebar)
             #expect(step.highlight == highlight)
             #expect(step.selection == nil)
         }

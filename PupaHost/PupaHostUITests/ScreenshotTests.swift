@@ -61,11 +61,12 @@ final class ScreenshotTests: XCTestCase {
     /// Frame 6 — settings root (backend / account / agents).
     @MainActor
     func testFrame06Settings() throws {
-        // The gear lives in the drawer's own bottom bar, so leave it open.
+        // Settings lives behind the bottom bar's More menu, so the drawer has
+        // to be shut for the bar to be reachable.
         let app = launched()
         dismissBanner(app)
-        let gear = app.buttons["Open Settings"]
-        if gear.waitForExistence(timeout: 20) { gear.tap() }
+        closeDrawer(app)
+        openSettings(app)
         _ = app.staticTexts.firstMatch.waitForExistence(timeout: 10)
         shoot("frame-06-settings")
     }
@@ -111,6 +112,16 @@ final class ScreenshotTests: XCTestCase {
             .press(forDuration: 0.05,
                    thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.0, dy: 0.35)))
         _ = app.buttons["Today's Briefing"].waitForExistence(timeout: 10)
+    }
+
+    /// Open Settings through the bottom bar's `⋯`. Needs the drawer shut.
+    private func openSettings(_ app: XCUIApplication) {
+        let more = app.buttons["More"]
+        XCTAssertTrue(more.waitForExistence(timeout: 20), "no More button")
+        more.tap()
+        let settings = app.buttons["Settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 10), "no Settings item in More")
+        settings.tap()
     }
 
     private func shoot(_ name: String) {
