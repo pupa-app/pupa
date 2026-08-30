@@ -2,8 +2,8 @@ import SwiftUI
 
 /// Detail-pane browse page for a memory filesystem — a myApp's notes or the
 /// orchestrator's shared notes, selected by `subject`. Reached from the bottom
-/// bar's Memories button; folders drill in, files push the scope's file
-/// selection (`.myAppMemoryFile` / `.memoryFile`). Reuses `MemoryLandingRow`,
+/// bar's Memories button; folders drill in, files present the scope's file
+/// selection (`.myAppMemoryFile` / `.memoryFile`) as a sheet over this page. Reuses `MemoryLandingRow`,
 /// the same recursive row the page tree renders for either scope.
 ///
 /// Direct editing: the header `+` adds a note or folder at the scope root; each

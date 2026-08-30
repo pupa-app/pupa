@@ -375,9 +375,13 @@ converge+reload at launch for the same reason.
 **In-app links (`pupa://`).** The agent can embed tappable navigation links in
 chat markdown (and note bodies); `Chat/ChatLink.swift` maps a `pupa://` URL to a
 `SidebarSelection` and `AppView.chatLinkAction` (an `OpenURLAction` installed on
-the detail `NavigationStack`, `ChatOverlay`, and `CanvasView` — the last so
-`pupa://memory/…` values in tracker `.link` fields route in-app) pushes it onto
-`detailPath` — real `http(s)` URLs fall through to the browser. The agent writes
+the detail `NavigationStack`, `ChatOverlay`, `CanvasView` — the last so
+`pupa://memory/…` values in tracker `.link` fields route in-app — and the memory
+sheet, which sits outside the stack and so needs its own copy) routes it through
+`presentOrPush`: a memory file becomes a sheet, anything else pushes onto
+`detailPath`. Real `http(s)` URLs fall through to the browser. A push made from
+inside an open note dismisses it first, so the new page is never left waiting
+behind the sheet. The agent writes
 **scope-relative** paths — `pupa://memory/<path>` is the same note path it
 reads/writes, bound to the current chat scope (a myApp → `.myAppMemoryFile`, the
 orchestrator → `.memoryFile`). But `SidebarSelection` memory paths are

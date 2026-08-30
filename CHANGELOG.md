@@ -10,7 +10,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
 - **Memory files open as a sheet, not a full page.** Opening `AGENTS.md` used
   to push over the canvas and evict it. A memory file is reference material you
   read *while* talking to the agent — the same argument that makes chat an
-  overlay — so it now covers the canvas and a swipe puts it back. Files opened
+  overlay — so it now covers the canvas, and a swipe (or the sheet's Close, which
+  is the way out on macOS) puts it back. Files opened
   from a link the agent wrote in chat behave the same way, as does an agent's
   **Prompt** row under Agents — which is how most people reach `AGENTS.md`.
 - **Dismissing a memory file saves it.** Swipe-down commits the edit rather

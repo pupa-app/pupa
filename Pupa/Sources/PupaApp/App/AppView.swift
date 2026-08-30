@@ -47,9 +47,6 @@ public struct AppView: View {
     /// reference material read *while* talking to the agent, so they overlay the
     /// canvas the way chat does instead of replacing it.
     @State private var memoryFileSheet: MemoryFileRoute?
-    /// Message from an autosave that failed on dismissal. The sheet is put back
-    /// with the rescued buffer; this explains why.
-    @State private var memoryAutosaveError: String?
     /// Settings sheet presentation. Owned here, not by the sidebar: Settings
     /// is reached from the bottom bar's More menu now that the sidebar footer
     /// is gone, and the bar is mounted by `AppView`.
@@ -302,16 +299,6 @@ public struct AppView: View {
         platformBody
             .sheet(isPresented: $settingsSheetPresented) { settingsSheet }
             .sheet(item: $memoryFileSheet) { memoryFileSheetView($0) }
-            .alert(
-                "Couldn't save this note",
-                isPresented: Binding(
-                    get: { memoryAutosaveError != nil },
-                    set: { if !$0 { memoryAutosaveError = nil } })
-            ) {
-                Button("OK", role: .cancel) { memoryAutosaveError = nil }
-            } message: {
-                Text(memoryAutosaveError ?? "")
-            }
             // Guided tour drives the Settings sheet through its intent flag so
             // the step's coach card and the sheet stay in sync.
             .onChange(of: tour.wantSettingsOpen) { _, want in
@@ -1031,7 +1018,8 @@ public struct AppView: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
             }
-            // Route `pupa://` links inside pushed memory notes in-app too.
+            // Route `pupa://` links inside the detail stack in-app too. (Memory
+            // notes carry their own copy — they present as a sheet, outside this.)
             .environment(\.openURL, chatLinkAction)
             ChatOverlay(
                 scope: chatScope,
@@ -1537,11 +1525,24 @@ public struct AppView: View {
     /// this fork and is unchanged by it.)
     private func presentOrPush(_ sel: SidebarSelection) {
         dispatchSelection(sel)
-        if let route = MemoryFileRoute(sel) {
-            memoryFileSheet = route
-        } else {
+        guard let route = MemoryFileRoute(sel) else {
+            // A push while a note is open would land *behind* the sheet: the
+            // user sees nothing happen, and only meets the new page when they
+            // dismiss. Notes contain `pupa://component/…` links, so this is
+            // reachable by tapping one.
+            memoryFileSheet = nil
             detailPath.append(sel)
+            return
         }
+        guard let open = memoryFileSheet, open.id != route.id else {
+            memoryFileSheet = route
+            return
+        }
+        // Note-to-note: reassigning `.sheet(item:)` in place is the dropped
+        // presentation that leaves the id stuck and the file unopenable.
+        // Dismiss, then present on the next turn.
+        memoryFileSheet = nil
+        DispatchQueue.main.async { memoryFileSheet = route }
     }
 
     /// The memory-file sheet. Dismissing it — swipe included — commits the
@@ -1561,15 +1562,14 @@ public struct AppView: View {
             // explicitly.
             autosavesOnDismiss: route.restoredBuffer == nil,
             restoredBuffer: route.restoredBuffer,
+            initialError: route.autosaveError,
             onAutosaveFailed: { message, buffer in
                 // Re-present on the next runloop turn: re-entering `.sheet`
                 // from inside the dismissal that is still unwinding is ignored.
                 let retry = MemoryFileRoute(
-                    myAppId: route.myAppId, path: route.path, restoredBuffer: buffer)
-                DispatchQueue.main.async {
-                    memoryAutosaveError = message
-                    memoryFileSheet = retry
-                }
+                    myAppId: route.myAppId, path: route.path,
+                    restoredBuffer: buffer, autosaveError: message)
+                DispatchQueue.main.async { memoryFileSheet = retry }
             },
             onClose: { memoryFileSheet = nil },
             onDeleted: { memoryFileSheet = nil }

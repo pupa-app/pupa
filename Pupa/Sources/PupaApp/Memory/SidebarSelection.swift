@@ -33,18 +33,19 @@ public enum SidebarSelection: Hashable, Sendable {
     case myAppAgentDetail(UUID, agentId: String)
     /// A memory file that belongs to a specific myApp's memory tree.
     /// Routes to the myApp's chat (not the orchestrator) while showing
-    /// the file content in the detail pane.
+    /// the file in a sheet over whatever was on screen — see
+    /// `MemoryFileRoute` and `AppView.presentOrPush`.
     case myAppMemoryFile(UUID, String)
     /// The myApp's memory browse page — a folder tree of all its notes.
-    /// Reached from the bottom bar's Memories button; files inside push
-    /// `.myAppMemoryFile`.
+    /// Reached from the bottom bar's Memories button; files inside present
+    /// `.myAppMemoryFile` as a sheet.
     case myAppMemories(UUID)
     /// The myApp's change-history page — a newest-first list of `ItemEvent`s
     /// with per-row Undo. Pushed from the bottom bar's History button.
     case myAppHistory(UUID)
     /// The orchestrator's memory browse page — a folder tree of its shared
     /// notes. Mirror of `.myAppMemories` but orchestrator-scoped (reuses
-    /// `MyAppMemoriesView`); files inside push `.memoryFile`.
+    /// `MyAppMemoriesView`); files inside present `.memoryFile` as a sheet.
     case orchestratorMemories
     /// A memory file in the orchestrator's tree. Routes to the memory/
     /// orchestrator chat and sets `memoryFocusedPath`.
@@ -101,13 +102,23 @@ public struct MemoryFileRoute: Identifiable, Hashable, Sendable {
     /// Restored into the editor when a failed autosave re-presents the sheet,
     /// so the user's text survives the round trip. `nil` loads from disk.
     public let restoredBuffer: String?
+    /// Why the autosave failed, shown inside the sheet. Carried here rather
+    /// than raised as an alert: an alert and this sheet present from the same
+    /// anchor, and asking for both in one update drops one of them.
+    public let autosaveError: String?
 
     public var id: String { "\(myAppId?.uuidString ?? "orchestrator"):\(path)" }
 
-    public init(myAppId: UUID?, path: String, restoredBuffer: String? = nil) {
+    public init(
+        myAppId: UUID?,
+        path: String,
+        restoredBuffer: String? = nil,
+        autosaveError: String? = nil
+    ) {
         self.myAppId = myAppId
         self.path = path
         self.restoredBuffer = restoredBuffer
+        self.autosaveError = autosaveError
     }
 
     /// The memory-file selections, and only those. Everything else still

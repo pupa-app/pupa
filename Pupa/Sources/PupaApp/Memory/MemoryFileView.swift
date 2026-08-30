@@ -39,6 +39,9 @@ public struct MemoryFileView: View {
     /// Dismiss the sheet. Present as a sheet and this must be non-nil: the drag
     /// indicator is iOS-only, so on macOS it is the *only* way out.
     var onClose: (() -> Void)?
+    /// Error to show on open — the message from an autosave that failed, shown
+    /// here rather than as an alert racing this sheet for presentation.
+    var initialError: String?
 
     /// False inside an imported app until the user opts in. See
     /// `MyApp.allowsRemoteImages`.
@@ -59,6 +62,7 @@ public struct MemoryFileView: View {
         readOnly: Bool = false,
         autosavesOnDismiss: Bool = false,
         restoredBuffer: String? = nil,
+        initialError: String? = nil,
         onAutosaveFailed: @escaping (String, String) -> Void = { _, _ in },
         onClose: (() -> Void)? = nil,
         onDeleted: @escaping () -> Void
@@ -70,6 +74,7 @@ public struct MemoryFileView: View {
         self.restoredBuffer = restoredBuffer
         self.onAutosaveFailed = onAutosaveFailed
         self.onClose = onClose
+        self.initialError = initialError
         self.onDeleted = onDeleted
     }
 
@@ -78,11 +83,22 @@ public struct MemoryFileView: View {
             VStack(alignment: .leading, spacing: 16) {
                 header
                 Divider()
+                // A banner, not a replacement: a *save* failure has to leave the
+                // editor holding the user's text on screen, or the recovery
+                // hides the very thing it is recovering. A *load* failure has
+                // no content to show, so the branches below sit it out.
                 if let error {
                     Text(error)
                         .font(.callout)
                         .foregroundStyle(.red)
-                } else if isEditing {
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(Color.red.opacity(0.08))
+                        )
+                }
+                if isEditing {
                     TextEditor(text: $editBuffer)
                         .font(.body.monospaced())
                         .frame(minHeight: 420, idealHeight: 640)
@@ -90,6 +106,8 @@ public struct MemoryFileView: View {
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
                                 .strokeBorder(Color.secondary.opacity(0.25), lineWidth: 1)
                         )
+                } else if error != nil {
+                    EmptyView()
                 } else if MemoryFilenameHelper.rendersAsMarkdown(path) {
                     Markdown(loadedContent)
                         .markdownTheme(.gitHub)
@@ -115,6 +133,9 @@ public struct MemoryFileView: View {
             if let restoredBuffer {
                 editBuffer = restoredBuffer
                 isEditing = true
+                // `reload()` cleared it; the failure is what the user needs to
+                // read, and it must not hide the editor holding their text.
+                error = initialError
             }
         }
         .onDisappear {
