@@ -116,13 +116,17 @@ rejected commit, the `--flow` branch trap. Run it after touching either script.
 
 ### Git hooks
 
+`make build` and `make test` install them, so a fresh clone is covered the
+first time you run either. To do it up front:
+
 ```bash
 make hooks
 ```
 
-Points `core.hooksPath` at the versioned `scripts/hooks/`. Do this once per
-clone — a hook living only in `.git/hooks` protects one machine and no one
-else's.
+Both point `core.hooksPath` at the versioned `scripts/hooks/`. Git will not
+install hooks from a clone by itself — that would make `git clone` execute
+arbitrary code — so it has to be a local step; hanging it off the commands
+everyone already runs is the closest thing to automatic.
 
 The pre-commit hook refuses two things in the staged diff:
 
