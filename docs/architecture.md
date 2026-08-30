@@ -99,9 +99,10 @@ avoids `NavigationSplitView`: its sidebar fails to render in the unbundled
 `swift run` PupaDemo binary, leaving an empty column.) The sidebar lists the
 **visible** (non-archived) MyApps as compact, **non-expanding** rows (tap a row
 → its home; components, memories, and history are reached from the MyApp home +
-its bottom bar, not the sidebar); a footer menu holds the global
-**Orchestrator**, the **Screen share** viewer, and **Settings**. A row's
-long-press menu offers Rename · **Move to Folder** · **Archive** · Delete.
+its bottom bar, not the sidebar) and nothing else — no footer, no Orchestrator
+row. The bottom bar's **More** menu is the one place global actions live, the
+Orchestrator among them. A row's long-press menu offers Rename · **Move to
+Folder** · **Archive** · Delete.
 
 **Sidebar folders** group MyApp rows for readability and nothing else.
 `MyAppFolderLayout` (`folders` + `assignments: myAppUUID → folderId`) is
@@ -127,8 +128,8 @@ Archive** (`ArchivedAppsView`). Memories are keyed on the app id and untouched
 — they ride along, hidden with the app and back on restore. The Orchestrator opens the same home layout as a
 MyApp (`MyAppHomeView` with `subject: .orchestrator`) — an Outline explaining
 what it coordinates plus the myapps it can drive, and an empty Components panel
-— plus the same bottom bar (Home · Agents · Memories · Pupa · ⋯), rather than a
-bespoke page. Both homes leave agents to the **Agents** bottom-bar page; the
+— plus the same bottom bar (Home · Memories · Pupa · More), rather than a
+bespoke page. Both homes leave agents to the **Agents** page under More; the
 home itself only shows the Outline + Components. The drawer fills most of a compact
 (iPhone-portrait) screen but stays a slim fixed width on a regular width class
 (iPad, large iPhone landscape). Drawer + scrim are **always mounted** (like the
@@ -286,9 +287,8 @@ orchestrator's home / memories / agent pages — the detail pane hosts a persist
 **bottom bar** (`MyApps/MyAppBottomBar.swift`) — the per-subject "tab bar",
 mounted via `.safeAreaInset(edge: .bottom)` so the page content insets above it
 instead of hiding under a floating overlay. It's keyed by `MyAppHomeView.Subject`
-(`.myApp(id)` / `.orchestrator`). Left to right: **Home** (`house`), **Agents**
-(`person.2`, opens `AgentsListView` / `AgentDetailView`), **Memories**
-(`brain`, opens `MyAppMemoriesView` — a browse page of the subject's note tree;
+(`.myApp(id)` / `.orchestrator`). Left to right: **Home** (`house`),
+**Memories** (`brain`, opens `MyAppMemoriesView` — a browse page of the subject's note tree;
 folders drill in, files push `.myAppMemoryFile` / `.memoryFile`. Direct editing
 without the agent: the header `+` menu adds a Note / Folder at the scope root; a
 folder row's long-press menu adds inside it; any row can be renamed / moved or
@@ -301,11 +301,16 @@ preview on that extension via `MemoryFilenameHelper.rendersAsMarkdown`: `.md`
 renders through MarkdownUI, anything else verbatim as monospaced h-scrolling code
 — markdown's soft-break-as-space would otherwise flatten a `.json` note's
 newlines and indentation. Edit mode is a monospaced `TextEditor` either way, so
-preview and buffer match byte for byte), **History**
-(`clock`, pushes `ChangeHistoryView` via `.myAppHistory` — **myApp only**; the
-orchestrator has no canvas change-log so it omits this), the **Pupa** chat launcher (toggles
-`AppView.chatOpen`, carrying the scope's `StatusBadge`), and a **⋯** menu that
-jumps to any component (myApp) or any myapp (orchestrator). Glyphs are tinted the
+preview and buffer match byte for byte), the **Pupa** chat launcher (toggles
+`AppView.chatOpen`, carrying the scope's `StatusBadge`), and **More** (`⋯`) —
+the app's single overflow, holding **Agents** (`person.2`, opens
+`AgentsListView` / `AgentDetailView`), **History** (`clock`, pushes
+`ChangeHistoryView` via `.myAppHistory` — **myApp only**; the orchestrator has
+no canvas change-log so it omits this), then the app-wide **Orchestrator**,
+**Screen share** and **Settings**. The orchestrator's own bar omits the
+Orchestrator item for the same reason it omits History: you're already there.
+More lights up as the active slot while an Agents or History page is showing. Components are deliberately absent from it: the home page already
+grids them one tap away. Glyphs are tinted the
 subject's color (a myApp's creation-order index via
 `MyAppStore.colorIndex(for:)`; `orchestratorColor` for the orchestrator), the
 current page highlighted; the pupa keeps its own look. Every page these reach
@@ -611,11 +616,10 @@ Once onboarding finishes, an **interactive guided tour** runs once
 card* explains each step while the tour programmatically navigates the **real**
 app to that surface — sixteen steps: welcome (opens the sidebar menu), Settings
 overview (the category list), Settings · Backend (deep-linked), then the MyApp
-bottom bar walked left to right — Home, Memories, Agents, History — followed by
-chat, agents & threads, the Orchestrator introduced from its sidebar-menu button
-then opened (prefilled "create a new myapp"), slash commands, screen share (rings
-its sidebar button), Share a MyApp (rings the Settings button — Import & Export
-lives inside), Settings · Account (`settingsPage: .account` → the `.profile`
+bottom bar walked left to right — Home, Memories, **More**, then Agents and
+History as the pages behind it — followed by chat, agents & threads, the
+Orchestrator opened (prefilled "create a new myapp"), slash commands, screen
+share, Share a MyApp (deep-links Settings ▸ Import & Export), Settings · Account (`settingsPage: .account` → the `.profile`
 page; rings the iCloud rows and points at pupa-app.com for docs and support),
 and a closing "add an example" card that deep-links to
 Settings · Examples (`settingsPage: .examples`) and rings the example list
@@ -633,13 +637,16 @@ through `setRoot` (so the chat scope follows), opens the sidebar, and
 writes the store's intent flags (`wantSettingsOpen` / `wantSettingsPage` /
 `wantChatOpen` / `chatPrefill` / `wantHighlight`). Host views then mirror those
 declaratively:
-`MyAppSidebarView` drives the Settings sheet, `SettingsSheet` deep-links its
+`AppView` drives the Settings sheet, `SettingsSheet` deep-links its
 `NavigationStack` path, `ChatOverlay` expands/collapses to match `wantChatOpen`,
 and `ChatPanel` adopts `chatPrefill` (including "/" to surface the
 `SlashCommandPalette`). A tour chat prefill is **typed in** — `ChatPanel`
 streams it character by character after a short lead-in (instant under Reduce
 Motion or for single-char "/"). `wantHighlight` names a control
-(`TourHighlight`: a bottom-bar tab, the chat header, or a sidebar-footer action);
+(`TourHighlight`: a bottom-bar slot, the chat header, or a Settings section);
+Exactly one step rings More, enforced by a test: a SwiftUI `Menu` can't be
+opened programmatically, so a second ring would point at a closed menu. Steps
+describing what lives inside it navigate there or deep-link Settings instead.
 `TourHighlight.swift` provides a `.tourAnchor` preference those views publish
 (several views may share a role — the chat header rings the agent + thread
 pickers as one union) and a `TourHighlightOverlay` glow ring drawn by the

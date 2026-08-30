@@ -2,17 +2,6 @@ import SwiftUI
 
 public struct MyAppSidebarView: View, Equatable {
     @Bindable var store: MyAppStore
-    @Bindable var memory: MemoryStore
-    @Bindable var settings: SettingsStore
-    /// Lifetime per-agent activity counters, forwarded to the Settings →
-    /// Agents overview.
-    let stats: AgentStatsStore
-    /// Live LLM model registry, forwarded to the Settings → Agents overview's
-    /// model pickers.
-    let modelCatalog: ModelCatalogStore
-    /// Live session owner, forwarded to the Settings → Agents overview for
-    /// per-thread status dots.
-    let coordinator: ChatSessionCoordinator
     @Binding var selection: SidebarSelection?
     let busyMyApps: Set<UUID>
     var onSelectionChange: (SidebarSelection) -> Void
@@ -20,11 +9,6 @@ public struct MyAppSidebarView: View, Equatable {
     var onArchiveMyApp: (UUID) -> Void
 
     @State private var newSheetPresented = false
-    @State private var settingsSheetPresented = false
-    /// Shared guided-tour store. The Settings tour step raises
-    /// `wantSettingsOpen`; we mirror it onto `settingsSheetPresented` so the
-    /// sheet opens (and closes) in lock-step with the tour.
-    @State private var tour = GuidedTourStore.shared
     /// The myApp whose combined edit sheet (name + icon + color) is open.
     @State private var editingMyAppId: UUID?
     /// Collapsed sidebar folders, comma-joined ids. Per-device chrome, so it
@@ -39,11 +23,6 @@ public struct MyAppSidebarView: View, Equatable {
 
     public init(
         store: MyAppStore,
-        memory: MemoryStore,
-        settings: SettingsStore,
-        stats: AgentStatsStore,
-        modelCatalog: ModelCatalogStore,
-        coordinator: ChatSessionCoordinator,
         selection: Binding<SidebarSelection?>,
         busyMyApps: Set<UUID>,
         onSelectionChange: @escaping (SidebarSelection) -> Void,
@@ -51,11 +30,6 @@ public struct MyAppSidebarView: View, Equatable {
         onArchiveMyApp: @escaping (UUID) -> Void
     ) {
         self.store = store
-        self.memory = memory
-        self.settings = settings
-        self.stats = stats
-        self.modelCatalog = modelCatalog
-        self.coordinator = coordinator
         self._selection = selection
         self.busyMyApps = busyMyApps
         self.onSelectionChange = onSelectionChange
@@ -78,11 +52,6 @@ public struct MyAppSidebarView: View, Equatable {
             a.selection == b.selection
                 && a.busyMyApps == b.busyMyApps
                 && a.store === b.store
-                && a.memory === b.memory
-                && a.settings === b.settings
-                && a.stats === b.stats
-                && a.modelCatalog === b.modelCatalog
-                && a.coordinator === b.coordinator
         }
     }
 
@@ -105,24 +74,10 @@ public struct MyAppSidebarView: View, Equatable {
             }
             .frame(maxHeight: .infinity)
             #endif
-
-            Divider()
-            bottomMenu
         }
         // Fires for selection changes from the list (shared binding).
         .onChange(of: selection) { _, new in
             if let new { onSelectionChange(new) }
-        }
-        // Guided tour drives the Settings sheet through its intent flag so the
-        // step's coach card and the sheet stay in sync.
-        .onChange(of: tour.wantSettingsOpen) { _, want in
-            settingsSheetPresented = want
-        }
-        // Covers launch with the flag already true (the sidebar mounts once,
-        // at app start), where `onChange` never fires. Reconcile on appear so
-        // the sheet still opens.
-        .onAppear {
-            if tour.wantSettingsOpen { settingsSheetPresented = true }
         }
         .sheet(isPresented: $newSheetPresented) {
             NewMyAppSheet(store: store) { newSheetPresented = false }
@@ -153,9 +108,6 @@ public struct MyAppSidebarView: View, Equatable {
                 renamingFolderId = nil
             }
         }
-        .sheet(isPresented: $settingsSheetPresented) {
-            settingsSheet
-        }
         .sheet(item: Binding(
             get: { editingMyAppId.flatMap { id in store.myApps.first(where: { $0.id == id }) } },
             set: { if $0 == nil { editingMyAppId = nil } }
@@ -176,104 +128,6 @@ public struct MyAppSidebarView: View, Equatable {
         // Base app chrome reads neutral grey, not system blue. MyApp rows keep
         // their per-app icon color (set explicitly in `myAppRow`).
         .tint(.appBase)
-    }
-
-    /// Footer actions: the global Orchestrator, the screen-share viewer, and
-    /// Settings. The Orchestrator moved here from a sidebar section — it's a
-    /// global agent, not one of "your projects".
-    private var bottomMenu: some View {
-        HStack(spacing: 8) {
-            Spacer()
-
-            Button {
-                selection = .orchestrator
-                onSelectionChange(.orchestrator)
-            } label: {
-                Label("Orchestrator", systemImage: "square.stack.3d.up.fill")
-                    .font(.system(size: 18))
-                    .frame(height: 30)
-            }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.borderless)
-            .accessibilityLabel("Open Orchestrator")
-            .tourAnchor(.sidebarOrchestrator)
-
-            Spacer()
-
-            Button {
-                selection = .screenShare
-                onSelectionChange(.screenShare)
-            } label: {
-                Label("Screen share", systemImage: "rectangle.on.rectangle")
-                    .font(.system(size: 18))
-                    .frame(height: 30)
-            }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.borderless)
-            .accessibilityLabel("Open Screen share")
-            .tourAnchor(.sidebarScreenShare)
-
-            Spacer()
-
-            Button {
-                PerfTrace.interaction("settingsOpen") {
-                    settingsSheetPresented = true
-                }
-            } label: {
-                Label("Settings", systemImage: "gearshape")
-                    .font(.system(size: 18))
-                    .frame(height: 30)
-            }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.borderless)
-            .accessibilityLabel("Open Settings")
-            .tourAnchor(.sidebarSettings)
-
-            Spacer()
-        }
-        .padding(.vertical, 4)
-        .padding(.horizontal, 8)
-    }
-
-    @ViewBuilder
-    private var settingsSheet: some View {
-        SettingsSheet(
-            settings: settings,
-            onRestoreExample: { example in
-                let id = store.restoreExample(example)
-                // Refresh the example's AGENTS.md files so the
-                // user-triggered restore writes any that are
-                // missing (idempotent — user edits stick).
-                example.seedAgentsMd(
-                    globalMemory: memory, appRoot: MemoryStore.appRoot(myAppId: id))
-                selection = .myAppHome(id)
-                onSelectionChange(.myAppHome(id))
-                settingsSheetPresented = false
-            },
-            onStartTour: {
-                // Dismiss the sheet, then restart the tour from the top.
-                // Uses the live active myApp + pairing state so route
-                // targets resolve and the chat copy adapts.
-                settingsSheetPresented = false
-                tour.start(
-                    activeMyAppId: store.activeMyAppId,
-                    isPaired: settings.isPaired(settings.activeBackend.id)
-                )
-            },
-            onClose: {
-                settingsSheetPresented = false
-            },
-            store: store,
-            memory: memory,
-            stats: stats,
-            modelCatalog: modelCatalog,
-            coordinator: coordinator,
-            onImported: { id in
-                selection = .myAppHome(id)
-                onSelectionChange(.myAppHome(id))
-                settingsSheetPresented = false
-            }
-        )
     }
 
     /// One rendered sidebar row: a loose MyApp, or a folder with its visible

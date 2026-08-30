@@ -4,11 +4,13 @@ import SwiftUI
 /// "tab bar". Always visible (mounted via `.safeAreaInset`) on a myApp's home /
 /// component / memories pages and on the orchestrator's home / memories pages.
 ///
-///   myApp:        Home · Memories · Agents · History · Pupa(chat) · ⋯(components)
-///   orchestrator: Home · Memories · Agents ·           Pupa(chat) · ⋯(jump to myapps)
+///   Home · Memories · Pupa(chat) · More
 ///
-/// (The orchestrator has no canvas change-log, so it omits History.) Icons are
-/// tinted in the subject's color; the pupa keeps its own look.
+/// The app's only bar: the sidebar has no footer, so More carries what used to
+/// be split between the two — Agents and History (the low-traffic per-subject
+/// pages) plus the global Screen share and Settings. The orchestrator has no
+/// canvas change-log, so its More omits History. Icons are tinted in the
+/// subject's color; the pupa keeps its own look.
 public struct MyAppBottomBar: View {
     /// Which page the bar should mark as active.
     public enum Page: Equatable {
@@ -16,13 +18,13 @@ public struct MyAppBottomBar: View {
         case component(String)
         /// The memory browse page or any memory file within it.
         case memories
-        /// The agents overview or any agent detail page.
+        /// The agents overview or any agent detail page. Reached from More, so
+        /// it lights More rather than a slot of its own.
         case agents
-        /// The change-history page.
+        /// The change-history page. Also reached from More.
         case history
     }
 
-    let store: MyAppStore
     let subject: MyAppHomeView.Subject
     let currentPage: Page
     let appColor: Color
@@ -33,9 +35,12 @@ public struct MyAppBottomBar: View {
     let chatOpen: Bool
     let onSelect: (SidebarSelection) -> Void
     /// Open the Change History sheet for a myApp. Only wired for `.myApp`; the
-    /// orchestrator hides the History button.
+    /// orchestrator hides the History item.
     let onShowHistory: (UUID) -> Void
     let onToggleChat: () -> Void
+    /// Present the Settings sheet. Owned by `AppView` — the bar is the only
+    /// surface that reaches Settings now that the sidebar footer is gone.
+    let onOpenSettings: () -> Void
 
     /// Row height for each bar button.
     static let rowHeight: CGFloat = 30
@@ -43,7 +48,6 @@ public struct MyAppBottomBar: View {
     static let verticalPadding: CGFloat = 4
 
     public init(
-        store: MyAppStore,
         subject: MyAppHomeView.Subject,
         currentPage: Page,
         appColor: Color,
@@ -51,9 +55,9 @@ public struct MyAppBottomBar: View {
         chatOpen: Bool,
         onSelect: @escaping (SidebarSelection) -> Void,
         onShowHistory: @escaping (UUID) -> Void,
-        onToggleChat: @escaping () -> Void
+        onToggleChat: @escaping () -> Void,
+        onOpenSettings: @escaping () -> Void
     ) {
-        self.store = store
         self.subject = subject
         self.currentPage = currentPage
         self.appColor = appColor
@@ -62,16 +66,12 @@ public struct MyAppBottomBar: View {
         self.onSelect = onSelect
         self.onShowHistory = onShowHistory
         self.onToggleChat = onToggleChat
+        self.onOpenSettings = onOpenSettings
     }
 
     private var myAppId: UUID? {
         if case .myApp(let id) = subject { return id }
         return nil
-    }
-
-    private var app: MyApp? {
-        guard let id = myAppId else { return nil }
-        return store.myApps.first { $0.id == id }
     }
 
     private var homeSelection: SidebarSelection {
@@ -96,18 +96,8 @@ public struct MyAppBottomBar: View {
                       highlight: .bottomBarMemories) {
                 onSelect(memoriesSelection)
             }
-            barButton(system: "person.2", active: currentPage == .agents, help: "Agents",
-                      highlight: .bottomBarAgents) {
-                onSelect(agentsSelection)
-            }
-            if let id = myAppId {
-                barButton(system: "clock", active: currentPage == .history, help: "History",
-                          highlight: .bottomBarHistory) {
-                    onShowHistory(id)
-                }
-            }
             pupaButton
-            ellipsisMenu
+            moreMenu
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, Self.verticalPadding)
@@ -181,41 +171,63 @@ public struct MyAppBottomBar: View {
         .tourAnchor(.bottomBarChat)
     }
 
-    /// `⋯` jump menu: a myApp lists its components; the orchestrator lists the
-    /// myapps it can drive.
-    private var ellipsisMenu: some View {
+    /// True while a page reached through More is showing, so the button reads
+    /// as the active slot the way a real tab would.
+    private var moreActive: Bool {
+        currentPage == .agents || currentPage == .history
+    }
+
+    /// `⋯` overflow: the per-subject pages that don't earn a slot (Agents, and
+    /// History for a myApp) above the app-wide ones (Orchestrator, Screen
+    /// share, Settings). Components are deliberately absent — Home already
+    /// grids them, one tap away, and this is the only `⋯` in the app now.
+    ///
+    /// The orchestrator's own bar omits the Orchestrator item, the same way it
+    /// omits History: you're already there.
+    private var moreMenu: some View {
         Menu {
-            if let app {
-                if app.components.isEmpty {
-                    Text("No components yet")
-                } else {
-                    ForEach(app.components) { component in
-                        Button {
-                            onSelect(.myAppComponent(app.id, component.id))
-                        } label: {
-                            Label(component.name, systemImage: component.iconSystemName)
-                        }
-                    }
+            Button {
+                onSelect(agentsSelection)
+            } label: {
+                Label("Agents", systemImage: "person.2")
+            }
+            if let id = myAppId {
+                Button {
+                    onShowHistory(id)
+                } label: {
+                    Label("History", systemImage: "clock")
                 }
-            } else {
-                if store.myApps.isEmpty {
-                    Text("No myapps yet")
-                } else {
-                    ForEach(store.myApps) { myApp in
-                        Button {
-                            onSelect(.myAppHome(myApp.id))
-                        } label: {
-                            Label(myApp.name, systemImage: myApp.iconSystemName)
-                        }
-                    }
+            }
+            Divider()
+            if myAppId != nil {
+                Button {
+                    onSelect(.orchestrator)
+                } label: {
+                    Label("Orchestrator", systemImage: "square.stack.3d.up.fill")
                 }
+            }
+            Button {
+                onSelect(.screenShare)
+            } label: {
+                Label("Screen share", systemImage: "rectangle.on.rectangle")
+            }
+            Button(action: onOpenSettings) {
+                Label("Settings", systemImage: "gearshape")
             }
         } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(appColor.opacity(0.7))
-                .frame(maxWidth: .infinity)
+                .font(.system(size: 18, weight: moreActive ? .semibold : .medium))
+                .foregroundStyle(moreActive ? appColor : appColor.opacity(0.7))
                 .frame(height: Self.rowHeight)
+                .padding(.horizontal, 14)
+                // Built only when active. A `.fill(.clear)` capsule is still a
+                // shape layer the bar re-rasterizes on every nav, and the bar
+                // re-lays out on every one — measured ~5ms of frame time on an
+                // app switch, which is most of this button's cost.
+                .background {
+                    if moreActive { Capsule().fill(appColor.opacity(0.16)) }
+                }
+                .frame(maxWidth: .infinity)
                 .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
@@ -224,7 +236,8 @@ public struct MyAppBottomBar: View {
         // borderless menu collapses to its label's intrinsic width otherwise,
         // shoving `⋯` against the trailing edge.
         .frame(maxWidth: .infinity)
-        .help(myAppId == nil ? "Myapps" : "Components")
-        .accessibilityLabel(myAppId == nil ? "Myapps" : "Components")
+        .help("More")
+        .accessibilityLabel("More")
+        .tourAnchor(.bottomBarMore)
     }
 }

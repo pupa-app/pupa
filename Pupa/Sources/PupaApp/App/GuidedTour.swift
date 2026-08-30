@@ -119,8 +119,8 @@ enum TourContent {
                 title: "Home",
                 body: "Each MyApp is a canvas of components, like trackers, calendars, "
                     + "checklists, that the agent reads and edits as you chat. The bar "
-                    + "below is how you move around one — let's walk it left to right, "
-                    + "starting here on Home.",
+                    + "below is the only one in the app — Home, Memories, Pupa, and More. "
+                    + "Let's walk it left to right, starting here on Home.",
                 placement: .bottom,
                 selection: .myAppHome(activeMyAppId),
                 highlight: .bottomBarHome
@@ -136,6 +136,20 @@ enum TourContent {
                 selection: .myAppMemories(activeMyAppId),
                 highlight: .bottomBarMemories
             ),
+            // The one step that rings More. Everything after it that lives in
+            // the menu either navigates there or deep-links Settings — a
+            // SwiftUI `Menu` can't be opened programmatically, so a second ring
+            // would just point at a closed menu.
+            TourStep(
+                id: "bar-more",
+                title: "More",
+                body: "Everything else is behind More: this app's agents and its change "
+                    + "history, the Orchestrator that spans every MyApp, screen share, and "
+                    + "Settings. Four buttons and this menu are the whole app.",
+                placement: .bottom,
+                selection: .myAppHome(activeMyAppId),
+                highlight: .bottomBarMore
+            ),
             TourStep(
                 id: "myapp-agents",
                 title: "Agents",
@@ -143,17 +157,15 @@ enum TourContent {
                     + "can call, open its AGENTS.md persona file, and review the components "
                     + "it manages.",
                 placement: .bottom,
-                selection: .myAppAgents(activeMyAppId),
-                highlight: .bottomBarAgents
+                selection: .myAppAgents(activeMyAppId)
             ),
             TourStep(
                 id: "myapp-history",
                 title: "History",
                 body: "Every change the agent makes to the canvas is logged here, so you "
-                    + "can see what happened and when. Tap the clock anytime to review it.",
+                    + "can see what happened and when.",
                 placement: .bottom,
-                selection: .myAppHistory(activeMyAppId),
-                highlight: .bottomBarHistory
+                selection: .myAppHistory(activeMyAppId)
             ),
             TourStep(
                 id: "chat",
@@ -181,20 +193,11 @@ enum TourContent {
                 highlight: .chatHeader
             ),
             TourStep(
-                id: "orchestrator-menu",
-                title: "The Orchestrator",
-                body: "Open the menu and you'll find the Orchestrator down here — a "
-                    + "meta-agent that spans every MyApp. Tap it to start a cross-app "
-                    + "conversation.",
-                placement: .top,
-                opensSidebar: true,
-                highlight: .sidebarOrchestrator
-            ),
-            TourStep(
                 id: "orchestrator",
                 title: "Orchestrator",
-                body: "Here it is. Ask it for cross-app work — even spinning up a whole new "
-                    + "MyApp. We've parked an example you can send.",
+                body: "A meta-agent that spans every MyApp. Ask it for cross-app work — "
+                    + "even spinning up a whole new MyApp. We've parked an example you can "
+                    + "send.",
                 placement: .top,
                 selection: .orchestrator,
                 opensChat: true,
@@ -213,22 +216,18 @@ enum TourContent {
             TourStep(
                 id: "screen-share",
                 title: "Screen share",
-                body: "Next to it, screen share lets the agent see what's on your screen "
-                    + "in your backend — handy when you want to see what the backend agent "
-                    + "is cooking.",
-                placement: .top,
-                opensSidebar: true,
-                highlight: .sidebarScreenShare
+                body: "Also under More: screen share lets the agent see what's on your "
+                    + "screen in your backend — handy when you want to see what the backend "
+                    + "agent is cooking.",
+                placement: .top
             ),
             TourStep(
                 id: "share-myapp",
                 title: "Share a MyApp",
-                body: "Inside Settings is Import & Export — send any MyApp as a bundle, or "
-                    + "import one a friend shared. Components, agent prompts, and memories "
-                    + "all travel with it.",
-                placement: .top,
-                opensSidebar: true,
-                highlight: .sidebarSettings
+                body: "Send any MyApp as a bundle, or import one a friend shared. "
+                    + "Components, agent prompts, and memories all travel with it.",
+                placement: .bottom,
+                settingsPage: .sharing
             ),
             TourStep(
                 id: "settings-account",

@@ -22,9 +22,9 @@ final class NotificationsFlowUITests: XCTestCase {
             "-PupaStorageRoot", "ephemeral",
             "-PupaSkipOnboarding", "1",
             // The drawer's open state is persisted (`pupa.ui.sidebarOpen`), and
-            // the Settings gear lives in its bottom bar — left closed by an
-            // earlier run, the gear sits off-screen.
-            "-pupa.ui.sidebarOpen", "YES",
+            // Settings now lives behind the bottom bar's More menu — left open
+            // by an earlier run, the drawer covers the bar.
+            "-pupa.ui.sidebarOpen", "NO",
         ]
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 90), "app never foregrounded")
@@ -32,9 +32,13 @@ final class NotificationsFlowUITests: XCTestCase {
         let x = app.buttons["Dismiss"]
         if x.waitForExistence(timeout: 8), x.isHittable { x.tap() }
 
-        let gear = app.buttons["Open Settings"]
-        XCTAssertTrue(gear.waitForExistence(timeout: 30), "no settings gear")
-        gear.tap()
+        let more = app.buttons["More"]
+        XCTAssertTrue(more.waitForExistence(timeout: 30), "no More button")
+        more.tap()
+
+        let settings = app.buttons["Settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 10), "no Settings item in More")
+        settings.tap()
 
         let row = app.buttons
             .matching(NSPredicate(format: "label BEGINSWITH 'Notifications'")).firstMatch

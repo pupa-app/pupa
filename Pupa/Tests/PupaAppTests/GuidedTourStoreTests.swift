@@ -184,18 +184,16 @@ struct GuidedTourStoreTests {
         #expect(orchestrator.chatPrefill == "Create a new myapp to organise my books")
     }
 
-    @Test("MyApp steps walk the bottom bar left to right, each ringing its tab")
+    @Test("MyApp steps walk the bottom bar left to right, each ringing its slot")
     func myAppStepsWalkBottomBar() {
         let id = UUID()
         let steps = TourContent.steps(activeMyAppId: id, isPaired: true)
-        // Ordered Home → Memories → Agents → History → Pupa(chat), each
-        // navigating to its page and highlighting the matching bottom-bar
-        // control. The Pupa step returns to the home canvas and opens the chat.
+        // Ordered Home → Memories → More → Pupa(chat), one step per bar slot.
+        // The Pupa step returns to the home canvas and opens the chat.
         let expected: [(String, SidebarSelection?, TourHighlight)] = [
             ("myapp-home", .myAppHome(id), .bottomBarHome),
             ("myapp-memories", .myAppMemories(id), .bottomBarMemories),
-            ("myapp-agents", .myAppAgents(id), .bottomBarAgents),
-            ("myapp-history", .myAppHistory(id), .bottomBarHistory),
+            ("bar-more", .myAppHome(id), .bottomBarMore),
             ("chat", .myAppHome(id), .bottomBarChat),
         ]
         // Indices are strictly increasing and contiguous in this order.
@@ -206,32 +204,58 @@ struct GuidedTourStoreTests {
             #expect(step.highlight == highlight)
             if let selection { #expect(step.selection == selection) }
         }
+        // Agents and History sit between More and chat. They navigate to their
+        // page and ring nothing — the page itself is what the step is about,
+        // and the control that reaches them is the already-ringed More.
+        for (stepId, selection) in [
+            ("myapp-agents", SidebarSelection.myAppAgents(id)),
+            ("myapp-history", SidebarSelection.myAppHistory(id)),
+        ] {
+            let step = steps.first { $0.id == stepId }!
+            #expect(step.selection == selection)
+            #expect(step.highlight == nil)
+        }
         // The chat step opens the overlay and parks its example prefill.
         let chat = steps.first { $0.id == "chat" }!
         #expect(chat.opensChat)
         #expect(chat.chatPrefill == "Can you prepare my daily briefing while I get my coffee?")
     }
 
-    @Test("Menu steps open the sidebar and ring the right footer action, in order")
-    func menuStepsRingSidebarFooter() {
+    /// The invariant that keeps the tour honest: a SwiftUI `Menu` can't be
+    /// opened programmatically, so a second ring on More would point the user
+    /// at a closed menu. Exactly one step may ring it.
+    @Test("Exactly one step rings More")
+    func onlyOneStepRingsMore() {
         let steps = TourContent.steps(activeMyAppId: UUID(), isPaired: true)
-        // The Orchestrator is introduced from its menu button, then opened; then
-        // screen share, then Import & Export — each ringing its sidebar icon.
-        let expected: [(String, TourHighlight)] = [
-            ("orchestrator-menu", .sidebarOrchestrator),
-            ("screen-share", .sidebarScreenShare),
-            ("share-myapp", .sidebarSettings),
-        ]
-        for (stepId, highlight) in expected {
-            let step = steps.first { $0.id == stepId }!
-            #expect(step.opensSidebar)
-            #expect(step.highlight == highlight)
-            #expect(step.selection == nil)
+        #expect(steps.filter { $0.highlight == .bottomBarMore }.count == 1)
+        #expect(steps.first { $0.highlight == .bottomBarMore }?.id == "bar-more")
+    }
+
+    @Test("Global steps land somewhere instead of ringing the closed menu")
+    func globalStepsLandSomewhere() {
+        let steps = TourContent.steps(activeMyAppId: UUID(), isPaired: true)
+        // The Orchestrator opens for real; Import & Export deep-links into
+        // Settings. Screen share is the one that only describes itself — an
+        // unpaired screen-share panel is empty and hides the bar, so sending
+        // the user there would be worse than telling them where it is.
+        let orchestrator = steps.first { $0.id == "orchestrator" }!
+        #expect(orchestrator.selection == .orchestrator)
+        #expect(orchestrator.opensChat)
+
+        let share = steps.first { $0.id == "share-myapp" }!
+        #expect(share.settingsPage == .sharing)
+
+        let screenShare = steps.first { $0.id == "screen-share" }!
+        #expect(screenShare.selection == nil)
+        #expect(screenShare.highlight == nil)
+
+        // None of the three needs the drawer any more.
+        for stepId in ["orchestrator", "screen-share", "share-myapp"] {
+            #expect(!steps.first { $0.id == stepId }!.opensSidebar)
         }
-        // The menu intro for the Orchestrator comes right before opening it.
-        let menuIndex = steps.firstIndex { $0.id == "orchestrator-menu" }!
-        let openIndex = steps.firstIndex { $0.id == "orchestrator" }!
-        #expect(menuIndex < openIndex)
+        // The step that introduced the Orchestrator from the sidebar footer is
+        // gone — `bar-more` names it instead.
+        #expect(!steps.contains { $0.id == "orchestrator-menu" })
     }
 
     @Test("The final step lands on Settings · Examples and rings the list")
