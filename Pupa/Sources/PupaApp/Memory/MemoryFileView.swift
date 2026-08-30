@@ -8,8 +8,16 @@ import MarkdownUI
 /// note without going through the agent.
 ///
 /// **Concurrent edit safety.** If the agent rewrites the same file while the
-/// user is mid-edit, the user's `editBuffer` is preserved — their next Save
+/// user is mid-edit, the user's `editBuffer` is preserved and their next commit
 /// wins. Outside edit mode, agent-driven rescans refresh the preview.
+///
+/// Presented as a sheet (`autosavesOnDismiss`), *dismissal* is a commit — so
+/// "their next commit" includes a swipe, not only the Save button. The
+/// consequence is real: an agent write that lands while the user holds an edit
+/// is overwritten when the user swipes away, because `loadedContent` is
+/// deliberately frozen during an edit session and the buffer is written whole.
+/// That is the accepted cost of not losing the user's typing; the alternative
+/// (discard on swipe) loses it every time.
 public struct MemoryFileView: View {
     @Bindable var store: MemoryStore
     /// Global-root-relative (`<appId>/notes/a.md`, `orchestrator/journal.md`) —
@@ -28,6 +36,9 @@ public struct MemoryFileView: View {
     /// Called when an autosave on dismissal failed, with the message and the
     /// buffer that didn't make it, so the host can put both back on screen.
     var onAutosaveFailed: (String, String) -> Void = { _, _ in }
+    /// Dismiss the sheet. Present as a sheet and this must be non-nil: the drag
+    /// indicator is iOS-only, so on macOS it is the *only* way out.
+    var onClose: (() -> Void)?
 
     /// False inside an imported app until the user opts in. See
     /// `MyApp.allowsRemoteImages`.
@@ -49,6 +60,7 @@ public struct MemoryFileView: View {
         autosavesOnDismiss: Bool = false,
         restoredBuffer: String? = nil,
         onAutosaveFailed: @escaping (String, String) -> Void = { _, _ in },
+        onClose: (() -> Void)? = nil,
         onDeleted: @escaping () -> Void
     ) {
         self.store = store
@@ -57,6 +69,7 @@ public struct MemoryFileView: View {
         self.autosavesOnDismiss = autosavesOnDismiss
         self.restoredBuffer = restoredBuffer
         self.onAutosaveFailed = onAutosaveFailed
+        self.onClose = onClose
         self.onDeleted = onDeleted
     }
 
@@ -174,6 +187,17 @@ public struct MemoryFileView: View {
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
+            if let onClose {
+                Button(action: onClose) {
+                    Label("Close", systemImage: "xmark.circle.fill")
+                        .labelStyle(.iconOnly)
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close")
+                .keyboardShortcut(.cancelAction)
+            }
             VStack(alignment: .leading, spacing: 4) {
                 Text(displayPath)
                     .font(.title3.weight(.semibold))

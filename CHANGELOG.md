@@ -11,8 +11,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   to push over the canvas and evict it. A memory file is reference material you
   read *while* talking to the agent — the same argument that makes chat an
   overlay — so it now covers the canvas and a swipe puts it back. Files opened
-  from a link the agent wrote in chat behave the same way, which is the case
-  where keeping the canvas visible matters most.
+  from a link the agent wrote in chat behave the same way, as does an agent's
+  **Prompt** row under Agents — which is how most people reach `AGENTS.md`.
 - **Dismissing a memory file saves it.** Swipe-down commits the edit rather
   than dropping it: these files are the agent's long-term context, so silently
   losing an edit is worse than silently keeping one. A file that was only read

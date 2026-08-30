@@ -73,26 +73,96 @@ final class MemoryFileSheetUITests: XCTestCase {
     }
 
     /// Reading a file and dismissing it must not rewrite it — no edit session,
-    /// no write. Proven through the change log, which would show an entry.
+    /// no write.
+    ///
+    /// Asserted on the file's rendered content, which is the only thing that
+    /// would change if a stale buffer were written back. An earlier version of
+    /// this test checked that "• Unsaved changes" was absent, which is vacuous:
+    /// that label needs `isEditing`, and a freshly opened file never has it, so
+    /// the assertion passed no matter what dismissal did.
     @MainActor
     func testDismissingWithoutEditingLeavesTheFileAlone() throws {
         let app = launched(storage: "ephemeral:memsheet-readonly", reset: true)
         openAgentsFile(app)
-        XCTAssertTrue(
-            app.staticTexts["pupa/AGENTS.md"].waitForExistence(timeout: 20),
-            "the memory file never opened"
-        )
+        let heading = app.staticTexts["Example: Daily Briefing"]
+        XCTAssertTrue(heading.waitForExistence(timeout: 20), "the memory file never opened")
+
+        // Open the editor and close it again without touching a key, so a
+        // dismissal that wrote unconditionally would have something to write.
+        app.buttons["Edit"].tap()
+        XCTAssertTrue(app.textViews.firstMatch.waitForExistence(timeout: 10), "no editor")
+        app.buttons["Cancel"].tap()
+
         // Straight back out, having only read it.
         swipeSheetAway(app)
-        // Reopening shows the file unchanged — no marker, and still readable.
+
+        // The rendered content is byte-identical, and no marker from any other
+        // case in this suite leaked in.
         openAgentsFile(app)
+        XCTAssertTrue(heading.waitForExistence(timeout: 20), "the memory file never reopened")
+        XCTAssertFalse(
+            app.descendants(matching: .any)
+                .matching(NSPredicate(format: "label CONTAINS %@", Self.marker)).firstMatch.exists,
+            "a file that was only read came back modified"
+        )
+    }
+
+    /// An agent's **Prompt** row is a memory file too, and it is the route most
+    /// people reach `AGENTS.md` by. It was left pushing when the tree was
+    /// converted, so the same file saved on dismiss from Memories and discarded
+    /// from Agents. Regression test for that.
+    @MainActor
+    func testAgentPromptLinkOpensTheFileAsASheetToo() throws {
+        let app = launched(storage: "ephemeral:memsheet-agentlink", reset: true)
+
+        let more = app.buttons["More"]
+        XCTAssertTrue(more.waitForExistence(timeout: 30), "no More button")
+        more.tap()
+        let agents = app.buttons["Agents"]
+        XCTAssertTrue(agents.waitForExistence(timeout: 10), "no Agents item in More")
+        agents.tap()
+
+        // The myApp's main agent, then its Prompt row.
+        let agentRow = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "Main agent")).firstMatch
+        XCTAssertTrue(agentRow.waitForExistence(timeout: 20), "no agent row")
+        agentRow.tap()
+
+        let prompt = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "AGENTS.md")).firstMatch
+        XCTAssertTrue(prompt.waitForExistence(timeout: 20), "no Prompt link")
+        prompt.tap()
+
         XCTAssertTrue(
             app.staticTexts["pupa/AGENTS.md"].waitForExistence(timeout: 20),
-            "the memory file never reopened"
+            "the Prompt link never opened the file"
         )
-        XCTAssertFalse(
-            app.staticTexts["• Unsaved changes"].exists,
-            "a file that was only read came back dirty"
+        // A sheet, not a push: the agent page it came from is still mounted, so
+        // the very button that opened the file is still in the hierarchy. A
+        // push would have unmounted it.
+        XCTAssertTrue(
+            prompt.exists,
+            "the agent page was replaced rather than covered — the Prompt link still pushes"
+        )
+        // And it autosaves like every other route to this file.
+        app.buttons["Edit"].tap()
+        let editor = app.textViews.firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 10), "no editor")
+        editor.tap()
+        editor.typeText(String(XCUIKeyboardKey.home.rawValue))
+        editor.typeText(Self.marker)
+        swipeSheetAway(app)
+
+        prompt.tap()
+        XCTAssertTrue(
+            app.staticTexts["pupa/AGENTS.md"].waitForExistence(timeout: 20),
+            "the file never reopened"
+        )
+        let saved = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@", Self.marker)).firstMatch
+        XCTAssertTrue(
+            saved.waitForExistence(timeout: 15),
+            "the Prompt route discarded the edit — it is not autosaving like the tree route"
         )
     }
 

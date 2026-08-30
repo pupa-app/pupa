@@ -107,8 +107,11 @@ public struct NewMemoryNoteSheet: View {
         }
         do {
             try memory.writeFile(path: fullPath, content: content)
-            onCreated(fullPath)
+            // Close before handing the path on: `onCreated` now *presents* the
+            // new note as a sheet, and presenting while this one is still up is
+            // dropped by the host.
             onClose()
+            onCreated(fullPath)
         } catch {
             self.error = error.localizedDescription
         }

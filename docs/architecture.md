@@ -293,8 +293,11 @@ folders drill in, files open as a **sheet** over the current page rather than
 pushing — `AppView.presentOrPush` turns a `.myAppMemoryFile` / `.memoryFile`
 selection into a `MemoryFileRoute` and presents it, and every other selection
 still pushes. A memory file is reference material read *while* talking to the
-agent, so it overlays the canvas the way chat does; a link the agent writes in
-chat routes through the same path. Dismissing the sheet — swipe included —
+agent, so it overlays the canvas the way chat does. Every route to a memory
+file goes through `presentOrPush` — the tree, a link the agent writes in chat,
+and an agent's **Prompt** row — so one file cannot have two different save
+semantics depending on how it was opened. The sheet carries an explicit Close
+(`⌘.`/Escape) because the drag indicator is iOS-only. Dismissing the sheet — swipe included —
 commits the edit (`MemoryFileDismiss.shouldSave`): a file that was only read is
 never rewritten, a locked file never written, and a failed write re-presents the
 sheet holding the rescued buffer. Direct editing

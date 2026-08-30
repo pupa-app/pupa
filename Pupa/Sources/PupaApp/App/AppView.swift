@@ -198,6 +198,10 @@ public struct AppView: View {
                     // the recording cannot be dropped independently.
                     nav.setRoot(sel)
                     detailPath = []
+                    // A root change takes the memory sheet with it. Otherwise a
+                    // notification tap leaves MyApp A's note floating over
+                    // MyApp B's canvas, with the chat scope already on B.
+                    memoryFileSheet = nil
                 }
             }
             #if os(macOS)
@@ -1254,10 +1258,11 @@ public struct AppView: View {
                 modelCatalog: modelCatalog,
                 myAppId: id,
                 agentId: agentId,
-                onNavigate: { dest in
-                    dispatchSelection(dest)
-                    detailPath.append(dest)
-                }
+                // An agent's Prompt row is a memory file (`AGENTS.md`), so this
+                // has to take the same fork the tree does — otherwise the same
+                // file saves on dismiss from one route and discards from the
+                // other.
+                onNavigate: presentOrPush
             )
         case .myAppMemories(let id):
             MyAppMemoriesView(
@@ -1275,22 +1280,12 @@ public struct AppView: View {
                 subject: .orchestrator,
                 onNavigate: presentOrPush
             )
-        case .myAppMemoryFile(let id, let path):
-            MemoryFileView(store: memory, path: path, readOnly: store.isMemoryLocked(myAppId: id)) {
-                if !detailPath.isEmpty {
-                    detailPath.removeLast()
-                } else {
-                    setRoot(.myApp(id))
-                }
-            }
-        case .memoryFile(let path):
-            MemoryFileView(store: memory, path: path) {
-                if !detailPath.isEmpty {
-                    detailPath.removeLast()
-                } else {
-                    setRoot(.myApp(store.activeMyAppId))
-                }
-            }
+        // Memory files never push — `presentOrPush` forks them into
+        // `memoryFileSheet` before they can reach a navigation destination. An
+        // arm here would be a second way to open the same file, with different
+        // save semantics, which is the bug this replaced.
+        case .myAppMemoryFile, .memoryFile:
+            EmptyView()
         case .orchestrator:
             MyAppHomeView(
                 store: store,
@@ -1311,10 +1306,9 @@ public struct AppView: View {
                 modelCatalog: modelCatalog,
                 myAppId: nil,
                 agentId: AgentRegistry.orchestratorAgentId,
-                onNavigate: { dest in
-                    dispatchSelection(dest)
-                    detailPath.append(dest)
-                }
+                // Same fork as the myApp arm above — the Prompt row is a
+                // memory file.
+                onNavigate: presentOrPush
             )
         case .screenShare:
             ScreenShareView(viewModel: screenShare)
@@ -1557,7 +1551,13 @@ public struct AppView: View {
             store: memory,
             path: route.path,
             readOnly: route.myAppId.map { store.isMemoryLocked(myAppId: $0) } ?? false,
-            autosavesOnDismiss: true,
+            // A re-presented sheet does NOT autosave again. Otherwise a write
+            // that keeps failing (full disk, iCloud coordination) cycles
+            // forever — dismiss, fail, re-present — and the only way out is
+            // Discard, which is the very outcome the retry exists to prevent.
+            // The rescued text is on screen with the error; Save retries it
+            // explicitly.
+            autosavesOnDismiss: route.restoredBuffer == nil,
             restoredBuffer: route.restoredBuffer,
             onAutosaveFailed: { message, buffer in
                 // Re-present on the next runloop turn: re-entering `.sheet`
@@ -1569,6 +1569,7 @@ public struct AppView: View {
                     memoryFileSheet = retry
                 }
             },
+            onClose: { memoryFileSheet = nil },
             onDeleted: { memoryFileSheet = nil }
         )
         .presentationDetents([.large])

@@ -140,7 +140,11 @@ public struct MyAppMemoriesView: View {
             NewMemoryNoteSheet(memory: memory, parent: parent) {
                 activeSheet = nil
             } onCreated: { path in
-                onNavigate(fileSelection(path))
+                // A runloop turn after the composer's own dismissal, so the
+                // host isn't already presenting when the note's sheet goes up.
+                // Without the hop the presentation is dropped *and* the route
+                // id sticks, which made the note unopenable until relaunch.
+                DispatchQueue.main.async { onNavigate(fileSelection(path)) }
             }
         case .newFolder(let parent):
             NewMemoryFolderSheet(memory: memory, parent: parent) {
