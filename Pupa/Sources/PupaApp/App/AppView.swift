@@ -43,6 +43,10 @@ public struct AppView: View {
     /// the `(ruleId, itemId)` in-flight lock (else it lingers to the timeout).
     @State private var reactionLocks: [String: (ruleId: String, itemId: UUID)] = [:]
     @State private var screenShare: ScreenShareViewModel
+    /// The memory file shown as a sheet over the current page. Memory files are
+    /// reference material read *while* talking to the agent, so they overlay the
+    /// canvas the way chat does instead of replacing it.
+    @State private var memoryFileSheet: MemoryFileRoute?
     /// Settings sheet presentation. Owned here, not by the sidebar: Settings
     /// is reached from the bottom bar's More menu now that the sidebar footer
     /// is gone, and the bar is mounted by `AppView`.
@@ -191,6 +195,10 @@ public struct AppView: View {
                     // the recording cannot be dropped independently.
                     nav.setRoot(sel)
                     detailPath = []
+                    // A root change takes the memory sheet with it. Otherwise a
+                    // notification tap leaves MyApp A's note floating over
+                    // MyApp B's canvas, with the chat scope already on B.
+                    memoryFileSheet = nil
                 }
             }
             #if os(macOS)
@@ -290,6 +298,7 @@ public struct AppView: View {
     public var body: some View {
         platformBody
             .sheet(isPresented: $settingsSheetPresented) { settingsSheet }
+            .sheet(item: $memoryFileSheet) { memoryFileSheetView($0) }
             // Guided tour drives the Settings sheet through its intent flag so
             // the step's coach card and the sheet stay in sync.
             .onChange(of: tour.wantSettingsOpen) { _, want in
@@ -1009,7 +1018,8 @@ public struct AppView: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
             }
-            // Route `pupa://` links inside pushed memory notes in-app too.
+            // Route `pupa://` links inside the detail stack in-app too. (Memory
+            // notes carry their own copy — they present as a sheet, outside this.)
             .environment(\.openURL, chatLinkAction)
             ChatOverlay(
                 scope: chatScope,
@@ -1165,8 +1175,9 @@ public struct AppView: View {
     /// `CanvasView` as a direct sidebar tap on that component.
     /// Applies the per-app remote-image gate to every detail route. Done here
     /// because the routes showing imported content are siblings, not a tree —
-    /// `CanvasView` and `MemoryFileView` are separate cases below, so injecting
-    /// in one left the other reading the default.
+    /// `CanvasView` and the memory sheet are separate surfaces, so injecting in
+    /// one left the other reading the default. The sheet carries its own copy
+    /// (`memoryFileSheetView`) — it is presented above this.
     private func detailView(for sel: SidebarSelection) -> some View {
         detailContent(for: sel)
             .environment(\.remoteImagesAllowed, remoteImagesAllowed(for: sel.myAppId))
@@ -1236,20 +1247,18 @@ public struct AppView: View {
                 modelCatalog: modelCatalog,
                 myAppId: id,
                 agentId: agentId,
-                onNavigate: { dest in
-                    dispatchSelection(dest)
-                    detailPath.append(dest)
-                }
+                // An agent's Prompt row is a memory file (`AGENTS.md`), so this
+                // has to take the same fork the tree does — otherwise the same
+                // file saves on dismiss from one route and discards from the
+                // other.
+                onNavigate: presentOrPush
             )
         case .myAppMemories(let id):
             MyAppMemoriesView(
                 store: store,
                 memory: memory,
                 subject: .myApp(id),
-                onNavigate: { dest in
-                    dispatchSelection(dest)
-                    detailPath.append(dest)
-                }
+                onNavigate: presentOrPush
             )
         case .myAppHistory(let id):
             ChangeHistoryView(store: store, myAppId: id)
@@ -1258,27 +1267,14 @@ public struct AppView: View {
                 store: store,
                 memory: memory,
                 subject: .orchestrator,
-                onNavigate: { dest in
-                    dispatchSelection(dest)
-                    detailPath.append(dest)
-                }
+                onNavigate: presentOrPush
             )
-        case .myAppMemoryFile(let id, let path):
-            MemoryFileView(store: memory, path: path, readOnly: store.isMemoryLocked(myAppId: id)) {
-                if !detailPath.isEmpty {
-                    detailPath.removeLast()
-                } else {
-                    setRoot(.myApp(id))
-                }
-            }
-        case .memoryFile(let path):
-            MemoryFileView(store: memory, path: path) {
-                if !detailPath.isEmpty {
-                    detailPath.removeLast()
-                } else {
-                    setRoot(.myApp(store.activeMyAppId))
-                }
-            }
+        // Memory files never push — `presentOrPush` forks them into
+        // `memoryFileSheet` before they can reach a navigation destination. An
+        // arm here would be a second way to open the same file, with different
+        // save semantics, which is the bug this replaced.
+        case .myAppMemoryFile, .memoryFile:
+            EmptyView()
         case .orchestrator:
             MyAppHomeView(
                 store: store,
@@ -1299,10 +1295,9 @@ public struct AppView: View {
                 modelCatalog: modelCatalog,
                 myAppId: nil,
                 agentId: AgentRegistry.orchestratorAgentId,
-                onNavigate: { dest in
-                    dispatchSelection(dest)
-                    detailPath.append(dest)
-                }
+                // Same fork as the myApp arm above — the Prompt row is a
+                // memory file.
+                onNavigate: presentOrPush
             )
         case .screenShare:
             ScreenShareView(viewModel: screenShare)
@@ -1521,8 +1516,78 @@ public struct AppView: View {
     /// target onto the detail stack — so Back returns to where the user was
     /// — and routes the chat scope to match (via `dispatchSelection`).
     private func openFromChat(_ sel: SidebarSelection) {
-        detailPath.append(sel)
+        presentOrPush(sel)
+    }
+
+    /// Memory files are presented as a sheet; everything else pushes. Both
+    /// route the chat scope first, so opening a note still binds the chat the
+    /// same way it did when notes pushed. (Only the orchestrator arm of
+    /// `dispatchSelection` sets `memoryFocusedPath`; that asymmetry predates
+    /// this fork and is unchanged by it.)
+    private func presentOrPush(_ sel: SidebarSelection) {
         dispatchSelection(sel)
+        guard let route = MemoryFileRoute(sel) else {
+            // A push while a note is open would land *behind* the sheet: the
+            // user sees nothing happen, and only meets the new page when they
+            // dismiss. Notes contain `pupa://component/…` links, so this is
+            // reachable by tapping one.
+            memoryFileSheet = nil
+            detailPath.append(sel)
+            return
+        }
+        guard let open = memoryFileSheet, open.id != route.id else {
+            memoryFileSheet = route
+            return
+        }
+        // Note-to-note: reassigning `.sheet(item:)` in place is the dropped
+        // presentation that leaves the id stuck and the file unopenable.
+        // Dismiss, then present on the next turn.
+        memoryFileSheet = nil
+        DispatchQueue.main.async { memoryFileSheet = route }
+    }
+
+    /// The memory-file sheet. Dismissing it — swipe included — commits the
+    /// edit; if that write fails the sheet comes back holding the text, rather
+    /// than dropping it on the floor.
+    @ViewBuilder
+    private func memoryFileSheetView(_ route: MemoryFileRoute) -> some View {
+        MemoryFileView(
+            store: memory,
+            path: route.path,
+            readOnly: route.myAppId.map { store.isMemoryLocked(myAppId: $0) } ?? false,
+            // A re-presented sheet does NOT autosave again. Otherwise a write
+            // that keeps failing (full disk, iCloud coordination) cycles
+            // forever — dismiss, fail, re-present — and the only way out is
+            // Discard, which is the very outcome the retry exists to prevent.
+            // The rescued text is on screen with the error; Save retries it
+            // explicitly.
+            autosavesOnDismiss: route.restoredBuffer == nil,
+            restoredBuffer: route.restoredBuffer,
+            initialError: route.autosaveError,
+            onAutosaveFailed: { message, buffer in
+                // Re-present on the next runloop turn: re-entering `.sheet`
+                // from inside the dismissal that is still unwinding is ignored.
+                let retry = MemoryFileRoute(
+                    myAppId: route.myAppId, path: route.path,
+                    restoredBuffer: buffer, autosaveError: message)
+                DispatchQueue.main.async { memoryFileSheet = retry }
+            },
+            onClose: { memoryFileSheet = nil },
+            onDeleted: { memoryFileSheet = nil }
+        )
+        // Everything the push route carried, the sheet has to carry too. It is
+        // presented from `platformBody`, above every one of these injections,
+        // so it inherits nothing — an imported app's note would render with the
+        // *default* gate (`true`) and beacon on open. This is the trap
+        // `detailView(for:)` above already documents; the sheet is a third
+        // sibling and needs the same treatment.
+        .environment(\.remoteImagesAllowed, remoteImagesAllowed(for: route.myAppId))
+        .environment(\.enableRemoteImages, enableRemoteImages(for: route.myAppId))
+        // `pupa://` links inside a note route in-app, not to the system browser
+        // (which has no handler for the scheme, so the tap would do nothing).
+        .environment(\.openURL, chatLinkAction)
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
     }
 
     /// `OpenURLAction` that routes in-app `pupa://` links (chat + notes) to a

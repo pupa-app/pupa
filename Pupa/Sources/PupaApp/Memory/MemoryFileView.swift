@@ -8,8 +8,16 @@ import MarkdownUI
 /// note without going through the agent.
 ///
 /// **Concurrent edit safety.** If the agent rewrites the same file while the
-/// user is mid-edit, the user's `editBuffer` is preserved — their next Save
+/// user is mid-edit, the user's `editBuffer` is preserved and their next commit
 /// wins. Outside edit mode, agent-driven rescans refresh the preview.
+///
+/// Presented as a sheet (`autosavesOnDismiss`), *dismissal* is a commit — so
+/// "their next commit" includes a swipe, not only the Save button. The
+/// consequence is real: an agent write that lands while the user holds an edit
+/// is overwritten when the user swipes away, because `loadedContent` is
+/// deliberately frozen during an edit session and the buffer is written whole.
+/// That is the accepted cost of not losing the user's typing; the alternative
+/// (discard on swipe) loses it every time.
 public struct MemoryFileView: View {
     @Bindable var store: MemoryStore
     /// Global-root-relative (`<appId>/notes/a.md`, `orchestrator/journal.md`) —
@@ -19,6 +27,21 @@ public struct MemoryFileView: View {
     /// When true (the file's app has locked memories), Edit / Delete are hidden
     /// and the note is preview-only.
     var readOnly: Bool = false
+    /// Presented as a sheet: a dismissal (swipe included) commits the edit
+    /// instead of dropping it. See `MemoryFileDismiss`.
+    var autosavesOnDismiss: Bool = false
+    /// Editor text to restore instead of loading from disk — set when a failed
+    /// autosave re-presents this file, so the user's work survives.
+    var restoredBuffer: String?
+    /// Called when an autosave on dismissal failed, with the message and the
+    /// buffer that didn't make it, so the host can put both back on screen.
+    var onAutosaveFailed: (String, String) -> Void = { _, _ in }
+    /// Dismiss the sheet. Present as a sheet and this must be non-nil: the drag
+    /// indicator is iOS-only, so on macOS it is the *only* way out.
+    var onClose: (() -> Void)?
+    /// Error to show on open — the message from an autosave that failed, shown
+    /// here rather than as an alert racing this sheet for presentation.
+    var initialError: String?
 
     /// False inside an imported app until the user opts in. See
     /// `MyApp.allowsRemoteImages`.
@@ -37,11 +60,21 @@ public struct MemoryFileView: View {
         store: MemoryStore,
         path: String,
         readOnly: Bool = false,
+        autosavesOnDismiss: Bool = false,
+        restoredBuffer: String? = nil,
+        initialError: String? = nil,
+        onAutosaveFailed: @escaping (String, String) -> Void = { _, _ in },
+        onClose: (() -> Void)? = nil,
         onDeleted: @escaping () -> Void
     ) {
         self.store = store
         self.path = path
         self.readOnly = readOnly
+        self.autosavesOnDismiss = autosavesOnDismiss
+        self.restoredBuffer = restoredBuffer
+        self.onAutosaveFailed = onAutosaveFailed
+        self.onClose = onClose
+        self.initialError = initialError
         self.onDeleted = onDeleted
     }
 
@@ -50,11 +83,22 @@ public struct MemoryFileView: View {
             VStack(alignment: .leading, spacing: 16) {
                 header
                 Divider()
+                // A banner, not a replacement: a *save* failure has to leave the
+                // editor holding the user's text on screen, or the recovery
+                // hides the very thing it is recovering. A *load* failure has
+                // no content to show, so the branches below sit it out.
                 if let error {
                     Text(error)
                         .font(.callout)
                         .foregroundStyle(.red)
-                } else if isEditing {
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(Color.red.opacity(0.08))
+                        )
+                }
+                if isEditing {
                     TextEditor(text: $editBuffer)
                         .font(.body.monospaced())
                         .frame(minHeight: 420, idealHeight: 640)
@@ -62,6 +106,8 @@ public struct MemoryFileView: View {
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
                                 .strokeBorder(Color.secondary.opacity(0.25), lineWidth: 1)
                         )
+                } else if error != nil {
+                    EmptyView()
                 } else if MemoryFilenameHelper.rendersAsMarkdown(path) {
                     Markdown(loadedContent)
                         .markdownTheme(.gitHub)
@@ -82,6 +128,29 @@ public struct MemoryFileView: View {
         .task(id: path) {
             isEditing = false
             reload()
+            // A failed autosave re-presents this file; drop the user back into
+            // the editor holding the text that didn't make it to disk.
+            if let restoredBuffer {
+                editBuffer = restoredBuffer
+                isEditing = true
+                // `reload()` cleared it; the failure is what the user needs to
+                // read, and it must not hide the editor holding their text.
+                error = initialError
+            }
+        }
+        .onDisappear {
+            guard autosavesOnDismiss else { return }
+            guard MemoryFileDismiss.shouldSave(
+                readOnly: readOnly,
+                isEditing: isEditing,
+                buffer: editBuffer,
+                loaded: loadedContent
+            ) else { return }
+            do {
+                try store.writeFile(path: path, content: editBuffer)
+            } catch {
+                onAutosaveFailed(error.localizedDescription, editBuffer)
+            }
         }
         .onChange(of: store.tree.id) { _, _ in
             // Agent-driven rescans refresh the preview, but only when the user
@@ -139,6 +208,17 @@ public struct MemoryFileView: View {
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
+            if let onClose {
+                Button(action: onClose) {
+                    Label("Close", systemImage: "xmark.circle.fill")
+                        .labelStyle(.iconOnly)
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close")
+                .keyboardShortcut(.cancelAction)
+            }
             VStack(alignment: .leading, spacing: 4) {
                 Text(displayPath)
                     .font(.title3.weight(.semibold))

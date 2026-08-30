@@ -94,7 +94,8 @@ public enum AgentPropertyValue: Sendable, Hashable {
     case text(String)
     case badge(primary: String, secondary: String?)
     case list([String])
-    /// Tappable row that pushes `destination` onto the detail-pane stack.
+    /// Tappable row that opens `destination`. Every one of these is a memory
+    /// file, so it presents as a sheet rather than pushing.
     /// Used for AGENTS.md prompt links (`.myAppMemoryFile`).
     case link(label: String, destination: SidebarSelection)
     /// Long, multi-section content (e.g. the agent's full tool surface

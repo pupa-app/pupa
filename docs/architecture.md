@@ -289,7 +289,19 @@ mounted via `.safeAreaInset(edge: .bottom)` so the page content insets above it
 instead of hiding under a floating overlay. It's keyed by `MyAppHomeView.Subject`
 (`.myApp(id)` / `.orchestrator`). Left to right: **Home** (`house`),
 **Memories** (`brain`, opens `MyAppMemoriesView` — a browse page of the subject's note tree;
-folders drill in, files push `.myAppMemoryFile` / `.memoryFile`. Direct editing
+folders drill in, files open as a **sheet** over the current page rather than
+pushing — `AppView.presentOrPush` turns a `.myAppMemoryFile` / `.memoryFile`
+selection into a `MemoryFileRoute` and presents it, and every other selection
+still pushes. A memory file is reference material read *while* talking to the
+agent, so it overlays the canvas the way chat does. Every route to a memory
+file goes through `presentOrPush` — the tree, a link the agent writes in chat,
+and an agent's **Prompt** row — so one file cannot have two different save
+semantics depending on how it was opened. The sheet carries an explicit Close
+(Escape) because the drag indicator is iOS-only. Dismissing the sheet — swipe included —
+commits the edit (`MemoryFileDismiss.shouldSave`): a file that was only read is
+never rewritten, a locked file never written, and a failed write re-presents the
+sheet holding the rescued buffer with autosave disarmed — so Save retries it and
+a persistently failing write cannot cycle. Direct editing
 without the agent: the header `+` menu adds a Note / Folder at the scope root; a
 folder row's long-press menu adds inside it; any row can be renamed / moved or
 deleted. Rows funnel these through `MemoryRowActions` into the shared
@@ -363,9 +375,13 @@ converge+reload at launch for the same reason.
 **In-app links (`pupa://`).** The agent can embed tappable navigation links in
 chat markdown (and note bodies); `Chat/ChatLink.swift` maps a `pupa://` URL to a
 `SidebarSelection` and `AppView.chatLinkAction` (an `OpenURLAction` installed on
-the detail `NavigationStack`, `ChatOverlay`, and `CanvasView` — the last so
-`pupa://memory/…` values in tracker `.link` fields route in-app) pushes it onto
-`detailPath` — real `http(s)` URLs fall through to the browser. The agent writes
+the detail `NavigationStack`, `ChatOverlay`, `CanvasView` — the last so
+`pupa://memory/…` values in tracker `.link` fields route in-app — and the memory
+sheet, which sits outside the stack and so needs its own copy) routes it through
+`presentOrPush`: a memory file becomes a sheet, anything else pushes onto
+`detailPath`. Real `http(s)` URLs fall through to the browser. A push made from
+inside an open note dismisses it first, so the new page is never left waiting
+behind the sheet. The agent writes
 **scope-relative** paths — `pupa://memory/<path>` is the same note path it
 reads/writes, bound to the current chat scope (a myApp → `.myAppMemoryFile`, the
 orchestrator → `.memoryFile`). But `SidebarSelection` memory paths are

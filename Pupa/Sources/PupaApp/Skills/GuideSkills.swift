@@ -15,7 +15,7 @@ import Foundation
 /// component-kind list is generated from `MyAppType.kinds` so it can't drift.
 enum GuideSkills {
     /// Bump when any guide body changes so existing installs re-seed.
-    static let version = "22"
+    static let version = "23"
 
     /// The plugin folder holding this guide's skills.
     static let pluginDir = "\(MemoryStore.pupaPluginsDir)/pupa-guide"
@@ -197,8 +197,10 @@ enum GuideSkills {
     - **Memories** — a filesystem-like tree of notes and folders that lives
       *inside* the app, not on the device's file system. Notes are markdown
       (`.md`); config notes can be `.json` and show verbatim as code, so
-      indentation survives. Browse and edit it from the Memories tab; the agent
-      reads and writes it too. Persists across sessions.
+      indentation survives. Browse it from the Memories tab; a note opens over
+      whatever you were looking at, and closing it — by swiping it away, or with
+      its Close button — keeps your edit. The agent reads and writes it too. Persists
+      across sessions.
     - **Sessions** — "New session" starts a fresh conversation. The canvas
       and memories stay. Past conversations are kept on-device and re-open with
       their full history when you reopen the app — even after a long time away.

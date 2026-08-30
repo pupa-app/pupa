@@ -107,6 +107,8 @@ public struct NewMemoryNoteSheet: View {
         }
         do {
             try memory.writeFile(path: fullPath, content: content)
+            // `onCreated` only records the path now; the host opens it from
+            // the sheet's `onDismiss`, once this composer is actually gone.
             onCreated(fullPath)
             onClose()
         } catch {
