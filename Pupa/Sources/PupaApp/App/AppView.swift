@@ -40,7 +40,7 @@ public struct AppView: View {
     /// canvas the way chat does instead of replacing it.
     @State private var memoryFileSheet: MemoryFileRoute?
     /// Settings sheet presentation. Owned here, not by the sidebar: Settings
-    /// is reached from the bottom bar's More menu now that the sidebar footer
+    /// is reached from the bottom bar's menu now that the sidebar footer
     /// is gone, and the bar is mounted by `AppView`.
     @State private var settingsSheetPresented = false
     /// Watches the iCloud container for remote edits; reloads the synced
@@ -66,7 +66,7 @@ public struct AppView: View {
     /// so the agent dropdown can switch chat context without moving the canvas.
     @State private var chatScope: ChatScope
     /// Navigation stack pushed on top of `rootPage` — true drill-ins only
-    /// (component card from the landing page, memory file, agent detail,
+    /// (component card from the landing page, agent detail, screen share,
     /// history), so Back returns to the page the user came from.
     @State private var detailPath: [SidebarSelection] = []
     /// Whether the chat card is open. Owned here so the per-MyApp bottom bar's
@@ -904,9 +904,19 @@ public struct AppView: View {
                 store: store,
                 selection: $selection,
                 busyMyApps: coordinator.busyMyApps,
-                onSelectionChange: setRoot,
+                onSelectionChange: { sel in
+                    // Dismiss here, not in `onChange(of: selection)`: tapping
+                    // the *active* app writes a value equal to the one already
+                    // held, so no change fires and the sheet would stay up.
+                    setRoot(sel)
+                    showSidebar = false
+                },
                 onDeleteMyApp: deleteMyApp,
-                onArchiveMyApp: archiveMyApp
+                onArchiveMyApp: archiveMyApp,
+                // The grabber is not a focusable control and compact height
+                // (iPhone landscape) draws none at all, so the sheet needs a
+                // real button — as every other sheet in the app has.
+                onClose: { showSidebar = false }
             )
             .equatable()
             .presentationDetents([.large])
@@ -1293,7 +1303,7 @@ public struct AppView: View {
         }
     }
 
-    /// Settings, reached from the bar's More menu. Moved here from the sidebar
+    /// Settings, reached from the bar's menu. Moved here from the sidebar
     /// along with the footer that used to hold it — this is also the only view
     /// that still holds every store the sheet needs.
     @ViewBuilder

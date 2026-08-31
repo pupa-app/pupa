@@ -22,7 +22,7 @@ final class ScreenshotTests: XCTestCase {
 
     // MARK: Frames
 
-    /// Frame 1 — the populated canvas, drawer closed.
+    /// Frame 1 — the populated canvas.
     @MainActor
     func testFrame01Canvas() throws {
         let app = launched()
@@ -58,10 +58,6 @@ final class ScreenshotTests: XCTestCase {
     /// Frame 6 — settings root (backend / account / agents).
     @MainActor
     func testFrame06Settings() throws {
-        // Launch with the drawer already shut rather than swiping it closed:
-        // opening a menu straight after the close animation races it, and the
-        // tap lands on the scrim. `NotificationsFlowUITests` reaches Settings
-        // the same way.
         let app = launched()
         dismissBanner(app)
         openSettings(app)
@@ -112,6 +108,43 @@ final class ScreenshotTests: XCTestCase {
             app.buttons["Today's Briefing"].waitForExistence(timeout: 20),
             "Back did not leave screen share"
         )
+    }
+
+    /// Tapping a row is what the sheet is *for*, and it had no coverage: the
+    /// two observers that make it work — `onChange(of: selection)` in AppView
+    /// (dismiss) and in MyAppSidebarView (navigate) — now sit on opposite
+    /// sides of a sheet-presentation boundary rather than in one view tree.
+    @MainActor
+    func testTappingAMyAppRowNavigatesAndDismissesTheSheet() throws {
+        let app = launched()
+        dismissBanner(app)
+        openMyApps(app)
+        XCTAssertTrue(
+            app.staticTexts["MyApps"].waitForExistence(timeout: 20),
+            "the MyApps sheet never opened"
+        )
+
+        // By identifier, not label: the row is `accessibilityElement(.combine)`
+        // inside a List, so it is not a plain button. This is what
+        // `PupaID.sidebarMyApp` exists for — it had no consumer left after the
+        // drawer's test helpers went.
+        let row = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "sidebar.myApp."))
+            .firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "no MyApp row")
+        row.tap()
+
+        // The sheet goes...
+        XCTAssertTrue(
+            app.buttons["Close"].waitForNonExistence(timeout: 20),
+            "tapping a row left the sheet up"
+        )
+        // ...and the app it names is what the bar is now driving.
+        XCTAssertTrue(
+            app.buttons["Today's Briefing"].waitForExistence(timeout: 20),
+            "tapping a row dismissed the sheet without navigating"
+        )
+        XCTAssertTrue(app.buttons["Menu"].exists, "the bar never came back")
     }
 
     // MARK: Helpers

@@ -113,7 +113,7 @@ enum TourContent {
                 title: "Home",
                 body: "Each MyApp is a canvas of components, like trackers, calendars, "
                     + "checklists, that the agent reads and edits as you chat. The bar "
-                    + "below is the only one in the app — Home, Memories, Pupa, and More. "
+                    + "below is the only one in the app — Home, Memories, Pupa, and the menu. "
                     + "Let's walk it left to right, starting here on Home.",
                 placement: .bottom,
                 selection: .myAppHome(activeMyAppId),
@@ -130,7 +130,7 @@ enum TourContent {
                 selection: .myAppMemories(activeMyAppId),
                 highlight: .bottomBarMemories
             ),
-            // The one step that rings More. Everything after it that lives in
+            // The one step that rings the menu. Everything after it that lives in
             // the menu either navigates there or deep-links Settings — a
             // SwiftUI `Menu` can't be opened programmatically, so a second ring
             // would just point at a closed menu.

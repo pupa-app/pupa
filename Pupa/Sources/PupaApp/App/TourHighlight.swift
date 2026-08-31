@@ -9,7 +9,7 @@ enum TourHighlight: Hashable {
     case bottomBarHome
     case bottomBarMemories
     case bottomBarChat
-    /// The bar's `⋯` overflow — Agents, History, Orchestrator, Screen share
+    /// The bar's menu — Agents, History, MyApps, Orchestrator, Screen share
     /// and Settings all live behind it, so every step describing one of those
     /// rings this.
     case bottomBarMore

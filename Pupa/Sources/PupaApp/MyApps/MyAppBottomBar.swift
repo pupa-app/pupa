@@ -4,12 +4,12 @@ import SwiftUI
 /// "tab bar". Always visible (mounted via `.safeAreaInset`) on a myApp's home /
 /// component / memories pages and on the orchestrator's home / memories pages.
 ///
-///   Home · Memories · Pupa(chat) · More
+///   Home · Memories · Pupa(chat) · Menu
 ///
-/// The app's only bar: the sidebar has no footer, so More carries what used to
+/// The app's only bar: the sidebar has no footer, so the menu carries what used to
 /// be split between the two — Agents and History (the low-traffic per-subject
 /// pages) plus the global Screen share and Settings. The orchestrator has no
-/// canvas change-log, so its More omits History. Icons are tinted in the
+/// canvas change-log, so its the menu omits History. Icons are tinted in the
 /// subject's color; the pupa keeps its own look.
 public struct MyAppBottomBar: View {
     /// Which page the bar should mark as active.
@@ -18,10 +18,10 @@ public struct MyAppBottomBar: View {
         case component(String)
         /// The memory browse page or any memory file within it.
         case memories
-        /// The agents overview or any agent detail page. Reached from More, so
-        /// it lights More rather than a slot of its own.
+        /// The agents overview or any agent detail page. Reached from the menu, so
+        /// it lights the menu rather than a slot of its own.
         case agents
-        /// The change-history page. Also reached from More.
+        /// The change-history page. Also reached from the menu.
         case history
     }
 
@@ -113,7 +113,7 @@ public struct MyAppBottomBar: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, Self.verticalPadding)
-        // macOS: keep the end controls (Home, ⋯) off the window edge — the
+        // macOS: keep the end controls (Home, menu) off the window edge — the
         // borderless menu otherwise sits flush against the trailing border.
         #if os(macOS)
         .padding(.horizontal, 8)
@@ -183,7 +183,7 @@ public struct MyAppBottomBar: View {
         .tourAnchor(.bottomBarChat)
     }
 
-    /// True while a page reached through More is showing, so the button reads
+    /// True while a page reached through the menu is showing, so the button reads
     /// as the active slot the way a real tab would.
     private var moreActive: Bool {
         currentPage == .agents || currentPage == .history
@@ -262,7 +262,7 @@ public struct MyAppBottomBar: View {
         .menuIndicator(.hidden)
         // Claim an equal slot like the other bar buttons: on macOS the
         // borderless menu collapses to its label's intrinsic width otherwise,
-        // shoving `⋯` against the trailing edge.
+        // shoving the menu against the trailing edge.
         .frame(maxWidth: .infinity)
         .help("Menu")
         .accessibilityLabel("Menu")
