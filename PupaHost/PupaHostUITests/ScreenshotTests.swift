@@ -16,6 +16,11 @@ import XCTest
 /// unwinding navigation between frames.
 final class ScreenshotTests: XCTestCase {
 
+    /// Mirrors `PupaID` in PupaApp, which this target can't import.
+    private enum ID {
+        static let settingsScreenShare = "settings.screenShare"
+    }
+
     override func setUpWithError() throws {
         continueAfterFailure = true
     }
@@ -80,28 +85,43 @@ final class ScreenshotTests: XCTestCase {
     /// opened with a root swap and had no way out at all — no bar, no menu, no
     /// Back button. Deleting the always-present toolbar hamburger is what made
     /// that fatal, so this pins the escape route.
+    ///
+    /// It is reached from Settings now, not the bar's menu — which adds a step
+    /// this test is the only cover for: the row dismisses the sheet *and*
+    /// pushes on the app's own stack in one action, so a dropped push would
+    /// land the user back on home with nothing opened.
     @MainActor
     func testScreenShareIsNotADeadEnd() throws {
         let app = launched()
         dismissBanner(app)
+        openSettings(app)
 
-        let menu = app.buttons["Menu"]
-        XCTAssertTrue(menu.waitForExistence(timeout: 20), "no bar menu")
-        let share = app.buttons["Screen share"]
-        for _ in 0..<3 {
-            menu.tap()
-            if share.waitForExistence(timeout: 5) { break }
-        }
-        XCTAssertTrue(share.exists, "no Screen share item in the menu")
+        // By identifier: the row is a `SettingsHubRow` (title + caption), so
+        // its button label is not the bare title.
+        let share = app.buttons[ID.settingsScreenShare]
+        XCTAssertTrue(
+            share.waitForExistence(timeout: 20),
+            "no Screen share row in Settings"
+        )
         share.tap()
 
+        // The sheet goes first. Asserted separately because a push that landed
+        // *behind* a still-open sheet would leave `Connect` in the hierarchy
+        // and pass the next check while the user saw nothing happen — the
+        // failure `AppView.presentOrPush` documents.
+        XCTAssertTrue(
+            app.navigationBars["Settings"].waitForNonExistence(timeout: 20),
+            "the row left the Settings sheet up"
+        )
         XCTAssertTrue(
             app.buttons["Connect"].waitForExistence(timeout: 20),
             "screen share never opened"
         )
         // It was pushed, so the stack gives it a Back button — the only way
-        // off a page that has no bar.
-        let back = app.navigationBars.buttons.firstMatch
+        // off a page that has no bar. Not `navigationBars.firstMatch`: the
+        // Settings sheet's own dismiss control is also a nav-bar button also
+        // labelled "Back", so an undismissed sheet would satisfy that query.
+        let back = app.navigationBars["Screen share"].buttons.firstMatch
         XCTAssertTrue(back.waitForExistence(timeout: 10), "screen share has no way back")
         back.tap()
         XCTAssertTrue(
