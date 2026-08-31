@@ -635,6 +635,7 @@ public struct AppView: View {
         tour.wantChatOpen = step.opensChat
         tour.chatPrefill = step.chatPrefill
         tour.wantHighlight = step.highlight
+        tour.wantMenuPreview = step.menuPreview
         if let sel = step.selection {
             setRoot(sel)
         }
@@ -666,6 +667,7 @@ public struct AppView: View {
         // Ring the active step's target across the whole window (sidebar footer,
         // bottom-bar tab, or chat header), under the coach card, non-blocking.
         .tourHighlightLayer(tour)
+        .overlay { tourMenuPreview }
         .overlay {
             if tour.isActive {
                 GuidedTourView(tour: tour)
@@ -930,6 +932,9 @@ public struct AppView: View {
         // chat header) — over the canvas, under the coach card, never blocking
         // input.
         .tourHighlightLayer(tour)
+        // The bar's menu, drawn open, for steps that describe what is behind
+        // the hamburger. Above the ring, under the coach card.
+        .overlay { tourMenuPreview }
         // Coach card sits on top of everything (incl. the ring).
         .overlay {
             if tour.isActive {
@@ -1302,6 +1307,22 @@ public struct AppView: View {
                 onToggleChat: { toggleChat() },
                 onOpenSettings: { settingsSheetPresented = true },
                 onOpenMyApps: openMyApps
+            )
+        }
+    }
+
+    /// The bar's menu drawn open, for the tour steps that talk about what is
+    /// behind the hamburger. Built from the same `BarMenuRow.rows` the real
+    /// menu uses, against the bar that is actually on screen — so it never
+    /// shows a row the user would not find there.
+    @ViewBuilder
+    private var tourMenuPreview: some View {
+        if tour.isActive, let lit = tour.wantMenuPreview,
+           let subject = barSubject(for: effectiveSelection) {
+            let isMyApp: Bool = { if case .myApp = subject { return true } else { return false } }()
+            TourMenuPreview(
+                rows: BarMenuRow.rows(isMyApp: isMyApp, hasMyApps: openMyApps != nil),
+                emphasised: lit
             )
         }
     }

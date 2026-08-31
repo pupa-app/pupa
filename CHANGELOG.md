@@ -3,6 +3,31 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.278] — 2026-08-31
+
+### Changed
+
+- **The tour shows the app first, and the settings that wire it up second.**
+  It used to open on the Settings category list and Backend pairing, before
+  the user had seen what any of it was for. It now walks the bar, the chat and
+  the orchestrator first, then goes through Settings.
+- **The menu is drawn open instead of teleporting.** A step that said "MyApps
+  is in the menu" used to either ring a closed button or jump straight to the
+  destination, so the tap itself was never visible. Three steps now draw the
+  menu as it looks when open, with the rows they are about lit up. The picture
+  is built from the same row list the real menu uses, so the two cannot drift.
+- **Agents and History are named, not visited.** The tour pointed at their menu
+  row rather than navigating into the page and leaving the user somewhere they
+  did not choose to go.
+- **Each Settings page is introduced by its section.** A step lands on the root
+  list and rings the section first, so the page it then opens has a visible
+  origin instead of appearing from nowhere.
+- **The marketplace leads the closing pair.** It is where the current official
+  MyApps live; the bundled examples follow as toys for getting familiar.
+- **No screen-share step.** It is a secondary feature in Settings, and the step
+  only described itself.
+- Step copy has no em dashes, pinned by a test.
+
 ## [0.0.277] — 2026-08-31
 
 ### Changed

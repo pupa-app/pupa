@@ -17,9 +17,18 @@ enum TourHighlight: Hashable {
     case chatHeader
     /// The Settings · Account iCloud section.
     case settingsAccount
-    /// The Settings · Examples list — the final step rings it so the user knows
-    /// where to tap Restore.
+    /// The Settings · Examples list. The closing step rings it so the user
+    /// knows where to tap Restore.
     case settingsExamples
+    /// The marketplace link at the top of Settings · Examples, ringed before
+    /// the bundled examples: it is where the current official apps live.
+    case settingsMarketplace
+    /// The Settings root's opening section (Account, Backend, Notifications).
+    /// Ringed on the root before the tour dives into one of its pages, so the
+    /// user sees where the page they land on came from.
+    case settingsEssentials
+    /// The Settings root's "Manage MyApps" section. Same rule.
+    case settingsManageMyApps
 }
 
 /// Collects the bounds of every `.tourAnchor`-tagged view in a subtree, keyed

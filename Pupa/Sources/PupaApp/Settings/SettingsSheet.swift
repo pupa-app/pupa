@@ -147,6 +147,7 @@ public struct SettingsSheet: View {
                                     caption: "Scheduled & past, by who set them")
                     }
                 }
+                .tourAnchor(.settingsEssentials)
                 // Housekeeping for the apps you already have — the rows that
                 // only mean something once you own a MyApp.
                 Section("Manage MyApps") {
@@ -181,6 +182,7 @@ public struct SettingsSheet: View {
                         }
                     }
                 }
+                .tourAnchor(.settingsManageMyApps)
                 // Side doors. Neither is needed to use the app, so both sit
                 // last rather than competing with Backend.
                 Section {
@@ -478,6 +480,7 @@ public struct SettingsSheet: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            .tourAnchor(.settingsMarketplace)
             ForEach(ExampleRegistry.all.indices, id: \.self) { i in
                 exampleRow(ExampleRegistry.all[i])
             }
