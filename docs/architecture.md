@@ -162,16 +162,18 @@ categories (`SettingsCategory`, one `navigationDestination`). Everything that
 governs agents sits under **Agents**, a hub of its own:
 
 ```
-Account · Backend · Notifications          ← what a newcomer needs first
-   └── Acknowledgements   AcknowledgementsView   third-party notices
-Manage MyApps
-   ├── Agents · Import & Export · Pinned snapshots · Archive · Recently deleted
-   └── Agents ├── Roster    AgentRosterView    roster + lifetime stats
-              ├── Tools     ToolsSettingsView  harness permissions
-              ├── Limits    AgentLimitsView    A2A + turn limits
-              └── Threads   AgentThreadsView   threads, tokens, cost
-Examples · Screen share                    ← side doors, below the fold
-   └── Examples ends with the **Getting started tour** replay row
+Account · Backend · Notifications                    ← needed first
+   └── Account ── Acknowledgements  AcknowledgementsView  third-party notices
+
+Manage MyApps                                        ← once you own an app
+   Agents · Import & Export · Pinned snapshots · Archive · Recently deleted
+   └── Agents ├── Roster   AgentRosterView    roster + lifetime stats
+              ├── Tools    ToolsSettingsView  harness permissions
+              ├── Limits   AgentLimitsView    A2A + turn limits
+              └── Threads  AgentThreadsView   threads, tokens, cost
+
+Examples · Screen share                              ← side doors
+   └── Examples ── "Getting started tour" replay row, at the foot of the page
 ```
 
 Three sections, in that order. The opening one is the only one a first-run
@@ -338,11 +340,10 @@ scope's pages — **Agents** (`person.2`, opens `AgentsListView` /
 `AgentDetailView`) and **History** (`clock`, pushes `ChangeHistoryView` via
 `.myAppHistory` — **myApp only**; the orchestrator has no canvas change-log so
 it omits this) — then *which* scope you're in (**MyApps**, which presents the
-sidebar as a sheet, and **Orchestrator**), then app-wide (**Settings**;
-screen share moved into it as a secondary row). Flat-listing those axes put
-History next to Settings, two rows
-that don't apply to the same thing; MyApps is one row onto its own surface
-instead. iOS flips a bottom-anchored menu, so the first group declared lands
+sidebar as a sheet, and **Orchestrator**), then app-wide (**Settings**; screen
+share moved into it as a secondary row). Flat-listing those axes put History
+next to Settings, two rows that don't apply to the same thing; MyApps is one
+row onto its own surface instead. iOS flips a bottom-anchored menu, so the first group declared lands
 nearest the thumb. The orchestrator's own bar omits the
 Orchestrator item for the same reason it omits History: you're already there.
 The menu lights up as the active slot while an Agents or History page is showing. Components are deliberately absent from it: the home page already
@@ -704,7 +705,7 @@ at its `placement` anchor, but a grab handle lets the user drag it anywhere; the
 position snaps back to the anchor on the next step. The tour
 auto-starts when `completed && !tourCompleted`, persists `pupa.tour.completed`
 on finish/skip so it never replays, and is re-launchable from Settings →
-"Getting started tour". `RootView`'s migration back-fills `tourCompleted = true`
+Examples → "Getting started tour". `RootView`'s migration back-fills `tourCompleted = true`
 for pre-existing users so an update never replays it.
 
 ### Driven launches

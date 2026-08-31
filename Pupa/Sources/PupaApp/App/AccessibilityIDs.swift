@@ -19,6 +19,10 @@ public enum PupaID {
     /// the sandbox boundary.
     public static let debugTurnState = "debug.turnState"
 
+    /// Settings ▸ Screen share. The one row that dismisses the sheet and
+    /// pushes on the app's own stack, so its escape route is pinned by a test.
+    public static let settingsScreenShare = "settings.screenShare"
+
     /// Per-MyApp row in the MyApps sheet. Selecting one navigates and
     /// dismisses the sheet.
     public static func sidebarMyApp(_ id: UUID) -> String { "sidebar.myApp.\(id)" }

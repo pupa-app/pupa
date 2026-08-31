@@ -9,9 +9,8 @@ enum TourHighlight: Hashable {
     case bottomBarHome
     case bottomBarMemories
     case bottomBarChat
-    /// The bar's menu — Agents, History, MyApps, Orchestrator, Screen share
-    /// and Settings all live behind it, so every step describing one of those
-    /// rings this.
+    /// The bar's menu — Agents, History, MyApps, Orchestrator and Settings all
+    /// live behind it, so every step describing one of those rings this.
     case bottomBarMore
     /// The chat's agent switcher + thread selector — two adjacent controls
     /// ringed together as one region.

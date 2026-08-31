@@ -196,6 +196,7 @@ public struct SettingsSheet: View {
                                         caption: "Watch the backend's screen")
                         }
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier(PupaID.settingsScreenShare)
                     }
                 }
             }
