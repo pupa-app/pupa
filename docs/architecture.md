@@ -653,11 +653,11 @@ example they like to drop a workspace in to explore. It is
 `@Observable GuidedTourStore.shared` (mirroring `OnboardingHandoff.shared`)
 holds the step list (`TourContent`, pure data) + current index. Each `TourStep`
 carries **composable, independent intents** (a step may navigate *and* open the
-chat with a prefill) — `selection`, `opensSidebar`, `settingsPage`, `opensChat`,
+chat with a prefill) — `selection`, `settingsPage`, `opensChat`,
 `chatPrefill`, `highlight` — that target the stable routing layer, never
 geometry.
 `AppView.applyTourStep()` reconciles them: it routes the step's selection
-through `setRoot` (so the chat scope follows), opens the sidebar, and
+through `setRoot` (so the chat scope follows), closes the MyApps sheet, and
 writes the store's intent flags (`wantSettingsOpen` / `wantSettingsPage` /
 `wantChatOpen` / `chatPrefill` / `wantHighlight`). Host views then mirror those
 declaratively:
@@ -681,9 +681,9 @@ and sits behind `.allowsHitTesting(false)`, so it tracks layout changes and neve
 blocks the control it points at. The card is gated on
 `tour.isActive` and rendered above
 the sidebar + chat; because an iOS `.sheet` covers that ZStack, `SettingsSheet`
-re-renders the same card as its own overlay during the Settings steps. (That
-sheet is hosted by the sidebar — always mounted, but `applyTourStep` still
-opens the drawer whenever a step opens Settings to keep tour semantics.) Each step starts the card
+re-renders the same card as its own overlay during the Settings steps. (`AppView`
+owns that sheet, and `applyTourStep` closes the MyApps sheet on every step —
+no step opens it.) Each step starts the card
 at its `placement` anchor, but a grab handle lets the user drag it anywhere; the
 position snaps back to the anchor on the next step. The tour
 auto-starts when `completed && !tourCompleted`, persists `pupa.tour.completed`

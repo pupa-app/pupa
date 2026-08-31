@@ -182,10 +182,14 @@ public struct AppView: View {
                     // the recording cannot be dropped independently.
                     nav.setRoot(sel)
                     detailPath = []
-                    // A root change takes the memory sheet with it. Otherwise a
-                    // notification tap leaves MyApp A's note floating over
-                    // MyApp B's canvas, with the chat scope already on B.
+                    // A root change takes the sheets with it. Otherwise a
+                    // notification tap leaves MyApp A's note — or the MyApps
+                    // list — floating over MyApp B's canvas, with the chat
+                    // scope already on B.
                     memoryFileSheet = nil
+                    #if os(iOS)
+                    showSidebar = false
+                    #endif
                 }
             }
             #if os(macOS)
