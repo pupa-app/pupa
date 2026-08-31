@@ -57,10 +57,6 @@ public struct AppView: View {
     /// iOS clears this back to nil after each tap so re-taps re-fire.
     @State private var selection: SidebarSelection?
     #if os(iOS)
-    /// Whether the slide-in sidebar/menu is open. Persisted so the app opens to
-    /// the same state it was left in; defaults to `true` so a fresh install
-    /// lands on an open menu. Written through by the toolbar toggle and the
-    /// auto-close on selection, so "last state" survives relaunch.
     /// Whether the MyApps sheet is up. Session state, not persisted: the drawer
     /// used to restore its open/closed position across launches, but a *sheet*
     /// that re-presents itself on launch is a modal nobody asked for.
@@ -1284,7 +1280,15 @@ public struct AppView: View {
                 },
                 onToggleChat: { toggleChat() },
                 onOpenSettings: { settingsSheetPresented = true },
-                onOpenMyApps: openMyApps
+                onOpenMyApps: openMyApps,
+                onOpenScreenShare: {
+                    // Pushed, not rooted: `barPage` returns nil for
+                    // `.screenShare`, so the bar — and with it this menu —
+                    // is not there. A pushed page keeps its Back button.
+                    PerfTrace.interaction("pushScreenShare") {
+                        detailPath.append(.screenShare)
+                    }
+                }
             )
         }
     }
@@ -1366,9 +1370,9 @@ public struct AppView: View {
             if let id = store.visibleMyApps.first(where: { $0.id == store.activeMyAppId })?.id {
                 setRoot(.myAppAgents(id))
             }
-        case .toggleSidebar:
+        case .toggleMyApps:
             #if os(iOS)
-            PerfTrace.interaction(showSidebar ? "drawerClose" : "drawerOpen") {
+            PerfTrace.interaction(showSidebar ? "myAppsClose" : "myAppsOpen") {
                 showSidebar.toggle()
             }
             #endif

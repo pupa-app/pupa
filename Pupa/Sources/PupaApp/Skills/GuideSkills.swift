@@ -15,7 +15,7 @@ import Foundation
 /// component-kind list is generated from `MyAppType.kinds` so it can't drift.
 enum GuideSkills {
     /// Bump when any guide body changes so existing installs re-seed.
-    static let version = "24"
+    static let version = "23"
 
     /// The plugin folder holding this guide's skills.
     static let pluginDir = "\(MemoryStore.pupaPluginsDir)/pupa-guide"

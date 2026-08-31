@@ -45,6 +45,10 @@ public struct MyAppBottomBar: View {
     /// top-left hamburger is gone. `nil` on macOS, where the sidebar column is
     /// always on screen and a row that opens it would be redundant.
     let onOpenMyApps: (() -> Void)?
+    /// Open the screen-share viewer. Separate from `onSelect` because it must
+    /// **push**: it is the one page the bar does not appear on, so a root swap
+    /// there would leave no bar, no Back button, and no way out.
+    let onOpenScreenShare: () -> Void
 
     /// Row height for each bar button.
     static let rowHeight: CGFloat = 30
@@ -61,7 +65,8 @@ public struct MyAppBottomBar: View {
         onShowHistory: @escaping (UUID) -> Void,
         onToggleChat: @escaping () -> Void,
         onOpenSettings: @escaping () -> Void,
-        onOpenMyApps: (() -> Void)? = nil
+        onOpenMyApps: (() -> Void)? = nil,
+        onOpenScreenShare: @escaping () -> Void
     ) {
         self.subject = subject
         self.currentPage = currentPage
@@ -73,6 +78,7 @@ public struct MyAppBottomBar: View {
         self.onToggleChat = onToggleChat
         self.onOpenSettings = onOpenSettings
         self.onOpenMyApps = onOpenMyApps
+        self.onOpenScreenShare = onOpenScreenShare
     }
 
     private var myAppId: UUID? {
@@ -210,30 +216,35 @@ public struct MyAppBottomBar: View {
                 }
             }
             Divider()
-            if let onOpenMyApps {
-                Button(action: onOpenMyApps) {
-                    Label("MyApps", systemImage: "square.grid.2x2")
+            // The scope group is empty on the macOS orchestrator bar — no
+            // MyApps row (the column is always up) and no Orchestrator row
+            // (you're on it) — so skip it rather than colliding two dividers.
+            if onOpenMyApps != nil || myAppId != nil {
+                if let onOpenMyApps {
+                    Button(action: onOpenMyApps) {
+                        Label("MyApps", systemImage: "square.grid.2x2")
+                    }
                 }
-            }
-            if myAppId != nil {
-                Button {
-                    onSelect(.orchestrator)
-                } label: {
-                    Label("Orchestrator", systemImage: "square.stack.3d.up.fill")
+                if myAppId != nil {
+                    Button {
+                        onSelect(.orchestrator)
+                    } label: {
+                        Label("Orchestrator", systemImage: "square.stack.3d.up.fill")
+                    }
                 }
+                Divider()
             }
-            Divider()
-            Button {
-                onSelect(.screenShare)
-            } label: {
+            Button(action: onOpenScreenShare) {
                 Label("Screen share", systemImage: "rectangle.on.rectangle")
             }
             Button(action: onOpenSettings) {
                 Label("Settings", systemImage: "gearshape")
             }
         } label: {
+            // Heavier and a touch larger than the other slots: three thin rules
+            // at the shared 18pt/medium did not read as a hamburger.
             Image(systemName: "line.3.horizontal")
-                .font(.system(size: 18, weight: moreActive ? .semibold : .medium))
+                .font(.system(size: 21, weight: moreActive ? .bold : .semibold))
                 .foregroundStyle(moreActive ? appColor : appColor.opacity(0.7))
                 .frame(height: Self.rowHeight)
                 .padding(.horizontal, 14)

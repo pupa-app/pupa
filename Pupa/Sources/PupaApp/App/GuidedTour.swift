@@ -29,7 +29,7 @@ enum TourSettingsPage: Equatable {
 /// every field targets the app's stable routing layer (`SidebarSelection`, a
 /// settings page, a couple of booleans), never view geometry, so a redesign
 /// still lands the tour on the right surface. `AppView.applyTourStep()`
-/// translates them into concrete `selection` / sidebar / sheet / chat state.
+/// translates them into concrete `selection` / sheet / chat state.
 struct TourStep: Identifiable, Equatable {
     let id: String
     let title: String
@@ -211,7 +211,7 @@ enum TourContent {
             TourStep(
                 id: "screen-share",
                 title: "Screen share",
-                body: "Also under More: screen share lets the agent see what's on your "
+                body: "Also in the menu: screen share lets the agent see what's on your "
                     + "screen in your backend — handy when you want to see what the backend "
                     + "agent is cooking.",
                 placement: .top
@@ -240,7 +240,7 @@ enum TourContent {
                 title: "Add one to explore",
                 body: "That's the tour. The best way to get a feel for Pupa is to play with "
                     + "a ready-made workspace — tap **Restore** on any example below to drop "
-                    + "it into your sidebar, then poke around and chat with it.",
+                    + "it into your MyApps, then poke around and chat with it.",
                 placement: .bottom,
                 settingsPage: .examples,
                 highlight: .settingsExamples

@@ -80,6 +80,40 @@ final class ScreenshotTests: XCTestCase {
         shoot("frame-08-memories")
     }
 
+    /// Screen share is the one page with no bottom bar, so before this it was
+    /// opened with a root swap and had no way out at all — no bar, no menu, no
+    /// Back button. Deleting the always-present toolbar hamburger is what made
+    /// that fatal, so this pins the escape route.
+    @MainActor
+    func testScreenShareIsNotADeadEnd() throws {
+        let app = launched()
+        dismissBanner(app)
+
+        let menu = app.buttons["Menu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 20), "no bar menu")
+        let share = app.buttons["Screen share"]
+        for _ in 0..<3 {
+            menu.tap()
+            if share.waitForExistence(timeout: 5) { break }
+        }
+        XCTAssertTrue(share.exists, "no Screen share item in the menu")
+        share.tap()
+
+        XCTAssertTrue(
+            app.buttons["Connect"].waitForExistence(timeout: 20),
+            "screen share never opened"
+        )
+        // It was pushed, so the stack gives it a Back button — the only way
+        // off a page that has no bar.
+        let back = app.navigationBars.buttons.firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: 10), "screen share has no way back")
+        back.tap()
+        XCTAssertTrue(
+            app.buttons["Today's Briefing"].waitForExistence(timeout: 20),
+            "Back did not leave screen share"
+        )
+    }
+
     // MARK: Helpers
 
     @MainActor
