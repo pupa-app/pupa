@@ -139,8 +139,8 @@ enum TourContent {
                 title: "Menu",
                 body: "The menu holds everything else, grouped: this app's agents and "
                     + "change history, then MyApps and the Orchestrator for moving between "
-                    + "workspaces, then screen share and Settings. Three buttons and this "
-                    + "menu are the whole app.",
+                    + "workspaces, then Settings. Three buttons and this menu are the whole "
+                    + "app.",
                 placement: .bottom,
                 selection: .myAppHome(activeMyAppId),
                 highlight: .bottomBarMore
@@ -211,9 +211,9 @@ enum TourContent {
             TourStep(
                 id: "screen-share",
                 title: "Screen share",
-                body: "Also in the menu: screen share lets the agent see what's on your "
-                    + "screen in your backend — handy when you want to see what the backend "
-                    + "agent is cooking.",
+                body: "In Settings: screen share lets you watch what's on the screen of "
+                    + "the machine running your backend — handy when you want to see what "
+                    + "the backend agent is cooking.",
                 placement: .top
             ),
             TourStep(

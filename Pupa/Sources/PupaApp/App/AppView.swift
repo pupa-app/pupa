@@ -1294,15 +1294,7 @@ public struct AppView: View {
                 },
                 onToggleChat: { toggleChat() },
                 onOpenSettings: { settingsSheetPresented = true },
-                onOpenMyApps: openMyApps,
-                onOpenScreenShare: {
-                    // Pushed, not rooted: `barPage` returns nil for
-                    // `.screenShare`, so the bar — and with it this menu —
-                    // is not there. A pushed page keeps its Back button.
-                    PerfTrace.interaction("pushScreenShare") {
-                        detailPath.append(.screenShare)
-                    }
-                }
+                onOpenMyApps: openMyApps
             )
         }
     }
@@ -1345,6 +1337,16 @@ public struct AppView: View {
             onImported: { id in
                 setRoot(.myAppHome(id))
                 settingsSheetPresented = false
+            },
+            onOpenScreenShare: {
+                // Close the sheet and push, rather than hosting the viewer
+                // inside it: `barPage` returns nil for `.screenShare`, so the
+                // pushed page keeps its Back button and gets the whole window
+                // for the video — a 600pt modal would not.
+                settingsSheetPresented = false
+                PerfTrace.interaction("pushScreenShare") {
+                    detailPath.append(.screenShare)
+                }
             }
         )
     }

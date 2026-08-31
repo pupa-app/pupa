@@ -8,9 +8,9 @@ import SwiftUI
 ///
 /// The app's only bar: the sidebar has no footer, so the menu carries what used to
 /// be split between the two — Agents and History (the low-traffic per-subject
-/// pages) plus the global Screen share and Settings. The orchestrator has no
-/// canvas change-log, so its the menu omits History. Icons are tinted in the
-/// subject's color; the pupa keeps its own look.
+/// pages) plus Settings. The orchestrator has no canvas change-log, so its menu
+/// omits History. Icons are tinted in the subject's color; the pupa keeps its
+/// own look.
 public struct MyAppBottomBar: View {
     /// Which page the bar should mark as active.
     public enum Page: Equatable {
@@ -45,10 +45,6 @@ public struct MyAppBottomBar: View {
     /// top-left hamburger is gone. `nil` on macOS, where the sidebar column is
     /// always on screen and a row that opens it would be redundant.
     let onOpenMyApps: (() -> Void)?
-    /// Open the screen-share viewer. Separate from `onSelect` because it must
-    /// **push**: it is the one page the bar does not appear on, so a root swap
-    /// there would leave no bar, no Back button, and no way out.
-    let onOpenScreenShare: () -> Void
 
     /// Row height for each bar button.
     static let rowHeight: CGFloat = 30
@@ -65,8 +61,7 @@ public struct MyAppBottomBar: View {
         onShowHistory: @escaping (UUID) -> Void,
         onToggleChat: @escaping () -> Void,
         onOpenSettings: @escaping () -> Void,
-        onOpenMyApps: (() -> Void)? = nil,
-        onOpenScreenShare: @escaping () -> Void
+        onOpenMyApps: (() -> Void)? = nil
     ) {
         self.subject = subject
         self.currentPage = currentPage
@@ -78,7 +73,6 @@ public struct MyAppBottomBar: View {
         self.onToggleChat = onToggleChat
         self.onOpenSettings = onOpenSettings
         self.onOpenMyApps = onOpenMyApps
-        self.onOpenScreenShare = onOpenScreenShare
     }
 
     private var myAppId: UUID? {
@@ -191,9 +185,9 @@ public struct MyAppBottomBar: View {
 
     /// The app's menu, grouped one axis per section — this scope's pages
     /// (Agents, History), which scope you're in (MyApps, Orchestrator), then
-    /// app-wide (Screen share, Settings). Mixing those in one flat list put
-    /// History next to Settings, two rows that don't even apply to the same
-    /// thing; MyApps is a single row onto its own surface instead.
+    /// app-wide (Settings). Mixing those in one flat list put History next to
+    /// Settings, two rows that don't even apply to the same thing; MyApps is a
+    /// single row onto its own surface instead.
     ///
     /// iOS flips a bottom-anchored menu, so the first group declared lands
     /// nearest the thumb.
@@ -233,9 +227,6 @@ public struct MyAppBottomBar: View {
                     }
                 }
                 Divider()
-            }
-            Button(action: onOpenScreenShare) {
-                Label("Screen share", systemImage: "rectangle.on.rectangle")
             }
             Button(action: onOpenSettings) {
                 Label("Settings", systemImage: "gearshape")

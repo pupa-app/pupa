@@ -16,7 +16,12 @@ import SwiftUI
 ///   - **Notifications** — Active (grouped by who scheduled them) and Past
 ///     (fired / cancelled), backed by `NotificationLogStore`; rows can be
 ///     edited or cancelled.
-///   - **Examples** — add a sample workspace to the sidebar.
+///   - **Manage MyApps** — the per-app housekeeping pages: Agents, Import &
+///     Export, Pinned snapshots, Archive, Recently deleted.
+///   - **Examples** — add a sample workspace to the sidebar; the guided tour
+///     replay sits at the bottom of that page.
+///   - **Screen share** — secondary viewer, pushed on the main detail stack
+///     (the sheet closes first) so the video gets the whole window.
 public struct SettingsSheet: View {
     @Bindable var settings: SettingsStore
     var onRestoreExample: ((any ExampleMyApp.Type) -> Void)?
@@ -40,6 +45,10 @@ public struct SettingsSheet: View {
     var coordinator: ChatSessionCoordinator?
     /// Called after a successful import with the new app's id (select + dismiss).
     var onImported: ((UUID) -> Void)?
+    /// Open the screen-share viewer. Dismisses the sheet and pushes the viewer
+    /// on the app's own detail stack — a modal Settings sheet is the wrong
+    /// frame for a live video surface. `nil` hides the row (e.g. previews).
+    var onOpenScreenShare: (() -> Void)?
     /// Shared guided-tour store. On iOS a `.sheet` renders above the AppView
     /// ZStack, so the coach card hosted there is hidden during the Settings
     /// step — we re-render `GuidedTourView` as this sheet's own overlay for
@@ -73,7 +82,8 @@ public struct SettingsSheet: View {
         stats: AgentStatsStore? = nil,
         modelCatalog: ModelCatalogStore? = nil,
         coordinator: ChatSessionCoordinator? = nil,
-        onImported: ((UUID) -> Void)? = nil
+        onImported: ((UUID) -> Void)? = nil,
+        onOpenScreenShare: (() -> Void)? = nil
     ) {
         self.settings = settings
         self.onRestoreExample = onRestoreExample
@@ -85,6 +95,7 @@ public struct SettingsSheet: View {
         self.modelCatalog = modelCatalog
         self.coordinator = coordinator
         self.onImported = onImported
+        self.onOpenScreenShare = onOpenScreenShare
     }
 
     /// Top-level Settings categories. Each pushes a screen with that
@@ -119,63 +130,70 @@ public struct SettingsSheet: View {
     public var body: some View {
         NavigationStack(path: $path) {
             List {
+                // What a newcomer needs first: who they are, what they're
+                // talking to, what it tells them. Everything else is grouped
+                // below so this opening screen stays three rows long.
                 Section {
                     NavigationLink(value: SettingsCategory.profile) {
                         SettingsHubRow(icon: "person.crop.circle", title: "Account",
                                     caption: "iCloud sync & device")
                     }
-                }
-                NavigationLink(value: SettingsCategory.backend) {
-                    SettingsHubRow(icon: "network", title: "Backend",
-                                caption: "Server URL, API key, pairing")
-                }
-                NavigationLink(value: SettingsCategory.agents) {
-                    SettingsHubRow(icon: "person.3.sequence", title: "Agents",
-                                caption: "Roster, tools, limits & threads")
-                }
-                NavigationLink(value: SettingsCategory.notifications) {
-                    SettingsHubRow(icon: "bell.badge", title: "Notifications",
-                                caption: "Scheduled & past, by who set them")
-                }
-                if onRestoreExample != nil {
-                    NavigationLink(value: SettingsCategory.examples) {
-                        SettingsHubRow(icon: "sparkles", title: "Examples",
-                                    caption: "Add a sample workspace")
+                    NavigationLink(value: SettingsCategory.backend) {
+                        SettingsHubRow(icon: "network", title: "Backend",
+                                    caption: "Server URL, API key, pairing")
+                    }
+                    NavigationLink(value: SettingsCategory.notifications) {
+                        SettingsHubRow(icon: "bell.badge", title: "Notifications",
+                                    caption: "Scheduled & past, by who set them")
                     }
                 }
-                if canShare {
-                    NavigationLink(value: SettingsCategory.sharing) {
-                        SettingsHubRow(icon: "square.and.arrow.up.on.square", title: "Import & Export",
-                                    caption: "Share or load a MyApp bundle")
+                // Housekeeping for the apps you already have — the rows that
+                // only mean something once you own a MyApp.
+                Section("Manage MyApps") {
+                    NavigationLink(value: SettingsCategory.agents) {
+                        SettingsHubRow(icon: "person.3.sequence", title: "Agents",
+                                    caption: "Roster, tools, limits & threads")
+                    }
+                    if canShare {
+                        NavigationLink(value: SettingsCategory.sharing) {
+                            SettingsHubRow(icon: "square.and.arrow.up.on.square", title: "Import & Export",
+                                        caption: "Share or load a MyApp bundle")
+                        }
+                    }
+                    if store != nil, hasPinnedSnapshots {
+                        NavigationLink(value: SettingsCategory.pinned) {
+                            SettingsHubRow(icon: "pin", title: "Pinned snapshots",
+                                        caption: "Saved states per app")
+                        }
+                    }
+                    if let store, !store.archivedMyApps.isEmpty {
+                        NavigationLink(value: SettingsCategory.archive) {
+                            SettingsHubRow(icon: "archivebox", title: "Archive",
+                                        caption: "Hidden apps")
+                        }
+                    }
+                    if store != nil, hasDeletedApps {
+                        NavigationLink(value: SettingsCategory.recentlyDeleted) {
+                            // `arrow.up.trash`, not `trash.arrow.circlepath` — the
+                            // latter isn't an SF Symbol and rendered as a blank gap.
+                            SettingsHubRow(icon: "arrow.up.trash", title: "Recently deleted",
+                                        caption: "Restore a deleted app")
+                        }
                     }
                 }
-                if store != nil, hasPinnedSnapshots {
-                    NavigationLink(value: SettingsCategory.pinned) {
-                        SettingsHubRow(icon: "pin", title: "Pinned snapshots",
-                                    caption: "Saved states per app")
+                // Side doors. Neither is needed to use the app, so both sit
+                // below the fold rather than competing with Backend.
+                Section {
+                    if onRestoreExample != nil {
+                        NavigationLink(value: SettingsCategory.examples) {
+                            SettingsHubRow(icon: "sparkles", title: "Examples",
+                                        caption: "Add a sample workspace")
+                        }
                     }
-                }
-                if let store, !store.archivedMyApps.isEmpty {
-                    NavigationLink(value: SettingsCategory.archive) {
-                        SettingsHubRow(icon: "archivebox", title: "Archive",
-                                    caption: "Hidden apps")
-                    }
-                }
-                if store != nil, hasDeletedApps {
-                    NavigationLink(value: SettingsCategory.recentlyDeleted) {
-                        // `arrow.up.trash`, not `trash.arrow.circlepath` — the
-                        // latter isn't an SF Symbol and rendered as a blank gap.
-                        SettingsHubRow(icon: "arrow.up.trash", title: "Recently deleted",
-                                    caption: "Restore a deleted app")
-                    }
-                }
-                if let onStartTour {
-                    Section {
-                        Button {
-                            onStartTour()
-                        } label: {
-                            SettingsHubRow(icon: "figure.walk.motion", title: "Getting started tour",
-                                        caption: "Replay the interactive walkthrough")
+                    if let onOpenScreenShare {
+                        Button(action: onOpenScreenShare) {
+                            SettingsHubRow(icon: "rectangle.on.rectangle", title: "Screen share",
+                                        caption: "Watch the backend's screen")
                         }
                         .buttonStyle(.plain)
                     }
@@ -307,7 +325,11 @@ public struct SettingsSheet: View {
             case .notifications:
                 NotificationsList(store: store).navigationTitle("Notifications")
             case .examples:
-                Form { examplesSection }.navigationTitle("Examples")
+                Form {
+                    examplesSection
+                    tourSection
+                }
+                .navigationTitle("Examples")
             case .sharing:
                 if let store, let memory, let onImported {
                     SharingSettingsView(store: store, memory: memory, onImported: onImported)
@@ -454,6 +476,22 @@ public struct SettingsSheet: View {
             Text("Adds an example MyApp. Browse the marketplace for more.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Tour replay, at the foot of the Examples page. It belongs with the
+    /// examples — both answer "show me how this works" — and keeping it off the
+    /// root list is what lets that list stay three sections.
+    @ViewBuilder
+    private var tourSection: some View {
+        if let onStartTour {
+            Section {
+                Button(action: onStartTour) {
+                    SettingsHubRow(icon: "figure.walk.motion", title: "Getting started tour",
+                                caption: "Replay the interactive walkthrough")
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 
