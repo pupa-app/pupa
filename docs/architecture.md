@@ -137,7 +137,13 @@ sits beside the app name; Add stays in the grid. The orchestrator has no
 components, so its page would be empty without one — it keeps the **Outline**
 explaining what it coordinates and the myapps it can drive, and lost the empty
 Components card whose only content said it was empty. Both homes leave agents,
-memories and history to the bar's menu.
+memories and history to the bar's menu. The MyApps sheet is presented from
+`iOSBody` and constructs its content on presentation. The drawer it replaced was
+always mounted — opening slid it by `.offset` rather than cold-constructing the
+sidebar `List` inside the tap transaction, which had measured ~90-135ms tap→frame
+warm and ~1.1s on first open. That trade-off went with the drawer; the iOS-only
+path is not reachable by the (macOS) `PUPA_PERF_UI` harness, so it is currently
+unmeasured.
 
 Chat bubbles are `Equatable` and their markdown is parsed once, not per body
 pass. `Markdown(String)` runs cmark **inside its initializer**, i.e. inside

@@ -155,10 +155,10 @@ final class ScreenshotTests: XCTestCase {
         let app = launched()
         dismissBanner(app)
 
-        XCTAssertTrue(
-            app.buttons["Today's Briefing"].waitForExistence(timeout: 20),
-            "the component grid never appeared"
-        )
+        let tile = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "canvas.component."))
+            .firstMatch
+        XCTAssertTrue(tile.waitForExistence(timeout: 20), "the component grid never appeared")
         XCTAssertFalse(app.staticTexts["Outline"].exists, "Home still shows an Outline card")
         XCTAssertFalse(
             app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Components'")).firstMatch.exists,

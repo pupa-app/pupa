@@ -36,7 +36,6 @@ public struct MyAppHomeView: View {
         self.modelCatalog = modelCatalog
         self.subject = subject
         self.onNavigate = onNavigate
-        _outlineExpanded = State(initialValue: true)
     }
 
     /// The orchestrator's Outline — the only one left, and the point of its
@@ -160,9 +159,8 @@ public struct MyAppHomeView: View {
         icon: String,
         @ViewBuilder trailing: () -> some View = { EmptyView() }
     ) -> some View {
-        HStack(alignment: .firstTextBaseline) {
+        HStack(alignment: .top, spacing: 12) {
             MyAppPageHeader(page: "Home", name: name, icon: icon, color: appColor)
-            Spacer()
             trailing()
         }
     }
@@ -176,44 +174,44 @@ public struct MyAppHomeView: View {
         let layout = store.componentFolderLayout(forMyApp: app.id)
         let loose = app.components.filter { layout.folderId(forComponent: $0.id) == nil }
         return VStack(alignment: .leading, spacing: 12) {
-                LazyVGrid(columns: componentColumns, spacing: 12) {
-                    ForEach(layout.folders) { folder in
-                        FolderGridTile(
-                            folder: folder,
-                            count: members(of: folder, in: app, layout: layout).count,
-                            isExpanded: expandedFolders.contains(folder.id),
-                            onTap: { toggleFolder(folder.id) },
-                            onRename: {
-                                folderNameDraft = folder.name
-                                renamingFolder = FolderRef(myAppId: app.id, folderId: folder.id)
-                            },
-                            onDelete: { store.removeComponentFolder(folderId: folder.id, myAppId: app.id) },
-                            onDropComponent: { dragged in
-                                store.setComponentFolder(componentId: dragged, folderId: folder.id, myAppId: app.id)
-                            }
-                        )
-                    }
-                    ForEach(loose) { component in
-                        gridTile(app: app, component: component, inFolder: false)
-                    }
-                    addComponentMenu(app)
+            LazyVGrid(columns: componentColumns, spacing: 12) {
+                ForEach(layout.folders) { folder in
+                    FolderGridTile(
+                        folder: folder,
+                        count: members(of: folder, in: app, layout: layout).count,
+                        isExpanded: expandedFolders.contains(folder.id),
+                        onTap: { toggleFolder(folder.id) },
+                        onRename: {
+                            folderNameDraft = folder.name
+                            renamingFolder = FolderRef(myAppId: app.id, folderId: folder.id)
+                        },
+                        onDelete: { store.removeComponentFolder(folderId: folder.id, myAppId: app.id) },
+                        onDropComponent: { dragged in
+                            store.setComponentFolder(componentId: dragged, folderId: folder.id, myAppId: app.id)
+                        }
+                    )
                 }
-                ForEach(layout.folders.filter { expandedFolders.contains($0.id) }) { folder in
-                    expandedFolderSection(app: app, folder: folder, layout: layout)
+                ForEach(loose) { component in
+                    gridTile(app: app, component: component, inFolder: false)
                 }
+                addComponentMenu(app)
             }
-            .padding(.top, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            // Drop a tile into empty grid space → release it to the top level
-            // (iOS-home-screen "drag out of folder"). Tile/folder drops sit on
-            // subviews and take precedence; only gaps reach this handler.
-            .dropDestination(for: String.self) { ids, _ in
-                guard let dragged = ids.first,
-                      layout.folderId(forComponent: dragged) != nil else { return false }
-                store.setComponentFolder(componentId: dragged, folderId: nil, myAppId: app.id)
-                return true
+            ForEach(layout.folders.filter { expandedFolders.contains($0.id) }) { folder in
+                expandedFolderSection(app: app, folder: folder, layout: layout)
             }
+        }
+        .padding(.top, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        // Drop a tile into empty grid space → release it to the top level
+        // (iOS-home-screen "drag out of folder"). Tile/folder drops sit on
+        // subviews and take precedence; only gaps reach this handler.
+        .dropDestination(for: String.self) { ids, _ in
+            guard let dragged = ids.first,
+                  layout.folderId(forComponent: dragged) != nil else { return false }
+            store.setComponentFolder(componentId: dragged, folderId: nil, myAppId: app.id)
+            return true
+        }
     }
 
     /// MyApp-level lock: toggles the lock on every component at once. Shows
@@ -227,7 +225,7 @@ public struct MyAppHomeView: View {
                 store.setAllComponentsLocked(locked: !allLocked, myAppId: app.id)
             } label: {
                 Image(systemName: allLocked ? "lock.fill" : "lock.open")
-                    .font(.caption.weight(.semibold))
+                    .font(.title3)
                     .foregroundStyle(allLocked ? Color.orange : Color.secondary)
             }
             .buttonStyle(.plain)
@@ -421,7 +419,6 @@ public struct MyAppHomeView: View {
         }
         .buttonStyle(.plain)
     }
-
 
 }
 
