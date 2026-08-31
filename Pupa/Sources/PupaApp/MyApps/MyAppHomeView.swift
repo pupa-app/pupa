@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// Detail-pane landing page shown when a sidebar myApp row is tapped. A
-/// minimal overview that leads with structure — an **Outline** (the
-/// agent-written component summaries) and the **Components** grid. Agents,
-/// Memories, and History each live on the per-MyApp bottom bar, not here.
+/// Detail-pane landing page shown when a MyApp is opened. For a myApp it is
+/// the component grid itself, unadorned — no section header, because the grid
+/// is the whole page. The orchestrator keeps an **Outline** instead: it has no
+/// components, so without one its page would be empty. Agents, Memories, and
+/// History each live on the bar's menu, not here.
 public struct MyAppHomeView: View {
     let store: MyAppStore
     let memory: MemoryStore
@@ -35,16 +36,14 @@ public struct MyAppHomeView: View {
         self.modelCatalog = modelCatalog
         self.subject = subject
         self.onNavigate = onNavigate
-        // The Orchestrator's Outline is the point of its page, so lead with it
-        // expanded; a real MyApp keeps it collapsed behind the components.
-        _outlineExpanded = State(initialValue: subject == .orchestrator)
+        _outlineExpanded = State(initialValue: true)
     }
 
-    /// Outline leads the page but collapses so a verbose agent-written summary
-    /// doesn't push the components/agents off-screen.
-    @State private var outlineExpanded: Bool = false
-    /// Components are the core of a myApp, so the grid is expanded by default.
-    @State private var componentsExpanded: Bool = true
+    /// The orchestrator's Outline — the only one left, and the point of its
+    /// page, so it opens expanded. A myApp's Home is its component grid; the
+    /// per-component summaries that used to fill an Outline there still reach
+    /// the agent every turn through `CanvasSummary`.
+    @State private var outlineExpanded: Bool = true
     /// The component whose name + icon the user is editing, or `nil`.
     @State private var editingComponent: EditingComponentRef?
     /// The component pending delete confirmation, or `nil`.
@@ -79,9 +78,10 @@ public struct MyAppHomeView: View {
                 switch subject {
                 case .myApp:
                     if let app = myApp {
-                        header(name: app.name, icon: app.iconSystemName)
+                        header(name: app.name, icon: app.iconSystemName, trailing: {
+                            allComponentsLockButton(app)
+                        })
                         Divider()
-                        outlinePanel(app)
                         componentsPanel(app)
                     } else {
                         Text("App not found.")
@@ -91,7 +91,6 @@ public struct MyAppHomeView: View {
                     header(name: "Orchestrator", icon: "square.stack.3d.up.fill")
                     Divider()
                     orchestratorOutlinePanel()
-                    orchestratorComponentsPanel()
                 }
             }
             .padding(24)
@@ -156,57 +155,19 @@ public struct MyAppHomeView: View {
         }
     }
 
-    private func header(name: String, icon: String) -> some View {
-        MyAppPageHeader(page: "Home", name: name, icon: icon, color: appColor)
-    }
-
-    /// Renamed from "Summary": the agent-written per-component summaries, the
-    /// at-a-glance description of what the app holds.
-    private func outlinePanel(_ app: MyApp) -> some View {
-        let summarized = app.components.filter { $0.summary != nil }
-        return DisclosureGroup(isExpanded: $outlineExpanded) {
-            if summarized.isEmpty {
-                Text("No summary yet — chat with this app to populate it.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(summarized) { component in
-                        HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: component.iconSystemName)
-                                .frame(width: 18)
-                                .foregroundStyle(.secondary)
-                                .padding(.top, 2)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(component.name)
-                                    .font(.callout)
-                                    .fontWeight(.medium)
-                                Text(component.summary ?? "")
-                                    .font(.callout)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-                .padding(.top, 8)
-            }
-        } label: {
-            Text("Outline")
-                .font(.subheadline)
-                .fontWeight(.semibold)
-                .foregroundStyle(.primary)
+    private func header(
+        name: String,
+        icon: String,
+        @ViewBuilder trailing: () -> some View = { EmptyView() }
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            MyAppPageHeader(page: "Home", name: name, icon: icon, color: appColor)
+            Spacer()
+            trailing()
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.secondary.opacity(0.06))
-        )
     }
 
-    /// Collapsible grid of folder + component tiles + an "Add" menu. Tapping a
+    /// The page: a grid of folder + component tiles and an "Add" menu. Tapping a
     /// component opens its canvas; tapping a folder expands its contents inline.
     /// Dragging a tile onto another groups them; dragging onto a folder adds it.
     /// Folder layout is UI-only (`MyAppStore.componentFolders`) — invisible to
@@ -214,8 +175,7 @@ public struct MyAppHomeView: View {
     private func componentsPanel(_ app: MyApp) -> some View {
         let layout = store.componentFolderLayout(forMyApp: app.id)
         let loose = app.components.filter { layout.folderId(forComponent: $0.id) == nil }
-        return DisclosureGroup(isExpanded: $componentsExpanded) {
-            VStack(alignment: .leading, spacing: 12) {
+        return VStack(alignment: .leading, spacing: 12) {
                 LazyVGrid(columns: componentColumns, spacing: 12) {
                     ForEach(layout.folders) { folder in
                         FolderGridTile(
@@ -254,25 +214,6 @@ public struct MyAppHomeView: View {
                 store.setComponentFolder(componentId: dragged, folderId: nil, myAppId: app.id)
                 return true
             }
-        } label: {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Components")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.primary)
-                Spacer()
-                allComponentsLockButton(app)
-                Text("\(app.components.count)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.secondary.opacity(0.06))
-        )
     }
 
     /// MyApp-level lock: toggles the lock on every component at once. Shows
@@ -481,34 +422,6 @@ public struct MyAppHomeView: View {
         .buttonStyle(.plain)
     }
 
-    /// Orchestrator has no components of its own — show the same Components
-    /// panel, empty, so the page reads like any other myapp home.
-    private func orchestratorComponentsPanel() -> some View {
-        DisclosureGroup(isExpanded: $componentsExpanded) {
-            Text("None. The orchestrator coordinates your myapps rather than holding its own canvas.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 12)
-        } label: {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Components")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.primary)
-                Spacer()
-                Text("0")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.secondary.opacity(0.06))
-        )
-    }
 
 }
 

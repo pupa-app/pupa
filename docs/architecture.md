@@ -129,16 +129,15 @@ sidebar-hidden **and** agent-off. Archiving also locks all its components
 the lock on. Archived apps are browsed/restored/deleted from **Settings →
 Archive** (`ArchivedAppsView`). Memories are keyed on the app id and untouched
 — they ride along, hidden with the app and back on restore. The Orchestrator opens the same home layout as a
-MyApp (`MyAppHomeView` with `subject: .orchestrator`) — an Outline explaining
-what it coordinates plus the myapps it can drive, and an empty Components panel
-— plus the same bottom bar (Home · Memories · Pupa · Menu), rather than a
-bespoke page. Both homes leave agents to the **Agents** row in that menu; the
-home itself only shows the Outline + Components. The MyApps sheet is presented from `iOSBody` and constructs its content on
-presentation. The drawer it replaced was always mounted — opening slid it by
-`.offset` rather than cold-constructing the sidebar `List` inside the tap
-transaction, which had measured ~90-135ms tap→frame warm and ~1.1s on first
-open. That trade-off went with the drawer; the iOS-only path is not reachable by
-the (macOS) `PUPA_PERF_UI` harness, so it is currently unmeasured.
+MyApp (`MyAppHomeView` with `subject: .orchestrator`) — but the two diverge on
+purpose. A myApp's Home is its **component grid alone**: no Outline (it restated
+the grid) and no "Components" header (it named the only thing on the page, with
+a count and a collapse chevron for a group that is the whole screen). The lock
+sits beside the app name; Add stays in the grid. The orchestrator has no
+components, so its page would be empty without one — it keeps the **Outline**
+explaining what it coordinates and the myapps it can drive, and lost the empty
+Components card whose only content said it was empty. Both homes leave agents,
+memories and history to the bar's menu.
 
 Chat bubbles are `Equatable` and their markdown is parsed once, not per body
 pass. `Markdown(String)` runs cmark **inside its initializer**, i.e. inside
