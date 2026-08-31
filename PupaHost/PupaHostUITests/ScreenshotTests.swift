@@ -22,27 +22,25 @@ final class ScreenshotTests: XCTestCase {
 
     // MARK: Frames
 
-    /// Frame 1 — the populated canvas, drawer closed.
+    /// Frame 1 — the populated canvas.
     @MainActor
     func testFrame01Canvas() throws {
         let app = launched()
         dismissBanner(app)
-        closeDrawer(app)
-        // The close swipe can land on the Components disclosure and collapse it.
-        if !app.buttons["Today's Briefing"].waitForExistence(timeout: 6) {
-            let section = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Components'")).firstMatch
-            if section.waitForExistence(timeout: 6), section.isHittable { section.tap() }
-        }
         _ = app.buttons["Today's Briefing"].waitForExistence(timeout: 15)
         shoot("frame-01-canvas")
     }
 
-    /// Frame 4 — the MyApps library drawer (open at launch).
+    /// Frame 4 — the MyApps library, now a sheet from the bar's menu.
     @MainActor
     func testFrame04Library() throws {
         let app = launched()
         dismissBanner(app)
-        _ = app.staticTexts["MyApps"].waitForExistence(timeout: 20)
+        openMyApps(app)
+        XCTAssertTrue(
+            app.staticTexts["MyApps"].waitForExistence(timeout: 20),
+            "the MyApps sheet never opened"
+        )
         shoot("frame-04-library")
     }
 
@@ -51,7 +49,6 @@ final class ScreenshotTests: XCTestCase {
     func testFrame02Chat() throws {
         let app = launched()
         dismissBanner(app)
-        closeDrawer(app)
         let chat = app.buttons["Open chat"]
         if chat.waitForExistence(timeout: 20) { chat.tap() }
         _ = app.staticTexts.firstMatch.waitForExistence(timeout: 10)
@@ -61,11 +58,7 @@ final class ScreenshotTests: XCTestCase {
     /// Frame 6 — settings root (backend / account / agents).
     @MainActor
     func testFrame06Settings() throws {
-        // Launch with the drawer already shut rather than swiping it closed:
-        // opening a menu straight after the close animation races it, and the
-        // tap lands on the scrim. `NotificationsFlowUITests` reaches Settings
-        // the same way.
-        let app = launched(drawerOpen: false)
+        let app = launched()
         dismissBanner(app)
         openSettings(app)
         _ = app.staticTexts.firstMatch.waitForExistence(timeout: 10)
@@ -77,21 +70,88 @@ final class ScreenshotTests: XCTestCase {
     func testFrame08Memories() throws {
         let app = launched()
         dismissBanner(app)
-        closeDrawer(app)
         let mem = app.buttons["Memories"]
         if mem.waitForExistence(timeout: 20) { mem.tap() }
         _ = app.staticTexts.firstMatch.waitForExistence(timeout: 10)
         shoot("frame-08-memories")
     }
 
+    /// Screen share is the one page with no bottom bar, so before this it was
+    /// opened with a root swap and had no way out at all — no bar, no menu, no
+    /// Back button. Deleting the always-present toolbar hamburger is what made
+    /// that fatal, so this pins the escape route.
+    @MainActor
+    func testScreenShareIsNotADeadEnd() throws {
+        let app = launched()
+        dismissBanner(app)
+
+        let menu = app.buttons["Menu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 20), "no bar menu")
+        let share = app.buttons["Screen share"]
+        for _ in 0..<3 {
+            menu.tap()
+            if share.waitForExistence(timeout: 5) { break }
+        }
+        XCTAssertTrue(share.exists, "no Screen share item in the menu")
+        share.tap()
+
+        XCTAssertTrue(
+            app.buttons["Connect"].waitForExistence(timeout: 20),
+            "screen share never opened"
+        )
+        // It was pushed, so the stack gives it a Back button — the only way
+        // off a page that has no bar.
+        let back = app.navigationBars.buttons.firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: 10), "screen share has no way back")
+        back.tap()
+        XCTAssertTrue(
+            app.buttons["Today's Briefing"].waitForExistence(timeout: 20),
+            "Back did not leave screen share"
+        )
+    }
+
+    /// Tapping a row is what the sheet is *for*, and it had no coverage: the
+    /// two observers that make it work — `onChange(of: selection)` in AppView
+    /// (dismiss) and in MyAppSidebarView (navigate) — now sit on opposite
+    /// sides of a sheet-presentation boundary rather than in one view tree.
+    @MainActor
+    func testTappingAMyAppRowNavigatesAndDismissesTheSheet() throws {
+        let app = launched()
+        dismissBanner(app)
+        openMyApps(app)
+        XCTAssertTrue(
+            app.staticTexts["MyApps"].waitForExistence(timeout: 20),
+            "the MyApps sheet never opened"
+        )
+
+        // By identifier, not label: the row is `accessibilityElement(.combine)`
+        // inside a List, so it is not a plain button. This is what
+        // `PupaID.sidebarMyApp` exists for — it had no consumer left after the
+        // drawer's test helpers went.
+        let row = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "sidebar.myApp."))
+            .firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "no MyApp row")
+        row.tap()
+
+        // The sheet goes...
+        XCTAssertTrue(
+            app.buttons["Close"].waitForNonExistence(timeout: 20),
+            "tapping a row left the sheet up"
+        )
+        // ...and the app it names is what the bar is now driving.
+        XCTAssertTrue(
+            app.buttons["Today's Briefing"].waitForExistence(timeout: 20),
+            "tapping a row dismissed the sheet without navigating"
+        )
+        XCTAssertTrue(app.buttons["Menu"].exists, "the bar never came back")
+    }
+
     // MARK: Helpers
 
-    /// `drawerOpen` writes the persisted `pupa.ui.sidebarOpen` default, so a
-    /// frame gets the drawer state it wants without swiping for it.
     @MainActor
-    private func launched(drawerOpen: Bool = true) -> XCUIApplication {
+    private func launched() -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-pupa.ui.sidebarOpen", drawerOpen ? "YES" : "NO"]
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 90), "app never foregrounded")
         _ = app.staticTexts["Daily Briefing"].waitForExistence(timeout: 45)
@@ -105,33 +165,34 @@ final class ScreenshotTests: XCTestCase {
         if x.waitForExistence(timeout: 8), x.isHittable { x.tap() }
     }
 
-    /// The MyApps drawer is open on launch and its scrim swallows taps on the
-    /// nav bar and bottom bar, so the hamburger is unreachable. Tap the sliver
-    /// of canvas still visible on the right, then fall back to a swipe.
+    /// Open the MyApps sheet from the bar's menu.
     @MainActor
-    private func closeDrawer(_ app: XCUIApplication) {
-        // Swipe from the drawer's own empty area — tapping the exposed canvas
-        // sliver activates whatever component sits under it and drills in.
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.35))
-            .press(forDuration: 0.05,
-                   thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.0, dy: 0.35)))
-        _ = app.buttons["Today's Briefing"].waitForExistence(timeout: 10)
+    private func openMyApps(_ app: XCUIApplication) {
+        let menu = app.buttons["Menu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 20), "no bar menu")
+        let myApps = app.buttons["MyApps"]
+        for _ in 0..<3 {
+            menu.tap()
+            if myApps.waitForExistence(timeout: 5) { break }
+        }
+        XCTAssertTrue(myApps.exists, "no MyApps item in the menu")
+        myApps.tap()
     }
 
-    /// Open Settings through the bottom bar's `⋯`. Needs the drawer shut.
+    /// Open Settings through the bar's menu.
     @MainActor
     private func openSettings(_ app: XCUIApplication) {
-        let more = app.buttons["More"]
-        XCTAssertTrue(more.waitForExistence(timeout: 20), "no More button")
+        let menu = app.buttons["Menu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 20), "no bar menu")
         let settings = app.buttons["Settings"]
         // SwiftUI reports the menu as a PopUpButton, and a tap that lands
         // before it is ready opens nothing at all rather than failing — so
         // confirm the menu actually came up, and tap again if it didn't.
         for _ in 0..<3 {
-            more.tap()
+            menu.tap()
             if settings.waitForExistence(timeout: 5) { break }
         }
-        XCTAssertTrue(settings.exists, "no Settings item in More")
+        XCTAssertTrue(settings.exists, "no Settings item in the menu")
         settings.tap()
     }
 

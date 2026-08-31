@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="Pupa/Sources/PupaApp/Version.swift"><img src="https://img.shields.io/badge/Pupa-0.0.274-000000?logo=apple&logoColor=white" alt="Pupa version" /></a>
+  <a href="Pupa/Sources/PupaApp/Version.swift"><img src="https://img.shields.io/badge/Pupa-0.0.275-000000?logo=apple&logoColor=white" alt="Pupa version" /></a>
   <a href="AGUIKit/Sources/AGUIKit/Version.swift"><img src="https://img.shields.io/badge/AGUIKit-0.0.30-f05138?logo=swift&logoColor=white" alt="AGUIKit version" /></a>
 </p>
 

@@ -7,6 +7,9 @@ public struct MyAppSidebarView: View, Equatable {
     var onSelectionChange: (SidebarSelection) -> Void
     var onDeleteMyApp: (UUID) -> Void
     var onArchiveMyApp: (UUID) -> Void
+    /// Dismiss, when presented as a sheet. `nil` on macOS, where this is a
+    /// permanent column with nothing to dismiss.
+    var onClose: (() -> Void)?
 
     @State private var newSheetPresented = false
     /// The myApp whose combined edit sheet (name + icon + color) is open.
@@ -27,7 +30,8 @@ public struct MyAppSidebarView: View, Equatable {
         busyMyApps: Set<UUID>,
         onSelectionChange: @escaping (SidebarSelection) -> Void,
         onDeleteMyApp: @escaping (UUID) -> Void,
-        onArchiveMyApp: @escaping (UUID) -> Void
+        onArchiveMyApp: @escaping (UUID) -> Void,
+        onClose: (() -> Void)? = nil
     ) {
         self.store = store
         self._selection = selection
@@ -35,6 +39,7 @@ public struct MyAppSidebarView: View, Equatable {
         self.onSelectionChange = onSelectionChange
         self.onDeleteMyApp = onDeleteMyApp
         self.onArchiveMyApp = onArchiveMyApp
+        self.onClose = onClose
     }
 
     /// Value inputs and store identity only — the closures are stable action
@@ -200,6 +205,15 @@ public struct MyAppSidebarView: View, Equatable {
                         .accessibilityLabel("New myapp")
                 }
                 .buttonStyle(.borderless)
+                if let onClose {
+                    Button(action: onClose) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel("Close")
+                    }
+                    .buttonStyle(.borderless)
+                    .keyboardShortcut(.cancelAction)
+                }
             }
         }
     }
@@ -299,11 +313,17 @@ public struct MyAppSidebarView: View, Equatable {
         .accessibilityIdentifier(PupaID.sidebarMyApp(myApp.id))
         // iOS `List(selection:)` only tap-selects rows in edit mode, so plain
         // taps landed on the binding unreliably — routing to the wrong (stale)
-        // MyApp. Drive selection explicitly from a full-row tap; macOS keeps
-        // using `List(selection:)` via the `.tag` above for its row highlight.
+        // MyApp. Drive it explicitly from a full-row tap; macOS keeps using
+        // `List(selection:)` via the `.tag` above for its row highlight.
         #if os(iOS)
         .contentShape(Rectangle())
-        .onTapGesture { selection = tag }
+        .onTapGesture {
+            // Call through directly rather than relying on `selection` to
+            // *change*: it already equals `tag` for the active app, so the
+            // `onChange` observers never fire and the tap does nothing.
+            selection = tag
+            onSelectionChange(tag)
+        }
         #endif
         .contextMenu {
             Button {

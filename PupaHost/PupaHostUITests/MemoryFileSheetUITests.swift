@@ -121,11 +121,11 @@ final class MemoryFileSheetUITests: XCTestCase {
     func testAgentPromptLinkOpensTheFileAsASheetToo() throws {
         let app = launched(storage: "ephemeral:memsheet-agentlink", reset: true)
 
-        let more = app.buttons["More"]
-        XCTAssertTrue(more.waitForExistence(timeout: 30), "no More button")
-        more.tap()
+        let menu = app.buttons["Menu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 30), "no bar menu")
+        menu.tap()
         let agents = app.buttons["Agents"]
-        XCTAssertTrue(agents.waitForExistence(timeout: 10), "no Agents item in More")
+        XCTAssertTrue(agents.waitForExistence(timeout: 10), "no Agents item in the menu")
         agents.tap()
 
         // The myApp's main agent, then its Prompt row.
@@ -260,8 +260,6 @@ final class MemoryFileSheetUITests: XCTestCase {
         app.launchArguments = [
             "-PupaStorageRoot", storage,
             "-PupaSkipOnboarding", "1",
-            // The bar is what these tests drive, so keep the drawer out of it.
-            "-pupa.ui.sidebarOpen", "NO",
         ]
         if reset { app.launchArguments += ["-PupaStorageReset", "1"] }
         app.launch()

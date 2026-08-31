@@ -94,13 +94,16 @@ handlers.
 | [`Settings/`](../Pupa/Sources/PupaApp/Settings/) | `SettingsStore` (backend URL, API key, disabled tools), `SettingsSheet` + its category screens, `SettingsHubRow`, backend-tools client. |
 
 `AppView` lays this out as a fixed-width `HStack` split (sidebar `Divider`
-detail) on macOS and a custom slide-in drawer on iOS. (macOS deliberately
+detail) on macOS and, on iOS, a **bottom sheet** opened from the bar menu's
+**MyApps** row — the same idiom as Settings and memory notes, rather than the
+left-slide drawer it used to be. There is no toolbar hamburger; the bar's menu
+is the only menu. (macOS deliberately
 avoids `NavigationSplitView`: its sidebar fails to render in the unbundled
 `swift run` PupaDemo binary, leaving an empty column.) The sidebar lists the
 **visible** (non-archived) MyApps as compact, **non-expanding** rows (tap a row
 → its home; components, memories, and history are reached from the MyApp home +
 its bottom bar, not the sidebar) and nothing else — no footer, no Orchestrator
-row. The bottom bar's **More** menu is the one place global actions live, the
+row. The bottom bar's **Menu** is the one place global actions live, the
 Orchestrator among them. A row's long-press menu offers Rename · **Move to
 Folder** · **Archive** · Delete.
 
@@ -128,15 +131,14 @@ Archive** (`ArchivedAppsView`). Memories are keyed on the app id and untouched
 — they ride along, hidden with the app and back on restore. The Orchestrator opens the same home layout as a
 MyApp (`MyAppHomeView` with `subject: .orchestrator`) — an Outline explaining
 what it coordinates plus the myapps it can drive, and an empty Components panel
-— plus the same bottom bar (Home · Memories · Pupa · More), rather than a
-bespoke page. Both homes leave agents to the **Agents** page under More; the
-home itself only shows the Outline + Components. The drawer fills most of a compact
-(iPhone-portrait) screen but stays a slim fixed width on a regular width class
-(iPad, large iPhone landscape). Drawer + scrim are **always mounted** (like the
-keep-alive detail panes): open/close slides by `.offset` under a single scoped
-`.snappy(0.25)` animation — cold-constructing the sidebar `List` inside the tap
-transaction measured ~90–135ms tap→frame warm (and ~1.1s on first open) and made
-the hamburger feel slow next to the animation-free page switches.
+— plus the same bottom bar (Home · Memories · Pupa · Menu), rather than a
+bespoke page. Both homes leave agents to the **Agents** row in that menu; the
+home itself only shows the Outline + Components. The MyApps sheet is presented from `iOSBody` and constructs its content on
+presentation. The drawer it replaced was always mounted — opening slid it by
+`.offset` rather than cold-constructing the sidebar `List` inside the tap
+transaction, which had measured ~90-135ms tap→frame warm and ~1.1s on first
+open. That trade-off went with the drawer; the iOS-only path is not reachable by
+the (macOS) `PUPA_PERF_UI` harness, so it is currently unmeasured.
 
 Chat bubbles are `Equatable` and their markdown is parsed once, not per body
 pass. `Markdown(String)` runs cmark **inside its initializer**, i.e. inside
@@ -200,7 +202,7 @@ disagreement, so the two cannot drift apart silently.
   Catches render-side cost (offscreen rasterization) that *main* misses.
 
 Lines carry `cold`/`warm`, so "first open slow" is a column, not an anecdote.
-Wired at `setRoot`, the drawer toggle, Settings open, and the History push.
+Wired at `setRoot`, the MyApps sheet, Settings open, and the History push.
 
 `PerfTrace.region` times a synchronous span *inside* an interaction, to
 attribute cost to a block rather than guess at it. `PUPA_PERF_FOCUS=<drive>`
@@ -314,14 +316,20 @@ renders through MarkdownUI, anything else verbatim as monospaced h-scrolling cod
 — markdown's soft-break-as-space would otherwise flatten a `.json` note's
 newlines and indentation. Edit mode is a monospaced `TextEditor` either way, so
 preview and buffer match byte for byte), the **Pupa** chat launcher (toggles
-`AppView.chatOpen`, carrying the scope's `StatusBadge`), and **More** (`⋯`) —
-the app's single overflow, holding **Agents** (`person.2`, opens
-`AgentsListView` / `AgentDetailView`), **History** (`clock`, pushes
-`ChangeHistoryView` via `.myAppHistory` — **myApp only**; the orchestrator has
-no canvas change-log so it omits this), then the app-wide **Orchestrator**,
-**Screen share** and **Settings**. The orchestrator's own bar omits the
+`AppView.chatOpen`, carrying the scope's `StatusBadge`), and the **Menu**
+(`line.3.horizontal`) —
+the app's only menu (`line.3.horizontal`), grouped one axis per section: this
+scope's pages — **Agents** (`person.2`, opens `AgentsListView` /
+`AgentDetailView`) and **History** (`clock`, pushes `ChangeHistoryView` via
+`.myAppHistory` — **myApp only**; the orchestrator has no canvas change-log so
+it omits this) — then *which* scope you're in (**MyApps**, which presents the
+sidebar as a sheet, and **Orchestrator**), then app-wide (**Screen share**,
+**Settings**). Flat-listing those axes put History next to Settings, two rows
+that don't apply to the same thing; MyApps is one row onto its own surface
+instead. iOS flips a bottom-anchored menu, so the first group declared lands
+nearest the thumb. The orchestrator's own bar omits the
 Orchestrator item for the same reason it omits History: you're already there.
-More lights up as the active slot while an Agents or History page is showing. Components are deliberately absent from it: the home page already
+The menu lights up as the active slot while an Agents or History page is showing. Components are deliberately absent from it: the home page already
 grids them one tap away. Glyphs are tinted the
 subject's color (a myApp's creation-order index via
 `MyAppStore.colorIndex(for:)`; `orchestratorColor` for the orchestrator), the
@@ -630,9 +638,9 @@ sets a flag that surfaces a dismissible "connect your backend" banner in
 Once onboarding finishes, an **interactive guided tour** runs once
 (`App/GuidedTour.swift` + `App/GuidedTourOverlay.swift`). A floating *coach
 card* explains each step while the tour programmatically navigates the **real**
-app to that surface — sixteen steps: welcome (opens the sidebar menu), Settings
+app to that surface — sixteen steps: welcome, Settings
 overview (the category list), Settings · Backend (deep-linked), then the MyApp
-bottom bar walked left to right — Home, Memories, **More**, then Agents and
+bottom bar walked left to right — Home, Memories, the **Menu**, then Agents and
 History as the pages behind it — followed by chat, agents & threads, the
 Orchestrator opened (prefilled "create a new myapp"), slash commands, screen
 share, Share a MyApp (deep-links Settings ▸ Import & Export), Settings · Account (`settingsPage: .account` → the `.profile`
@@ -645,11 +653,11 @@ example they like to drop a workspace in to explore. It is
 `@Observable GuidedTourStore.shared` (mirroring `OnboardingHandoff.shared`)
 holds the step list (`TourContent`, pure data) + current index. Each `TourStep`
 carries **composable, independent intents** (a step may navigate *and* open the
-chat with a prefill) — `selection`, `opensSidebar`, `settingsPage`, `opensChat`,
+chat with a prefill) — `selection`, `settingsPage`, `opensChat`,
 `chatPrefill`, `highlight` — that target the stable routing layer, never
 geometry.
 `AppView.applyTourStep()` reconciles them: it routes the step's selection
-through `setRoot` (so the chat scope follows), opens the sidebar, and
+through `setRoot` (so the chat scope follows), closes the MyApps sheet, and
 writes the store's intent flags (`wantSettingsOpen` / `wantSettingsPage` /
 `wantChatOpen` / `chatPrefill` / `wantHighlight`). Host views then mirror those
 declaratively:
@@ -660,7 +668,7 @@ and `ChatPanel` adopts `chatPrefill` (including "/" to surface the
 streams it character by character after a short lead-in (instant under Reduce
 Motion or for single-char "/"). `wantHighlight` names a control
 (`TourHighlight`: a bottom-bar slot, the chat header, or a Settings section);
-Exactly one step rings More, enforced by a test: a SwiftUI `Menu` can't be
+Exactly one step rings the menu, enforced by a test: a SwiftUI `Menu` can't be
 opened programmatically, so a second ring would point at a closed menu. Steps
 describing what lives inside it navigate there or deep-link Settings instead.
 `TourHighlight.swift` provides a `.tourAnchor` preference those views publish
@@ -673,9 +681,9 @@ and sits behind `.allowsHitTesting(false)`, so it tracks layout changes and neve
 blocks the control it points at. The card is gated on
 `tour.isActive` and rendered above
 the sidebar + chat; because an iOS `.sheet` covers that ZStack, `SettingsSheet`
-re-renders the same card as its own overlay during the Settings steps. (That
-sheet is hosted by the sidebar — always mounted, but `applyTourStep` still
-opens the drawer whenever a step opens Settings to keep tour semantics.) Each step starts the card
+re-renders the same card as its own overlay during the Settings steps. (`AppView`
+owns that sheet, and `applyTourStep` closes the MyApps sheet on every step —
+no step opens it.) Each step starts the card
 at its `placement` anchor, but a grab handle lets the user drag it anywhere; the
 position snaps back to the anchor on the next step. The tour
 auto-starts when `completed && !tourCompleted`, persists `pupa.tour.completed`

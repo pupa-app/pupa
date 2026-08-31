@@ -39,9 +39,10 @@ struct GuidedTourStoreTests {
         #expect(store.isFirstStep)
         #expect(!store.isLastStep)
         #expect(store.currentStep?.id == "welcome")
-        // The welcome step opens the sidebar menu rather than navigating.
-        #expect(store.currentStep?.opensSidebar == true)
+        // The welcome step just introduces the app — it navigates nowhere and
+        // rings nothing.
         #expect(store.currentStep?.selection == nil)
+        #expect(store.currentStep?.highlight == nil)
     }
 
     @Test("start clears any stale intent flags")
@@ -249,10 +250,6 @@ struct GuidedTourStoreTests {
         #expect(screenShare.selection == nil)
         #expect(screenShare.highlight == nil)
 
-        // None of the three needs the drawer any more.
-        for stepId in ["orchestrator", "screen-share", "share-myapp"] {
-            #expect(!steps.first { $0.id == stepId }!.opensSidebar)
-        }
         // The step that introduced the Orchestrator from the sidebar footer is
         // gone — `bar-more` names it instead.
         #expect(!steps.contains { $0.id == "orchestrator-menu" })

@@ -4,12 +4,12 @@ import SwiftUI
 /// "tab bar". Always visible (mounted via `.safeAreaInset`) on a myApp's home /
 /// component / memories pages and on the orchestrator's home / memories pages.
 ///
-///   Home · Memories · Pupa(chat) · More
+///   Home · Memories · Pupa(chat) · Menu
 ///
-/// The app's only bar: the sidebar has no footer, so More carries what used to
+/// The app's only bar: the sidebar has no footer, so the menu carries what used to
 /// be split between the two — Agents and History (the low-traffic per-subject
 /// pages) plus the global Screen share and Settings. The orchestrator has no
-/// canvas change-log, so its More omits History. Icons are tinted in the
+/// canvas change-log, so its the menu omits History. Icons are tinted in the
 /// subject's color; the pupa keeps its own look.
 public struct MyAppBottomBar: View {
     /// Which page the bar should mark as active.
@@ -18,10 +18,10 @@ public struct MyAppBottomBar: View {
         case component(String)
         /// The memory browse page or any memory file within it.
         case memories
-        /// The agents overview or any agent detail page. Reached from More, so
-        /// it lights More rather than a slot of its own.
+        /// The agents overview or any agent detail page. Reached from the menu, so
+        /// it lights the menu rather than a slot of its own.
         case agents
-        /// The change-history page. Also reached from More.
+        /// The change-history page. Also reached from the menu.
         case history
     }
 
@@ -41,6 +41,14 @@ public struct MyAppBottomBar: View {
     /// Present the Settings sheet. Owned by `AppView` — the bar is the only
     /// surface that reaches Settings now that the sidebar footer is gone.
     let onOpenSettings: () -> Void
+    /// Present the MyApps sheet. The bar is the only way there now that the
+    /// top-left hamburger is gone. `nil` on macOS, where the sidebar column is
+    /// always on screen and a row that opens it would be redundant.
+    let onOpenMyApps: (() -> Void)?
+    /// Open the screen-share viewer. Separate from `onSelect` because it must
+    /// **push**: it is the one page the bar does not appear on, so a root swap
+    /// there would leave no bar, no Back button, and no way out.
+    let onOpenScreenShare: () -> Void
 
     /// Row height for each bar button.
     static let rowHeight: CGFloat = 30
@@ -56,7 +64,9 @@ public struct MyAppBottomBar: View {
         onSelect: @escaping (SidebarSelection) -> Void,
         onShowHistory: @escaping (UUID) -> Void,
         onToggleChat: @escaping () -> Void,
-        onOpenSettings: @escaping () -> Void
+        onOpenSettings: @escaping () -> Void,
+        onOpenMyApps: (() -> Void)? = nil,
+        onOpenScreenShare: @escaping () -> Void
     ) {
         self.subject = subject
         self.currentPage = currentPage
@@ -67,6 +77,8 @@ public struct MyAppBottomBar: View {
         self.onShowHistory = onShowHistory
         self.onToggleChat = onToggleChat
         self.onOpenSettings = onOpenSettings
+        self.onOpenMyApps = onOpenMyApps
+        self.onOpenScreenShare = onOpenScreenShare
     }
 
     private var myAppId: UUID? {
@@ -101,7 +113,7 @@ public struct MyAppBottomBar: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, Self.verticalPadding)
-        // macOS: keep the end controls (Home, ⋯) off the window edge — the
+        // macOS: keep the end controls (Home, menu) off the window edge — the
         // borderless menu otherwise sits flush against the trailing border.
         #if os(macOS)
         .padding(.horizontal, 8)
@@ -171,19 +183,24 @@ public struct MyAppBottomBar: View {
         .tourAnchor(.bottomBarChat)
     }
 
-    /// True while a page reached through More is showing, so the button reads
+    /// True while a page reached through the menu is showing, so the button reads
     /// as the active slot the way a real tab would.
     private var moreActive: Bool {
         currentPage == .agents || currentPage == .history
     }
 
-    /// `⋯` overflow: the per-subject pages that don't earn a slot (Agents, and
-    /// History for a myApp) above the app-wide ones (Orchestrator, Screen
-    /// share, Settings). Components are deliberately absent — Home already
-    /// grids them, one tap away, and this is the only `⋯` in the app now.
+    /// The app's menu, grouped one axis per section — this scope's pages
+    /// (Agents, History), which scope you're in (MyApps, Orchestrator), then
+    /// app-wide (Screen share, Settings). Mixing those in one flat list put
+    /// History next to Settings, two rows that don't even apply to the same
+    /// thing; MyApps is a single row onto its own surface instead.
     ///
-    /// The orchestrator's own bar omits the Orchestrator item, the same way it
-    /// omits History: you're already there.
+    /// iOS flips a bottom-anchored menu, so the first group declared lands
+    /// nearest the thumb.
+    ///
+    /// Components are deliberately absent — Home already grids them. The
+    /// orchestrator's bar omits the Orchestrator row, the same way it omits
+    /// History: you're already there.
     private var moreMenu: some View {
         Menu {
             Button {
@@ -199,24 +216,35 @@ public struct MyAppBottomBar: View {
                 }
             }
             Divider()
-            if myAppId != nil {
-                Button {
-                    onSelect(.orchestrator)
-                } label: {
-                    Label("Orchestrator", systemImage: "square.stack.3d.up.fill")
+            // The scope group is empty on the macOS orchestrator bar — no
+            // MyApps row (the column is always up) and no Orchestrator row
+            // (you're on it) — so skip it rather than colliding two dividers.
+            if onOpenMyApps != nil || myAppId != nil {
+                if let onOpenMyApps {
+                    Button(action: onOpenMyApps) {
+                        Label("MyApps", systemImage: "square.grid.2x2")
+                    }
                 }
+                if myAppId != nil {
+                    Button {
+                        onSelect(.orchestrator)
+                    } label: {
+                        Label("Orchestrator", systemImage: "square.stack.3d.up.fill")
+                    }
+                }
+                Divider()
             }
-            Button {
-                onSelect(.screenShare)
-            } label: {
+            Button(action: onOpenScreenShare) {
                 Label("Screen share", systemImage: "rectangle.on.rectangle")
             }
             Button(action: onOpenSettings) {
                 Label("Settings", systemImage: "gearshape")
             }
         } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 18, weight: moreActive ? .semibold : .medium))
+            // Heavier and a touch larger than the other slots: three thin rules
+            // at the shared 18pt/medium did not read as a hamburger.
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 21, weight: moreActive ? .bold : .semibold))
                 .foregroundStyle(moreActive ? appColor : appColor.opacity(0.7))
                 .frame(height: Self.rowHeight)
                 .padding(.horizontal, 14)
@@ -234,10 +262,10 @@ public struct MyAppBottomBar: View {
         .menuIndicator(.hidden)
         // Claim an equal slot like the other bar buttons: on macOS the
         // borderless menu collapses to its label's intrinsic width otherwise,
-        // shoving `⋯` against the trailing edge.
+        // shoving the menu against the trailing edge.
         .frame(maxWidth: .infinity)
-        .help("More")
-        .accessibilityLabel("More")
+        .help("Menu")
+        .accessibilityLabel("Menu")
         .tourAnchor(.bottomBarMore)
     }
 }

@@ -60,7 +60,8 @@ BACKEND ?= http://localhost:8004
 HARNESS ?= claude_code
 FIXTURES := $(PUPAHOST)/PupaHostUITests/Fixtures
 # Override to scope: make ui-test UITEST=TurnRecoveryUITests
-UITEST ?= ChatFlowUITests NotificationsFlowUITests TurnRecoveryUITests
+UITEST ?= ChatFlowUITests NotificationsFlowUITests TurnRecoveryUITests \
+          ScreenshotTests MemoryFileSheetUITests
 
 ui-test:  ## Run the simulator UI tests, exporting screenshots to build/shots (SIM=... device, UITEST=... suites)
 	@rm -rf build/uitest.xcresult build/shots

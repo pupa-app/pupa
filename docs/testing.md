@@ -171,9 +171,9 @@ app is backgrounded — there is no accessibility tree then — so `ui-test-reco
 also captures the app's unified log (`dev.pupa.aguikit`) to `build/trace.log`,
 which is the only thing that keeps reporting across that window.
 
-The drawer covers the bottom bar with a bar of its own and its open state
-persists, so a UI test that needs the bottom bar passes `-pupa.ui.sidebarOpen
-NO`, and one that needs the drawer's own surfaces passes `YES`. `isHittable` is
+MyApps is a sheet opened from the bar's menu, so a UI test that needs it taps
+`Menu` then `MyApps` rather than pre-setting a launch default — the old
+`-pupa.ui.sidebarOpen` argument is gone with the drawer it controlled. `isHittable` is
 no guard here: XCUITest reports the covered toggle as hittable.
 
 Screenshots land in `build/shots`; the suites attach one on failure.

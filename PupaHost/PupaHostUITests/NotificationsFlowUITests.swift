@@ -21,10 +21,6 @@ final class NotificationsFlowUITests: XCTestCase {
         app.launchArguments = [
             "-PupaStorageRoot", "ephemeral",
             "-PupaSkipOnboarding", "1",
-            // The drawer's open state is persisted (`pupa.ui.sidebarOpen`), and
-            // Settings now lives behind the bottom bar's More menu — left open
-            // by an earlier run, the drawer covers the bar.
-            "-pupa.ui.sidebarOpen", "NO",
         ]
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 90), "app never foregrounded")
@@ -32,12 +28,12 @@ final class NotificationsFlowUITests: XCTestCase {
         let x = app.buttons["Dismiss"]
         if x.waitForExistence(timeout: 8), x.isHittable { x.tap() }
 
-        let more = app.buttons["More"]
-        XCTAssertTrue(more.waitForExistence(timeout: 30), "no More button")
-        more.tap()
+        let menu = app.buttons["Menu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 30), "no bar menu")
+        menu.tap()
 
         let settings = app.buttons["Settings"]
-        XCTAssertTrue(settings.waitForExistence(timeout: 10), "no Settings item in More")
+        XCTAssertTrue(settings.waitForExistence(timeout: 10), "no Settings item in the menu")
         settings.tap()
 
         let row = app.buttons

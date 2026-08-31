@@ -24,7 +24,6 @@ final class TurnRecoveryUITests: XCTestCase {
         static let chatComposer = "chat.composer"
         static let chatSend = "chat.send"
         static let chatToggle = "chat.toggle"
-        static let sidebarMyAppPrefix = "sidebar.myApp."
         static let chatContinue = "chat.continue"
         static let turnState = "debug.turnState"
         static let componentPrefix = "canvas.component."
@@ -462,10 +461,6 @@ final class TurnRecoveryUITests: XCTestCase {
         app.launchArguments = [
             "-PupaStorageRoot", "ephemeral:\(root)",
             "-PupaSkipOnboarding", "1",
-            // The drawer covers the bottom bar with a bar of its own, and its
-            // open state persists. Start on the canvas; `NotificationsFlow`
-            // passes YES because the Settings gear lives in the drawer.
-            "-pupa.ui.sidebarOpen", "NO",
         ] + (reset ? ["-PupaStorageReset", "1"] : []) + extra
         if let live {
             app.launchArguments += [
@@ -491,36 +486,16 @@ final class TurnRecoveryUITests: XCTestCase {
         app.buttons[ID.chatSend].tap()
     }
 
-    /// The MyApps drawer carries its own bottom bar, laid directly over the
-    /// main one — so while it is open the chat toggle exists, and even reports
-    /// hittable, while a tap at its point lands on the drawer's Settings
-    /// button instead. These launches start with it closed.
-    ///
     /// Fails loudly when it can't get through: the previous `if
     /// toggle.isHittable` silently did nothing, which turned every downstream
     /// assertion into the same misleading "chat composer never appeared".
+    ///
+    /// The drawer-dismissal dance this used to open with is gone: MyApps is a
+    /// sheet now, never up at launch, so there is nothing covering the bar.
     @MainActor
     private func openChat(_ app: XCUIApplication) {
         let toggle = app.buttons[ID.chatToggle]
         XCTAssertTrue(toggle.waitForExistence(timeout: 30), "chat toggle never appeared")
-
-        // A driven launch comes up with the drawer closed. If one is open
-        // anyway, dismiss it through the scrim — `isHittable` is no guard
-        // here, since it reports true for a toggle the drawer is covering.
-        let row = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier BEGINSWITH %@", ID.sidebarMyAppPrefix))
-            .firstMatch
-        // `exists` is no test: the drawer is always mounted and merely offset
-        // off-screen, so its rows stay in the tree while it is closed.
-        if row.exists, row.isHittable {
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).tap()
-            let gone = XCTNSPredicateExpectation(
-                predicate: NSPredicate(format: "hittable == false"), object: row)
-            XCTAssertEqual(
-                XCTWaiter().wait(for: [gone], timeout: 15), .completed,
-                "the drawer never closed, so the bottom bar stays unreachable")
-        }
-
         toggle.tap()
         XCTAssertTrue(
             app.textFields[ID.chatComposer].waitForExistence(timeout: 30),
