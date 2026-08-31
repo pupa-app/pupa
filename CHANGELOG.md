@@ -26,7 +26,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   MyApps live; the bundled examples follow as toys for getting familiar.
 - **No screen-share step.** It is a secondary feature in Settings, and the step
   only described itself.
-- Step copy has no em dashes, pinned by a test.
+- Step copy has no em dashes, and neither do the example names and taglines on
+  Settings ▸ Examples. Both pinned by a test.
 
 ## [0.0.277] — 2026-08-31
 
