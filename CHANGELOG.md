@@ -3,6 +3,25 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.276] — 2026-08-31
+
+### Changed
+
+- **A MyApp's Home is its components, and nothing else.** It used to carry an
+  **Outline** card above a **Components** card. The Outline restated what the
+  grid below already showed, and "Components" named a section that was the
+  entire page — with a count and a collapse chevron for a group that has
+  nothing to collapse behind. Both are gone; the grid is the page, with the
+  lock beside the app's name and Add still in the grid.
+- **The orchestrator keeps its Outline** — it has no components, so its page
+  would otherwise be empty — and loses the empty Components card whose only
+  content was a sentence saying it was empty.
+
+The per-component summaries that filled the Outline are untouched: they are an
+agent-authored field that round-trips into the canvas state every turn through
+`CanvasSummary`, so removing the human-facing card leaves no write without a
+reader.
+
 ## [0.0.275] — 2026-08-31
 
 ### Changed

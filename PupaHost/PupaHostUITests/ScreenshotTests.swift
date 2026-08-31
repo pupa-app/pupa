@@ -147,6 +147,58 @@ final class ScreenshotTests: XCTestCase {
         XCTAssertTrue(app.buttons["Menu"].exists, "the bar never came back")
     }
 
+    /// Home is the component grid, unadorned. The Outline card and the
+    /// "Components" section header are gone — the header named the only thing
+    /// on the page — while the lock and Add stay reachable.
+    @MainActor
+    func testMyAppHomeIsJustTheComponentGrid() throws {
+        let app = launched()
+        dismissBanner(app)
+
+        let tile = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "canvas.component."))
+            .firstMatch
+        XCTAssertTrue(tile.waitForExistence(timeout: 20), "the component grid never appeared")
+        XCTAssertFalse(app.staticTexts["Outline"].exists, "Home still shows an Outline card")
+        XCTAssertFalse(
+            app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Components'")).firstMatch.exists,
+            "Home still shows a Components section header"
+        )
+        XCTAssertTrue(app.buttons["Add component"].exists, "Add is no longer reachable")
+        XCTAssertTrue(
+            app.buttons["Lock all components"].exists || app.buttons["Unlock all components"].exists,
+            "the lock is no longer reachable"
+        )
+    }
+
+    /// The orchestrator is the exception: no components, so it keeps the
+    /// Outline — and loses the empty Components card that only said it was
+    /// empty.
+    @MainActor
+    func testOrchestratorHomeKeepsItsOutlineAndHasNoEmptyComponentsCard() throws {
+        let app = launched()
+        dismissBanner(app)
+
+        let menu = app.buttons["Menu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 20), "no bar menu")
+        let orchestrator = app.buttons["Orchestrator"]
+        for _ in 0..<3 {
+            menu.tap()
+            if orchestrator.waitForExistence(timeout: 5) { break }
+        }
+        XCTAssertTrue(orchestrator.exists, "no Orchestrator item in the menu")
+        orchestrator.tap()
+
+        XCTAssertTrue(
+            app.staticTexts["Outline"].waitForExistence(timeout: 20),
+            "the orchestrator lost the Outline that is the point of its page"
+        )
+        XCTAssertFalse(
+            app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Components'")).firstMatch.exists,
+            "the orchestrator still shows the empty Components card"
+        )
+    }
+
     // MARK: Helpers
 
     @MainActor
