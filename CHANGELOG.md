@@ -13,7 +13,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   Notifications** and nothing else; everything that only means something once
   you own a MyApp — **Agents, Import & Export, Pinned snapshots, Archive,
   Recently deleted** — is grouped under **Manage MyApps**; **Examples** and
-  **Screen share** sit last, below the fold.
+  **Screen share** sit last.
 - **Screen share moved out of the bar's menu into Settings.** It is a secondary
   feature and was taking a slot in the app's only menu next to Settings itself.
   The Settings row dismisses the sheet and pushes the viewer on the main detail
@@ -21,6 +21,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
 - **The Getting started tour replay moved to the bottom of the Examples page.**
   Both answer "show me how this works", and it is what lets the root list stay
   three sections.
+- **MyApps sits above Orchestrator in the bar's menu.** iOS reverses a
+  bottom-anchored menu's whole item list, not just its groups, so the two read
+  in the opposite order to how they were declared.
 
 ## [0.0.276] — 2026-08-31
 

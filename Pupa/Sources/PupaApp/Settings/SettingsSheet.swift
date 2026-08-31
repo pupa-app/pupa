@@ -132,7 +132,7 @@ public struct SettingsSheet: View {
             List {
                 // What a newcomer needs first: who they are, what they're
                 // talking to, what it tells them. Everything else is grouped
-                // below so this opening screen stays three rows long.
+                // below so this opening section stays three rows long.
                 Section {
                     NavigationLink(value: SettingsCategory.profile) {
                         SettingsHubRow(icon: "person.crop.circle", title: "Account",
@@ -182,7 +182,7 @@ public struct SettingsSheet: View {
                     }
                 }
                 // Side doors. Neither is needed to use the app, so both sit
-                // below the fold rather than competing with Backend.
+                // last rather than competing with Backend.
                 Section {
                     if onRestoreExample != nil {
                         NavigationLink(value: SettingsCategory.examples) {
@@ -191,9 +191,20 @@ public struct SettingsSheet: View {
                         }
                     }
                     if let onOpenScreenShare {
+                        // A Button, not a NavigationLink — it leaves this sheet
+                        // rather than pushing inside it. So it draws its own
+                        // chevron and claims the full row: sitting chevron-less
+                        // beside Examples, it read as a static label.
                         Button(action: onOpenScreenShare) {
-                            SettingsHubRow(icon: "rectangle.on.rectangle", title: "Screen share",
-                                        caption: "Watch the backend's screen")
+                            HStack {
+                                SettingsHubRow(icon: "rectangle.on.rectangle", title: "Screen share",
+                                            caption: "Watch the backend's screen")
+                                Spacer(minLength: 12)
+                                Image(systemName: "chevron.right")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier(PupaID.settingsScreenShare)

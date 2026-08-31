@@ -105,13 +105,23 @@ final class ScreenshotTests: XCTestCase {
         )
         share.tap()
 
+        // The sheet goes first. Asserted separately because a push that landed
+        // *behind* a still-open sheet would leave `Connect` in the hierarchy
+        // and pass the next check while the user saw nothing happen — the
+        // failure `AppView.presentOrPush` documents.
+        XCTAssertTrue(
+            app.navigationBars["Settings"].waitForNonExistence(timeout: 20),
+            "the row left the Settings sheet up"
+        )
         XCTAssertTrue(
             app.buttons["Connect"].waitForExistence(timeout: 20),
             "screen share never opened"
         )
         // It was pushed, so the stack gives it a Back button — the only way
-        // off a page that has no bar.
-        let back = app.navigationBars.buttons.firstMatch
+        // off a page that has no bar. Not `navigationBars.firstMatch`: the
+        // Settings sheet's own dismiss control is also a nav-bar button also
+        // labelled "Back", so an undismissed sheet would satisfy that query.
+        let back = app.navigationBars["Screen share"].buttons.firstMatch
         XCTAssertTrue(back.waitForExistence(timeout: 10), "screen share has no way back")
         back.tap()
         XCTAssertTrue(

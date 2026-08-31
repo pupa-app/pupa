@@ -343,8 +343,8 @@ it omits this) — then *which* scope you're in (**MyApps**, which presents the
 sidebar as a sheet, and **Orchestrator**), then app-wide (**Settings**; screen
 share moved into it as a secondary row). Flat-listing those axes put History
 next to Settings, two rows that don't apply to the same thing; MyApps is one
-row onto its own surface instead. iOS flips a bottom-anchored menu, so the first group declared lands
-nearest the thumb. The orchestrator's own bar omits the
+row onto its own surface instead. iOS flips a bottom-anchored menu, so the
+first group declared lands nearest the thumb. The orchestrator's own bar omits the
 Orchestrator item for the same reason it omits History: you're already there.
 The menu lights up as the active slot while an Agents or History page is showing. Components are deliberately absent from it: the home page already
 grids them one tap away. Glyphs are tinted the

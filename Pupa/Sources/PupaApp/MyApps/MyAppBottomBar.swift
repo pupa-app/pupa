@@ -189,8 +189,9 @@ public struct MyAppBottomBar: View {
     /// Settings, two rows that don't even apply to the same thing; MyApps is a
     /// single row onto its own surface instead.
     ///
-    /// iOS flips a bottom-anchored menu, so the first group declared lands
-    /// nearest the thumb.
+    /// iOS flips a bottom-anchored menu — the whole item list, not just the
+    /// groups — so the first row declared lands nearest the thumb, and within
+    /// a group the order reads bottom-up.
     ///
     /// Components are deliberately absent — Home already grids them. The
     /// orchestrator's bar omits the Orchestrator row, the same way it omits
@@ -214,16 +215,20 @@ public struct MyAppBottomBar: View {
             // MyApps row (the column is always up) and no Orchestrator row
             // (you're on it) — so skip it rather than colliding two dividers.
             if onOpenMyApps != nil || myAppId != nil {
-                if let onOpenMyApps {
-                    Button(action: onOpenMyApps) {
-                        Label("MyApps", systemImage: "square.grid.2x2")
-                    }
-                }
+                // Orchestrator declared first so **MyApps** renders above it:
+                // iOS reverses the whole item list, not just the groups. macOS
+                // draws them in declaration order, but never shows MyApps there
+                // (the sidebar column is permanent), so only one row is left.
                 if myAppId != nil {
                     Button {
                         onSelect(.orchestrator)
                     } label: {
                         Label("Orchestrator", systemImage: "square.stack.3d.up.fill")
+                    }
+                }
+                if let onOpenMyApps {
+                    Button(action: onOpenMyApps) {
+                        Label("MyApps", systemImage: "square.grid.2x2")
                     }
                 }
                 Divider()

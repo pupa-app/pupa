@@ -1242,7 +1242,14 @@ public struct AppView: View {
                 onNavigate: presentOrPush
             )
         case .screenShare:
+            // Titled here, not in the view: it is the one page with no bottom
+            // bar and no `MyAppPageHeader`, so without this its nav bar is
+            // blank and nothing on screen names what you are looking at.
             ScreenShareView(viewModel: screenShare)
+                .navigationTitle("Screen share")
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                #endif
         }
     }
 
