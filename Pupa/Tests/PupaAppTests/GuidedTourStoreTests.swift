@@ -39,10 +39,12 @@ struct GuidedTourStoreTests {
         #expect(store.isFirstStep)
         #expect(!store.isLastStep)
         #expect(store.currentStep?.id == "welcome")
-        // The welcome step just introduces the app: it navigates nowhere and
-        // rings nothing.
+        // The welcome step opens on the MyApps list: a MyApp is the unit of
+        // the app, so the tour starts on the list of them. It navigates
+        // nowhere and rings nothing.
         #expect(store.currentStep?.selection == nil)
         #expect(store.currentStep?.highlight == nil)
+        #expect(store.currentStep?.opensMyApps == true)
     }
 
     @Test("start clears any stale intent flags")
@@ -178,9 +180,9 @@ struct GuidedTourStoreTests {
         #expect(index("settings-essentials") < index("settings-backend"))
         #expect(index("settings-essentials") < index("settings-account"))
         #expect(index("settings-manage") < index("share-myapp"))
-        // The agents/threads step keeps the chat open without a prefill and
-        // rings the chat header (agent switcher + thread picker).
-        let agentsThreads = steps.first { $0.id == "agents-threads" }!
+        // The MyApps/threads step keeps the chat open without a prefill and
+        // rings the chat header (the MyApp switcher + thread picker).
+        let agentsThreads = steps.first { $0.id == "myapps-threads" }!
         #expect(agentsThreads.opensChat)
         #expect(agentsThreads.chatPrefill == nil)
         #expect(agentsThreads.highlight == .chatHeader)
@@ -238,22 +240,23 @@ struct GuidedTourStoreTests {
 
     /// MyApps is the list of everything the user has built. Naming it in a
     /// menu preview and never showing it was the gap.
-    @Test("Exactly one step opens the MyApps sheet, before the orchestrator")
-    func myAppsSheetIsShownBeforeTheOrchestrator() {
+    @Test("The tour opens on the MyApps list and comes back to it")
+    func myAppsSheetOpensFirstAndAgain() {
         let steps = TourContent.steps(activeMyAppId: UUID(), isPaired: true)
         let opening = steps.filter(\.opensMyApps)
-        #expect(opening.count == 1)
-        #expect(opening.first?.id == "myapps-sheet")
+        // Twice: the opening card, because a MyApp is the unit of the app, and
+        // again once the bar and the menu row that reach the list are walked.
+        #expect(opening.map(\.id) == ["welcome", "myapps-sheet"])
         let sheet = steps.firstIndex { $0.id == "myapps-sheet" }!
         let orchestrator = steps.firstIndex { $0.id == "orchestrator" }!
         #expect(sheet < orchestrator)
-        // It comes after the preview that points at the MyApps row, so the tap
-        // is visible before the destination.
+        // The revisit comes after the preview that points at the MyApps row,
+        // so the tap is visible before the destination.
         let scope = steps.firstIndex { $0.id == "menu-scope" }!
         #expect(scope < sheet)
-        // Bottom-placed: the list fills from the top, and a new user has one
-        // row in it, which a top card covers completely.
-        #expect(opening.first?.placement == .bottom)
+        // Bottom-placed: the list fills from the top, and a new user has a
+        // couple of rows in it, which a top card covers completely.
+        for step in opening { #expect(step.placement == .bottom) }
     }
 
     /// Agents and History are named, not visited: the tour points at the menu

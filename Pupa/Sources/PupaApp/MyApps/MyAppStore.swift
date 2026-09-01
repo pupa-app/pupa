@@ -443,6 +443,7 @@ public final class MyAppStore {
 
     // MARK: - Lifecycle
 
+
     /// One-time, at-birth seeding for a freshly created/restored app: the
     /// universal default skills plus (when the name matches an example) its
     /// persona AGENTS.md. Never run on plain launches, so user edits and
@@ -4033,13 +4034,16 @@ public final class MyAppStore {
             }
         }
 
-        // Fresh install: seed just the Daily Briefing (default, active). The
-        // guided tour offers to add a second example at the end, and every
-        // example is restorable from Settings. The caller writes this to disk
-        // via `persist()`.
-        let myApp = DailyBriefingExample.make()
+        // Fresh install: seed the first two examples from the registry, the
+        // first of them active. One app made the MyApps list look like a
+        // detail of the app rather than the thing you collect, and the tour
+        // opens on that list. Every other example is restorable from Settings.
+        // The caller writes this to disk via `persist()`.
+        let seeded = ExampleRegistry.all.prefix(ExampleRegistry.freshInstallSeedCount).map { $0.make() }
+        let myApps = seeded.isEmpty ? [DailyBriefingExample.make()] : seeded
+        let myApp = myApps[0]
         let firstThread = ChatThread()
-        return Loaded(myApps: [myApp], activeId: myApp.id,
+        return Loaded(myApps: myApps, activeId: myApp.id,
                       memoryThreads: [firstThread], memoryCurrentThreadId: firstThread.id,
                       itemEventLog: ItemEventLog(), componentFolders: [:],
                       myAppFolders: MyAppFolderLayout(), fromDisk: false)

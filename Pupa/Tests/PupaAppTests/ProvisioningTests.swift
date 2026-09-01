@@ -13,17 +13,24 @@ import Testing
 struct ProvisioningTests {
     init() { TestStorage.activate() }
 
+    /// What a fresh install seeds. Read from the registry, not written as a
+    /// literal: these tests are about the seed *race*, not the seed's size, and
+    /// pinning the number here made changing it look like a provisioning
+    /// regression.
+    private let seeded = ExampleRegistry.freshInstallSeedCount
+
     /// THE regression: a fresh device against a populated cloud must adopt the
     /// real roster and leave the cloud index untouched (no seed pushed).
     @Test("fresh device + populated cloud adopts the roster and never clobbers it")
     func freshDeviceWithPopulatedCloudAdoptsAndDoesNotClobber() async throws {
         await MyAppStore.clearStorage()
 
-        // Device 1 (iCloud off): seed + two more = a 3-app roster on local disk.
+        // Device 1 (iCloud off): the seed plus two more on local disk.
         let d1 = MyAppStore()
         let a = d1.addMyApp(typeId: "tracker", name: "Alpha", iconSystemName: "a.circle")
         let b = d1.addMyApp(typeId: "tracker", name: "Bravo", iconSystemName: "b.circle")
-        #expect(d1.myApps.count == 3)
+        let roster = seeded + 2
+        #expect(d1.myApps.count == roster)
 
         // Push that roster up into the iCloud mirror.
         let cloud = TestStorage.root.appendingPathComponent("cloud-\(UUID().uuidString)", isDirectory: true)
@@ -35,7 +42,7 @@ struct ProvisioningTests {
             (try? FileManager.default.contentsOfDirectory(atPath: cloudApps.path))?
                 .filter { $0.hasSuffix(".json") }.count ?? 0
         }
-        #expect(cloudAppFileCount() == 3)
+        #expect(cloudAppFileCount() == roster)
 
         // Device 2: wipe local (the cloud dir survives) → empty local + iCloud on.
         await MyAppStore.clearStorage()
@@ -51,12 +58,12 @@ struct ProvisioningTests {
             await d2.finishProvisioning()
 
             #expect(!d2.isProvisioning)
-            #expect(d2.myApps.count == 3)                       // adopted, not seeded-over
+            #expect(d2.myApps.count == roster)                  // adopted, not seeded-over
             #expect(d2.myApps.contains { $0.id == a })
             #expect(d2.myApps.contains { $0.id == b })
             #expect(PupaStorage.rosterEstablished)
             // Cloud roster still intact — the seed never overwrote it.
-            #expect(cloudAppFileCount() == 3)
+            #expect(cloudAppFileCount() == roster)
         }
     }
 
@@ -76,7 +83,7 @@ struct ProvisioningTests {
             #expect(store.isProvisioning)
             await store.finishProvisioning()
             #expect(!store.isProvisioning)
-            #expect(store.myApps.count == 1)                    // seeded Daily Briefing
+            #expect(store.myApps.count == seeded)               // seeded the defaults
             #expect(PupaStorage.rosterEstablished)
             #expect(FileManager.default.fileExists(
                 atPath: PupaStorage.stateRoot.appendingPathComponent("index.json").path))
@@ -90,7 +97,7 @@ struct ProvisioningTests {
         #expect(PupaStorage.cloudMirrorRoot == nil)
         let store = MyAppStore()
         #expect(!store.isProvisioning)
-        #expect(store.myApps.count == 1)
+        #expect(store.myApps.count == seeded)
         #expect(PupaStorage.rosterEstablished)
     }
 

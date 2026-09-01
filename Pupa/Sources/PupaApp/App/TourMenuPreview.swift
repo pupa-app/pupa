@@ -14,7 +14,8 @@ import SwiftUI
 struct TourMenuPreview: View {
     /// Rows to draw, in the real menu's declaration order.
     let rows: [BarMenuRow]
-    /// The rows this step is about. Everything else dims.
+    /// The rows this step is about. They get the ring; nothing else changes,
+    /// so the preview keeps reading as the menu rather than as two menus.
     let emphasised: Set<BarMenuRow>
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulse = false
@@ -68,7 +69,10 @@ struct TourMenuPreview: View {
                 .font(.body)
             Spacer(minLength: 0)
         }
-        .foregroundStyle(lit ? AnyShapeStyle(Color.brandColor) : AnyShapeStyle(.secondary))
+        // Every row reads the same. The ring alone says which one the card is
+        // about: recolouring the label too made a lit row look like a
+        // different kind of row instead of the same row, pointed at.
+        .foregroundStyle(.primary)
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
         // A traced ring, not a filled block: this is the same emphasis

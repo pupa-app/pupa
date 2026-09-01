@@ -94,13 +94,19 @@ struct TourStep: Identifiable, Equatable {
 enum TourContent {
     static func steps(activeMyAppId: UUID, isPaired: Bool) -> [TourStep] {
         [
+            // Opens on the MyApps list, not the canvas: a MyApp is the thing
+            // you build and use in Pupa, and this is where they live. The tour
+            // comes back to this list later, once the bar and the menu that
+            // reach it have been walked.
             TourStep(
                 id: "welcome",
                 title: "Welcome to Pupa",
-                body: "Pupa is a workspace your agent can see and edit alongside you. "
-                    + "Everything you need is on the bar along the bottom. The tour takes "
-                    + "a minute or two; tap Next to begin.",
-                placement: .bottom
+                body: "These are MyApps: workspaces you and your agent build and use "
+                    + "together, each one a canvas the agent can see and edit while you "
+                    + "chat. Pupa starts you with a couple. The tour takes a minute or "
+                    + "two; tap Next to begin.",
+                placement: .bottom,
+                opensMyApps: true
             ),
 
             // The bar, left to right. Configuration comes after: the app is
@@ -153,11 +159,12 @@ enum TourContent {
                 highlight: .bottomBarChat
             ),
             TourStep(
-                id: "agents-threads",
-                title: "Agents & threads",
-                body: "Along the top of the chat you can switch which agent you're talking "
-                    + "to and pick, or start, a conversation thread. Every MyApp and the "
-                    + "orchestrator keeps its own history.",
+                id: "myapps-threads",
+                title: "MyApps & threads",
+                body: "The dropdown at the top of the chat moves between MyApps, and the "
+                    + "orchestrator, without leaving the conversation. Under it, the "
+                    + "thread picker: every MyApp keeps its own, and you can start a new "
+                    + "one whenever the subject changes.",
                 placement: .top,
                 opensChat: true,
                 highlight: .chatHeader
@@ -210,9 +217,9 @@ enum TourContent {
             TourStep(
                 id: "myapps-sheet",
                 title: "MyApps",
-                body: "Here they are. Every workspace you have built, and the place you "
-                    + "start a new one. Swipe a row for its own actions, and tap one to "
-                    + "switch to it.",
+                body: "Back to where we started. This is the list of every MyApp you "
+                    + "have, and the plus is where a new one begins. Swipe a row for its "
+                    + "own actions, and tap one to switch to it.",
                 // Bottom, unlike the other sheet steps: this list fills from
                 // the top, and a new user has one row in it. A top card landed
                 // squarely on that single row and made the sheet look empty.

@@ -661,7 +661,11 @@ card* explains each step while the tour programmatically navigates the **real**
 app to that surface. **Eighteen steps, app first and configuration second** —
 the app is easier to grasp than the settings that wire it up:
 
-1. **Welcome.**
+1. **Welcome**, on the **MyApps list** (`opensMyApps`): a MyApp is the thing
+   you build and use in Pupa, so the tour opens on the list of them rather
+   than inside one. A fresh install seeds
+   `ExampleRegistry.freshInstallSeedCount` (2) apps so that list is never a
+   single row.
 2. **The bar** — introduced as a whole (`highlight: .bottomBar`), then walked
    left to right: Home, Memories, chat (prefilled), agents & threads, slash
    commands, then the **Menu**. The bar card and the Home card are separate:
@@ -670,8 +674,8 @@ the app is easier to grasp than the settings that wire it up:
    (`TourMenuPreview`, below) rather than teleporting: this app's pages
    (Agents, History), moving between workspaces (MyApps, Orchestrator), and
    Settings. Between them the two destinations that are worth seeing open for
-   real: the **MyApps sheet** (`opensMyApps`, the one step that presents it)
-   and the **Orchestrator**, prefilled with "create a new myapp".
+   real: the **MyApps sheet** again, now that the row reaching it has been
+   shown, and the **Orchestrator**, prefilled with "create a new myapp".
 4. **Settings** — each page is introduced by a step that lands on the root list
    and rings the section it lives in, so the page it opens has a visible
    origin: **The essentials** (`highlight: .settingsEssentials`) before Backend
