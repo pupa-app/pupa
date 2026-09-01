@@ -626,15 +626,17 @@ public struct AppView: View {
     private func applyTourStep() {
         guard tour.isActive, let step = tour.currentStep else { return }
         #if os(iOS)
-        // No step opens MyApps any more — the tour walks the bar, and MyApps is
-        // one row in its menu. Close it if a step arrives while it is up.
-        showSidebar = false
+        // One step opens MyApps for real (the list of workspaces is worth
+        // seeing, not just naming); every other step closes it.
+        showSidebar = step.opensMyApps
         #endif
         tour.wantSettingsPage = step.settingsPage
         tour.wantSettingsOpen = step.settingsPage != nil
         tour.wantChatOpen = step.opensChat
         tour.chatPrefill = step.chatPrefill
         tour.wantHighlight = step.highlight
+        tour.wantMenuPreview = step.menuPreview
+        tour.wantMyAppsOpen = step.opensMyApps
         if let sel = step.selection {
             setRoot(sel)
         }
@@ -666,6 +668,7 @@ public struct AppView: View {
         // Ring the active step's target across the whole window (sidebar footer,
         // bottom-bar tab, or chat header), under the coach card, non-blocking.
         .tourHighlightLayer(tour)
+        .overlay { tourMenuPreview }
         .overlay {
             if tour.isActive {
                 GuidedTourView(tour: tour)
@@ -925,11 +928,23 @@ public struct AppView: View {
             .equatable()
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
+            // An iOS `.sheet` renders above the ZStack that hosts the coach
+            // card, so the card would be hidden behind this one. Re-render it
+            // here for the step that opens MyApps, exactly as `SettingsSheet`
+            // does for the Settings steps. Both sites read the one store.
+            .overlay {
+                if tour.isActive, tour.wantMyAppsOpen {
+                    GuidedTourView(tour: tour)
+                }
+            }
         }
         // Ring the control the active step describes (a bottom-bar slot or the
         // chat header) — over the canvas, under the coach card, never blocking
         // input.
         .tourHighlightLayer(tour)
+        // The bar's menu, drawn open, for steps that describe what is behind
+        // the hamburger. Above the ring, under the coach card.
+        .overlay { tourMenuPreview }
         // Coach card sits on top of everything (incl. the ring).
         .overlay {
             if tour.isActive {
@@ -1302,6 +1317,22 @@ public struct AppView: View {
                 onToggleChat: { toggleChat() },
                 onOpenSettings: { settingsSheetPresented = true },
                 onOpenMyApps: openMyApps
+            )
+        }
+    }
+
+    /// The bar's menu drawn open, for the tour steps that talk about what is
+    /// behind the hamburger. Built from the same `BarMenuRow.rows` the real
+    /// menu uses, against the bar that is actually on screen — so it never
+    /// shows a row the user would not find there.
+    @ViewBuilder
+    private var tourMenuPreview: some View {
+        if tour.isActive, let lit = tour.wantMenuPreview,
+           let subject = barSubject(for: effectiveSelection) {
+            let isMyApp: Bool = { if case .myApp = subject { return true } else { return false } }()
+            TourMenuPreview(
+                rows: BarMenuRow.rows(isMyApp: isMyApp, hasMyApps: openMyApps != nil),
+                emphasised: lit
             )
         }
     }

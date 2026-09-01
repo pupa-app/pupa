@@ -50,6 +50,14 @@ struct TourStep: Identifiable, Equatable {
     /// describing). `nil` leaves no highlight. Resolved to live bounds by
     /// `TourHighlightOverlay` via the `.tourAnchor` tags, never pixel-pinned.
     var highlight: TourHighlight?
+    /// Present the MyApps sheet for this step. The list of workspaces is the
+    /// one surface the tour used to name without ever showing.
+    var opensMyApps: Bool
+    /// Draw the bar's menu open, with these rows lit. `nil` draws no preview.
+    /// A SwiftUI `Menu` cannot be opened programmatically, so steps that talk
+    /// about what is behind the hamburger show `TourMenuPreview` instead of
+    /// teleporting the user to the destination with no visible tap.
+    var menuPreview: Set<BarMenuRow>?
 
     init(
         id: String,
@@ -60,7 +68,9 @@ struct TourStep: Identifiable, Equatable {
         settingsPage: TourSettingsPage? = nil,
         opensChat: Bool = false,
         chatPrefill: String? = nil,
-        highlight: TourHighlight? = nil
+        highlight: TourHighlight? = nil,
+        opensMyApps: Bool = false,
+        menuPreview: Set<BarMenuRow>? = nil
     ) {
         self.id = id
         self.title = title
@@ -71,6 +81,8 @@ struct TourStep: Identifiable, Equatable {
         self.opensChat = opensChat
         self.chatPrefill = chatPrefill
         self.highlight = highlight
+        self.opensMyApps = opensMyApps
+        self.menuPreview = menuPreview
     }
 }
 
@@ -82,39 +94,40 @@ struct TourStep: Identifiable, Equatable {
 enum TourContent {
     static func steps(activeMyAppId: UUID, isPaired: Bool) -> [TourStep] {
         [
+            // Opens on the MyApps list, not the canvas: a MyApp is the thing
+            // you build and use in Pupa, and this is where they live. The tour
+            // comes back to this list later, once the bar and the menu that
+            // reach it have been walked.
             TourStep(
                 id: "welcome",
                 title: "Welcome to Pupa",
-                body: "Pupa is a workspace your agent can see and edit alongside you. "
-                    + "Everything you need is on the bar along the bottom. The tour takes "
-                    + "about a minute; tap Next to begin.",
-                placement: .bottom
-            ),
-            TourStep(
-                id: "settings-overview",
-                title: "Settings",
-                body: "Settings is where you wire Pupa up. Like backend pairing, Tools "
-                    + "(which tools/permissions agents have), "
-                    + "Notifications, and Examples. Let's start with Backend.",
+                body: "These are MyApps: workspaces you and your agent build and use "
+                    + "together, each one a canvas the agent can see and edit while you "
+                    + "chat. Pupa starts you with a couple. The tour takes a minute or "
+                    + "two; tap Next to begin.",
                 placement: .bottom,
-                settingsPage: .root
+                opensMyApps: true
             ),
+
+            // The bar, left to right. Configuration comes after: the app is
+            // easier to understand than the settings that wire it up.
             TourStep(
-                id: "settings-backend",
-                title: "Settings · Backend",
-                body: "Point Pupa at your backend and pair it here. Until you do, the agent "
-                    + "can't run as the LLM/Agent runs there. If you do not have a QR code already, "
-                    + "find the backend installation [here](https://github.com/pupa-app/pupa-backend).",
+                id: "the-bar",
+                title: "The bar",
+                body: "This is the only bar in the app, and it is how you get everywhere: "
+                    + "Home, Memories, Pupa, and the menu. Whichever MyApp you are in, it "
+                    + "is the same four. Let's walk it left to right.",
                 placement: .bottom,
-                settingsPage: .backend
+                selection: .myAppHome(activeMyAppId),
+                highlight: .bottomBar
             ),
             TourStep(
                 id: "myapp-home",
                 title: "Home",
-                body: "Each MyApp is a canvas of components, like trackers, calendars, "
-                    + "checklists, that the agent reads and edits as you chat. The bar "
-                    + "below is the only one in the app — Home, Memories, Pupa, and the menu. "
-                    + "Let's walk it left to right, starting here on Home.",
+                body: "Home is the MyApp's canvas: a grid of the components it is made of, "
+                    + "like trackers, calendars and checklists. Tap one to open it. The "
+                    + "agent reads and edits these as you chat, and Add puts a new one on "
+                    + "the grid.",
                 placement: .bottom,
                 selection: .myAppHome(activeMyAppId),
                 highlight: .bottomBarHome
@@ -122,52 +135,20 @@ enum TourContent {
             TourStep(
                 id: "myapp-memories",
                 title: "Memories",
-                body: "Long-term memory for this MyApp — markdown notes the agent writes "
+                body: "Long-term memory for this MyApp: markdown notes the agent writes "
                     + "and reads back across sessions, so it remembers what matters to you. "
-                    + "Moreover the pupa folder is the equivalent of a .claude folder, where "
-                    + "custom prompts, configurations and skills are managed.",
+                    + "The pupa folder is the equivalent of a .claude folder, where custom "
+                    + "prompts, configurations and skills are managed.",
                 placement: .bottom,
                 selection: .myAppMemories(activeMyAppId),
                 highlight: .bottomBarMemories
-            ),
-            // The one step that rings the menu. Everything after it that lives in
-            // the menu either navigates there or deep-links Settings — a
-            // SwiftUI `Menu` can't be opened programmatically, so a second ring
-            // would just point at a closed menu.
-            TourStep(
-                id: "bar-more",
-                title: "Menu",
-                body: "The menu holds everything else, grouped: this app's agents and "
-                    + "change history, then MyApps and the Orchestrator for moving between "
-                    + "workspaces, then Settings. Three buttons and this menu are the whole "
-                    + "app.",
-                placement: .bottom,
-                selection: .myAppHome(activeMyAppId),
-                highlight: .bottomBarMore
-            ),
-            TourStep(
-                id: "myapp-agents",
-                title: "Agents",
-                body: "Every MyApp has its own main agent. Here you can see the tools it "
-                    + "can call, open its AGENTS.md persona file, and review the components "
-                    + "it manages.",
-                placement: .bottom,
-                selection: .myAppAgents(activeMyAppId)
-            ),
-            TourStep(
-                id: "myapp-history",
-                title: "History",
-                body: "Every change the agent makes to the canvas is logged here, so you "
-                    + "can see what happened and when.",
-                placement: .bottom,
-                selection: .myAppHistory(activeMyAppId)
             ),
             TourStep(
                 id: "chat",
                 title: "Pupa",
                 body: isPaired
                     ? "This is your agent. Ask it to add, change, or explain anything on the "
-                        + "canvas — we've parked an example message you can send with one tap."
+                        + "canvas. We've parked an example message you can send with one tap."
                     : "This is your agent. Once you connect a backend it can add, change, and "
                         + "explain anything on the canvas. We've parked an example message in "
                         + "the composer to show the idea.",
@@ -178,43 +159,134 @@ enum TourContent {
                 highlight: .bottomBarChat
             ),
             TourStep(
-                id: "agents-threads",
-                title: "Agents & threads",
-                body: "Along the top of the chat you can switch which agent you're talking "
-                    + "to and pick — or start — a conversation thread. Every MyApp and the "
-                    + "orchestrator keeps its own history.",
+                id: "myapps-threads",
+                title: "MyApps & threads",
+                body: "The dropdown at the top of the chat moves between MyApps, and the "
+                    + "orchestrator, without leaving the conversation. Under it, the "
+                    + "thread picker: every MyApp keeps its own, and you can start a new "
+                    + "one whenever the subject changes.",
                 placement: .top,
                 opensChat: true,
                 highlight: .chatHeader
             ),
             TourStep(
+                id: "slash-commands",
+                title: "Slash commands",
+                body: "Type \"/\" in the composer for quick commands. /help lists them all "
+                    + "and /tools shows what the agent can do. Skills the agent creates can "
+                    + "be invoked here too.",
+                placement: .top,
+                opensChat: true,
+                chatPrefill: "/"
+            ),
+
+            // The menu. A SwiftUI `Menu` cannot be opened programmatically, so
+            // the next steps draw it open (`menuPreview`) rather than
+            // teleporting to each destination with no visible tap in between.
+            // Every preview step places its card at the top: the preview is
+            // anchored above the bar, so a bottom card sits right on it.
+            TourStep(
+                id: "bar-more",
+                title: "Menu",
+                body: "The last slot on the bar is the menu. Everything the three buttons "
+                    + "don't cover lives behind it. Tap it and it opens upward, grouped into "
+                    + "three: this app's pages, which workspace you're in, and Settings.",
+                placement: .bottom,
+                selection: .myAppHome(activeMyAppId),
+                highlight: .bottomBarMore
+            ),
+            TourStep(
+                id: "menu-pages",
+                title: "This app's pages",
+                body: "Agents opens the main agent for this MyApp, where you can see the "
+                    + "tools it can call and open its persona file. History logs every "
+                    + "change the agent makes to the canvas.",
+                placement: .top,
+                selection: .myAppHome(activeMyAppId),
+                menuPreview: [.agents, .history]
+            ),
+            TourStep(
+                id: "menu-scope",
+                title: "Moving between workspaces",
+                body: "MyApps lists everything you've built and switches between them. "
+                    + "Orchestrator is the meta-agent that spans all of them. Let's open it.",
+                placement: .top,
+                selection: .myAppHome(activeMyAppId),
+                menuPreview: [.myApps, .orchestrator]
+            ),
+            TourStep(
+                id: "myapps-sheet",
+                title: "MyApps",
+                body: "Back to where we started. This is the list of every MyApp you "
+                    + "have, and the plus is where a new one begins. Swipe a row for its "
+                    + "own actions, and tap one to switch to it.",
+                // Bottom, unlike the other sheet steps: this list fills from
+                // the top, and a new user has one row in it. A top card landed
+                // squarely on that single row and made the sheet look empty.
+                placement: .bottom,
+                opensMyApps: true
+            ),
+            TourStep(
                 id: "orchestrator",
                 title: "Orchestrator",
-                body: "A meta-agent that spans every MyApp. Ask it for cross-app work — "
-                    + "even spinning up a whole new MyApp. We've parked an example you can "
-                    + "send.",
+                body: "A meta-agent that spans every MyApp. Ask it for cross-app work, even "
+                    + "spinning up a whole new MyApp. We've parked an example you can send.",
                 placement: .top,
                 selection: .orchestrator,
                 opensChat: true,
                 chatPrefill: "Create a new myapp to organise my books"
             ),
             TourStep(
-                id: "slash-commands",
-                title: "Slash commands",
-                body: "Type \"/\" in the composer for quick commands — /help lists them all "
-                    + "and /tools shows what the agent can do. Also skills created by the "
-                    + "agent can be invoked here.",
+                id: "menu-settings",
+                title: "Settings",
+                body: "The last row in the menu is Settings, where Pupa is wired up. "
+                    + "It opens as a sheet from the bottom. Let's look inside.",
                 placement: .top,
-                opensChat: true,
-                chatPrefill: "/"
+                menuPreview: [.settings]
+            ),
+
+            // Settings. Each step rings the section on the root list first, so
+            // the page it then opens has a visible origin.
+            TourStep(
+                id: "settings-essentials",
+                title: "The essentials",
+                body: "Settings opens on the three things you need first: your Account, the "
+                    + "Backend that runs the agent, and Notifications. Everything else is "
+                    + "grouped below. Let's start with Backend.",
+                placement: .bottom,
+                settingsPage: .root,
+                highlight: .settingsEssentials
             ),
             TourStep(
-                id: "screen-share",
-                title: "Screen share",
-                body: "In Settings: screen share lets you watch what's on the screen of "
-                    + "the machine running your backend — handy when you want to see what "
-                    + "the backend agent is cooking.",
-                placement: .top
+                id: "settings-backend",
+                title: "Settings · Backend",
+                body: "Point Pupa at your backend and pair it here. Until you do, the agent "
+                    + "can't run, because the LLM runs there. If you don't have a QR code "
+                    + "yet, find the backend install steps "
+                    + "[here](https://github.com/pupa-app/pupa-backend).",
+                placement: .bottom,
+                settingsPage: .backend
+            ),
+            TourStep(
+                id: "settings-account",
+                title: "Settings · Account",
+                body: "There's no Pupa account. Your Apple ID is the identity, and iCloud "
+                    + "carries your MyApps, memories and settings between devices. This page "
+                    + "also links out to [pupa-app.com](https://pupa-app.com) for docs, "
+                    + "updates and support.",
+                placement: .bottom,
+                settingsPage: .account,
+                highlight: .settingsAccount
+            ),
+            TourStep(
+                id: "settings-manage",
+                title: "Manage MyApps",
+                body: "The second section is housekeeping for the apps you already have: "
+                    + "their agents, sharing, pinned snapshots, the archive, and anything "
+                    + "you recently deleted. Rows appear here as you need them.",
+                placement: .top,
+                settingsPage: .root,
+                highlight: .settingsManageMyApps
             ),
             TourStep(
                 id: "share-myapp",
@@ -224,23 +296,25 @@ enum TourContent {
                 placement: .bottom,
                 settingsPage: .sharing
             ),
+
+            // Closing pair: the marketplace is where the current official apps
+            // live, so it leads. The bundled examples follow as toys.
             TourStep(
-                id: "settings-account",
-                title: "Your account",
-                body: "There's no Pupa account! Your Apple ID is the identity, and iCloud "
-                    + "carries your MyApps, memories and settings between devices. This page "
-                    + "also links out to [pupa-app.com](https://pupa-app.com) for docs, "
-                    + "updates and support.",
+                id: "marketplace",
+                title: "The marketplace",
+                body: "This is where to find the latest official MyApps, kept up to date "
+                    + "and ready to install. Start here when you want something real to "
+                    + "use rather than something to poke at.",
                 placement: .bottom,
-                settingsPage: .account,
-                highlight: .settingsAccount
+                settingsPage: .examples,
+                highlight: .settingsMarketplace
             ),
             TourStep(
                 id: "add-example",
-                title: "Add one to explore",
-                body: "That's the tour. The best way to get a feel for Pupa is to play with "
-                    + "a ready-made workspace — tap **Restore** on any example below to drop "
-                    + "it into your MyApps, then poke around and chat with it.",
+                title: "Or start with a toy",
+                body: "That's the tour. The examples below are small, self-contained "
+                    + "workspaces for getting a feel for Pupa. Tap Restore on any of them "
+                    + "to drop it into your MyApps, then poke around and chat with it.",
                 placement: .bottom,
                 settingsPage: .examples,
                 highlight: .settingsExamples
@@ -287,6 +361,11 @@ final class GuidedTourStore {
     var chatAutoSend: String?
     /// The control the active step rings, or `nil`. Read by `TourHighlightOverlay`.
     var wantHighlight: TourHighlight?
+    /// Whether the MyApps sheet should be up. Reconciled by `AppView`.
+    var wantMyAppsOpen: Bool = false
+    /// Rows to light in the open-menu preview, or `nil` to draw no preview.
+    /// Read by `AppView`, which hosts `TourMenuPreview` over the bar.
+    var wantMenuPreview: Set<BarMenuRow>?
 
     /// `UserDefaults` the completion flag is written to. Injectable so tests can
     /// run hermetically against an isolated suite; `.shared` uses `.standard`,
@@ -365,5 +444,7 @@ final class GuidedTourStore {
         chatPrefill = nil
         chatAutoSend = nil
         wantHighlight = nil
+        wantMyAppsOpen = false
+        wantMenuPreview = nil
     }
 }

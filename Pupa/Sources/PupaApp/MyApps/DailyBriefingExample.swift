@@ -14,7 +14,7 @@ import Foundation
 enum DailyBriefingExample: ExampleMyApp {
     static let name = "Daily Briefing"
     static let iconSystemName = "sun.horizon"
-    static let tagline = "Morning briefing — weather, agenda, top AI news, and GitHub, pulled by MCP feeds and pushed at 7am"
+    static let tagline = "Morning briefing with weather, agenda, top AI news, and GitHub, pulled by MCP feeds and pushed at 7am"
 
     static func make() -> MyApp {
         Builder().build()

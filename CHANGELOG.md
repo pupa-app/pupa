@@ -3,6 +3,59 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.278] — 2026-08-31
+
+### Changed
+
+- **The tour shows the app first, and the settings that wire it up second.**
+  It used to open on the Settings category list and Backend pairing, before
+  the user had seen what any of it was for. It now walks the bar, the chat and
+  the orchestrator first, then goes through Settings.
+- **The menu is drawn open instead of teleporting.** A step that said "MyApps
+  is in the menu" used to either ring a closed button or jump straight to the
+  destination, so the tap itself was never visible. Three steps now draw the
+  menu as it looks when open, with the rows they are about lit up. The picture
+  is built from the same row list the real menu uses, so the two cannot drift.
+- **A fresh install starts with two MyApps, not one.** With a single app the
+  MyApps list read as a detail of the app rather than the thing you collect.
+  The first two examples in the registry are seeded; the rest are still one tap
+  away in Settings.
+- **The tour opens on the MyApps list**, because a MyApp is the thing you build
+  and use in Pupa. It comes back to that list later, once the bar and the menu
+  row that reach it have been walked.
+- **The chat header card names what the header actually is.** It was titled
+  "Agents & threads" and talked about switching agents; the dropdown it rings
+  moves between MyApps and the orchestrator, with the thread picker under it.
+- **The bar gets its own card, and Home gets a real one.** One card used to do
+  both: it rang Home while describing the whole bar, so neither landed. The
+  first now rings the bar as a whole, the second rings Home and says what Home
+  shows.
+- **MyApps opens for real.** The list of every workspace you have built was
+  named in passing and never shown, which is a strange thing to skip.
+- **Agents and History are named, not visited.** The tour pointed at their menu
+  row rather than navigating into the page and leaving the user somewhere they
+  did not choose to go.
+- **Each Settings page is introduced by its section.** A step lands on the root
+  list and rings the section first, so the page it then opens has a visible
+  origin instead of appearing from nowhere.
+- **The marketplace leads the closing pair.** It is where the current official
+  MyApps live; the bundled examples follow as toys for getting familiar.
+- **No screen-share step.** It is a secondary feature in Settings, and the step
+  only described itself.
+- Step copy has no em dashes, and neither do the example names and taglines on
+  Settings ▸ Examples. Both pinned by a test.
+
+### Fixed
+
+- **The tour's highlight ring is one language everywhere.** A lit row in the
+  menu preview was a shaded block while every other target got a traced ring.
+  Both are rings now, and the ring is the only thing that changes: a lit row's
+  label used to recolour too, which made it look like a different kind of row
+  rather than the same row, pointed at.
+- **A ring around a full-width target stays a ring.** The whole-bar highlight
+  had its left and right strokes drawn past the screen edges, so it read as two
+  loose horizontal rules.
+
 ## [0.0.277] — 2026-08-31
 
 ### Changed

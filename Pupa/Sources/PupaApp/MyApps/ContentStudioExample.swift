@@ -11,7 +11,7 @@ import Foundation
 enum ContentStudioExample: ExampleMyApp {
     static let name = "Content Studio"
     static let iconSystemName = "square.and.pencil"
-    static let tagline = "Editorial pipeline — kanban board, publish checklist, calendar, and multi-agent Studio Room"
+    static let tagline = "Editorial pipeline with a kanban board, publish checklist, calendar, and multi-agent Studio Room"
 
     static func make() -> MyApp {
         Builder().build()

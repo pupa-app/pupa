@@ -11,7 +11,7 @@ import Foundation
 enum WellbeingCoachExample: ExampleMyApp {
     static let name = "Wellbeing Coach"
     static let iconSystemName = "heart.text.square"
-    static let tagline = "Mood log, habit tracking, personalised practices, and session check-ins — grows with you over time"
+    static let tagline = "Mood log, habit tracking, personalised practices, and session check-ins that grow with you over time"
 
     static func make() -> MyApp {
         Builder().build()

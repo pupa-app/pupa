@@ -114,6 +114,13 @@ public struct MyAppBottomBar: View {
         #endif
         .background(.regularMaterial)
         .overlay(alignment: .top) { Divider() }
+        // The bar as one region, for the tour step that introduces it before
+        // walking the individual slots. Published from a zero-cost background
+        // child, NOT with `.tourAnchor` on the bar itself: `anchorPreference`
+        // on a container replaces what its children published, which silently
+        // dropped every per-slot anchor (Home, Memories, Pupa, the menu) and
+        // left those steps ringing nothing.
+        .background { Color.clear.tourAnchor(.bottomBar) }
     }
 
     private func barButton(
@@ -183,58 +190,47 @@ public struct MyAppBottomBar: View {
         currentPage == .agents || currentPage == .history
     }
 
-    /// The app's menu, grouped one axis per section — this scope's pages
+    /// What each menu row does. Split out so the rows themselves stay pure
+    /// data that the tour's preview can render without any of these closures.
+    private func perform(_ row: BarMenuRow) {
+        switch row {
+        case .agents: onSelect(agentsSelection)
+        case .history: if let id = myAppId { onShowHistory(id) }
+        case .orchestrator: onSelect(.orchestrator)
+        case .myApps: onOpenMyApps?()
+        case .settings: onOpenSettings()
+        }
+    }
+
+    /// The rows this bar's menu shows, from the one shared list the guided
+    /// tour's open-menu preview also reads.
+    private var menuRows: [BarMenuRow] {
+        BarMenuRow.rows(isMyApp: myAppId != nil, hasMyApps: onOpenMyApps != nil)
+    }
+
+    /// The app's menu, grouped one axis per section: this scope's pages
     /// (Agents, History), which scope you're in (MyApps, Orchestrator), then
     /// app-wide (Settings). Mixing those in one flat list put History next to
     /// Settings, two rows that don't even apply to the same thing; MyApps is a
     /// single row onto its own surface instead.
     ///
-    /// iOS flips a bottom-anchored menu — the whole item list, not just the
-    /// groups — so the first row declared lands nearest the thumb, and within
-    /// a group the order reads bottom-up.
+    /// iOS flips a bottom-anchored menu, the whole item list rather than just
+    /// the groups, so the first row declared lands nearest the thumb and within
+    /// a group the order reads bottom-up. `BarMenuRow.rows` is in declaration
+    /// order; `TourMenuPreview` reverses it to draw what the user sees.
     ///
-    /// Components are deliberately absent — Home already grids them. The
-    /// orchestrator's bar omits the Orchestrator row, the same way it omits
-    /// History: you're already there.
+    /// Components are deliberately absent: Home already grids them.
     private var moreMenu: some View {
         Menu {
-            Button {
-                onSelect(agentsSelection)
-            } label: {
-                Label("Agents", systemImage: "person.2")
-            }
-            if let id = myAppId {
+            ForEach(Array(menuRows.enumerated()), id: \.element) { index, row in
+                if index > 0, menuRows[index - 1].group != row.group {
+                    Divider()
+                }
                 Button {
-                    onShowHistory(id)
+                    perform(row)
                 } label: {
-                    Label("History", systemImage: "clock")
+                    Label(row.title, systemImage: row.icon)
                 }
-            }
-            Divider()
-            // The scope group is empty on the macOS orchestrator bar — no
-            // MyApps row (the column is always up) and no Orchestrator row
-            // (you're on it) — so skip it rather than colliding two dividers.
-            if onOpenMyApps != nil || myAppId != nil {
-                // Orchestrator declared first so **MyApps** renders above it:
-                // iOS reverses the whole item list, not just the groups. macOS
-                // draws them in declaration order, but never shows MyApps there
-                // (the sidebar column is permanent), so only one row is left.
-                if myAppId != nil {
-                    Button {
-                        onSelect(.orchestrator)
-                    } label: {
-                        Label("Orchestrator", systemImage: "square.stack.3d.up.fill")
-                    }
-                }
-                if let onOpenMyApps {
-                    Button(action: onOpenMyApps) {
-                        Label("MyApps", systemImage: "square.grid.2x2")
-                    }
-                }
-                Divider()
-            }
-            Button(action: onOpenSettings) {
-                Label("Settings", systemImage: "gearshape")
             }
         } label: {
             // Heavier and a touch larger than the other slots: three thin rules

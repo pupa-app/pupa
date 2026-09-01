@@ -45,6 +45,12 @@ public enum ExampleRegistry {
         ResearchTrackerExample.self,
     ]
 
+    /// How many of `all` a fresh install starts with, in registry order. The
+    /// first is the active one. Two, not one: with a single app the MyApps
+    /// list reads as a detail of the app rather than the thing you collect,
+    /// and the guided tour opens on that list.
+    public nonisolated static let freshInstallSeedCount = 2
+
     /// Seed one example's persona AGENTS.md at app birth (restore / fresh
     /// install). The example is identified by display name; its memories are
     /// rooted on `id`. No-op when the name isn't an example. `globalMemory` is

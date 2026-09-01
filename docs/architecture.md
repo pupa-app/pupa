@@ -341,7 +341,10 @@ scope's pages — **Agents** (`person.2`, opens `AgentsListView` /
 `.myAppHistory` — **myApp only**; the orchestrator has no canvas change-log so
 it omits this) — then *which* scope you're in (**MyApps**, which presents the
 sidebar as a sheet, and **Orchestrator**), then app-wide (**Settings**; screen
-share moved into it as a secondary row). Flat-listing those axes put History
+share moved into it as a secondary row). The rows are **data**
+(`BarMenuRow.rows(isMyApp:hasMyApps:)`), not inline `Button`s: the guided
+tour's `TourMenuPreview` renders the same list, so a drawn-open menu and the
+real one cannot disagree. Flat-listing those axes put History
 next to Settings, two rows that don't apply to the same thing; MyApps is one
 row onto its own surface instead. iOS flips a bottom-anchored menu, so the
 first group declared lands nearest the thumb. The orchestrator's own bar omits the
@@ -655,17 +658,41 @@ sets a flag that surfaces a dismissible "connect your backend" banner in
 Once onboarding finishes, an **interactive guided tour** runs once
 (`App/GuidedTour.swift` + `App/GuidedTourOverlay.swift`). A floating *coach
 card* explains each step while the tour programmatically navigates the **real**
-app to that surface — sixteen steps: welcome, Settings
-overview (the category list), Settings · Backend (deep-linked), then the MyApp
-bottom bar walked left to right — Home, Memories, the **Menu**, then Agents and
-History as the pages behind it — followed by chat, agents & threads, the
-Orchestrator opened (prefilled "create a new myapp"), slash commands, screen
-share, Share a MyApp (deep-links Settings ▸ Import & Export), Settings · Account (`settingsPage: .account` → the `.profile`
-page; rings the iCloud rows and points at pupa-app.com for docs and support),
-and a closing "add an example" card that deep-links to
-Settings · Examples (`settingsPage: .examples`) and rings the example list
-(`highlight: .settingsExamples`), so the user taps **Restore** on whichever
-example they like to drop a workspace in to explore. It is
+app to that surface. **Eighteen steps, app first and configuration second** —
+the app is easier to grasp than the settings that wire it up:
+
+1. **Welcome**, on the **MyApps list** (`opensMyApps`): a MyApp is the thing
+   you build and use in Pupa, so the tour opens on the list of them rather
+   than inside one. A fresh install seeds
+   `ExampleRegistry.freshInstallSeedCount` (2) apps so that list is never a
+   single row.
+2. **The bar** — introduced as a whole (`highlight: .bottomBar`), then walked
+   left to right: Home, Memories, chat (prefilled), agents & threads, slash
+   commands, then the **Menu**. The bar card and the Home card are separate:
+   one card doing both described everything and explained nothing.
+3. **What's behind the menu** — three steps that draw it *open*
+   (`TourMenuPreview`, below) rather than teleporting: this app's pages
+   (Agents, History), moving between workspaces (MyApps, Orchestrator), and
+   Settings. Between them the two destinations that are worth seeing open for
+   real: the **MyApps sheet** again, now that the row reaching it has been
+   shown, and the **Orchestrator**, prefilled with "create a new myapp".
+4. **Settings** — each page is introduced by a step that lands on the root list
+   and rings the section it lives in, so the page it opens has a visible
+   origin: **The essentials** (`highlight: .settingsEssentials`) before Backend
+   and Account, **Manage MyApps** (`.settingsManageMyApps`) before Share a
+   MyApp.
+5. **The closing pair**, both on Settings · Examples: the **marketplace**
+   (`.settingsMarketplace`), where the current official apps live, then the
+   bundled **examples** (`.settingsExamples`) as toys, so the user taps
+   **Restore** on whichever they like.
+
+Agents and History are *named*, never navigated to: the tour points at their
+menu row instead of stranding the user on a page they did not choose. Screen
+share has no step at all. Card placement is per step and load-bearing: a
+preview step's card goes `.top` (the preview sits above the bar), the MyApps
+step's goes `.bottom` (its list fills from the top, and a new user has one row
+in it). Step copy carries no em dashes, pinned by a test. It
+is
 **route-driven, not pixel-anchored**, so it survives UI redesigns: a shared
 `@Observable GuidedTourStore.shared` (mirroring `OnboardingHandoff.shared`)
 holds the step list (`TourContent`, pure data) + current index. Each `TourStep`
@@ -686,8 +713,27 @@ streams it character by character after a short lead-in (instant under Reduce
 Motion or for single-char "/"). `wantHighlight` names a control
 (`TourHighlight`: a bottom-bar slot, the chat header, or a Settings section);
 Exactly one step rings the menu, enforced by a test: a SwiftUI `Menu` can't be
-opened programmatically, so a second ring would point at a closed menu. Steps
-describing what lives inside it navigate there or deep-link Settings instead.
+opened programmatically, so a second ring would point at a closed menu.
+
+That same constraint is why steps describing what lives *inside* the menu carry
+`menuPreview` instead of a highlight. **`TourMenuPreview`** (`App/`) draws the
+menu as it looks when open, above the bar's trailing corner, with the step's
+rows lit and the rest dimmed; `AppView` hosts it over the ring and under the
+coach card, and every such step places its card at `.top` so the two don't
+collide (a test pins that). Its rows come from **`BarMenuRow.rows`**
+(`MyApps/BarMenuRow.swift`) — the one list `MyAppBottomBar.moreMenu` also
+builds from — so the picture the tour shows cannot drift from the menu the user
+then opens, and the preview correctly drops History and Orchestrator on the
+orchestrator's own bar. It is presentation only: no actions,
+`.allowsHitTesting(false)`.
+`TourHighlight.bottomBar` rings the whole bar as one region. It is published
+from a `Color.clear` **background child**, not by putting `.tourAnchor` on the
+bar itself: `anchorPreference` on a container replaces what its children
+published, which silently dropped every per-slot anchor. The ring is also
+clamped to the layer's bounds and its breathing pulse is capped to the room
+left over, so a full-width target stays a closed ring instead of two rules
+running off both edges.
+
 `TourHighlight.swift` provides a `.tourAnchor` preference those views publish
 (several views may share a role — the chat header rings the agent + thread
 pickers as one union) and a `TourHighlightOverlay` glow ring drawn by the
