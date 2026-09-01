@@ -114,6 +114,13 @@ public struct MyAppBottomBar: View {
         #endif
         .background(.regularMaterial)
         .overlay(alignment: .top) { Divider() }
+        // The bar as one region, for the tour step that introduces it before
+        // walking the individual slots. Published from a zero-cost background
+        // child, NOT with `.tourAnchor` on the bar itself: `anchorPreference`
+        // on a container replaces what its children published, which silently
+        // dropped every per-slot anchor (Home, Memories, Pupa, the menu) and
+        // left those steps ringing nothing.
+        .background { Color.clear.tourAnchor(.bottomBar) }
     }
 
     private func barButton(

@@ -35,7 +35,7 @@ struct GuidedTourStoreTests {
         let store = startedStore(defaults: freshDefaults())
         #expect(store.isActive)
         #expect(store.index == 0)
-        #expect(store.steps.count == 18)
+        #expect(store.steps.count == 20)
         #expect(store.isFirstStep)
         #expect(!store.isLastStep)
         #expect(store.currentStep?.id == "welcome")
@@ -195,10 +195,12 @@ struct GuidedTourStoreTests {
     func myAppStepsWalkBottomBar() {
         let id = UUID()
         let steps = TourContent.steps(activeMyAppId: id, isPaired: true)
-        // Ordered Home, Memories, Pupa(chat), then the menu. One step per bar
-        // slot, and the bar walk comes before any Settings step: the app is
-        // easier to grasp than the settings that wire it up.
+        // The bar is introduced as a whole, then walked: Home, Memories,
+        // Pupa(chat), the menu. One step per slot, and the walk comes before
+        // any Settings step: the app is easier to grasp than the settings that
+        // wire it up.
         let expected: [(String, SidebarSelection?, TourHighlight)] = [
+            ("the-bar", .myAppHome(id), .bottomBar),
             ("myapp-home", .myAppHome(id), .bottomBarHome),
             ("myapp-memories", .myAppMemories(id), .bottomBarMemories),
             ("chat", .myAppHome(id), .bottomBarChat),
@@ -217,6 +219,41 @@ struct GuidedTourStoreTests {
         let chat = steps.first { $0.id == "chat" }!
         #expect(chat.opensChat)
         #expect(chat.chatPrefill == "Can you prepare my daily briefing while I get my coffee?")
+    }
+
+    /// The opening bar step describes the bar; the step after it describes
+    /// Home. One card conflating the two was the bug.
+    @Test("The bar overview and the Home step are separate cards")
+    func barOverviewIsNotTheHomeStep() {
+        let id = UUID()
+        let steps = TourContent.steps(activeMyAppId: id, isPaired: true)
+        let bar = steps.firstIndex { $0.id == "the-bar" }!
+        let home = steps.firstIndex { $0.id == "myapp-home" }!
+        #expect(bar == home - 1)
+        #expect(steps[bar].highlight == .bottomBar)
+        #expect(steps[home].highlight == .bottomBarHome)
+        // Exactly one step rings the bar as a whole; the rest ring one slot.
+        #expect(steps.filter { $0.highlight == .bottomBar }.count == 1)
+    }
+
+    /// MyApps is the list of everything the user has built. Naming it in a
+    /// menu preview and never showing it was the gap.
+    @Test("Exactly one step opens the MyApps sheet, before the orchestrator")
+    func myAppsSheetIsShownBeforeTheOrchestrator() {
+        let steps = TourContent.steps(activeMyAppId: UUID(), isPaired: true)
+        let opening = steps.filter(\.opensMyApps)
+        #expect(opening.count == 1)
+        #expect(opening.first?.id == "myapps-sheet")
+        let sheet = steps.firstIndex { $0.id == "myapps-sheet" }!
+        let orchestrator = steps.firstIndex { $0.id == "orchestrator" }!
+        #expect(sheet < orchestrator)
+        // It comes after the preview that points at the MyApps row, so the tap
+        // is visible before the destination.
+        let scope = steps.firstIndex { $0.id == "menu-scope" }!
+        #expect(scope < sheet)
+        // Bottom-placed: the list fills from the top, and a new user has one
+        // row in it, which a top card covers completely.
+        #expect(opening.first?.placement == .bottom)
     }
 
     /// Agents and History are named, not visited: the tour points at the menu

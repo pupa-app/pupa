@@ -662,13 +662,16 @@ app to that surface. **Eighteen steps, app first and configuration second** —
 the app is easier to grasp than the settings that wire it up:
 
 1. **Welcome.**
-2. **The bar, left to right** — Home, Memories, chat (prefilled), agents &
-   threads, slash commands, then the **Menu**.
+2. **The bar** — introduced as a whole (`highlight: .bottomBar`), then walked
+   left to right: Home, Memories, chat (prefilled), agents & threads, slash
+   commands, then the **Menu**. The bar card and the Home card are separate:
+   one card doing both described everything and explained nothing.
 3. **What's behind the menu** — three steps that draw it *open*
    (`TourMenuPreview`, below) rather than teleporting: this app's pages
    (Agents, History), moving between workspaces (MyApps, Orchestrator), and
-   Settings. The Orchestrator is opened for real between them, prefilled with
-   "create a new myapp".
+   Settings. Between them the two destinations that are worth seeing open for
+   real: the **MyApps sheet** (`opensMyApps`, the one step that presents it)
+   and the **Orchestrator**, prefilled with "create a new myapp".
 4. **Settings** — each page is introduced by a step that lands on the root list
    and rings the section it lives in, so the page it opens has a visible
    origin: **The essentials** (`highlight: .settingsEssentials`) before Backend
@@ -681,7 +684,10 @@ the app is easier to grasp than the settings that wire it up:
 
 Agents and History are *named*, never navigated to: the tour points at their
 menu row instead of stranding the user on a page they did not choose. Screen
-share has no step at all. Step copy carries no em dashes, pinned by a test. It
+share has no step at all. Card placement is per step and load-bearing: a
+preview step's card goes `.top` (the preview sits above the bar), the MyApps
+step's goes `.bottom` (its list fills from the top, and a new user has one row
+in it). Step copy carries no em dashes, pinned by a test. It
 is
 **route-driven, not pixel-anchored**, so it survives UI redesigns: a shared
 `@Observable GuidedTourStore.shared` (mirroring `OnboardingHandoff.shared`)
@@ -716,6 +722,14 @@ builds from — so the picture the tour shows cannot drift from the menu the use
 then opens, and the preview correctly drops History and Orchestrator on the
 orchestrator's own bar. It is presentation only: no actions,
 `.allowsHitTesting(false)`.
+`TourHighlight.bottomBar` rings the whole bar as one region. It is published
+from a `Color.clear` **background child**, not by putting `.tourAnchor` on the
+bar itself: `anchorPreference` on a container replaces what its children
+published, which silently dropped every per-slot anchor. The ring is also
+clamped to the layer's bounds and its breathing pulse is capped to the room
+left over, so a full-width target stays a closed ring instead of two rules
+running off both edges.
+
 `TourHighlight.swift` provides a `.tourAnchor` preference those views publish
 (several views may share a role — the chat header rings the agent + thread
 pickers as one union) and a `TourHighlightOverlay` glow ring drawn by the

@@ -16,6 +16,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   destination, so the tap itself was never visible. Three steps now draw the
   menu as it looks when open, with the rows they are about lit up. The picture
   is built from the same row list the real menu uses, so the two cannot drift.
+- **The bar gets its own card, and Home gets a real one.** One card used to do
+  both: it rang Home while describing the whole bar, so neither landed. The
+  first now rings the bar as a whole, the second rings Home and says what Home
+  shows.
+- **MyApps opens for real.** The list of every workspace you have built was
+  named in passing and never shown, which is a strange thing to skip.
 - **Agents and History are named, not visited.** The tour pointed at their menu
   row rather than navigating into the page and leaving the user somewhere they
   did not choose to go.
@@ -28,6 +34,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   only described itself.
 - Step copy has no em dashes, and neither do the example names and taglines on
   Settings ▸ Examples. Both pinned by a test.
+
+### Fixed
+
+- **The tour's highlight ring is one language everywhere.** A lit row in the
+  menu preview was a shaded block while every other target got a traced ring.
+  Both are rings now.
+- **A ring around a full-width target stays a ring.** The whole-bar highlight
+  had its left and right strokes drawn past the screen edges, so it read as two
+  loose horizontal rules.
 
 ## [0.0.277] — 2026-08-31
 

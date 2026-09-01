@@ -71,13 +71,16 @@ struct TourMenuPreview: View {
         .foregroundStyle(lit ? AnyShapeStyle(Color.brandColor) : AnyShapeStyle(.secondary))
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
-        .background {
+        // A traced ring, not a filled block: this is the same emphasis
+        // `TourHighlightOverlay` draws around a real control, so a lit row and
+        // a ringed button read as one language. Stroke weight, corner radius,
+        // glow and pulse all match it.
+        .overlay {
             if lit {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(Color.brandColor.opacity(0.14))
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.brandColor, lineWidth: 2.5)
+                    .shadow(color: Color.brandColor.opacity(0.6), radius: 8)
                     .padding(.horizontal, 5)
-                    // Same breathing pulse the highlight ring uses, so a lit
-                    // row reads as the thing the card is pointing at.
                     .scaleEffect(reduceMotion ? 1 : (pulse ? 1.03 : 1))
                     .animation(
                         reduceMotion

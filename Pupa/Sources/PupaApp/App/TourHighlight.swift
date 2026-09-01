@@ -6,6 +6,9 @@ import SwiftUI
 /// time, so the highlight survives layout changes the way the rest of the tour
 /// survives a redesign.
 enum TourHighlight: Hashable {
+    /// The whole bottom bar, ringed as one region. The opening step names the
+    /// bar itself; the steps after it ring one slot each.
+    case bottomBar
     case bottomBarHome
     case bottomBarMemories
     case bottomBarChat
@@ -70,7 +73,7 @@ extension View {
             GeometryReader { geo in
                 if tour.isActive, let id = tour.wantHighlight,
                    let rect = TourHighlightOverlay.ringRect(for: id, anchors: anchors, in: geo) {
-                    TourHighlightOverlay(rect: rect)
+                    TourHighlightOverlay(rect: rect, bounds: geo.size)
                 }
             }
             .allowsHitTesting(false)
@@ -93,18 +96,31 @@ struct TourHighlightOverlay: View {
         in geo: GeometryProxy
     ) -> CGRect? {
         guard let list = anchors[id], !list.isEmpty else { return nil }
-        return list.reduce(CGRect.null) { $0.union(geo[$1]) }
+        let union = list.reduce(CGRect.null) { $0.union(geo[$1]) }
+        // Keep the ring on screen. A full-width target (the whole bottom bar)
+        // otherwise has its left and right strokes drawn past the edges, so it
+        // reads as two loose horizontal rules rather than one enclosing ring.
+        let limit = CGRect(origin: .zero, size: geo.size).insetBy(dx: inset, dy: inset)
+        let clamped = union.intersection(limit)
+        return clamped.isNull ? union : clamped
     }
 
+    /// How far the ring sits outside the control it traces. Also the margin
+    /// kept between a clamped ring and the screen edge, so the two agree.
+    private static let inset: CGFloat = 6
+
     let rect: CGRect
+    /// The layer's own size, so the pulse can be capped to what fits.
+    let bounds: CGSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulse = false
 
     private let cornerRadius: CGFloat = 12
-    private let inset: CGFloat = -4
+    private let outset: CGFloat = -4
 
     var body: some View {
-        let ring = rect.insetBy(dx: inset, dy: inset)
+        // Grow by `outset`, but never past what `ringRect` already clamped to.
+        let ring = rect.insetBy(dx: outset, dy: outset)
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .strokeBorder(Color.brandColor, lineWidth: 2.5)
             .shadow(color: Color.brandColor.opacity(0.6), radius: 8)
@@ -114,7 +130,7 @@ struct TourHighlightOverlay: View {
             // Scale BEFORE positioning so it grows about the ring's own
             // centre; scaling after `.position` scales about the full
             // overlay centre and drags the ring up/down.
-            .scaleEffect(reduceMotion ? 1 : (pulse ? 1.08 : 1))
+            .scaleEffect(reduceMotion ? 1 : (pulse ? peak(for: ring) : 1))
             .position(x: ring.midX, y: ring.midY)
             .animation(
                 reduceMotion
@@ -123,5 +139,17 @@ struct TourHighlightOverlay: View {
                 value: pulse
             )
             .onAppear { pulse = true }
+    }
+
+    /// How far the pulse may grow this ring. A ring around one bar button has
+    /// room to spare; one around the whole bar is already the width of the
+    /// screen, and a flat 1.08 pushed its left and right strokes off both
+    /// edges — so it read as two loose horizontal rules, not a ring.
+    private func peak(for ring: CGRect) -> CGFloat {
+        let room = min(
+            ring.width > 0 ? bounds.width / ring.width : .infinity,
+            ring.height > 0 ? bounds.height / ring.height : .infinity
+        )
+        return max(1, min(1.08, room))
     }
 }

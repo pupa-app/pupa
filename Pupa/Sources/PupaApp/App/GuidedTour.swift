@@ -50,6 +50,9 @@ struct TourStep: Identifiable, Equatable {
     /// describing). `nil` leaves no highlight. Resolved to live bounds by
     /// `TourHighlightOverlay` via the `.tourAnchor` tags, never pixel-pinned.
     var highlight: TourHighlight?
+    /// Present the MyApps sheet for this step. The list of workspaces is the
+    /// one surface the tour used to name without ever showing.
+    var opensMyApps: Bool
     /// Draw the bar's menu open, with these rows lit. `nil` draws no preview.
     /// A SwiftUI `Menu` cannot be opened programmatically, so steps that talk
     /// about what is behind the hamburger show `TourMenuPreview` instead of
@@ -66,6 +69,7 @@ struct TourStep: Identifiable, Equatable {
         opensChat: Bool = false,
         chatPrefill: String? = nil,
         highlight: TourHighlight? = nil,
+        opensMyApps: Bool = false,
         menuPreview: Set<BarMenuRow>? = nil
     ) {
         self.id = id
@@ -77,6 +81,7 @@ struct TourStep: Identifiable, Equatable {
         self.opensChat = opensChat
         self.chatPrefill = chatPrefill
         self.highlight = highlight
+        self.opensMyApps = opensMyApps
         self.menuPreview = menuPreview
     }
 }
@@ -101,12 +106,22 @@ enum TourContent {
             // The bar, left to right. Configuration comes after: the app is
             // easier to understand than the settings that wire it up.
             TourStep(
+                id: "the-bar",
+                title: "The bar",
+                body: "This is the only bar in the app, and it is how you get everywhere: "
+                    + "Home, Memories, Pupa, and the menu. Whichever MyApp you are in, it "
+                    + "is the same four. Let's walk it left to right.",
+                placement: .bottom,
+                selection: .myAppHome(activeMyAppId),
+                highlight: .bottomBar
+            ),
+            TourStep(
                 id: "myapp-home",
                 title: "Home",
-                body: "Each MyApp is a canvas of components, like trackers, calendars and "
-                    + "checklists, that the agent reads and edits as you chat. The bar below "
-                    + "is the only one in the app: Home, Memories, Pupa, and the menu. "
-                    + "Let's walk it left to right, starting here on Home.",
+                body: "Home is the MyApp's canvas: a grid of the components it is made of, "
+                    + "like trackers, calendars and checklists. Tap one to open it. The "
+                    + "agent reads and edits these as you chat, and Add puts a new one on "
+                    + "the grid.",
                 placement: .bottom,
                 selection: .myAppHome(activeMyAppId),
                 highlight: .bottomBarHome
@@ -177,8 +192,8 @@ enum TourContent {
                 id: "menu-pages",
                 title: "This app's pages",
                 body: "Agents opens the main agent for this MyApp, where you can see the "
-                    + "tools it can call and open its persona file. History logs every change "
-                    + "the agent makes to the canvas. Both are here whenever you want them.",
+                    + "tools it can call and open its persona file. History logs every "
+                    + "change the agent makes to the canvas.",
                 placement: .top,
                 selection: .myAppHome(activeMyAppId),
                 menuPreview: [.agents, .history]
@@ -191,6 +206,18 @@ enum TourContent {
                 placement: .top,
                 selection: .myAppHome(activeMyAppId),
                 menuPreview: [.myApps, .orchestrator]
+            ),
+            TourStep(
+                id: "myapps-sheet",
+                title: "MyApps",
+                body: "Here they are. Every workspace you have built, and the place you "
+                    + "start a new one. Swipe a row for its own actions, and tap one to "
+                    + "switch to it.",
+                // Bottom, unlike the other sheet steps: this list fills from
+                // the top, and a new user has one row in it. A top card landed
+                // squarely on that single row and made the sheet look empty.
+                placement: .bottom,
+                opensMyApps: true
             ),
             TourStep(
                 id: "orchestrator",
@@ -327,6 +354,8 @@ final class GuidedTourStore {
     var chatAutoSend: String?
     /// The control the active step rings, or `nil`. Read by `TourHighlightOverlay`.
     var wantHighlight: TourHighlight?
+    /// Whether the MyApps sheet should be up. Reconciled by `AppView`.
+    var wantMyAppsOpen: Bool = false
     /// Rows to light in the open-menu preview, or `nil` to draw no preview.
     /// Read by `AppView`, which hosts `TourMenuPreview` over the bar.
     var wantMenuPreview: Set<BarMenuRow>?
@@ -408,6 +437,7 @@ final class GuidedTourStore {
         chatPrefill = nil
         chatAutoSend = nil
         wantHighlight = nil
+        wantMyAppsOpen = false
         wantMenuPreview = nil
     }
 }
