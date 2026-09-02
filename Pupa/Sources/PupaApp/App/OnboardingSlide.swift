@@ -115,9 +115,10 @@ struct OnboardingArtView: View {
     private var myAppsArt: some View {
         // One domain each, deliberately: three of the four onboarding
         // illustrations used to be job hunting, which read as the app's
-        // subject rather than one example of it.
+        // subject rather than one example of it. Job tracking keeps a card
+        // here, as one use among four rather than the theme.
         let cards: [(String, String, Int)] = [
-            ("checklist", "Habit Tracker", 0),
+            ("checklist", "Job Tracker", 0),
             ("calendar", "Trip Planner", 1),
             ("checkmark.circle", "Reading List", 2),
             ("bubble.left.and.bubble.right.fill", "Recipe Room", 3),

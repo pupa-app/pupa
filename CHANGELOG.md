@@ -15,8 +15,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   illustrations were: a Skills Tracker / Interviews / Prep Checklist / Prep Room
   grid, "Track my job applications" in the chat mockup, and an
   `Interview Prep.md` memory note. Job hunting read as the app's subject rather
-  than one example of it. The grid now shows four different domains, the chat
-  asks for a weekend in Lisbon, and the memory note is `Preferences.md`.
+  than one example of it. The grid now shows four different domains, one of
+  them still job tracking, the chat asks for a weekend in Lisbon, and the
+  memory note is `Preferences.md`.
 
 ## [0.0.278] — 2026-08-31
 
