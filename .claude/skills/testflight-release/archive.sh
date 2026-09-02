@@ -311,6 +311,7 @@ if [[ $FLOW -eq 1 ]]; then
 fi
 
 # --- archive (iOS + macOS — one Universal Purchase record, both ship together) ---
+scripts/require-free-space.sh 12 "archiving both platforms"
 mkdir -p build
 
 archive_platform() {
@@ -368,6 +369,17 @@ PUSH_HINT=""
 
 trap - EXIT
 
+# Organizer only auto-lists archives under ~/Library/Developer/Xcode/Archives/,
+# and these live in build/. Opening them registers them; skipping this step is
+# why an archive can succeed and Organizer still look empty.
+OPEN_NOTE=""
+if [[ "${PUPA_SKIP_OPEN:-0}" != "1" ]] && command -v open >/dev/null; then
+  open "$ARCHIVE_IOS" "$ARCHIVE_MACOS" 2>/dev/null \
+    || OPEN_NOTE=" (registering them failed — run: open $ARCHIVE_IOS $ARCHIVE_MACOS)"
+else
+  OPEN_NOTE=" (not registered — run: open $ARCHIVE_IOS $ARCHIVE_MACOS)"
+fi
+
 cat <<EOF
 
 ARCHIVES READY
@@ -376,8 +388,9 @@ ARCHIVES READY
   macOS:   $ARCHIVE_MACOS
            Version $MACOS_VERSION, Build $MACOS_BUILD, Bundle $MACOS_BUNDLE$PUSH_HINT
 
-Next step: Open Xcode → Window → Organizer (⌥⇧⌘O). Both archives should appear
-(if not, run: open $ARCHIVE_IOS $ARCHIVE_MACOS). Select each in turn → Distribute
-App → App Store Connect → Upload. Same tester group covers both platforms once
-each build clears export compliance.
+Next step: Xcode → Window → Organizer (⌥⇧⌘O), Archives tab. Both are registered
+already$OPEN_NOTE. Select each in turn → Distribute App → App Store Connect →
+Upload. There is no prompt before this point — nothing appears in Organizer until
+the archives are opened. Same tester group covers both platforms once each build
+clears export compliance.
 EOF

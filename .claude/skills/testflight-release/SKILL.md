@@ -72,7 +72,8 @@ Branch names default to `dev`/`main`; override with `DEV_BRANCH=` / `MAIN_BRANCH
    bump lands on a feature branch, which is the only place an assistant may put it.
    Stops if the working tree is otherwise dirty.
 6. With `--flow` only: fast-forwards `main` from `dev` (`--ff-only`; aborts if diverged) and archives `main`. Otherwise archives the current checkout.
-7. Runs `xcodebuild archive` twice: `-destination generic/platform=iOS` into `build/Pupa.xcarchive`, then `-destination generic/platform=macOS` into `build/Pupa-macOS.xcarchive`.
+7. Checks free disk (`scripts/require-free-space.sh`, ~12G for the two archives;
+   `PUPA_MIN_FREE_GB=0` disables it), then runs `xcodebuild archive` twice: `-destination generic/platform=iOS` into `build/Pupa.xcarchive`, then `-destination generic/platform=macOS` into `build/Pupa-macOS.xcarchive`.
 8. Checks the macOS archive's signed entitlements against the expected set (sandbox,
    network client + server, user-selected files). The signature is the only ground
    truth here — the `com.apple.security.*` keys are synthesized from `ENABLE_*` build
@@ -85,7 +86,7 @@ branch — land it through a PR like any other change.
 
 ## After the script
 
-1. Run `open build/Pupa.xcarchive build/Pupa-macOS.xcarchive` — this registers both archives with Xcode so they appear in Organizer. (Organizer only auto-lists archives from `~/Library/Developer/Xcode/Archives/`; the script writes to `build/` instead, so opening them manually is required.)
+1. Nothing — the script opens both archives itself, which is what registers them with Xcode so they appear in Organizer. (Organizer only auto-lists archives from `~/Library/Developer/Xcode/Archives/`; the script writes to `build/` instead, so they have to be opened.) `PUPA_SKIP_OPEN=1` suppresses it for test runs; the summary then prints the `open` command instead. **No prompt appears at any earlier point** — until the archives are opened, Organizer looks empty.
 
 2. Report to the user:
    - Both archive paths: `build/Pupa.xcarchive`, `build/Pupa-macOS.xcarchive`

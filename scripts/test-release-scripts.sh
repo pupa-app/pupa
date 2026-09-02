@@ -29,6 +29,7 @@ ARCHIVE_SH="$REPO_ROOT/.claude/skills/testflight-release/archive.sh"
 RELEASE_SH="$REPO_ROOT/.claude/skills/dmg-release/release.sh"
 REAL_PBXPROJ="$REPO_ROOT/PupaHost/PupaHost.xcodeproj/project.pbxproj"
 REAL_VERSION_SWIFT="$REPO_ROOT/Pupa/Sources/PupaApp/Version.swift"
+REAL_FREE_SPACE="$REPO_ROOT/scripts/require-free-space.sh"
 
 PBXPROJ="PupaHost/PupaHost.xcodeproj/project.pbxproj"
 
@@ -47,6 +48,14 @@ trap 'rm -rf "$TMP"' EXIT
 # have nothing to do with the scripts.
 export GIT_CONFIG_GLOBAL=/dev/null
 export PATH="$STUBS:$PATH"
+# Cases that care set this themselves; everywhere else the suite must not
+# depend on how full the developer's disk happens to be.
+export PUPA_MIN_FREE_GB=0
+# archive.sh registers its archives with Organizer on success. Launching
+# Xcode from a test run is not acceptable.
+export PUPA_SKIP_OPEN=1
+# Where the gh stub records that a release now exists.
+export PUPA_TEST_GH_STATE="$TMP/gh-release-exists"
 
 PASS=0
 FAIL=0
@@ -118,8 +127,37 @@ cat <<'IDS'
 IDS
 STUB
 
-printf '#!/usr/bin/env bash\nexit 0\n' > "$STUBS/xcrun"
-printf '#!/usr/bin/env bash\nexit 0\n' > "$STUBS/gh"
+cat > "$STUBS/xcrun" <<'STUB'
+#!/usr/bin/env bash
+# `stapler validate` is the one xcrun call whose failure a case needs to drive:
+# it is how --publish-only tells a notarized DMG from a --skip-notarize one.
+if [[ "${PUPA_TEST_STAPLE_BAD:-0}" == "1" && "$*" == *stapler*validate* ]]; then
+  echo "stub stapler: no ticket" >&2
+  exit 1
+fi
+exit 0
+STUB
+cat > "$STUBS/gh" <<'STUB'
+#!/usr/bin/env bash
+# Models the one gh sequence release.sh drives: `release view` fails until a
+# `release create` succeeds, and then reports a draft with a URL. A stub that
+# answered 0 to everything made every publish look like an attempt to clobber an
+# already-published release.
+state="${PUPA_TEST_GH_STATE:-/dev/null}"
+if [[ "${1:-}" == "release" && "${2:-}" == "create" ]]; then
+  [[ "$state" != /dev/null ]] && : > "$state"
+  exit 0
+fi
+if [[ "${1:-}" == "release" && "${2:-}" == "view" ]]; then
+  [[ -f "$state" ]] || { echo "release not found" >&2; exit 1; }
+  case "$*" in
+    *isDraft*) echo "${PUPA_TEST_GH_DRAFT:-true}" ;;
+    *url*)     echo "https://example.invalid/releases/tag/v-stub" ;;
+  esac
+  exit 0
+fi
+exit 0
+STUB
 chmod +x "$STUBS"/*
 
 git init -q "$FIXTURE"
@@ -139,7 +177,8 @@ cp "$REAL_VERSION_SWIFT" "Pupa/Sources/PupaApp/Version.swift"
 touch "PupaHost/PupaHost/Assets.xcassets/AppIcon.appiconset/icon_1024.png"
 printf 'DEVELOPMENT_TEAM = TEAMID1234\n' > "PupaHost/Local.xcconfig"
 printf '#!/bin/sh\nexit 0\n' > "scripts/verify-mac-entitlements.sh"
-chmod +x "scripts/verify-mac-entitlements.sh"
+cp "$REAL_FREE_SPACE" "scripts/require-free-space.sh"
+chmod +x "scripts/verify-mac-entitlements.sh" "scripts/require-free-space.sh"
 
 # Pin the app target to known numbers. The test targets sit at MARKETING_VERSION
 # 1.0 / CURRENT_PROJECT_VERSION 1 and must stay there — one of the cases below
@@ -194,6 +233,9 @@ reset() {
   git branch -f dev HEAD
   git branch -f main HEAD
   unset PUPA_TEST_XCODEBUILD_OK
+  unset PUPA_TEST_STAPLE_BAD
+  unset PUPA_TEST_GH_DRAFT
+  rm -f "$PUPA_TEST_GH_STATE"
 }
 
 case_start() { CASE="$1"; CASE_FAILED=0; }
@@ -557,6 +599,114 @@ run "$RELEASE_SH" --publish
 expect_no_out "does not exist on origin"
 expect_no_out "CHANGELOG has no non-empty section"
 expect_out "building Pupa $SEED_MV"
+case_end
+
+echo
+echo "free space — refusing before the expensive part"
+
+case_start "archive.sh refuses when the disk cannot hold both archives"
+reset synced
+run env PUPA_MIN_FREE_GB=999999 "$ARCHIVE_SH" --no-bump --skip-icon-check
+expect_status 1
+expect_out "999999G needed for"
+case_end
+
+case_start "release.sh refuses when the disk cannot hold the archive and DMG"
+reset synced
+export NOTARY_PROFILE=fixture
+run env PUPA_MIN_FREE_GB=999999 "$RELEASE_SH"
+expect_status 1
+expect_out "999999G needed for"
+case_end
+
+case_start "the free-space check does not run the archive first"
+reset synced
+export NOTARY_PROFILE=fixture
+run env PUPA_MIN_FREE_GB=999999 "$RELEASE_SH"
+expect_no_out "archiving macOS"
+case_end
+
+echo
+echo "release.sh — --publish-only"
+
+case_start "--publish-only refuses when build/ holds no DMG"
+publish_setup
+git remote remove origin 2>/dev/null
+git remote add origin "$ORIGIN"
+git tag -f "v$SEED_MV" >/dev/null
+git push -q --force origin "refs/tags/v$SEED_MV"
+rm -f "build/Pupa-$SEED_MV.dmg"
+run "$RELEASE_SH" --publish-only
+expect_status 1
+expect_out "found no DMG"
+case_end
+
+case_start "--publish-only refuses a DMG with no stapled ticket"
+publish_setup
+git remote remove origin 2>/dev/null
+git remote add origin "$ORIGIN"
+git tag -f "v$SEED_MV" >/dev/null
+git push -q --force origin "refs/tags/v$SEED_MV"
+mkdir -p build
+touch "build/Pupa-$SEED_MV.dmg"
+run env PUPA_TEST_STAPLE_BAD=1 "$RELEASE_SH" --publish-only
+expect_status 1
+expect_out "no stapled notarization ticket"
+case_end
+
+case_start "--publish-only publishes without archiving"
+publish_setup
+git remote remove origin 2>/dev/null
+git remote add origin "$ORIGIN"
+git tag -f "v$SEED_MV" >/dev/null
+git push -q --force origin "refs/tags/v$SEED_MV"
+mkdir -p build
+touch "build/Pupa-$SEED_MV.dmg"
+run "$RELEASE_SH" --publish-only
+expect_status 0
+expect_out "nothing rebuilt"
+expect_no_out "archiving macOS"
+case_end
+
+case_start "--publish-only refuses to replace the asset on a published release"
+publish_setup
+git remote remove origin 2>/dev/null
+git remote add origin "$ORIGIN"
+git tag -f "v$SEED_MV" >/dev/null
+git push -q --force origin "refs/tags/v$SEED_MV"
+mkdir -p build
+touch "build/Pupa-$SEED_MV.dmg"
+: > "$PUPA_TEST_GH_STATE"
+run env PUPA_TEST_GH_DRAFT=false "$RELEASE_SH" --publish-only
+expect_status 1
+expect_out "already published"
+case_end
+
+case_start "--publish-only is still refused alongside --skip-notarize"
+publish_setup
+run "$RELEASE_SH" --publish-only --skip-notarize
+expect_status 1
+expect_out "cannot be combined with --skip-notarize"
+case_end
+
+echo
+echo "release.sh — notary profile discovery"
+
+case_start "the notary profile is read from Local.xcconfig when no flag is given"
+reset synced
+unset NOTARY_PROFILE
+printf 'DEVELOPMENT_TEAM = TEAMID1234\nNOTARY_PROFILE = from-xcconfig\n' > "PupaHost/Local.xcconfig"
+run "$RELEASE_SH"
+expect_no_out "No notarytool profile"
+case_end
+
+case_start "a missing profile names all three places it can come from"
+reset synced
+unset NOTARY_PROFILE
+run "$RELEASE_SH"
+expect_status 1
+expect_out "No notarytool profile"
+expect_out "Local.xcconfig"
 case_end
 
 echo

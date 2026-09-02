@@ -387,7 +387,9 @@ Before cutting the release:
 3. Fast-forward `main` from `dev`, push both.
 4. Tag `v0.0.X` at that SHA and push the tag, so `main`, `dev` and the tag name
    one commit.
-5. From that checkout: `archive.sh --no-bump` → both `.xcarchive`s → Organizer.
+5. From that checkout: `ship-release/preflight.sh --publish` first — it checks
+   every item above in about a second, and each one of them has failed late in a
+   real release. Then `archive.sh --no-bump` → both `.xcarchive`s → Organizer.
    It moves no branch other than the one you are on; `--flow` opts into the
    `dev`→`main` dance.
 6. From the **same** checkout: `release.sh --notary-profile <name> --publish` →

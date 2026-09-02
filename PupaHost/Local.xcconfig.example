@@ -9,3 +9,9 @@
 // Config.xcconfig pulls Local.xcconfig in with `#include?`, so a checkout
 // without it still configures — signing then fails later, inside xcodebuild.
 DEVELOPMENT_TEAM = YOURTEAMID
+
+// Optional. The notarytool keychain profile the DMG channel signs with, created
+// once with `xcrun notarytool store-credentials`. Not a secret — the credentials
+// live in the keychain, this is only the name of them. Here so a release does
+// not depend on remembering it.
+// NOTARY_PROFILE = pupa-notary
