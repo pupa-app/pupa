@@ -3,6 +3,22 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.279] — 2026-09-02
+
+### Changed
+
+- **Example taglines are one line, not a feature list.** Seven of them ran to
+  four or five wrapped lines in Settings ▸ Examples, which turned the picker
+  into a wall of text and buried the names it exists to compare. The whole list
+  now fits on one screen. A test caps the length.
+- **The first-run slides are not all about job hunting.** Three of the four
+  illustrations were: a Skills Tracker / Interviews / Prep Checklist / Prep Room
+  grid, "Track my job applications" in the chat mockup, and an
+  `Interview Prep.md` memory note. Job hunting read as the app's subject rather
+  than one example of it. The grid now shows four different domains, one of
+  them still job tracking, the chat asks for a weekend in Lisbon, and the
+  memory note is `Preferences.md`.
+
 ## [0.0.278] — 2026-08-31
 
 ### Changed

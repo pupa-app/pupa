@@ -113,11 +113,15 @@ struct OnboardingArtView: View {
     // MARK: - MyApps
 
     private var myAppsArt: some View {
+        // One domain each, deliberately: three of the four onboarding
+        // illustrations used to be job hunting, which read as the app's
+        // subject rather than one example of it. Job tracking keeps a card
+        // here, as one use among four rather than the theme.
         let cards: [(String, String, Int)] = [
-            ("checklist", "Skills Tracker", 0),
-            ("calendar", "Interviews", 1),
-            ("checkmark.circle", "Prep Checklist", 2),
-            ("bubble.left.and.bubble.right.fill", "Prep Room", 3),
+            ("checklist", "Job Tracker", 0),
+            ("calendar", "Trip Planner", 1),
+            ("checkmark.circle", "Reading List", 2),
+            ("bubble.left.and.bubble.right.fill", "Recipe Room", 3),
         ]
         return LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
             ForEach(cards.indices, id: \.self) { i in
@@ -151,8 +155,8 @@ struct OnboardingArtView: View {
 
     private var chatArt: some View {
         VStack(alignment: .leading, spacing: 10) {
-            bubble("Track my job applications", isUser: true)
-            bubble("On it! Adding a tracker and a prep checklist.", isUser: false)
+            bubble("Plan a weekend in Lisbon", isUser: true)
+            bubble("On it! Adding a calendar and a packing checklist.", isUser: false)
             HStack(spacing: 6) {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.caption2)
@@ -188,7 +192,7 @@ struct OnboardingArtView: View {
             HStack(spacing: 8) {
                 Image(systemName: "doc.text.fill")
                     .foregroundStyle(Color.brandColor)
-                Text("Interview Prep.md")
+                Text("Preferences.md")
                     .font(.subheadline.weight(.semibold))
                 Spacer()
             }

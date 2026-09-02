@@ -13,7 +13,7 @@ import Foundation
 enum ResearchTrackerExample: ExampleMyApp {
     static let name = "Research Tracker"
     static let iconSystemName = "chart.line.uptrend.xyaxis.circle"
-    static let tagline = "Competitive intelligence with a watchlist, weekly findings log, signal-trend chart, and a multi-agent Research Room"
+    static let tagline = "Watchlist, findings log and trend chart"
 
     static func make() -> MyApp {
         Builder().build()

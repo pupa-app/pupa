@@ -24,4 +24,17 @@ struct ExampleRegistryCopyTests {
             #expect(!example.tagline.trimmingCharacters(in: .whitespaces).isEmpty)
         }
     }
+
+    /// One line, not a feature list. The Settings row wraps a long tagline to
+    /// four or five lines, which turned the picker into a wall of text and
+    /// buried the names it exists to compare.
+    @Test("Taglines stay short enough to read as one line")
+    func taglinesAreShort() {
+        for example in ExampleRegistry.all {
+            #expect(
+                example.tagline.count <= 52,
+                "\(example.name) tagline is \(example.tagline.count) chars: \(example.tagline)"
+            )
+        }
+    }
 }
