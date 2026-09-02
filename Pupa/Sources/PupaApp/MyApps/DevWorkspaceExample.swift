@@ -14,7 +14,7 @@ import Foundation
 enum DevWorkspaceExample: ExampleMyApp {
     static let name = "Dev Workspace"
     static let iconSystemName = "laptopcomputer"
-    static let tagline = "Laptop storage + process audit with shell access, visual kanban report, and cleanup checklist"
+    static let tagline = "Shell access, process audit and cleanup checklist"
 
     static func make() -> MyApp {
         Builder().build()

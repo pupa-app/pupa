@@ -11,7 +11,7 @@ import Foundation
 enum FashionCompanionExample: ExampleMyApp {
     static let name = "Fashion Companion"
     static let iconSystemName = "hanger"
-    static let tagline = "Wardrobe inventory, style inspiration board, and a Style Room to learn, shop smarter, and dress with intention"
+    static let tagline = "Wardrobe, inspiration board and a style room"
 
     static func make() -> MyApp {
         Builder().build()

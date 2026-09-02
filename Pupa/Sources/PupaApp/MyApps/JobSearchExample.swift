@@ -34,7 +34,7 @@ enum JobSearchExample: ExampleMyApp {
     /// exact name is treated as the example workspace).
     static let name = "Job Search"
     static let iconSystemName = "briefcase"
-    static let tagline = "Interview prep with cross-linked skills, stories, and a multi-agent Prep Room"
+    static let tagline = "Interview prep with cross-linked skills and stories"
 
     /// Build a fresh `MyApp` populated with every demo component. Each
     /// call allocates fresh UUIDs for cross-linked items so a restored
