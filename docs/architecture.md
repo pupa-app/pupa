@@ -474,11 +474,15 @@ ahead of the rendered bubbles). Recovery layers, innermost out: (1) mid-turn
 drops — including mid-stream socket death and edge 5xx/408/429 (flaky
 tunnel/proxy) — re-attach in-flight with backoff (`command.reattach.after_seq`), each attempt
 yielding `.reattaching` so the banner says "Reconnecting…" *during* the backoff
-rather than only once it is spent (any frame that follows clears it);
+rather than only once it is spent (any frame that follows clears it; once it
+*is* spent the banner names the cause instead — see the status-badges section);
 (2) short backgrounds ride a ~30s UIKit background task, then foreground
 re-attach (`reattachIfNeeded`) resumes any turn that surfaced a
 `connectionIssue`; (3) an **app kill** mid-turn is recovered at next open:
 `loadHistoryIfNeeded` reads the cached snapshot, and when `turnInFlight` is set
+(`isStreaming || turnMayStillBeRunning || pendingDispatchAfterSeq != nil` — the
+middle term is set by any `requestFailed`, deliberately *not* derived from the
+banner variant, so making the banner more honest cannot switch this layer off)
 it seeds the session cursor (`seedReplayCursor`) and fires a catch-up reattach
 that streams the missed tail into the hydrated transcript. A reattach answered
 `204` (buffer expired / unknown thread) settles silently as a clean no-op. An

@@ -258,9 +258,10 @@ final class TurnRecoveryUITests: XCTestCase {
             extra: ["-PupaReattachAttempts", "1", "-PupaReattachDelayMs", "10"])
         send(app, "hello")
 
-        // A refused POST is `requestFailed`, which maps to `.reconnecting`
-        // rather than `.failed` — the banner is calmer, but the turn is just
-        // as stuck, which is why #267 put the button on both.
+        // A refused POST is `requestFailed`. The banner names the cause
+        // (`.failed`), while `.reconnecting` is reserved for a socket that died
+        // under a live connection — either way the turn is stuck, which is why
+        // #267 put the button on both.
         waitForProbe(app, "the turn stopped on a banner", timeout: 60) {
             $0.connectionIssue != nil && !$0.isStreaming
         }
