@@ -13,8 +13,9 @@
 # everything to fix. Exit 0 = both channels are clear to run.
 #
 # usage: preflight.sh [--publish]
-#   --publish  also require what --publish needs: the tag on origin, HEAD at
-#              that tag, and a non-empty CHANGELOG section.
+#   --publish  also check what --publish needs: the tag on origin and a
+#              non-empty CHANGELOG section. Notes when HEAD is not the tagged
+#              commit, but does not fail on it — see the comment at that check.
 set -uo pipefail
 
 PBXPROJ="PupaHost/PupaHost.xcodeproj/project.pbxproj"
@@ -22,7 +23,15 @@ VERSION_SWIFT="Pupa/Sources/PupaApp/Version.swift"
 LOCAL_XCCONFIG="PupaHost/Local.xcconfig"
 
 WANT_PUBLISH=0
-[[ "${1:-}" == "--publish" ]] && WANT_PUBLISH=1
+# Not `[[ $1 == --publish ]]`: a typo'd flag then reported "clear to ship" with
+# the tag and CHANGELOG checks silently skipped, which is the one output an
+# operator is told to trust. Both sibling scripts exit 2 on an unknown flag.
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --publish) WANT_PUBLISH=1; shift ;;
+    *) echo "unknown flag: $1" >&2; echo "usage: $0 [--publish]" >&2; exit 2 ;;
+  esac
+done
 
 FAILED=0
 ok()   { printf '  \033[32mok\033[0m   %s\n' "$1"; }
@@ -31,7 +40,9 @@ skip() { printf '  --   %s\n' "$1"; }
 
 [[ -f "$PBXPROJ" ]] || { echo "error: run from the repo root." >&2; exit 2; }
 
-VERSION=$(grep 'PupaAppVersion: String' "$VERSION_SWIFT" | sed -E 's/.*"([^"]+)".*/\1/')
+VERSION=$(sed -nE 's/.*PupaAppVersion: String = "([^"]+)".*/\1/p' "$VERSION_SWIFT" 2>/dev/null)
+VERSION=${VERSION%%$'\n'*}
+[[ -n "$VERSION" ]] || { echo "error: could not read PupaAppVersion from $VERSION_SWIFT." >&2; exit 2; }
 echo
 echo "ship-release preflight — Pupa $VERSION"
 echo
@@ -40,7 +51,8 @@ echo
 # archive.sh syncs MARKETING_VERSION itself and then needs to commit, which it
 # refuses to do on dev or main. That refusal mid-release is what a drifted
 # pbxproj actually looks like, so name the cause here instead.
-MV=$(sed -nE 's/^[[:space:]]*MARKETING_VERSION = ([0-9]+\.[0-9]+\.[0-9]+);/\1/p' "$PBXPROJ" | head -1)
+MV=$(sed -nE 's/^[[:space:]]*MARKETING_VERSION = ([0-9]+\.[0-9]+\.[0-9]+);/\1/p' "$PBXPROJ")
+MV=${MV%%$'\n'*}
 if [[ "$MV" == "$VERSION" ]]; then
   ok "MARKETING_VERSION matches PupaAppVersion ($VERSION)"
 else
@@ -48,7 +60,8 @@ else
       "Set it in the release PR. Left alone, archive.sh syncs it and then has a commit to land, which it refuses to do on dev or main."
 fi
 
-BUILD=$(sed -nE 's/^[[:space:]]*CURRENT_PROJECT_VERSION = ([0-9]{2,});/\1/p' "$PBXPROJ" | head -1)
+BUILD=$(sed -nE 's/^[[:space:]]*CURRENT_PROJECT_VERSION = ([0-9]{2,});/\1/p' "$PBXPROJ")
+BUILD=${BUILD%%$'\n'*}
 COUNT=$(git rev-list --count HEAD 2>/dev/null || echo 0)
 if [[ -z "$BUILD" ]]; then
   bad "no app CURRENT_PROJECT_VERSION found in $PBXPROJ" "Expected a two-digit-or-longer build number."
@@ -81,7 +94,7 @@ if [[ -z "$PROFILE" && -f "$LOCAL_XCCONFIG" ]]; then
   PROFILE=${_np%"${_np##*[![:space:]]}"}
 fi
 if [[ -z "$PROFILE" ]]; then
-  bad "no notarytool profile name" "Add a NOTARY_PROFILE line to $LOCAL_XCCONFIG, or pass --notary-profile. Create one with: xcrun notarytool store-credentials"
+  bad "no notarytool profile name" "Add a NOTARY_PROFILE line to $LOCAL_XCCONFIG, or export NOTARY_PROFILE. Create one with: xcrun notarytool store-credentials"
 elif [[ "${PUPA_PREFLIGHT_OFFLINE:-0}" == "1" ]]; then
   skip "notarytool profile '$PROFILE' (not checked — offline)"
 elif xcrun notarytool history --keychain-profile "$PROFILE" >/dev/null 2>&1; then
@@ -95,8 +108,11 @@ fi
 # run checks again for 8G of its own before it starts, once those archives are
 # on disk. Two checks at two moments, rather than one number pretending to
 # cover both.
-if SPACE=$(scripts/require-free-space.sh 12 "both channels" 2>&1); then
+SPACE=$(scripts/require-free-space.sh 12 "both channels" 2>&1); SPACE_RC=$?
+if (( SPACE_RC == 0 )); then
   ok "disk has room for both channels"
+elif (( SPACE_RC == 2 )); then
+  bad "PUPA_MIN_FREE_GB is not a usable value" "${SPACE#error: }"
 else
   bad "not enough free disk" "${SPACE#error: }"
 fi

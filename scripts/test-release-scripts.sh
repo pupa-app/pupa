@@ -777,7 +777,7 @@ case_start "preflight reports a profile name containing spaces intact"
 reset synced
 printf 'DEVELOPMENT_TEAM = TEAMID1234\nNOTARY_PROFILE = pupa notary 2026\n' > "PupaHost/Local.xcconfig"
 run env PUPA_PREFLIGHT_OFFLINE=1 PUPA_MIN_FREE_GB=0 "$PREFLIGHT_SH"
-expect_out "pupa notary 2026"
+expect_out "profile 'pupa notary 2026' (not checked"
 case_end
 
 case_start "preflight does not read a commented-out profile line"
@@ -786,6 +786,23 @@ printf 'DEVELOPMENT_TEAM = TEAMID1234\n// NOTARY_PROFILE = commented-out\n' > "P
 run env PUPA_PREFLIGHT_OFFLINE=1 PUPA_MIN_FREE_GB=0 "$PREFLIGHT_SH"
 expect_status 1
 expect_out "no notarytool profile name"
+case_end
+
+case_start "preflight refuses an unknown flag rather than reporting clear to ship"
+reset synced
+run env PUPA_PREFLIGHT_OFFLINE=1 PUPA_MIN_FREE_GB=0 "$PREFLIGHT_SH" --publsh
+expect_status 2
+expect_out "unknown flag"
+expect_no_out "clear to ship"
+case_end
+
+case_start "preflight distinguishes a malformed PUPA_MIN_FREE_GB from a full disk"
+reset synced
+printf 'DEVELOPMENT_TEAM = TEAMID1234\nNOTARY_PROFILE = fixture-profile\n' > "PupaHost/Local.xcconfig"
+run env PUPA_PREFLIGHT_OFFLINE=1 PUPA_MIN_FREE_GB=twelve "$PREFLIGHT_SH"
+expect_status 1
+expect_out "PUPA_MIN_FREE_GB is not a usable value"
+expect_no_out "not enough free disk"
 case_end
 
 case_start "preflight --publish reports a tag that is not on origin"

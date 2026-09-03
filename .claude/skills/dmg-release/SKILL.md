@@ -60,7 +60,7 @@ Xcode build already uses.
 | `--skip-notarize` | Archive, export and package only. The DMG is signed but **not** notarized, so Gatekeeper refuses it on every machine but this one. Never publish that output. |
 | `--development-signing` | Smoke-test the pipeline with an Apple Development identity, for contributors with no Developer ID certificate. Implies `--skip-notarize` — Apple only notarizes Developer ID signatures — and names the output `…-dev-signed-DO-NOT-DISTRIBUTE.dmg`. |
 | `--publish` | Attach the DMG to a **draft** GitHub release on tag `v<version>`, with that version's CHANGELOG section as the notes, and print the URL. Refused for un-notarized or development-signed builds. |
-| `--publish-only` | Publish the DMG `build/` already holds, without rebuilding or re-notarizing it. Same checks and same draft release as `--publish`. Use it when the build succeeded and only the upload failed — re-running `--publish` would spend another archive and another notarization submission on a file that already exists. Refuses a DMG carrying no stapled ticket. |
+| `--publish-only` | Publish the DMG `build/` already holds, without rebuilding or re-notarizing it. Same draft release as `--publish`, and the same tag and CHANGELOG checks — but no notarytool profile is required, since it notarizes nothing. Use it when the build succeeded and only the upload failed — re-running `--publish` would spend another archive and another notarization submission on a file that already exists. Refuses a DMG carrying no stapled ticket. |
 
 If you change `release.sh`, run `make test-scripts` — the fixture suite in
 `scripts/test-release-scripts.sh` covers the `--publish` preconditions.
