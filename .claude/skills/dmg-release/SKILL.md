@@ -34,7 +34,15 @@ The script refuses to run until all three exist:
    ```bash
    xcrun notarytool store-credentials
    ```
-   Pass the profile name via `--notary-profile` or `NOTARY_PROFILE`.
+   The script takes the profile name from `--notary-profile`, `NOTARY_PROFILE`,
+   or a `NOTARY_PROFILE` line in `PupaHost/Local.xcconfig` — the last of these
+   is the one that survives forgetting. The name is not a secret; the
+   credentials stay in the keychain. To check a profile you already have:
+   ```bash
+   xcrun notarytool history --keychain-profile <name>
+   ```
+   There is no supported way to *list* stored profiles, so record the name
+   rather than rediscovering it.
 
 `PupaHost/Local.xcconfig` must also hold `DEVELOPMENT_TEAM` — same file the
 Xcode build already uses.
@@ -52,6 +60,7 @@ Xcode build already uses.
 | `--skip-notarize` | Archive, export and package only. The DMG is signed but **not** notarized, so Gatekeeper refuses it on every machine but this one. Never publish that output. |
 | `--development-signing` | Smoke-test the pipeline with an Apple Development identity, for contributors with no Developer ID certificate. Implies `--skip-notarize` — Apple only notarizes Developer ID signatures — and names the output `…-dev-signed-DO-NOT-DISTRIBUTE.dmg`. |
 | `--publish` | Attach the DMG to a **draft** GitHub release on tag `v<version>`, with that version's CHANGELOG section as the notes, and print the URL. Refused for un-notarized or development-signed builds. |
+| `--publish-only` | Publish the DMG `build/` already holds, without rebuilding or re-notarizing it. Same draft release as `--publish`, and the same tag and CHANGELOG checks — but no notarytool profile is required, since it notarizes nothing. Use it when the build succeeded and only the upload failed — re-running `--publish` would spend another archive and another notarization submission on a file that already exists. Refuses a DMG carrying no stapled ticket. |
 
 If you change `release.sh`, run `make test-scripts` — the fixture suite in
 `scripts/test-release-scripts.sh` covers the `--publish` preconditions.
@@ -86,7 +95,10 @@ and an independent notarization submission. Delete the output when done.
 ## What the script does
 
 1. Checks preconditions: Developer ID cert present, team id readable, notarytool
-   credentials supplied.
+   credentials supplied, and **enough free disk** (`scripts/require-free-space.sh`,
+   ~8G). The disk check is shared with `testflight-release`: an archive that
+   fills the disk fails minutes in, after the expensive part, and a disk at zero
+   breaks far more than the build. `PUPA_MIN_FREE_GB=0` disables it.
 2. Reads `PupaAppVersion` to name the DMG. It does **not** bump anything —
    version bumps are the project release flow's job, not this skill's.
 3. Archives macOS Release.

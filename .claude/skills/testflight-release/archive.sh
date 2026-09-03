@@ -99,6 +99,11 @@ command -v xcodebuild >/dev/null || die "xcodebuild not on PATH."
 require_development_team
 note "signing team from $LOCAL_XCCONFIG"
 
+# Here, not down at the archive: a refusal must not leave the bump commit
+# behind, and under --flow must not leave $MAIN_BRANCH fast-forwarded. df
+# depends on nothing either step does, so there is no reason to wait.
+scripts/require-free-space.sh 12 "archiving both platforms"
+
 # Working tree: only pbxproj is allowed to be dirty (we may modify it below)
 DIRTY=$(git status --porcelain | awk '{print $2}' | grep -v "^${PBXPROJ}\$" || true)
 if [[ -n "$DIRTY" ]]; then
@@ -368,6 +373,15 @@ PUSH_HINT=""
 
 trap - EXIT
 
+# Organizer only auto-lists archives under ~/Library/Developer/Xcode/Archives/,
+# and these live in build/. Opening them registers them; skipping this step is
+# why an archive can succeed and Organizer still look empty.
+OPEN_LINE="Both archives are registered with Xcode already."
+if [[ "${PUPA_SKIP_OPEN:-0}" == "1" ]] || ! command -v open >/dev/null \
+   || ! open "$ARCHIVE_IOS" "$ARCHIVE_MACOS" 2>/dev/null; then
+  OPEN_LINE="Register them with Xcode first:  open $ARCHIVE_IOS $ARCHIVE_MACOS"
+fi
+
 cat <<EOF
 
 ARCHIVES READY
@@ -376,8 +390,9 @@ ARCHIVES READY
   macOS:   $ARCHIVE_MACOS
            Version $MACOS_VERSION, Build $MACOS_BUILD, Bundle $MACOS_BUNDLE$PUSH_HINT
 
-Next step: Open Xcode → Window → Organizer (⌥⇧⌘O). Both archives should appear
-(if not, run: open $ARCHIVE_IOS $ARCHIVE_MACOS). Select each in turn → Distribute
-App → App Store Connect → Upload. Same tester group covers both platforms once
-each build clears export compliance.
+$OPEN_LINE
+Next step: Xcode → Window → Organizer (⌥⇧⌘O), Archives tab. Select each in turn →
+Distribute App → App Store Connect → Upload. There is no prompt before this point
+— nothing appears in Organizer until the archives are opened. Same tester group
+covers both platforms once each build clears export compliance.
 EOF

@@ -24,9 +24,11 @@ NOTARY_PROFILE="${NOTARY_PROFILE:-}"
 SKIP_NOTARIZE=0
 DEV_SIGNING=0
 PUBLISH=0
+PUBLISH_ONLY=0
 usage() {
   cat <<EOF
-usage: $0 [--notary-profile NAME] [--skip-notarize] [--publish] [--development-signing]
+usage: $0 [--notary-profile NAME] [--skip-notarize] [--publish | --publish-only]
+          [--development-signing]
   --notary-profile NAME  notarytool keychain profile (or set NOTARY_PROFILE).
                          Create once with: xcrun notarytool store-credentials
   --skip-notarize        Archive, export and package only. The DMG will be
@@ -40,6 +42,10 @@ usage: $0 [--notary-profile NAME] [--skip-notarize] [--publish] [--development-s
                          to be reviewed before publishing; replacing the asset on
                          an already-published release is refused. Not available
                          for un-notarized builds.
+  --publish-only         Publish a DMG that build/ already holds, without
+                         rebuilding or re-notarizing it. Same checks and same
+                         draft release as --publish. For finishing a release
+                         whose build succeeded and whose upload did not.
   --development-signing  Smoke-test this pipeline with an Apple Development
                          identity, for contributors with no Developer ID
                          certificate. Implies --skip-notarize (an Apple
@@ -54,6 +60,7 @@ while [[ $# -gt 0 ]]; do
     --skip-notarize) SKIP_NOTARIZE=1; shift;;
     --development-signing) DEV_SIGNING=1; SKIP_NOTARIZE=1; shift;;
     --publish) PUBLISH=1; shift;;
+    --publish-only) PUBLISH=1; PUBLISH_ONLY=1; shift;;
     -h|--help) usage; exit 0;;
     *) echo "unknown flag: $1" >&2; usage >&2; exit 2;;
   esac
@@ -61,6 +68,46 @@ done
 
 die() { echo "error: $*" >&2; exit 1; }
 note() { echo "→ $*"; }
+
+# Attach the DMG to a draft GitHub release. Defined here rather than inline at
+# the end so --publish-only can reach it without walking the build.
+publish_release() {
+  # Upload under a constant filename so the website can hardcode one permanent
+  # link — https://github.com/<owner>/<repo>/releases/latest/download/Pupa.dmg
+  # only resolves when the asset name is the same in every release. The version
+  # lives in the tag and title.
+  STABLE="build/Pupa.dmg"
+  cp "$DMG" "$STABLE"
+
+  # Release notes are the CHANGELOG section for this version, verbatim.
+  NOTES=$(mktemp -t pupa-notes)
+  trap 'rm -f "$NOTES"' EXIT
+  awk -v v="## [$VERSION]" '
+    index($0, v) == 1 { inside = 1; next }
+    inside && /^## \[/ { exit }
+    inside { print }
+  ' CHANGELOG.md > "$NOTES"
+  [[ -s "$NOTES" ]] || die "No CHANGELOG section found for $VERSION — write one before publishing."
+
+  if gh release view "v$VERSION" >/dev/null 2>&1; then
+    # Replacing the asset on a *published* release changes what users are
+    # already downloading. Drafts are fair game; live releases are not.
+    [[ "$(gh release view "v$VERSION" --json isDraft -q .isDraft)" == "true" ]] \
+      || die "Release v$VERSION is already published. Refusing to replace a live download.
+       Publish a new version instead, or delete the asset by hand if it is genuinely wrong."
+    note "draft release v$VERSION exists — replacing its asset"
+    gh release upload "v$VERSION" "$STABLE" --clobber >/dev/null \
+      || die "gh release upload failed."
+  else
+    gh release create "v$VERSION" "$STABLE" \
+      --draft --title "Pupa $VERSION" --notes-file "$NOTES" >/dev/null \
+      || die "gh release create failed."
+  fi
+  RELEASE_URL=$(gh release view "v$VERSION" --json url -q .url) \
+    || die "The asset uploaded but reading the release URL failed. Find it with:
+       gh release view v$VERSION"
+  note "draft release ready: $RELEASE_URL"
+}
 
 # Sets $TEAM, or dies naming the file. The signing team reaches the build only
 # through $LOCAL_XCCONFIG, which Config.xcconfig pulls in with `#include?` — so
@@ -110,9 +157,27 @@ fi
 
 require_development_team
 
-if [[ $SKIP_NOTARIZE -eq 0 ]]; then
-  [[ -n "$NOTARY_PROFILE" ]] || die "Pass --notary-profile NAME (or set NOTARY_PROFILE), or use --skip-notarize.
-       Store credentials once with:  xcrun notarytool store-credentials"
+# The profile name is per-machine, like the team id, and is not a secret — so it
+# lives in the same git-ignored file rather than being retyped every release, or
+# rediscovered by guesswork when nobody remembers what it was called.
+if [[ -z "$NOTARY_PROFILE" && -f "$LOCAL_XCCONFIG" ]]; then
+  # The whole value, not a charset-restricted slice. store-credentials accepts
+  # names with spaces, and a silently truncated one is not rejected here — it
+  # fails at `notarytool submit`, minutes after the archive, which is the exact
+  # late failure this preflight exists to prevent. No `| head -1` either: under
+  # pipefail head exits early and the producer takes SIGPIPE, the shape this
+  # file's own comments forbid twice.
+  _np=$(sed -nE 's|^[[:space:]]*NOTARY_PROFILE[[:space:]]*=[[:space:]]*(.*)$|\1|p' "$LOCAL_XCCONFIG")
+  _np=${_np%%$'\n'*}                       # first assignment wins
+  _np=${_np%%//*}                          # drop a trailing xcconfig comment
+  NOTARY_PROFILE=${_np%"${_np##*[![:space:]]}"}
+fi
+
+if [[ $SKIP_NOTARIZE -eq 0 && $PUBLISH_ONLY -eq 0 ]]; then
+  [[ -n "$NOTARY_PROFILE" ]] || die "No notarytool profile. Pass --notary-profile NAME, set NOTARY_PROFILE,
+       or add a NOTARY_PROFILE line to $LOCAL_XCCONFIG. Use --skip-notarize to build without one.
+       Store credentials once with:  xcrun notarytool store-credentials
+       Check an existing profile with: xcrun notarytool history --keychain-profile NAME"
   xcrun --find notarytool >/dev/null 2>&1 || die "notarytool not found. Needs Xcode 13+."
 fi
 
@@ -160,7 +225,25 @@ if [[ $PUBLISH -eq 1 ]]; then
     || die "CHANGELOG has no non-empty section for $VERSION — write one before publishing."
 fi
 
+# --- publish-only ---------------------------------------------------------
+# Publishing a DMG that already exists must not rebuild it. Otherwise finishing
+# an interrupted release costs another archive, another notarization submission
+# and another quarter hour, for a file already sitting in build/.
+if [[ $PUBLISH_ONLY -eq 1 ]]; then
+  [[ -f "$DMG" ]] || die "--publish-only found no DMG at $DMG.
+       Build one first:  $0 --notary-profile <name>"
+  # Trust the ticket, not the filename: a --skip-notarize build lands at this
+  # same path and Gatekeeper would refuse it for every user.
+  xcrun stapler validate "$DMG" >/dev/null 2>&1 \
+    || die "$DMG carries no stapled notarization ticket — refusing to publish it.
+       Rebuild it with --notary-profile <name>."
+  note "publish-only — attaching the existing $DMG, nothing rebuilt"
+  publish_release
+  exit 0
+fi
+
 note "building Pupa $VERSION for the Developer ID channel"
+scripts/require-free-space.sh 8 "the Developer ID archive and DMG"
 
 # project.pbxproj carries whatever MARKETING_VERSION the last TestFlight release
 # left behind — archive.sh syncs it from PupaAppVersion at release time, and this
@@ -335,41 +418,7 @@ SPCTL=$(spctl -a -t open --context context:primary-signature -v "$DMG" 2>&1 || t
        $SPCTL"
 
 if [[ $PUBLISH -eq 1 ]]; then
-  # Upload under a constant filename so the website can hardcode one permanent
-  # link — https://github.com/<owner>/<repo>/releases/latest/download/Pupa.dmg
-  # only resolves when the asset name is the same in every release. The version
-  # lives in the tag and title.
-  STABLE="build/Pupa.dmg"
-  cp "$DMG" "$STABLE"
-
-  # Release notes are the CHANGELOG section for this version, verbatim.
-  NOTES=$(mktemp -t pupa-notes)
-  trap 'rm -f "$NOTES"' EXIT
-  awk -v v="## [$VERSION]" '
-    index($0, v) == 1 { inside = 1; next }
-    inside && /^## \[/ { exit }
-    inside { print }
-  ' CHANGELOG.md > "$NOTES"
-  [[ -s "$NOTES" ]] || die "No CHANGELOG section found for $VERSION — write one before publishing."
-
-  if gh release view "v$VERSION" >/dev/null 2>&1; then
-    # Replacing the asset on a *published* release changes what users are
-    # already downloading. Drafts are fair game; live releases are not.
-    [[ "$(gh release view "v$VERSION" --json isDraft -q .isDraft)" == "true" ]] \
-      || die "Release v$VERSION is already published. Refusing to replace a live download.
-       Publish a new version instead, or delete the asset by hand if it is genuinely wrong."
-    note "draft release v$VERSION exists — replacing its asset"
-    gh release upload "v$VERSION" "$STABLE" --clobber >/dev/null \
-      || die "gh release upload failed."
-  else
-    gh release create "v$VERSION" "$STABLE" \
-      --draft --title "Pupa $VERSION" --notes-file "$NOTES" >/dev/null \
-      || die "gh release create failed."
-  fi
-  RELEASE_URL=$(gh release view "v$VERSION" --json url -q .url) \
-    || die "The asset uploaded but reading the release URL failed. Find it with:
-       gh release view v$VERSION"
-  note "draft release ready: $RELEASE_URL"
+  publish_release
 fi
 
 cat <<EOF
