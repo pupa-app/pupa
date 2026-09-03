@@ -581,7 +581,7 @@ public struct SettingsSheet: View {
                         let config = try await client.fetch()
                         return (entry.id, .reachable(config))
                     } catch {
-                        return (entry.id, .unreachable(FriendlyBackendError.message(for: error)))
+                        return (entry.id, .unreachable(FriendlyBackendError.message(for: error, host: entry.url.host)))
                     }
                 }
             }

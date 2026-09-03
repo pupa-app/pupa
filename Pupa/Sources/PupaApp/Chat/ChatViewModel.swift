@@ -1345,6 +1345,9 @@ public final class ChatViewModel {
     /// `resume` streams. Mirrors what was previously inlined in `send`.
     private func consume(stream: AsyncThrowingStream<SessionEvent, Error>) {
         streamTask?.cancel()
+        // Captured up front: the banner names the host it failed to reach, and
+        // `self` is weak inside the task.
+        let host = sessionBackendURL.host
         streamTask = Task { [weak self] in
             var cancelled = false
             do {
@@ -1354,7 +1357,7 @@ public final class ChatViewModel {
             } catch {
                 if case AgentClientError.cancelled = error { cancelled = true } else {
                     AGUIKitLog.session("stream error: \(String(describing: error))")
-                    self?.connectionIssue = Self.connectionState(for: error)
+                    self?.connectionIssue = Self.connectionState(for: error, host: host)
                 }
             }
             self?.setStreaming(false)
@@ -1802,14 +1805,23 @@ public final class ChatViewModel {
     /// Short, user-facing message for a turn the backend reported as failed.
     static let backendErrorMessage = "The assistant ran into a problem. Please try again."
 
-    /// Map a thrown stream error to the inline banner state. A reattachable
-    /// socket drop — the backgrounded-then-resumed case — surfaces as a calm
-    /// `.reconnecting` (foreground reattach clears it); every other failure is a
-    /// short, non-technical `.failed`. The raw error is logged at the call site,
-    /// never shown, so no developer-facing dump can reach the UI.
-    static func connectionState(for error: Error) -> ChatConnectionState {
-        if case AgentClientError.requestFailed = error { return .reconnecting }
-        return .failed(backendErrorMessage)
+    /// Map a thrown stream error to the inline banner state.
+    ///
+    /// Only a genuine drop under a live connection — the backgrounded-then-
+    /// resumed case — earns the calm `.reconnecting`. Everything else names what
+    /// actually broke: by the time an error reaches here `AgentSession` has
+    /// already exhausted its re-attach budget, so a silent "Reconnecting…" for a
+    /// host that will never resolve just leaves the user guessing. `host` lets
+    /// the message point at the real fix (VPN down, nothing listening).
+    ///
+    /// The raw error is logged, never shown — no developer-facing dump reaches
+    /// the UI.
+    static func connectionState(for error: Error, host: String? = nil) -> ChatConnectionState {
+        guard case AgentClientError.requestFailed(let underlying) = error else {
+            return .failed(backendErrorMessage)
+        }
+        let diagnosis = BackendConnectionDiagnosis.diagnose(underlying, host: host)
+        return diagnosis.isTransient ? .reconnecting : .failed(diagnosis.message)
     }
 
     /// User-facing note for a turn that ended before the agent settled.

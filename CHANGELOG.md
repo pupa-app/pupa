@@ -3,6 +3,21 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.280] — 2026-09-03
+
+### Changed
+
+- **A backend you can't reach now says why.** Every transport failure used to
+  collapse into the same calm "Reconnecting…" banner, including the ones that
+  would never recover — so a Tailscale VPN that wasn't up looked identical to a
+  socket blip, and the only way to find out was to guess. Only a socket that
+  died under a live connection reconnects silently now; anything the user has
+  to act on is named. The message points at the host and the likeliest fix: a
+  `*.ts.net` or 100.64.0.0/10 backend that won't resolve blames Tailscale by
+  name, `localhost` refusing a connection says nothing is listening, an offline
+  device says so rather than blaming the backend, and a public host is never
+  blamed on the VPN. Settings' backend probes use the same copy.
+
 ## [0.0.279] — 2026-09-02
 
 ### Changed
