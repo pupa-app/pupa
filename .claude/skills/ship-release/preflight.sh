@@ -29,6 +29,7 @@ WANT_PUBLISH=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --publish) WANT_PUBLISH=1; shift ;;
+    -h|--help) echo "usage: $0 [--publish]"; exit 0 ;;
     *) echo "unknown flag: $1" >&2; echo "usage: $0 [--publish]" >&2; exit 2 ;;
   esac
 done
@@ -40,7 +41,7 @@ skip() { printf '  --   %s\n' "$1"; }
 
 [[ -f "$PBXPROJ" ]] || { echo "error: run from the repo root." >&2; exit 2; }
 
-VERSION=$(sed -nE 's/.*PupaAppVersion: String = "([^"]+)".*/\1/p' "$VERSION_SWIFT" 2>/dev/null)
+VERSION=$(sed -nE 's/.*PupaAppVersion: String[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "$VERSION_SWIFT" 2>/dev/null)
 VERSION=${VERSION%%$'\n'*}
 [[ -n "$VERSION" ]] || { echo "error: could not read PupaAppVersion from $VERSION_SWIFT." >&2; exit 2; }
 echo
@@ -113,8 +114,10 @@ if (( SPACE_RC == 0 )); then
   ok "disk has room for both channels"
 elif (( SPACE_RC == 2 )); then
   bad "PUPA_MIN_FREE_GB is not a usable value" "${SPACE#error: }"
-else
+elif (( SPACE_RC == 1 )); then
   bad "not enough free disk" "${SPACE#error: }"
+else
+  bad "the free-space check could not run (exit $SPACE_RC)" "${SPACE#error: }"
 fi
 
 # --- what --publish additionally needs ------------------------------------

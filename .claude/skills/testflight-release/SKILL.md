@@ -36,12 +36,12 @@ User wants `.xcarchive`s ready for TestFlight upload. Typical phrasings: "ship t
    - With `--flow`: `dev` holds the release-ready commits and `main` can fast-forward from it. Without it (the default) only the current checkout matters.
    - Working tree should be clean (no uncommitted changes) so the archive matches a known git SHA. If dirty, ask whether to commit/stash first.
 
-3. **Confirm what changed since the last successful TestFlight upload.** Specifically:
+2. **Confirm what changed since the last successful TestFlight upload.** Specifically:
    - Has `PupaAppVersion` in `Pupa/Sources/PupaApp/Version.swift` changed? The script reads it and syncs `MARKETING_VERSION` automatically. It does **not** affect the build number — see below.
 
-4. **Build number is automatic and monotonic.** `CURRENT_PROJECT_VERSION` defaults to the branch's commit count and **never resets**, not even on a marketing-version bump. Sparkle (the direct-download DMG channel) orders updates by `CFBundleVersion` alone and ignores the marketing string, so a reset reads as a downgrade and silently strands DMG users on the old build. App Store Connect only needs uniqueness within a marketing version, so monotonic satisfies both channels. `--build N` is for manual correction only and is rejected unless `N` exceeds the current build. See pupa#246.
+3. **Build number is automatic and monotonic.** `CURRENT_PROJECT_VERSION` defaults to the branch's commit count and **never resets**, not even on a marketing-version bump. Sparkle (the direct-download DMG channel) orders updates by `CFBundleVersion` alone and ignores the marketing string, so a reset reads as a downgrade and silently strands DMG users on the old build. App Store Connect only needs uniqueness within a marketing version, so monotonic satisfies both channels. `--build N` is for manual correction only and is rejected unless `N` exceeds the current build. See pupa#246.
 
-5. **Signing team.** `PupaHost/Local.xcconfig` must hold a real `DEVELOPMENT_TEAM` (git-ignored; copy `PupaHost/Local.xcconfig.example`). The script refuses up front rather than letting `xcodebuild` fail minutes in.
+4. **Signing team.** `PupaHost/Local.xcconfig` must hold a real `DEVELOPMENT_TEAM` (git-ignored; copy `PupaHost/Local.xcconfig.example`). The script refuses up front rather than letting `xcodebuild` fail minutes in.
 
 ## Invocation
 
@@ -60,10 +60,10 @@ Branch names default to `dev`/`main`; override with `DEV_BRANCH=` / `MAIN_BRANCH
 
 ## What the script does
 
-1. With `--flow` only: switches to `dev` so the bump lands there first. Otherwise stays put.
-2. Checks free disk (`scripts/require-free-space.sh`, ~12G for the two archives;
+1. Checks free disk (`scripts/require-free-space.sh`, ~12G for the two archives;
    `PUPA_MIN_FREE_GB=0` disables it). Here, not later: a refusal must not leave
    the bump commit behind, nor `main` fast-forwarded under `--flow`.
+2. With `--flow` only: switches to `dev` so the bump lands there first. Otherwise stays put.
 3. Checks the icons: `icon_1024.png` has no alpha (App Store Connect silently shows the wireframe placeholder for icons with transparency), and `AppIcon.icon` still has its alpha-backed `mark.png` and `"glass": false`.
 4. Reads `PupaAppVersion` from `Version.swift`, syncs `MARKETING_VERSION` in `project.pbxproj` if they differ.
 5. Sets `CURRENT_PROJECT_VERSION` to the commit count (floored at current+1, so it can only ever rise) for the app target's buildSettings blocks only (matched by the app `MARKETING_VERSION`; test targets stay at `1`).
@@ -90,7 +90,7 @@ branch — land it through a PR like any other change.
 
 1. Nothing — the script opens both archives itself, which is what registers them with Xcode so they appear in Organizer. (Organizer only auto-lists archives from `~/Library/Developer/Xcode/Archives/`; the script writes to `build/` instead, so they have to be opened.) `PUPA_SKIP_OPEN=1` suppresses it for test runs; the summary then prints the `open` command instead. **No prompt appears at any earlier point** — until the archives are opened, Organizer looks empty.
 
-3. Report to the user:
+2. Report to the user:
    - Both archive paths: `build/Pupa.xcarchive`, `build/Pupa-macOS.xcarchive`
    - Verified version + build + bundle ID for each
    - The next manual step:
@@ -99,7 +99,7 @@ branch — land it through a PR like any other change.
      >
      > If an archive doesn't appear, close and reopen Organizer.
 
-4. **Only under `--flow`**, print this for the human to run — do not run it
+3. **Only under `--flow`**, print this for the human to run — do not run it
    yourself. Moving `main` and pushing it are human-only under the AI rules in
    `CONTRIBUTING.md`:
    ```bash

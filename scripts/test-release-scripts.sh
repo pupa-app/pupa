@@ -790,10 +790,28 @@ case_end
 
 case_start "preflight refuses an unknown flag rather than reporting clear to ship"
 reset synced
+# Without this the checkout still fails another check and the case passes for
+# the wrong reason: the point is that a typo must not print "clear to ship".
+printf 'DEVELOPMENT_TEAM = TEAMID1234\nNOTARY_PROFILE = fixture-profile\n' > "PupaHost/Local.xcconfig"
 run env PUPA_PREFLIGHT_OFFLINE=1 PUPA_MIN_FREE_GB=0 "$PREFLIGHT_SH" --publsh
 expect_status 2
 expect_out "unknown flag"
 expect_no_out "clear to ship"
+case_end
+
+case_start "preflight prints usage for --help rather than refusing it"
+reset synced
+run env PUPA_PREFLIGHT_OFFLINE=1 "$PREFLIGHT_SH" --help
+expect_status 0
+expect_out "usage:"
+case_end
+
+case_start "preflight refuses an unreadable Version.swift instead of reporting a blank version"
+reset synced
+: > "Pupa/Sources/PupaApp/Version.swift"
+run env PUPA_PREFLIGHT_OFFLINE=1 PUPA_MIN_FREE_GB=0 "$PREFLIGHT_SH"
+expect_status 2
+expect_out "could not read PupaAppVersion"
 case_end
 
 case_start "preflight distinguishes a malformed PUPA_MIN_FREE_GB from a full disk"
