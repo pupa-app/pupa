@@ -314,7 +314,7 @@ struct BackendEditSheet: View {
             }
             harnessLoad = .loaded(harnesses)
         } catch {
-            harnessLoad = .failed(FriendlyBackendError.message(for: error))
+            harnessLoad = .failed(FriendlyBackendError.message(for: error, host: url.host))
         }
     }
 

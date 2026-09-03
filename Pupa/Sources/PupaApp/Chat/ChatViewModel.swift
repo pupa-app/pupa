@@ -315,6 +315,15 @@ public final class ChatViewModel {
     public private(set) var isStreaming = false
     /// Inline connection banner state; `nil` when the stream is healthy.
     public private(set) var connectionIssue: ChatConnectionState?
+    /// The stream died on a transport error, so the backend run may well still
+    /// be going — the class AGUIKit calls `isReattachable`.
+    ///
+    /// Deliberately NOT derived from `connectionIssue`: how loudly the banner
+    /// reports a drop and whether the turn is still recoverable are different
+    /// questions. They used to be one flag, and reading recoverability off the
+    /// banner variant meant that making the copy more honest silently disabled
+    /// the relaunch catch-up for every code except two.
+    public private(set) var turnMayStillBeRunning = false
     /// A turn that ended cleanly but unsettled — the *notice* ending. Disjoint
     /// from `connectionIssue` (the *throw* ending) right up to the UI, where
     /// both mean the same thing to the user: the turn stopped, and there is
@@ -1116,6 +1125,7 @@ public final class ChatViewModel {
 
         setStreaming(true)
         connectionIssue = nil
+        turnMayStillBeRunning = false
         stoppedNotice = nil
         lastNoticeReason = nil
         reattachAttempt = 0
@@ -1299,6 +1309,7 @@ public final class ChatViewModel {
         guard connectionIssue != nil else { return }   // nothing was interrupted
         AGUIKitLog.session("foreground reattach: thread=\(threadId)")
         connectionIssue = nil
+        turnMayStillBeRunning = false
         stoppedNotice = nil
         setStreaming(true)
         // A turn parked on a frontend tool needs the same rewind as the relaunch
@@ -1345,6 +1356,9 @@ public final class ChatViewModel {
     /// `resume` streams. Mirrors what was previously inlined in `send`.
     private func consume(stream: AsyncThrowingStream<SessionEvent, Error>) {
         streamTask?.cancel()
+        // Captured up front: the banner names the host it failed to reach, and
+        // `self` is weak inside the task.
+        let host = sessionBackendURL.host
         streamTask = Task { [weak self] in
             var cancelled = false
             do {
@@ -1354,7 +1368,12 @@ public final class ChatViewModel {
             } catch {
                 if case AgentClientError.cancelled = error { cancelled = true } else {
                     AGUIKitLog.session("stream error: \(String(describing: error))")
-                    self?.connectionIssue = Self.connectionState(for: error)
+                    // Set before the banner: a transport death means the run may
+                    // still be live on the backend whatever the banner ends up
+                    // saying, and `persistTranscript` below keys the relaunch
+                    // catch-up off this.
+                    if case AgentClientError.requestFailed = error { self?.turnMayStillBeRunning = true }
+                    self?.connectionIssue = Self.connectionState(for: error, host: host)
                 }
             }
             self?.setStreaming(false)
@@ -1625,7 +1644,11 @@ public final class ChatViewModel {
                     // Only surface the inline error when nothing (cache or live)
                     // is on screen — a cached render must not be replaced by it.
                     guard let self, self.bubbles.isEmpty else { return }
-                    self.bubbles = [ChatBubble(role: .system, text: "Could not load history: \(error.localizedDescription)")]
+                    // Same diagnosis as the turn banner: this fires in exactly
+                    // the VPN-down case, and `localizedDescription` there is a
+                    // literal "NSURLErrorDomain error -1003" dump.
+                    let detail = BackendConnectionDiagnosis.diagnose(error, host: self.sessionBackendURL.host).message
+                    self.bubbles = [ChatBubble(role: .system, text: "Could not load history. \(detail)")]
                 }
             }
         }
@@ -1645,14 +1668,18 @@ public final class ChatViewModel {
     /// IO — kept off main per pupa#120; writes chain off `persistTask` so
     /// they apply in call (= capture) order.
     private func persistTranscript() {
-        // `.reconnecting` counts as in flight: the socket died but the backend
+        // A transport death counts as in flight: the socket died but the backend
         // run may still be going — a relaunch should catch up, not go quiet.
+        // Keyed on `turnMayStillBeRunning`, never on the banner variant: a
+        // `.failed` banner naming a dead VPN describes a turn just as
+        // recoverable as the `.reconnecting` one, and the user fixing the VPN
+        // is exactly when the catch-up has to fire.
         let snapshot = TranscriptSnapshot(
             bubbles: bubbles,
             lastEventSeq: appliedEventSeq,
             // A turn parked on a frontend tool counts as in flight even if the
             // stream has settled locally: the backend is still waiting on us.
-            turnInFlight: isStreaming || connectionIssue == .reconnecting
+            turnInFlight: isStreaming || turnMayStillBeRunning
                 || pendingDispatchAfterSeq != nil,
             savedAt: Date(),
             pendingDispatchAfterSeq: pendingDispatchAfterSeq
@@ -1712,6 +1739,7 @@ public final class ChatViewModel {
         // strand the Continue button's `connectionIssue != nil` gate.
         if case .reattaching = event {} else if reattachAttempt > 0 {
             reattachAttempt = 0
+            turnMayStillBeRunning = false
             if case .reconnecting? = connectionIssue { connectionIssue = nil }
         }
         switch event {
@@ -1802,14 +1830,23 @@ public final class ChatViewModel {
     /// Short, user-facing message for a turn the backend reported as failed.
     static let backendErrorMessage = "The assistant ran into a problem. Please try again."
 
-    /// Map a thrown stream error to the inline banner state. A reattachable
-    /// socket drop — the backgrounded-then-resumed case — surfaces as a calm
-    /// `.reconnecting` (foreground reattach clears it); every other failure is a
-    /// short, non-technical `.failed`. The raw error is logged at the call site,
-    /// never shown, so no developer-facing dump can reach the UI.
-    static func connectionState(for error: Error) -> ChatConnectionState {
-        if case AgentClientError.requestFailed = error { return .reconnecting }
-        return .failed(backendErrorMessage)
+    /// Map a thrown stream error to the inline banner state.
+    ///
+    /// Only a genuine drop under a live connection — the backgrounded-then-
+    /// resumed case — earns the calm `.reconnecting`. Everything else names what
+    /// actually broke: by the time an error reaches here `AgentSession` has
+    /// already exhausted its re-attach budget, so a silent "Reconnecting…" for a
+    /// host that will never resolve just leaves the user guessing. `host` lets
+    /// the message point at the real fix (VPN down, nothing listening).
+    ///
+    /// The raw error is logged, never shown — no developer-facing dump reaches
+    /// the UI.
+    static func connectionState(for error: Error, host: String? = nil) -> ChatConnectionState {
+        guard case AgentClientError.requestFailed(let underlying) = error else {
+            return .failed(backendErrorMessage)
+        }
+        let diagnosis = BackendConnectionDiagnosis.diagnose(underlying, host: host)
+        return diagnosis.isTransient ? .reconnecting : .failed(diagnosis.message)
     }
 
     /// User-facing note for a turn that ended before the agent settled.
@@ -2336,7 +2373,7 @@ extension ChatViewModel {
         var fields: [String] = [
             "\"g\":\(probeGeneration)",
             "\"s\":\(isStreaming ? 1 : 0)",
-            "\"tif\":\(isStreaming || connectionIssue == .reconnecting ? 1 : 0)",
+            "\"tif\":\(isStreaming || turnMayStillBeRunning ? 1 : 0)",
             "\"rec\":\(isRecoveringParkedDispatch ? 1 : 0)",
             "\"awh\":\(isAwaitingHumanInput ? 1 : 0)",
             "\"ra\":\(reattachAttempt)",

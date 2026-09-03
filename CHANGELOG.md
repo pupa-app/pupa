@@ -3,6 +3,34 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.280] — 2026-09-03
+
+### Changed
+
+- **A backend you can't reach now says why.** Every transport failure used to
+  collapse into the same calm "Reconnecting…" banner, including the ones that
+  would never recover — so a Tailscale VPN that wasn't up looked identical to a
+  socket blip, and the only way to find out was to guess. Only a socket that
+  died under a live connection reconnects silently now; anything the user has
+  to act on is named. The message points at the host and the likeliest fix: a
+  `*.ts.net` or 100.64.0.0/10 backend that won't resolve blames Tailscale by
+  name, `localhost` refusing a connection says nothing is listening, an offline
+  device says so rather than blaming the backend, and a public host is never
+  blamed on the VPN. Pairing, Unpair and the Settings backend probes use the
+  same copy.
+
+### Fixed
+
+- **A turn dropped by a dead VPN is still recoverable.** Whether a killed app
+  catches up on relaunch was read off the banner variant, so naming the cause
+  (`.failed` rather than a calm `.reconnecting`) would have switched the
+  catch-up layer off for every transport error but two — losing the reply in
+  exactly the case the new message describes. Recoverability is now tracked
+  separately from what the banner says.
+- **The "could not load history" bubble no longer dumps a raw error.** It fires
+  in the VPN-down case and read `NSURLErrorDomain error -1003`; it now carries
+  the same diagnosis as the banner.
+
 ## [0.0.279] — 2026-09-02
 
 ### Changed

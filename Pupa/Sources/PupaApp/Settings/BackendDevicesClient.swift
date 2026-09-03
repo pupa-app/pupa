@@ -4,7 +4,9 @@ public enum DevicesError: Error, CustomStringConvertible {
     case unauthorized
     case unexpectedResponse(status: Int, body: String)
     case decoding
-    case transport(any Error)
+    /// `host` so the message can name what it failed to reach — a dead
+    /// tailnet is the commonest way pairing fails.
+    case transport(any Error, host: String?)
 
     public var description: String {
         switch self {
@@ -14,8 +16,8 @@ public enum DevicesError: Error, CustomStringConvertible {
             return "Backend returned HTTP \(status): \(body)"
         case .decoding:
             return "Couldn't decode the backend's response"
-        case .transport(let error):
-            return FriendlyBackendError.message(for: error)
+        case .transport(let error, let host):
+            return FriendlyBackendError.message(for: error, host: host)
         }
     }
 }
@@ -46,7 +48,7 @@ public struct BackendDevicesClient: Sendable {
         do {
             (data, response) = try await session.data(for: req)
         } catch {
-            throw DevicesError.transport(error)
+            throw DevicesError.transport(error, host: backendURL.host)
         }
         guard let http = response as? HTTPURLResponse else {
             throw DevicesError.unexpectedResponse(status: -1, body: "")

@@ -57,7 +57,10 @@ What to look for, in order: `send() user=` (the turn started), `round N → POST
 (the resume never landed), `foreground reattach: thread=`, `rewound replay
 cursor`, and how it ends — `settled → completed(produced)` versus
 `completed(silent(…))`. In the probe line, `tif` staying 1 across a relaunch and
-`pd` staying non-nil are the two tells that recovery never completed.
+`pd` staying non-nil are the two tells that recovery never completed. `tif`
+tracks `turnMayStillBeRunning` — a spent transport ladder, whatever the banner
+says — not the banner variant; reading it off `connectionIssue == .reconnecting`
+made it report "recovered" for precisely the turns that were lost.
 
 Outside a debug build nothing of the user's is logged — the prompt, tool
 results, and backend errors all come out as a byte count, and the backend URL
