@@ -195,7 +195,7 @@ struct ToolsSettingsView: View {
                 load = .failed("No harnesses advertised by the backend.")
             }
         } catch {
-            load = .failed(FriendlyBackendError.message(for: error))
+            load = .failed(FriendlyBackendError.message(for: error, host: settings.backendURL.host))
         }
     }
 }

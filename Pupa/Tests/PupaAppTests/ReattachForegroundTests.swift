@@ -92,10 +92,13 @@ struct ReattachForegroundTests {
         vm.send("hi")  // POST to a refused port → turn surfaces a connectionIssue
         let armed = await awaitUntil { vm.connectionIssue != nil && vm.isStreaming == false }
         #expect(armed, "a send to an unreachable backend should surface a connectionIssue")
-        // A refused socket is a reattachable drop → the calm reconnecting state,
-        // not a red error banner.
-        #expect(vm.connectionIssue == .reconnecting)
-        #expect(vm.activityStatus == .running)
+        // AGUIKit has already spent its re-attach budget by the time the error
+        // lands here, so a refused socket is reported, not hidden behind a calm
+        // spinner — and the copy names the host and the fix.
+        #expect(vm.connectionIssue == .failed(BackendConnectionDiagnosis.diagnose(
+            URLError(.cannotConnectToHost), host: "localhost"
+        ).message))
+        #expect(vm.activityStatus == .error)
 
         vm.reattachIfNeeded()
         // Fired: connectionIssue cleared synchronously; recovery finds no replay
@@ -106,10 +109,23 @@ struct ReattachForegroundTests {
 
     @Test("stream errors map to short, user-facing banner states — never a raw dump")
     func connectionState_mapping() {
-        // Reattachable socket drop → calm reconnecting (the background-resume case).
+        // A socket that died under a live connection → calm reconnecting (the
+        // background-resume case). This is the *only* silent state.
+        #expect(
+            ChatViewModel.connectionState(for: AgentClientError.requestFailed(URLError(.networkConnectionLost)))
+                == .reconnecting
+        )
+        // Anything the user has to act on is said out loud, host and all.
+        #expect(
+            ChatViewModel.connectionState(
+                for: AgentClientError.requestFailed(URLError(.cannotFindHost)), host: "pupa.tail1234.ts.net"
+            ) == .failed(BackendConnectionDiagnosis.diagnose(
+                URLError(.cannotFindHost), host: "pupa.tail1234.ts.net"
+            ).message)
+        )
         #expect(
             ChatViewModel.connectionState(for: AgentClientError.requestFailed(URLError(.notConnectedToInternet)))
-                == .reconnecting
+                != .reconnecting
         )
         // Everything else → a short, fixed, non-technical message (no error dump).
         #expect(

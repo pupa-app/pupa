@@ -627,10 +627,26 @@ per-thread state derived live from each `ChatViewModel`: `actionRequired`
 (parked on a shell-approval / question interrupt) > `error` (`connectionIssue ==
 .failed`) > `unviewedAnswer` (a turn settled while the thread was off-screen) >
 `running` (streaming, or `connectionIssue == .reconnecting`) > `idle`. A dropped
-stream sets `connectionIssue`: a reattachable socket drop (the
-backgrounded-then-resumed case) is `.reconnecting` — a calm "Reconnecting…"
-banner that foreground reattach clears — while any other failure is `.failed`
-with a short, non-technical message (the raw error is logged, never shown). The VM tracks `hasUnviewedCompletion` (set when a real turn settles in
+stream sets `connectionIssue`, and `ChatViewModel.connectionState(for:host:)`
+decides which: **only** a socket that died under a live connection
+(`networkConnectionLost` / `cancelled` — the backgrounded-then-resumed case) is
+`.reconnecting`, a calm "Reconnecting…" banner that foreground reattach clears.
+Everything else is `.failed` with a message that names the cause, because by
+then `AgentSession` has already spent its whole re-attach budget and a silent
+spinner leaves the user with nothing to act on.
+
+`BackendConnectionDiagnosis` (`Settings/BackendConnectionDiagnosis.swift`) builds
+that message from the `URLError` **plus** the backend host, so it can point at
+the real fix instead of one generic "couldn't connect". `BackendHostKind`
+classifies the host as `loopback` / `tailnet` (a `*.ts.net` MagicDNS name or a
+100.64.0.0/10 CGNAT address) / `privateNetwork` (RFC1918, `.local`, a bare
+single-label name) / `publicInternet`. A tailnet host that fails DNS names
+Tailscale — the commonest cause of "the app just won't connect" on this project
+is a VPN that isn't up; `localhost` refusing a socket says nothing is listening;
+a public host is never blamed on the VPN. `FriendlyBackendError` is a thin
+wrapper over the same type, so Settings' reachability probes give the same copy.
+The raw error is logged (subsystem `com.pupa-app.client`, category `backend`),
+never shown. The VM tracks `hasUnviewedCompletion` (set when a real turn settles in
 `setStreaming`, cleared by `markViewed()` whenever a `ChatPanel` for that thread
 is on screen). `ChatSessionCoordinator.status(for:threadId:)` exposes one
 thread's status and `aggregateStatus(for:)` folds a scope's threads to the
