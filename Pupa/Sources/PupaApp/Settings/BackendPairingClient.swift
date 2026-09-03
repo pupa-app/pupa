@@ -13,7 +13,9 @@ public enum PairingError: Error, CustomStringConvertible {
     case invalidCode
     case unexpectedResponse(status: Int, body: String)
     case decoding
-    case transport(any Error)
+    /// `host` so the message can name what it failed to reach — a dead
+    /// tailnet is the commonest way pairing fails.
+    case transport(any Error, host: String?)
 
     public var description: String {
         switch self {
@@ -23,8 +25,8 @@ public enum PairingError: Error, CustomStringConvertible {
             return "Backend returned HTTP \(status): \(body)"
         case .decoding:
             return "Couldn't decode the backend's response"
-        case .transport(let error):
-            return FriendlyBackendError.message(for: error)
+        case .transport(let error, let host):
+            return FriendlyBackendError.message(for: error, host: host)
         }
     }
 }
@@ -59,7 +61,7 @@ public struct BackendPairingClient: Sendable {
         do {
             (data, response) = try await session.data(for: req)
         } catch {
-            throw PairingError.transport(error)
+            throw PairingError.transport(error, host: backendURL.host)
         }
         guard let http = response as? HTTPURLResponse else {
             throw PairingError.unexpectedResponse(status: -1, body: "")
