@@ -88,14 +88,12 @@ public struct AppView: View {
     /// (`wantSettingsOpen` / `wantChatOpen` / `chatPrefill`) and `applyTourStep`
     /// drives `selection` for `.navigate` steps.
     @State private var tour = GuidedTourStore.shared
-    /// A `.pupa` opened from outside the app (`onOpenURL`), staged for an
-    /// explicit confirm step before it touches the store — the source is
-    /// untrusted and the bundle's agent prompts run with the user's tools.
-    @State private var pendingImport: PendingImport?
-    /// Result/error surfaced after an external import attempt.
-    @State private var importNotice: ImportNotice?
+    /// Confirm step and result popup for an import opened from outside the
+    /// app, sequenced against the one presentation slot this view has —
+    /// `ImportPresentationQueue` explains why they can't just be assigned.
+    @State private var importQueue = ImportPresentationQueue()
     /// In-flight `pupa-install://` download, held so a second tap supersedes
-    /// the first instead of racing it into `pendingImport`.
+    /// the first instead of racing it into the confirm slot.
     @State private var remoteImport: Task<Void, Never>?
     @State private var isFetchingRemoteImport = false
     /// Set when a tapped notification deep-links into a myApp that no longer
@@ -288,8 +286,13 @@ public struct AppView: View {
 
     public var body: some View {
         platformBody
-            .sheet(isPresented: $settingsSheetPresented) { settingsSheet }
-            .sheet(item: $memoryFileSheet) { memoryFileSheetView($0) }
+            // Every sheet frees the import slot as it goes: an install link
+            // that arrived behind one is held until the dismissal *finishes*,
+            // which is what `onDismiss` reports (issue #323).
+            .sheet(isPresented: $settingsSheetPresented,
+                   onDismiss: { importQueue.slotFreed() }) { settingsSheet }
+            .sheet(item: $memoryFileSheet,
+                   onDismiss: { importQueue.slotFreed() }) { memoryFileSheetView($0) }
             // Guided tour drives the Settings sheet through its intent flag so
             // the step's coach card and the sheet stay in sync.
             .onChange(of: tour.wantSettingsOpen) { _, want in
@@ -332,7 +335,8 @@ public struct AppView: View {
                     if showBackendReminder { backendReminderBanner }
                 }
             }
-            .sheet(isPresented: $showBackendSheet) { backendPairingSheet }
+            .sheet(isPresented: $showBackendSheet,
+                   onDismiss: { importQueue.slotFreed() }) { backendPairingSheet }
             .onReceive(NotificationCenter.default.publisher(for: .pupaNotificationTap)) { _ in
                 handleNotificationTap()
             }
@@ -347,14 +351,16 @@ public struct AppView: View {
             // into the store (untrusted source).
             .onOpenURL { handleOpenURL($0) }
             .overlay { if isFetchingRemoteImport { remoteImportProgress } }
-            .sheet(item: $pendingImport) { pending in
+            .sheet(item: confirmBinding, onDismiss: { importQueue.slotFreed() }) { pending in
                 ImportConfirmSheet(
                     pending: pending,
                     onImport: { confirmImport(pending) },
-                    onCancel: { pendingImport = nil }
+                    onCancel: { importQueue.clearActive() }
                 )
             }
-            .alert(item: $importNotice) { note in
+            // An alert has no `onDismiss`, so acknowledging it is both halves:
+            // the slot empties and anything held presents next.
+            .alert(item: noticeBinding) { note in
                 Alert(title: Text("Import"), message: Text(note.message),
                       dismissButton: .default(Text("OK")))
             }
@@ -906,7 +912,7 @@ public struct AppView: View {
         // MyApps arrives from the bottom, like every other overlay in the app —
         // Settings, memory notes, the composers. It used to slide in from the
         // left, which made it the only surface with its own idiom.
-        .sheet(isPresented: $showSidebar) {
+        .sheet(isPresented: $showSidebar, onDismiss: { importQueue.slotFreed() }) {
             MyAppSidebarView(
                 store: store,
                 selection: $selection,
@@ -1644,11 +1650,42 @@ public struct AppView: View {
     /// ignored — notably `pupa://`, which is an in-app-only scheme and is
     /// deliberately not registered, so it never arrives here from a web page.
     private func handleOpenURL(_ url: URL) {
-        if url.isFileURL {
-            stagePendingImport(url)
-        } else if url.scheme?.lowercased() == MarketplaceInstallLink.scheme {
-            stageRemoteImport(url)
-        }
+        let isFile = url.isFileURL
+        guard isFile || url.scheme?.lowercased() == MarketplaceInstallLink.scheme else { return }
+        // Free the presentation slot before anything else. The marketplace is
+        // reached from inside Settings, so the link comes back with that sheet
+        // holding the slot — leaving it there hides the progress overlay and
+        // blocks the confirm sheet outright (issue #323).
+        importQueue.arrived(behindSheet: anySheetPresented)
+        dismissSheets()
+        if isFile { stagePendingImport(url) } else { stageRemoteImport(url) }
+    }
+
+    /// The sheets `AppView` presents. Any of them holds the one slot the
+    /// confirm step and the import alert also need.
+    private var anySheetPresented: Bool {
+        #if os(iOS)
+        if showSidebar { return true }
+        #endif
+        return settingsSheetPresented || showBackendSheet || memoryFileSheet != nil
+    }
+
+    private func dismissSheets() {
+        settingsSheetPresented = false
+        showBackendSheet = false
+        memoryFileSheet = nil
+        #if os(iOS)
+        showSidebar = false
+        #endif
+    }
+
+    private var confirmBinding: Binding<PendingImport?> {
+        Binding(get: { importQueue.confirm }, set: { if $0 == nil { importQueue.clearActive() } })
+    }
+
+    private var noticeBinding: Binding<ImportNotice?> {
+        Binding(get: { importQueue.notice },
+                set: { if $0 == nil { importQueue.activeDismissed() } })
     }
 
     /// Read + read-only-decode an opened `.pupa` for the confirm preview.
@@ -1658,7 +1695,7 @@ public struct AppView: View {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         guard let data = try? Data(contentsOf: url) else {
-            importNotice = ImportNotice(message: "Couldn't read that file.")
+            importQueue.stage(.notice(ImportNotice(message: "Couldn't read that file.")))
             return
         }
         stage(data)
@@ -1679,7 +1716,7 @@ public struct AppView: View {
         do {
             request = try MarketplaceInstallLink.parse(url)
         } catch {
-            importNotice = ImportNotice(message: error.localizedDescription)
+            importQueue.stage(.notice(ImportNotice(message: error.localizedDescription)))
             return
         }
         remoteImport?.cancel()
@@ -1696,7 +1733,7 @@ public struct AppView: View {
                 return
             } catch {
                 guard !Task.isCancelled else { return }
-                importNotice = ImportNotice(message: error.localizedDescription)
+                importQueue.stage(.notice(ImportNotice(message: error.localizedDescription)))
             }
         }
     }
@@ -1732,30 +1769,30 @@ public struct AppView: View {
         switch MyAppImporter.probeFormat(data) {
         case .single:
             guard let bundle = try? MyAppBundle.makeDecoder().decode(MyAppBundle.self, from: data) else {
-                importNotice = ImportNotice(message: "This isn't a valid Pupa app bundle.")
+                importQueue.stage(.notice(ImportNotice(message: "This isn't a valid Pupa app bundle.")))
                 return
             }
-            pendingImport = PendingImport(
+            importQueue.stage(.confirm(PendingImport(
                 data: data,
                 isLibrary: false,
                 appNames: [bundle.app.name],
                 agentPrompts: agentPrompts(in: bundle.app),
-                automationRuleCount: automationRuleCount(in: bundle.memories))
+                automationRuleCount: automationRuleCount(in: bundle.memories))))
         case .library:
             guard let library = try? MyAppBundle.makeDecoder().decode(MyAppLibraryBundle.self, from: data) else {
-                importNotice = ImportNotice(message: "This isn't a valid Pupa app bundle.")
+                importQueue.stage(.notice(ImportNotice(message: "This isn't a valid Pupa app bundle.")))
                 return
             }
-            pendingImport = PendingImport(
+            importQueue.stage(.confirm(PendingImport(
                 data: data,
                 isLibrary: true,
                 appNames: library.apps.map { $0.app.name },
                 agentPrompts: library.apps.flatMap { agentPrompts(in: $0.app) },
                 automationRuleCount: library.apps.reduce(0) {
                     $0 + automationRuleCount(in: $1.memories)
-                })
+                })))
         case .unknown:
-            importNotice = ImportNotice(message: "This isn't a valid Pupa app bundle.")
+            importQueue.stage(.notice(ImportNotice(message: "This isn't a valid Pupa app bundle.")))
         }
     }
 
@@ -1782,53 +1819,34 @@ public struct AppView: View {
     /// Run the real import after the user confirms, then navigate to the new
     /// app exactly like the in-app Import button.
     private func confirmImport(_ pending: PendingImport) {
-        pendingImport = nil
+        importQueue.clearActive()
         do {
             if pending.isLibrary {
                 let result = try MyAppImporter.importLibrary(pending.data, into: store, memory: memory)
                 guard let first = result.myAppIds.first else {
-                    importNotice = ImportNotice(message: "The bundle had no apps to import.")
+                    importQueue.stage(.notice(ImportNotice(message: "The bundle had no apps to import.")))
                     return
                 }
                 setRoot(.myAppHome(first))
                 let n = result.myAppIds.count
                 var lines = ["Imported \(n) app\(n == 1 ? "" : "s")."]
                 lines.append(contentsOf: result.warnings)
-                importNotice = ImportNotice(message: lines.joined(separator: "\n"))
+                importQueue.stage(.notice(ImportNotice(message: lines.joined(separator: "\n"))))
             } else {
                 let result = try MyAppImporter.importBundle(pending.data, into: store, memory: memory)
                 setRoot(.myAppHome(result.myAppId))
                 if !result.warnings.isEmpty {
-                    importNotice = ImportNotice(message: result.warnings.joined(separator: "\n"))
+                    importQueue.stage(.notice(ImportNotice(message: result.warnings.joined(separator: "\n"))))
                 }
             }
         } catch {
-            importNotice = ImportNotice(message: error.localizedDescription)
+            importQueue.stage(.notice(ImportNotice(message: error.localizedDescription)))
         }
     }
 }
 
 /// A `.pupa` opened from outside the app, staged for confirmation. Holds one
 /// app (single bundle) or many (library bundle).
-private struct PendingImport: Identifiable {
-    let id = UUID()
-    let data: Data
-    let isLibrary: Bool
-    /// Names of the app(s) that would be imported.
-    let appNames: [String]
-    /// Agent personas across the bundle, surfaced for review before import.
-    let agentPrompts: [String]
-    /// Automation rules the bundle carries. They're forced to propose rather
-    /// than fire on their own (see `MyAppImporter.sanitizeAutomations`), but
-    /// the user should still know the app reacts to what they do.
-    let automationRuleCount: Int
-}
-
-private struct ImportNotice: Identifiable {
-    let id = UUID()
-    let message: String
-}
-
 /// Drives the "reminder unavailable" popup shown when a tapped notification
 /// targets a myApp that has since been deleted.
 private struct NotificationNotice: Identifiable {

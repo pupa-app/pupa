@@ -3,6 +3,20 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.280] — 2026-09-03
+
+### Fixed
+
+- **Installing from the marketplace no longer does nothing.** Tapping install
+  on pupa-app.com foregrounded Pupa and left you on "Import an app" with no
+  progress and no confirm sheet; dismissing Settings by hand made the sheet
+  appear at once and the import finish in about half a second, so it read as an
+  import that hangs. It never started: a view presents one sheet at a time, and
+  the Settings sheet the marketplace is browsed from still held the slot. An
+  arriving import now closes the open sheets and waits for the dismissal to
+  finish before presenting. The same block swallowed `.pupa` files opened from
+  Files, Mail, Messages or AirDrop, and import errors raised behind a sheet.
+
 ## [0.0.279] — 2026-09-02
 
 ### Changed

@@ -1794,6 +1794,17 @@ that catalog (`MarketplaceInstallLink.browseURL`) beside the file picker; the
 app never reads a catalog itself. Full design + threat model:
 [marketplace.md](marketplace.md).
 
+Both paths land in one presentation slot, because SwiftUI presents one sheet
+per view and the marketplace is browsed *from* the Settings sheet — so the
+install link comes back with that sheet already holding the slot.
+`ImportPresentationQueue` sequences it: an arrival closes `AppView`'s sheets
+and is **held**, and every sheet's `onDismiss` releases the hold, so nothing is
+assigned into a presentation that can't happen. Ordering between the dismissal
+and a still-running download doesn't matter — whichever lands second presents.
+An error alert is the one thing not closed under the user (`.alert` has no
+`onDismiss`, so nothing would report a programmatic clear); the import waits
+for them to acknowledge it.
+
 ## Backend
 
 The backend is a separate repo —
