@@ -15,18 +15,32 @@ set -euo pipefail
 need=${PUPA_MIN_FREE_GB:-${1:?usage: require-free-space.sh <gb-needed> [label]}}
 label=${2:-this build}
 
+# Validated, not assumed. `(( avail < need ))` returns 1 on an arithmetic error,
+# which the `if` below reads as "enough room" — so a typo in PUPA_MIN_FREE_GB
+# would silently switch the guard off rather than fail loudly. It is a
+# documented user-facing knob, so it gets a real parse.
+if ! [[ "$need" =~ ^[0-9]+$ ]]; then
+  echo "error: PUPA_MIN_FREE_GB must be a whole number of gibibytes (got '$need')." >&2
+  exit 2
+fi
+
 if [[ "$need" == "0" ]]; then
   exit 0
 fi
 
 # df -g reports whole gibibytes; column 4 is Available. An unreadable df is not
-# a reason to block a build, so a blank read passes.
-avail=$(df -g . 2>/dev/null | awk 'NR==2 {print $4}')
-if [[ -z "$avail" ]]; then
+# a reason to block a build — but the assignment must not be allowed to fail the
+# script under `set -e` before the emptiness check below runs, which is what a
+# bare `avail=$(...)` would do, and silently: the caller would die with no
+# message at all.
+avail=$(df -g . 2>/dev/null | awk 'NR==2 {print $4}') || avail=""
+if ! [[ "$avail" =~ ^[0-9]+$ ]]; then
   exit 0
 fi
 
-if (( avail < need )); then
+# 10# forces base 10: bash reads a leading-zero literal as octal, so a value
+# like 08 is an arithmetic error, and an error in (( )) reads as "enough room".
+if (( 10#$avail < 10#$need )); then
   cat >&2 <<EOF
 error: ${avail}G free — ${need}G needed for ${label}.
        Free space before starting. An archive that fills the disk fails after

@@ -71,8 +71,15 @@ IDENTITIES=$(security find-identity -v -p codesigning 2>/dev/null || true)
   && ok "Developer ID Application certificate in the keychain" \
   || bad "no Developer ID Application certificate" "The DMG channel cannot sign without it. developer.apple.com → Certificates, Account Holder only."
 
+# Same reader as release.sh: the whole value, so preflight cannot report a name
+# the user never typed, and no `| head -1` to SIGPIPE the producer.
 PROFILE="${NOTARY_PROFILE:-}"
-[[ -z "$PROFILE" && -f "$LOCAL_XCCONFIG" ]] && PROFILE=$(sed -nE 's/^[[:space:]]*NOTARY_PROFILE[[:space:]]*=[[:space:]]*([A-Za-z0-9._-]+).*/\1/p' "$LOCAL_XCCONFIG" | head -1)
+if [[ -z "$PROFILE" && -f "$LOCAL_XCCONFIG" ]]; then
+  _np=$(sed -nE 's|^[[:space:]]*NOTARY_PROFILE[[:space:]]*=[[:space:]]*(.*)$|\1|p' "$LOCAL_XCCONFIG")
+  _np=${_np%%$'\n'*}
+  _np=${_np%%//*}
+  PROFILE=${_np%"${_np##*[![:space:]]}"}
+fi
 if [[ -z "$PROFILE" ]]; then
   bad "no notarytool profile name" "Add a NOTARY_PROFILE line to $LOCAL_XCCONFIG, or pass --notary-profile. Create one with: xcrun notarytool store-credentials"
 elif [[ "${PUPA_PREFLIGHT_OFFLINE:-0}" == "1" ]]; then
@@ -84,8 +91,10 @@ else
 fi
 
 # --- room to work ---------------------------------------------------------
-# 12G covers both TestFlight archives; the DMG run needs 8G of that again after
-# they are written, so ask for the larger number up front.
+# 12G is a floor, not a total: it covers the two TestFlight archives. The DMG
+# run checks again for 8G of its own before it starts, once those archives are
+# on disk. Two checks at two moments, rather than one number pretending to
+# cover both.
 if SPACE=$(scripts/require-free-space.sh 12 "both channels" 2>&1); then
   ok "disk has room for both channels"
 else

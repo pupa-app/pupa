@@ -27,6 +27,7 @@ set -uo pipefail
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 ARCHIVE_SH="$REPO_ROOT/.claude/skills/testflight-release/archive.sh"
 RELEASE_SH="$REPO_ROOT/.claude/skills/dmg-release/release.sh"
+PREFLIGHT_SH="$REPO_ROOT/.claude/skills/ship-release/preflight.sh"
 REAL_PBXPROJ="$REPO_ROOT/PupaHost/PupaHost.xcodeproj/project.pbxproj"
 REAL_VERSION_SWIFT="$REPO_ROOT/Pupa/Sources/PupaApp/Version.swift"
 REAL_FREE_SPACE="$REPO_ROOT/scripts/require-free-space.sh"
@@ -611,6 +612,35 @@ expect_status 1
 expect_out "999999G needed for"
 case_end
 
+# The guard used to sit below the bump, so a refusal still committed. --no-bump
+# above hides that; this case is the one that catches it.
+case_start "the free-space refusal leaves pbxproj and the branch untouched"
+reset drift
+run env PUPA_MIN_FREE_GB=999999 "$ARCHIVE_SH" --skip-icon-check
+expect_status 1
+expect_out "999999G needed for"
+expect_no_out "bumped CURRENT_PROJECT_VERSION"
+expect_no_out "committed pbxproj"
+expect_clean_pbxproj
+case_end
+
+case_start "a --flow free-space refusal does not fast-forward main"
+reset drift
+MAIN_BEFORE=$(git rev-parse main)
+run env PUPA_MIN_FREE_GB=999999 "$ARCHIVE_SH" --skip-icon-check --flow
+expect_status 1
+[[ "$(git rev-parse main)" == "$MAIN_BEFORE" ]] || bad "main moved despite the refusal"
+expect_clean_pbxproj
+case_end
+
+case_start "the archive summary does not both claim and deny registration"
+reset synced
+run env PUPA_TEST_XCODEBUILD_OK=1 "$ARCHIVE_SH" --no-bump --skip-icon-check
+expect_status 0
+expect_out "Register them with Xcode first"
+expect_no_out "registered with Xcode already"
+case_end
+
 case_start "release.sh refuses when the disk cannot hold the archive and DMG"
 reset synced
 export NOTARY_PROFILE=fixture
@@ -668,6 +698,20 @@ expect_out "nothing rebuilt"
 expect_no_out "archiving macOS"
 case_end
 
+case_start "--publish-only does not demand a notary profile it never uses"
+publish_setup
+unset NOTARY_PROFILE
+git remote remove origin 2>/dev/null
+git remote add origin "$ORIGIN"
+git tag -f "v$SEED_MV" >/dev/null
+git push -q --force origin "refs/tags/v$SEED_MV"
+mkdir -p build
+touch "build/Pupa-$SEED_MV.dmg"
+run "$RELEASE_SH" --publish-only
+expect_status 0
+expect_no_out "No notarytool profile"
+case_end
+
 case_start "--publish-only refuses to replace the asset on a published release"
 publish_setup
 git remote remove origin 2>/dev/null
@@ -707,6 +751,52 @@ run "$RELEASE_SH"
 expect_status 1
 expect_out "No notarytool profile"
 expect_out "Local.xcconfig"
+case_end
+
+echo
+echo "ship-release/preflight.sh"
+
+case_start "preflight reports MARKETING_VERSION drift as the release PR's job"
+reset drift
+run env PUPA_PREFLIGHT_OFFLINE=1 PUPA_MIN_FREE_GB=0 "$PREFLIGHT_SH"
+expect_status 1
+expect_out "MARKETING_VERSION is"
+case_end
+
+case_start "preflight passes a synced checkout"
+reset synced
+printf 'DEVELOPMENT_TEAM = TEAMID1234\nNOTARY_PROFILE = fixture-profile\n' > "PupaHost/Local.xcconfig"
+run env PUPA_PREFLIGHT_OFFLINE=1 PUPA_MIN_FREE_GB=0 "$PREFLIGHT_SH"
+expect_status 0
+expect_out "clear to ship"
+case_end
+
+# A charset-restricted reader truncated at the first space and reported a name
+# the user never typed — which then failed at notarytool, after the archive.
+case_start "preflight reports a profile name containing spaces intact"
+reset synced
+printf 'DEVELOPMENT_TEAM = TEAMID1234\nNOTARY_PROFILE = pupa notary 2026\n' > "PupaHost/Local.xcconfig"
+run env PUPA_PREFLIGHT_OFFLINE=1 PUPA_MIN_FREE_GB=0 "$PREFLIGHT_SH"
+expect_out "pupa notary 2026"
+case_end
+
+case_start "preflight does not read a commented-out profile line"
+reset synced
+printf 'DEVELOPMENT_TEAM = TEAMID1234\n// NOTARY_PROFILE = commented-out\n' > "PupaHost/Local.xcconfig"
+run env PUPA_PREFLIGHT_OFFLINE=1 PUPA_MIN_FREE_GB=0 "$PREFLIGHT_SH"
+expect_status 1
+expect_out "no notarytool profile name"
+case_end
+
+case_start "preflight --publish reports a tag that is not on origin"
+reset synced
+printf 'DEVELOPMENT_TEAM = TEAMID1234\nNOTARY_PROFILE = fixture-profile\n' > "PupaHost/Local.xcconfig"
+git remote remove origin 2>/dev/null
+git remote add origin "$ORIGIN"
+git push -q --force --delete origin "refs/tags/v$SEED_MV" 2>/dev/null
+run env PUPA_PREFLIGHT_OFFLINE=1 PUPA_MIN_FREE_GB=0 "$PREFLIGHT_SH" --publish
+expect_status 1
+expect_out "is not on origin"
 case_end
 
 echo

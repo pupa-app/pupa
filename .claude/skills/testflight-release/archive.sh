@@ -99,6 +99,11 @@ command -v xcodebuild >/dev/null || die "xcodebuild not on PATH."
 require_development_team
 note "signing team from $LOCAL_XCCONFIG"
 
+# Here, not down at the archive: a refusal must not leave the bump commit
+# behind, and under --flow must not leave $MAIN_BRANCH fast-forwarded. df
+# depends on nothing either step does, so there is no reason to wait.
+scripts/require-free-space.sh 12 "archiving both platforms"
+
 # Working tree: only pbxproj is allowed to be dirty (we may modify it below)
 DIRTY=$(git status --porcelain | awk '{print $2}' | grep -v "^${PBXPROJ}\$" || true)
 if [[ -n "$DIRTY" ]]; then
@@ -311,7 +316,6 @@ if [[ $FLOW -eq 1 ]]; then
 fi
 
 # --- archive (iOS + macOS — one Universal Purchase record, both ship together) ---
-scripts/require-free-space.sh 12 "archiving both platforms"
 mkdir -p build
 
 archive_platform() {
@@ -372,12 +376,10 @@ trap - EXIT
 # Organizer only auto-lists archives under ~/Library/Developer/Xcode/Archives/,
 # and these live in build/. Opening them registers them; skipping this step is
 # why an archive can succeed and Organizer still look empty.
-OPEN_NOTE=""
-if [[ "${PUPA_SKIP_OPEN:-0}" != "1" ]] && command -v open >/dev/null; then
-  open "$ARCHIVE_IOS" "$ARCHIVE_MACOS" 2>/dev/null \
-    || OPEN_NOTE=" (registering them failed — run: open $ARCHIVE_IOS $ARCHIVE_MACOS)"
-else
-  OPEN_NOTE=" (not registered — run: open $ARCHIVE_IOS $ARCHIVE_MACOS)"
+OPEN_LINE="Both archives are registered with Xcode already."
+if [[ "${PUPA_SKIP_OPEN:-0}" == "1" ]] || ! command -v open >/dev/null \
+   || ! open "$ARCHIVE_IOS" "$ARCHIVE_MACOS" 2>/dev/null; then
+  OPEN_LINE="Register them with Xcode first:  open $ARCHIVE_IOS $ARCHIVE_MACOS"
 fi
 
 cat <<EOF
@@ -388,9 +390,9 @@ ARCHIVES READY
   macOS:   $ARCHIVE_MACOS
            Version $MACOS_VERSION, Build $MACOS_BUILD, Bundle $MACOS_BUNDLE$PUSH_HINT
 
-Next step: Xcode → Window → Organizer (⌥⇧⌘O), Archives tab. Both are registered
-already$OPEN_NOTE. Select each in turn → Distribute App → App Store Connect →
-Upload. There is no prompt before this point — nothing appears in Organizer until
-the archives are opened. Same tester group covers both platforms once each build
-clears export compliance.
+$OPEN_LINE
+Next step: Xcode → Window → Organizer (⌥⇧⌘O), Archives tab. Select each in turn →
+Distribute App → App Store Connect → Upload. There is no prompt before this point
+— nothing appears in Organizer until the archives are opened. Same tester group
+covers both platforms once each build clears export compliance.
 EOF

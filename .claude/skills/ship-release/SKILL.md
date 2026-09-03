@@ -85,8 +85,9 @@ Organizer still look empty.
 
 ## Failure modes worth recognising
 
-- **`Nn G free — Nn G needed`**: the free-space guard. Both archives plus the
-  DMG want ~12G. Clear `~/Library/Developer/Xcode/iOS DeviceSupport`,
+- **`Nn G free — Nn G needed`**: the free-space guard. 12G before the two
+  archives, and 8G checked again before the DMG once they are on disk — a floor
+  at each step, not one total. Clear `~/Library/Developer/Xcode/iOS DeviceSupport`,
   `xcrun simctl delete unavailable`, or DerivedData — all regenerable. A disk
   that reaches zero mid-archive takes the rest of the session with it.
 - **`archive.sh` refuses to commit**: `MARKETING_VERSION` drifted and the script

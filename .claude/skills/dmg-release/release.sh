@@ -27,7 +27,8 @@ PUBLISH=0
 PUBLISH_ONLY=0
 usage() {
   cat <<EOF
-usage: $0 [--notary-profile NAME] [--skip-notarize] [--publish] [--development-signing]
+usage: $0 [--notary-profile NAME] [--skip-notarize] [--publish | --publish-only]
+          [--development-signing]
   --notary-profile NAME  notarytool keychain profile (or set NOTARY_PROFILE).
                          Create once with: xcrun notarytool store-credentials
   --skip-notarize        Archive, export and package only. The DMG will be
@@ -160,11 +161,19 @@ require_development_team
 # lives in the same git-ignored file rather than being retyped every release, or
 # rediscovered by guesswork when nobody remembers what it was called.
 if [[ -z "$NOTARY_PROFILE" && -f "$LOCAL_XCCONFIG" ]]; then
-  NOTARY_PROFILE=$(sed -nE 's/^[[:space:]]*NOTARY_PROFILE[[:space:]]*=[[:space:]]*([A-Za-z0-9._-]+).*/\1/p' \
-    "$LOCAL_XCCONFIG" | head -1)
+  # The whole value, not a charset-restricted slice. store-credentials accepts
+  # names with spaces, and a silently truncated one is not rejected here — it
+  # fails at `notarytool submit`, minutes after the archive, which is the exact
+  # late failure this preflight exists to prevent. No `| head -1` either: under
+  # pipefail head exits early and the producer takes SIGPIPE, the shape this
+  # file's own comments forbid twice.
+  _np=$(sed -nE 's|^[[:space:]]*NOTARY_PROFILE[[:space:]]*=[[:space:]]*(.*)$|\1|p' "$LOCAL_XCCONFIG")
+  _np=${_np%%$'\n'*}                       # first assignment wins
+  _np=${_np%%//*}                          # drop a trailing xcconfig comment
+  NOTARY_PROFILE=${_np%"${_np##*[![:space:]]}"}
 fi
 
-if [[ $SKIP_NOTARIZE -eq 0 ]]; then
+if [[ $SKIP_NOTARIZE -eq 0 && $PUBLISH_ONLY -eq 0 ]]; then
   [[ -n "$NOTARY_PROFILE" ]] || die "No notarytool profile. Pass --notary-profile NAME, set NOTARY_PROFILE,
        or add a NOTARY_PROFILE line to $LOCAL_XCCONFIG. Use --skip-notarize to build without one.
        Store credentials once with:  xcrun notarytool store-credentials
