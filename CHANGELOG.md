@@ -3,6 +3,19 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.280] — 2026-09-05
+
+### Fixed
+
+- **The MyApps sheet header is no longer pinched against the sheet edge.**
+  "MyApps", the info badge, `+` and the close button sat directly under the
+  grab indicator with the first row right below them. The header now has a
+  little room above and below it. The macOS sidebar column is unchanged.
+- **The chat header's expand and close buttons are no longer flush against the
+  thread bar.** The row had 8pt above it and none below, so the two button
+  circles ended exactly where the "New chat" row starts — while the resize grip
+  opposite, padded on all sides, read centred. The row is now padded evenly.
+
 ## [0.0.279] — 2026-09-02
 
 ### Changed
