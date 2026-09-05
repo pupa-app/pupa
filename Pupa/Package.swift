@@ -25,7 +25,7 @@ let package = Package(
         .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.4.0"),
         // GoogleWebRTC xcframework wrapped as SwiftPM. Same dep as
         // screenshare-sidecar so publisher + viewer speak the same SDK build.
-        .package(url: "https://github.com/stasel/WebRTC.git", from: "137.0.0"),
+        .package(url: "https://github.com/stasel/WebRTC.git", from: "152.0.0"),
     ],
     targets: [
         // Canned-backend scripting. Below PupaApp so the launched app can
