@@ -220,7 +220,10 @@ struct ChatOverlay: View {
                     .accessibilityLabel("Close chat")
                 }
                 .padding(.horizontal, 8)
-                .padding(.top, 8)
+                // Symmetric: the 30pt button circles used to end flush against
+                // the thread bar below them, while the resize grip opposite
+                // carries 8pt on every side and reads centred.
+                .padding(.vertical, 8)
                 ConversationPager(
                     scope: scope,
                     coordinator: coordinator,
