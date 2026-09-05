@@ -215,6 +215,13 @@ public struct MyAppSidebarView: View, Equatable {
                     .keyboardShortcut(.cancelAction)
                 }
             }
+            // As a sheet this header is the first thing under the grab
+            // indicator, with no navigation bar between them, and the first
+            // row lands right below it — so the title and its two buttons sit
+            // pinched between the sheet edge and the list. The macOS sidebar
+            // is a permanent column with its own inset and needs none of this.
+            .padding(.top, onClose == nil ? 0 : 8)
+            .padding(.bottom, onClose == nil ? 0 : 4)
         }
     }
 
