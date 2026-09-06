@@ -183,6 +183,104 @@ struct RelaunchCatchUpTests {
         #expect(await poll { TranscriptCache.loadSnapshot(tid)?.turnInFlight == false })
     }
 
+    /// Regression: `turnInFlight` used to be read off the banner variant
+    /// (`connectionIssue == .reconnecting`). Once the banner started naming the
+    /// real cause — a disconnected VPN is `.failed`, not `.reconnecting` — that
+    /// silently switched the whole catch-up layer off for every transport error
+    /// but two, in exactly the scenario the diagnosis exists to describe: VPN
+    /// drops mid-turn, iOS kills the backgrounded app, the user turns the VPN
+    /// back on, and the reply is gone with no banner and no Continue button.
+    ///
+    /// Recoverability is `turnMayStillBeRunning`, never the banner.
+    @Test("a catch-up that fails on a dead VPN stays recoverable — the next relaunch retries")
+    func relaunch_failedBanner_keepsTurnInFlight() async {
+        await MyAppStore.clearStorage()
+        RelaunchMockURLProtocol.reset()
+        MyAppTypeRegistry.shared.registerBuiltins()
+
+        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
+        let store = MyAppStore(initial: ([a], a.id))
+        let scope: ChatScope = .myApp(a.id)
+        let tid = store.currentThreadId(for: scope)
+
+        TranscriptCache.save(
+            TranscriptSnapshot(
+                bubbles: [
+                    ChatBubble(role: .user, text: "long question"),
+                    ChatBubble(id: "m1", role: .assistant, text: "first half"),
+                ],
+                lastEventSeq: 6, turnInFlight: true, savedAt: Date()),
+            threadId: tid)
+
+        // The tailnet is down: the catch-up POST and every re-attach after it
+        // fail DNS, so AGUIKit spends its whole ladder and rethrows.
+        RelaunchMockURLProtocol.failPostAt = { _ in URLError(.cannotFindHost) }
+
+        let vm = makeVM(store: store, scope: scope)
+        vm.loadHistoryIfNeeded()
+
+        // The ladder is 4 attempts on a 500ms doubling backoff — ~7.5s of sleeps.
+        #expect(await poll(timeout: .seconds(30)) { !vm.isStreaming && vm.connectionIssue != nil },
+                "the catch-up should settle with a banner once the ladder is spent")
+
+        // The banner names the cause — that part is the feature.
+        guard case .failed(let message)? = vm.connectionIssue else {
+            Issue.record("expected a .failed banner, got \(String(describing: vm.connectionIssue))")
+            return
+        }
+        #expect(message.contains("mock.test"), "the banner names the host it could not reach")
+
+        // …and naming it must not have cost the turn its recoverability.
+        #expect(vm.turnMayStillBeRunning, "a spent transport ladder leaves the backend run possibly live")
+        #expect(await poll { TranscriptCache.loadSnapshot(tid)?.turnInFlight == true },
+                "the turn stays in flight, so the next launch catches up again")
+        #expect(TranscriptCache.loadSnapshot(tid)?.lastEventSeq == 6,
+                "and it still knows where to resume from")
+    }
+
+    /// The latch has to let go, or every future launch of this thread fires a
+    /// pointless reattach POST. Round 1's blocker was an unaudited consumer of
+    /// this state; these are its unaudited *producers*.
+    @Test("a retry clears the recoverable latch — it must not stick true")
+    func turnMayStillBeRunning_clearedOnRetry() async {
+        await MyAppStore.clearStorage()
+        RelaunchMockURLProtocol.reset()
+        MyAppTypeRegistry.shared.registerBuiltins()
+
+        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
+        let store = MyAppStore(initial: ([a], a.id))
+        let scope: ChatScope = .myApp(a.id)
+        let tid = store.currentThreadId(for: scope)
+
+        TranscriptCache.save(
+            TranscriptSnapshot(bubbles: [ChatBubble(role: .user, text: "q")],
+                               lastEventSeq: 6, turnInFlight: true, savedAt: Date()),
+            threadId: tid)
+        RelaunchMockURLProtocol.failPostAt = { _ in URLError(.cannotFindHost) }
+
+        let vm = makeVM(store: store, scope: scope)
+        vm.loadHistoryIfNeeded()
+        #expect(await poll(timeout: .seconds(30)) { !vm.isStreaming && vm.turnMayStillBeRunning })
+
+        // The user fixes the VPN and hits Continue — `reattachIfNeeded` clears it.
+        RelaunchMockURLProtocol.failPostAt = nil
+        RelaunchMockURLProtocol.sseBody = sseFrames([
+            (7, #"{"type":"RUN_FINISHED","threadId":"\#(tid)","runId":"r"}"#),
+        ])
+        vm.reattachIfNeeded()
+        #expect(!vm.turnMayStillBeRunning, "reattachIfNeeded clears the latch synchronously")
+        #expect(await poll { !vm.isStreaming })
+        #expect(await poll { TranscriptCache.loadSnapshot(tid)?.turnInFlight == false },
+                "the settled turn is no longer persisted as in flight")
+
+        // And a fresh send clears it too. Let it settle rather than cancelling
+        // mid-flight — this suite is serialized on one shared mock, and a POST
+        // landing after teardown shows up in the next test's recording.
+        vm.send("again")
+        #expect(!vm.turnMayStillBeRunning)
+        #expect(await poll { !vm.isStreaming })
+    }
+
     @Test("settled snapshot does not fire a reattach on open")
     func relaunch_settledSnapshot_noCatchUp() async {
         await MyAppStore.clearStorage()
