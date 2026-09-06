@@ -238,6 +238,49 @@ struct RelaunchCatchUpTests {
                 "and it still knows where to resume from")
     }
 
+    /// The latch has to let go, or every future launch of this thread fires a
+    /// pointless reattach POST. Round 1's blocker was an unaudited consumer of
+    /// this state; these are its unaudited *producers*.
+    @Test("a retry clears the recoverable latch — it must not stick true")
+    func turnMayStillBeRunning_clearedOnRetry() async {
+        await MyAppStore.clearStorage()
+        RelaunchMockURLProtocol.reset()
+        MyAppTypeRegistry.shared.registerBuiltins()
+
+        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
+        let store = MyAppStore(initial: ([a], a.id))
+        let scope: ChatScope = .myApp(a.id)
+        let tid = store.currentThreadId(for: scope)
+
+        TranscriptCache.save(
+            TranscriptSnapshot(bubbles: [ChatBubble(role: .user, text: "q")],
+                               lastEventSeq: 6, turnInFlight: true, savedAt: Date()),
+            threadId: tid)
+        RelaunchMockURLProtocol.failPostAt = { _ in URLError(.cannotFindHost) }
+
+        let vm = makeVM(store: store, scope: scope)
+        vm.loadHistoryIfNeeded()
+        #expect(await poll(timeout: .seconds(30)) { !vm.isStreaming && vm.turnMayStillBeRunning })
+
+        // The user fixes the VPN and hits Continue — `reattachIfNeeded` clears it.
+        RelaunchMockURLProtocol.failPostAt = nil
+        RelaunchMockURLProtocol.sseBody = sseFrames([
+            (7, #"{"type":"RUN_FINISHED","threadId":"\#(tid)","runId":"r"}"#),
+        ])
+        vm.reattachIfNeeded()
+        #expect(!vm.turnMayStillBeRunning, "reattachIfNeeded clears the latch synchronously")
+        #expect(await poll { !vm.isStreaming })
+        #expect(await poll { TranscriptCache.loadSnapshot(tid)?.turnInFlight == false },
+                "the settled turn is no longer persisted as in flight")
+
+        // And a fresh send clears it too. Let it settle rather than cancelling
+        // mid-flight — this suite is serialized on one shared mock, and a POST
+        // landing after teardown shows up in the next test's recording.
+        vm.send("again")
+        #expect(!vm.turnMayStillBeRunning)
+        #expect(await poll { !vm.isStreaming })
+    }
+
     @Test("settled snapshot does not fire a reattach on open")
     func relaunch_settledSnapshot_noCatchUp() async {
         await MyAppStore.clearStorage()

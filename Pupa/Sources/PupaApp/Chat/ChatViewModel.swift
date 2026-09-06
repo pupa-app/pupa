@@ -1647,7 +1647,7 @@ public final class ChatViewModel {
                     // Same diagnosis as the turn banner: this fires in exactly
                     // the VPN-down case, and `localizedDescription` there is a
                     // literal "NSURLErrorDomain error -1003" dump.
-                    let detail = BackendConnectionDiagnosis.diagnose(error, host: self.sessionBackendURL.host).message
+                    let detail = BackendConnectionDiagnosis.diagnose(error, host: backendURL.host).message
                     self.bubbles = [ChatBubble(role: .system, text: "Could not load history. \(detail)")]
                 }
             }

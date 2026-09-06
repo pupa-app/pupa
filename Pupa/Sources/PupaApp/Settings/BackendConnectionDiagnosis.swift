@@ -129,7 +129,13 @@ struct BackendConnectionDiagnosis: Equatable {
     }
 
     static func diagnose(_ error: Error, host: String? = nil) -> BackendConnectionDiagnosis {
-        log.error("backend error host=\(host ?? "-", privacy: .private) \(String(describing: error), privacy: .public)")
+        // The error dump carries the host and the full URL in its userInfo, so
+        // it is `.private` alongside the host. The code stays public — it is
+        // what the diagnosis turns on, and it names no one's backend.
+        let code = (error as? URLError).map { "\($0.code.rawValue)" } ?? "-"
+        log.error("""
+            backend error code=\(code, privacy: .public) host=\(host ?? "-", privacy: .private)             \(String(describing: error), privacy: .private)
+            """)
         guard let urlError = error as? URLError else {
             return .init(cause: .unknown, message: genericMessage)
         }
