@@ -116,7 +116,17 @@ for iOS simulator / device runs.
 
 ## CI
 
-GitHub Actions currently **fails from a billing block, not real test
-failures** — a blocked job shows 0 steps and "fails" in ~2s. Ignore red
-CI; verify locally with `make test` (the source of truth until billing
-is restored).
+GitHub Actions runs for real again — the billing block is gone. Red CI
+means a red build. Three checks on every PR:
+
+| Check | What |
+|---|---|
+| `swift test (macOS)` | both packages, same as `make test` |
+| `gitleaks (full history)` | the rule at the top of this file |
+| `DCO` | every commit needs `Signed-off-by` |
+
+**Commit with `git commit -s`.** DCO is a required check on `dev`, so a
+commit without the trailer blocks the merge. `git rebase --signoff dev`
+fixes a branch that already has some.
+
+`make test` is still the fast loop — CI takes minutes.
