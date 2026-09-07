@@ -608,17 +608,21 @@ private struct TextDetailEditor: View {
 
 // MARK: - Card density
 
-/// How much of an item a card shows. Derived from the view mode and the
-/// persisted `shrinkCards` flag — shrink collapses both modes onto one
-/// rendering rather than doubling the layouts, since a one-liner is a
-/// one-liner whether it sits in a lane or a grid cell.
+/// How much of an item a card shows. Derived from the view mode, the
+/// persisted `shrinkCards` flag, and the ephemeral per-card peek — shrink
+/// collapses both modes onto one rendering rather than doubling the layouts,
+/// since a one-liner is a one-liner whether it sits in a lane or a grid cell,
+/// and a peek lifts one card back out of that.
 enum CardDensity {
     case comfortable   // grid: hero, meta rows, 3 chips, 3 links
     case compact       // kanban lane: no hero, tighter type, 1 chip, 2 links
     case minimal       // shrunk: title only, one line
 
-    static func resolve(viewMode: TrackerViewMode, shrink: Bool) -> CardDensity {
-        if shrink { return .minimal }
+    /// `expanded` is the per-card peek override. It only means anything while
+    /// `shrink` is on, where it lifts that one card back to its view mode's
+    /// natural density; the rest of the board stays minimal.
+    static func resolve(viewMode: TrackerViewMode, shrink: Bool, expanded: Bool = false) -> CardDensity {
+        if shrink && !expanded { return .minimal }
         return viewMode == .kanban ? .compact : .comfortable
     }
 }
@@ -785,6 +789,9 @@ struct TrackerItemCard: View {
     /// closing over the store + myAppId. Nil → linked-items row hidden
     /// (kanban passes nil to keep lane cards tight).
     let resolveLinkName: ((ComponentItemRef) -> String?)?
+    /// Non-nil only while the board is shrunk: this card's peek state plus the
+    /// toggle. Nil means no chevron, which is every card on an expanded board.
+    let expansion: (isExpanded: Bool, toggle: () -> Void)?
 
     /// Set by the "+k more" chip. Written only by a tap — nothing here reads
     /// geometry, so growing the card cannot feed back into a measurement.
@@ -799,7 +806,8 @@ struct TrackerItemCard: View {
         positionIndex: Int,
         density: CardDensity = .comfortable,
         onTap: @escaping () -> Void,
-        resolveLinkName: ((ComponentItemRef) -> String?)? = nil
+        resolveLinkName: ((ComponentItemRef) -> String?)? = nil,
+        expansion: (isExpanded: Bool, toggle: () -> Void)? = nil
     ) {
         self.item = item
         self.layout = layout
@@ -807,6 +815,7 @@ struct TrackerItemCard: View {
         self.density = density
         self.onTap = onTap
         self.resolveLinkName = resolveLinkName
+        self.expansion = expansion
     }
 
     private var values: [String: String] { item.values }
@@ -852,9 +861,33 @@ struct TrackerItemCard: View {
                 .truncationMode(.tail)
                 .foregroundStyle(titleIsFallback ? .secondary : .primary)
             Spacer(minLength: 0)
+            expandToggle
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
+    }
+
+    /// Per-card peek toggle, rendered only while the board is shrunk. A
+    /// `.plain` button so the tap is consumed here and never reaches the
+    /// card's edit gesture or kanban's drag.
+    @ViewBuilder
+    private var expandToggle: some View {
+        if let expansion {
+            Button {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    expansion.toggle()
+                }
+            } label: {
+                Image(systemName: expansion.isExpanded ? "chevron.up" : "chevron.down")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 4)
+                    .padding(.vertical, 2)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(expansion.isExpanded ? "Collapse this card" : "Expand this card")
+        }
     }
 
     /// Keeps the first chip's colour semantics visible even with no chips
@@ -872,10 +905,14 @@ struct TrackerItemCard: View {
             }
 
             VStack(alignment: .leading, spacing: compact ? 6 : 8) {
-                Text(titleText)
-                    .font(compact ? .subheadline.weight(.semibold) : .headline)
-                    .lineLimit(compact ? 2 : 1)
-                    .foregroundStyle(titleIsFallback ? .secondary : .primary)
+                HStack(alignment: .firstTextBaseline, spacing: 0) {
+                    Text(titleText)
+                        .font(compact ? .subheadline.weight(.semibold) : .headline)
+                        .lineLimit(compact ? 2 : 1)
+                        .foregroundStyle(titleIsFallback ? .secondary : .primary)
+                    Spacer(minLength: 0)
+                    expandToggle
+                }
 
                 ForEach(metaEntries, id: \.field) { entry in
                     if entry.isText {

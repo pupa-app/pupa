@@ -21,6 +21,11 @@ public struct TrackerView: View {
     /// Filter-panel disclosure, collapsed by default. Component-keyed for the
     /// same reason as the query.
     @State private var filtersShownByComponent: [String: Bool] = [:]
+    /// Cards peeked open despite `data.shrinkCards`. Ephemeral on purpose: a
+    /// peek is chrome, and `persist()` is a whole-app encode + iCloud write —
+    /// the same reason the search query above is not persisted. Component-keyed
+    /// like the rest.
+    @State private var expandedByComponent: [String: Set<UUID>] = [:]
 
     public init(store: MyAppStore, data: TrackerData, myAppId: UUID, componentId: String? = nil) {
         self.store = store
@@ -59,10 +64,16 @@ public struct TrackerView: View {
                     )
                 },
                 filtered: filtered,
+                expandedIds: expandedIds,
+                onToggleExpand: toggleExpanded,
                 onAdd: { sheet = .add() },
                 onEdit: { itemId in sheet = .edit(itemId: itemId) }
             )
         }
+        // The global shrink button overwrites every per-card peek. Keyed off
+        // the state rather than the button so undo, history restore and import
+        // clear the peeks too.
+        .onChange(of: data.shrinkCards) { expandedByComponent[componentId ?? ""] = [] }
         .sheet(item: $sheet) { target in
             ItemSheet(
                 target: target,
@@ -106,6 +117,14 @@ public struct TrackerView: View {
 
     private var query: String { queryByComponent[componentId ?? ""] ?? "" }
 
+    private var expandedIds: Set<UUID> { expandedByComponent[componentId ?? ""] ?? [] }
+
+    private func toggleExpanded(_ itemId: UUID) {
+        var ids = expandedIds
+        if ids.remove(itemId) == nil { ids.insert(itemId) }
+        expandedByComponent[componentId ?? ""] = ids
+    }
+
     private func setQuery(_ new: String) {
         guard new != query else { return }
         queryByComponent[componentId ?? ""] = new
@@ -140,6 +159,9 @@ private struct CardsSection: View {
     /// myAppId from `TrackerView`.
     let resolveLinkName: (ComponentItemRef) -> String?
     let filtered: [TrackerFiltering.Entry]
+    /// Cards peeked open on a shrunk board. Empty unless `data.shrinkCards`.
+    let expandedIds: Set<UUID>
+    let onToggleExpand: (UUID) -> Void
     let onAdd: () -> Void
     let onEdit: (UUID) -> Void
 
@@ -181,16 +203,29 @@ private struct CardsSection: View {
                     .padding(.vertical, 8)
             } else {
                 let layout = CardLayout.from(fields: data.visibleFields)
-                let density = CardDensity.resolve(viewMode: .grid, shrink: data.shrinkCards)
-                LazyVGrid(columns: gridColumns(density), alignment: .leading, spacing: 12) {
+                // Column width follows the board, never a single peek: one tap
+                // must not reflow every other card.
+                let boardDensity = CardDensity.resolve(viewMode: .grid, shrink: data.shrinkCards)
+                LazyVGrid(columns: gridColumns(boardDensity), alignment: .leading, spacing: 12) {
                     ForEach(filtered) { entry in
                         TrackerItemCard(
                             item: entry.item,
                             layout: layout,
                             positionIndex: entry.positionIndex,
-                            density: density,
+                            density: CardDensity.resolve(
+                                viewMode: .grid,
+                                shrink: data.shrinkCards,
+                                expanded: expandedIds.contains(entry.item.id)
+                            ),
                             onTap: { onEdit(entry.item.id) },
-                            resolveLinkName: density == .minimal ? nil : resolveLinkName
+                            // Passed unconditionally now — `linkCap` is already
+                            // 0 at `.minimal`, so shrunk cards still show no
+                            // pills while a peeked one keeps them.
+                            resolveLinkName: resolveLinkName,
+                            expansion: data.shrinkCards
+                                ? (isExpanded: expandedIds.contains(entry.item.id),
+                                   toggle: { onToggleExpand(entry.item.id) })
+                                : nil
                         )
                     }
                 }

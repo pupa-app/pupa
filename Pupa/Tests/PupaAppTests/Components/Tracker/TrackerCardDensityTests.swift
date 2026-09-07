@@ -15,6 +15,21 @@ struct TrackerCardDensityTests {
         #expect(CardDensity.resolve(viewMode: .kanban, shrink: true) == .minimal)
     }
 
+    @Test("A peeked card lifts back to its view mode's density")
+    func resolveWithPeek() {
+        #expect(CardDensity.resolve(viewMode: .grid, shrink: true, expanded: true) == .comfortable)
+        #expect(CardDensity.resolve(viewMode: .kanban, shrink: true, expanded: true) == .compact)
+    }
+
+    @Test("The peek is inert on a board that is not shrunk")
+    func peekWithoutShrinkIsInert() {
+        // Views only hand out the toggle while `shrinkCards` is on and clear
+        // the set when it flips, so this state should not arise — but the
+        // resolver must not invent a fourth behaviour if it does.
+        #expect(CardDensity.resolve(viewMode: .grid, shrink: false, expanded: true) == .comfortable)
+        #expect(CardDensity.resolve(viewMode: .kanban, shrink: false, expanded: true) == .compact)
+    }
+
     @Test("Chip and link caps tighten with density")
     func caps() {
         #expect(CardDensityMetrics.chipCap(.comfortable) == 3)

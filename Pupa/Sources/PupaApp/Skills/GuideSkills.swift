@@ -15,7 +15,7 @@ import Foundation
 /// component-kind list is generated from `MyAppType.kinds` so it can't drift.
 enum GuideSkills {
     /// Bump when any guide body changes so existing installs re-seed.
-    static let version = "23"
+    static let version = "24"
 
     /// The plugin folder holding this guide's skills.
     static let pluginDir = "\(MemoryStore.pupaPluginsDir)/pupa-guide"
@@ -158,8 +158,11 @@ enum GuideSkills {
         the cards — it matches any field, including link URLs, and in kanban it
         narrows the cards without dropping columns. The shrink button next to
         the view toggle collapses every card to its title for a whole-board
-        view; it sticks per component. Cards with several links show the first
-        few and a "+N" you can tap to see the rest.
+        view; it sticks per component. On a shrunk board each card gets a
+        chevron that opens that one card back up, without expanding the rest —
+        pressing the shrink button again closes every one of them. Cards with
+        several links show the first few and a "+N" you can tap to see the
+        rest.
         """
     }
 

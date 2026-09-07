@@ -3,6 +3,17 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.283] — 2026-09-08
+
+### Added
+
+- **Open one card on a shrunk tracker board.** Shrinking a tracker or kanban
+  was all-or-nothing: to read one item you expanded the whole board and lost
+  the density you asked for. Every card on a shrunk board now carries a
+  chevron that opens that card alone, at its normal size, leaving the rest as
+  one-liners — and the board doesn't reflow around it. The shrink button still
+  wins: pressing it closes every card that was opened this way.
+
 ## [0.0.282] — 2026-09-07
 
 ### Changed
@@ -21,6 +32,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   `/find-events` skills, the search and voice profile notes, and an automation
   that starts an application when a row lands in "To Apply". Guide-plugin
   copies inside the bundle are skipped — those are re-seeded per launch.
+
 
 ## [0.0.281] — 2026-09-06
 
