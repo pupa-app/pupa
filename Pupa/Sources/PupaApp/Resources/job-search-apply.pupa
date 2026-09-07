@@ -1,0 +1,449 @@
+{
+  "app": {
+    "activeComponentId": "tracker-3",
+    "colorIndex": 20,
+    "components": [
+      {
+        "body": {
+          "data": {
+            "events": [],
+            "title": "",
+            "viewMode": "list"
+          },
+          "kind": "calendar"
+        },
+        "iconSystemName": "calendar",
+        "id": "calendar-1",
+        "isLocked": false,
+        "name": "Deadlines"
+      },
+      {
+        "body": {
+          "data": {
+            "items": [],
+            "title": ""
+          },
+          "kind": "checklist"
+        },
+        "iconSystemName": "checklist",
+        "id": "checklist-1",
+        "isLocked": false,
+        "name": "Application Steps"
+      },
+      {
+        "body": {
+          "data": {
+            "columnField": "status",
+            "fields": [
+              {
+                "label": "Company",
+                "name": "company",
+                "type": "text"
+              },
+              {
+                "label": "Role",
+                "name": "role",
+                "type": "text"
+              },
+              {
+                "label": "Location",
+                "name": "location",
+                "type": "text"
+              },
+              {
+                "label": "Work type",
+                "name": "workType",
+                "options": [
+                  "Remote",
+                  "Hybrid",
+                  "Onsite"
+                ],
+                "type": "select"
+              },
+              {
+                "label": "Score",
+                "name": "score",
+                "type": "number"
+              },
+              {
+                "label": "Tier",
+                "name": "tier",
+                "options": [
+                  "strong",
+                  "worth",
+                  "skip"
+                ],
+                "type": "select"
+              },
+              {
+                "label": "Status",
+                "name": "status",
+                "options": [
+                  "Lead",
+                  "Applied",
+                  "Interview",
+                  "Offer",
+                  "Rejected",
+                  "Closed",
+                  "To Apply",
+                  "In Progress"
+                ],
+                "type": "select"
+              },
+              {
+                "label": "URL",
+                "name": "url",
+                "type": "link"
+              },
+              {
+                "label": "Salary",
+                "name": "salary",
+                "type": "text"
+              },
+              {
+                "label": "Source",
+                "name": "source",
+                "type": "text"
+              },
+              {
+                "label": "Posted",
+                "name": "posted",
+                "type": "text"
+              },
+              {
+                "label": "Closing",
+                "name": "closing",
+                "type": "text"
+              },
+              {
+                "label": "Why",
+                "name": "why",
+                "type": "text"
+              },
+              {
+                "label": "Gap",
+                "name": "gap",
+                "type": "text"
+              },
+              {
+                "label": "Skills fit",
+                "name": "skillsScore",
+                "type": "number"
+              },
+              {
+                "label": "Experience fit",
+                "name": "expScore",
+                "type": "number"
+              },
+              {
+                "label": "Culture fit",
+                "name": "cultureScore",
+                "type": "number"
+              },
+              {
+                "label": "Career fit",
+                "name": "careerScore",
+                "type": "number"
+              },
+              {
+                "label": "Location",
+                "name": "locationPass",
+                "options": [
+                  "Pass",
+                  "Fail",
+                  "Flag"
+                ],
+                "type": "select"
+              },
+              {
+                "label": "Docs",
+                "name": "docs",
+                "type": "text"
+              },
+              {
+                "label": "Contacts",
+                "name": "contacts",
+                "type": "text"
+              }
+            ],
+            "filter": {},
+            "items": [],
+            "shrinkCards": true,
+            "title": "Job Search",
+            "viewMode": "kanban"
+          },
+          "kind": "tracker"
+        },
+        "iconSystemName": "briefcase",
+        "id": "tracker-3",
+        "isLocked": false,
+        "name": "Job Search",
+        "summary": "Job pipeline, 1 row per opening. Kanban grouped by `status` (Lead → To Apply → Applied → Interview → Offer → Rejected/Closed). Fit sub-scores: skillsScore/expScore/cultureScore/careerScore (0-100) + locationPass (Pass/Fail/Flag); `score` = roll-up; `tier` = strong/worth/skip. AUTOMATION: dragging a row into the `To Apply` column fires `apply-on-move-to-apply` (pupa/automations.json) → runs /apply-job for that row behind a confirm bubble (never auto-submits). Also chat-invocable: `apply to <job>` / `/apply-job <job>`. apply-job scaffolds job-applications/applications/<slug>/ (cv.md, cover-letter.md, job.md, notes.md via doc-writer subagent) + per-app checklist linked to row, then Playwright submit (pauses for confirm). /job-search fans out job-scout subagents per source bucket. Deadlines calendar auto-fills from `closing` dates. Rubric+profile: search-profile.md."
+      },
+      {
+        "body": {
+          "data": {
+            "columnField": "status",
+            "fields": [
+              {
+                "label": "Event",
+                "name": "name",
+                "type": "text"
+              },
+              {
+                "label": "Type",
+                "name": "type",
+                "options": [
+                  "Conference",
+                  "Meetup",
+                  "Hackathon",
+                  "Webinar",
+                  "Summit",
+                  "Workshop",
+                  "Networking",
+                  "Location"
+                ],
+                "type": "select"
+              },
+              {
+                "label": "Topic",
+                "name": "topic",
+                "type": "text"
+              },
+              {
+                "label": "Organizer",
+                "name": "organizer",
+                "type": "text"
+              },
+              {
+                "label": "Location",
+                "name": "location",
+                "type": "text"
+              },
+              {
+                "label": "Format",
+                "name": "format",
+                "options": [
+                  "In-person",
+                  "Virtual",
+                  "Hybrid"
+                ],
+                "type": "select"
+              },
+              {
+                "label": "Date",
+                "name": "date",
+                "type": "text"
+              },
+              {
+                "label": "Reg deadline",
+                "name": "closing",
+                "type": "text"
+              },
+              {
+                "label": "Cost",
+                "name": "cost",
+                "type": "text"
+              },
+              {
+                "label": "Relevance",
+                "name": "relevance",
+                "type": "number"
+              },
+              {
+                "label": "Tier",
+                "name": "tier",
+                "options": [
+                  "strong",
+                  "worth",
+                  "skip"
+                ],
+                "type": "select"
+              },
+              {
+                "label": "Status",
+                "name": "status",
+                "options": [
+                  "Lead",
+                  "Interested",
+                  "Registered",
+                  "Attended"
+                ],
+                "type": "select"
+              },
+              {
+                "label": "Why",
+                "name": "why",
+                "type": "text"
+              },
+              {
+                "label": "Source",
+                "name": "source",
+                "type": "text"
+              },
+              {
+                "label": "URL",
+                "name": "url",
+                "type": "link"
+              }
+            ],
+            "filter": {},
+            "items": [],
+            "shrinkCards": false,
+            "title": "Relevant Events",
+            "viewMode": "kanban"
+          },
+          "kind": "tracker"
+        },
+        "iconSystemName": "calendar.badge.plus",
+        "id": "tracker-1",
+        "isLocked": false,
+        "name": "Relevant Events",
+        "summary": "Career-event pipeline, 1 row per event. Kanban grouped by `status` (Lead → Interested → Registered → Attended); all new rows = Lead. `relevance` (0-100) scores networking value, topic fit, format/location fit and organizer prestige against events-profile.md; `tier` = strong/worth/skip. Fields: name, type, organizer, topic, location, format, date, closing (registration deadline), cost, relevance, tier, status, why, source, url. type=`Location` is a standing hangout venue with no date, exempt from the date gate and never pushed to the calendar. Populated by /find-events, which fans out event-scout subagents per source bucket in sources.md `## Event sources`. Event dates and registration deadlines link into the Deadlines calendar."
+      }
+    ],
+    "createdAt": "2026-07-27T16:33:46Z",
+    "currentThreadId": "3DE645E4-E3FF-4D37-A2EE-7BB8DB56F677",
+    "iconSystemName": "briefcase",
+    "id": "F0C72882-0EE9-4CF4-8DC8-C535E189AFAB",
+    "name": "Job Search & Apply",
+    "threads": [
+      {
+        "createdAt": "2026-08-23T20:46:01Z",
+        "id": "3DE645E4-E3FF-4D37-A2EE-7BB8DB56F677",
+        "title": ""
+      }
+    ],
+    "typeId": "tracker"
+  },
+  "header": {
+    "appVersion": "0.0.257",
+    "exportedAt": "2026-08-23T20:46:01Z",
+    "format": "pupa.myapp.bundle",
+    "formatVersion": 1,
+    "includedMemories": true,
+    "includedRecords": false
+  },
+  "memories": [
+    {
+      "content": "# CV\n\nYour base / master CV, in markdown. `/apply-job` Phase 3 tailors a per-application\ncopy from this and never invents claims, so anything missing here cannot be used.\nFill it during `/setup`.\n\n## Experience\n\n**<Company>, <Country>** - <Title> (<start> to <end>)\n-\n\n## Education\n\n- **<Institution>** - <Qualification> (<years>)\n\n## Skills\n\n-\n\n## Projects\n\n**<Project>** (<tech>) - <date>\n-\n",
+      "path": "job-applications/cv.md"
+    },
+    {
+      "content": "# Experiences\n\nLong-form STAR stories to draw on for cover letters, one heading per story.\n`doc-writer` mines these for concrete, numbered achievements, so give each a\nresult with a number where you can. The base CV carries the what, these carry\nthe why and how.\n\n## <Short title of the achievement>\n- Situation:\n- Action:\n- Result:\n",
+      "path": "job-applications/experiences.md"
+    },
+    {
+      "content": "# Job Search & Apply -- what this app does (flow)\n\nAuto-generated map of the app's steps. Regenerate when skills/automations change\n(ask Pupa: \"refresh flow.md\"). Source of truth = the skills in `pupa/skills/` +\n`pupa/automations.json`; this is a picture, not logic.\n\n```\n        ┌──────────────┐\n        │   /setup     │  A install pandoc + PDF engine · B fill profile/PII/experiences ·\n        └──────┬───────┘  D pick scout runner (app | backend) → job-scout + event-scout `## Runner`\n               │          E (optional) event prefs → events-profile.md + sources.md `## Event sources`\n               │          (run once per host + per profile)\n               ├───────────────────────────────┐\n               ▼                                ▼\n        ┌──────────────┐               ┌──────────────┐\n        │ /job-search  │               │ /find-events │  search event sources · gate location/\n        └──────┬───────┘               └──────┬───────┘  format+date · score vs events-profile.md\n               │ search boards + LinkedIn      │ fan out event-scout (app | backend) per bucket\n               │ gate must-haves · score       │ writes rows + dated events-report\n               │ fan out job-scout             │\n               ▼                                ▼\n   ┌───────────────────────────┐    ┌───────────────────────────┐\n   │   Job Search tracker      │    │  Relevant Events tracker   │  1 row/event · kanban\n   │   Lead → To Apply → Applied│    │  Lead → Interested →       │  relevance → tier\n   │   fit sub-scores → score   │    │  Registered → Attended     │\n   └───────────┬───────────────┘    └───────────┬───────────────┘\n               │  drag row into \"To Apply\"       │  event date + reg deadline\n               │  OR chat: \"apply to <job>\"      │  → Deadlines calendar (linked)\n               ▼  automation apply-on-move-to-apply\n        ┌──────────────┐   (confirm bubble, never auto-submit)\n        │  /apply-job  │\n        └──────┬───────┘\n               │\n   Phase 1 ── scaffold  applications/<slug>/  (job.md, notes.md)\n               │          + host dir ~/Documents/job-applications/<slug>/  (in notes.md `Host files:`)\n               ▼\n   Phase 2 ── score fit  → sub-scores + why/gap onto the row\n               ▼\n   Phase 3 ── doc-writer subagent → cv.md + cover-letter.md\n               │          bottleneck-first · CV = proof/metrics, letter = why/story · no repeat\n               ▼\n   Phase 3.5 ─ contact-scout subagent → contacts.md  (via /find-contacts)\n               │          hiring mgr / future mgr / team lead / recruiter / teammate\n               │          + draft LinkedIn DM + draft email each · row.contacts → path\n               │          read-only discovery · NEVER sends\n               ▼\n   Phase 4 ── render (host)  → PDF / .docx into the host dir\n               ▼\n   Phase 5 ── checklist component (one per app, linked to row)\n               ▼\n   Phase 6 ── Playwright submit ──[ PAUSE: confirm ]──▶ status = Applied\n               │\n               ▼\n   ┌───────────────────────────┐\n   │   Deadlines calendar       │  ← job closing + follow-up(+3d) AND event dates + reg deadlines,\n   └───────────┬───────────────┘    linked to their tracker row\n               ▼\n        ┌──────────────┐\n        │ /to-memory   │  capture durable learnings → pupa/MEMORIES.md\n        └──────────────┘\n```\n\nAlso standalone: **/find-contacts <job>** — same contact discovery + drafts on demand,\nwithout running the whole apply flow.\n\nLegend: `/x` = skill (chat command) · boxes = canvas components · Phase N = /apply-job steps.\n",
+      "path": "job-applications/flow.md"
+    },
+    {
+      "content": "# Personal Details (PII, sole store)\n\n> The only file holding your personal identifying details. Do not duplicate them\n> elsewhere. `/setup` Part B walks you through this; leave a line blank to skip it.\n\n- **Name:**\n- **Email:**\n- **LinkedIn:**\n- **Phone:**\n- **Location:**\n- **Notice period:**\n- **Work authorisation / visa sponsorship needed:**\n- **Security clearance eligibility:**\n- **Consent to be contacted by recruiters:**\n- **Salary expectation:** leave blank where optional, discuss if required\n",
+      "path": "job-applications/personal-details.md"
+    },
+    {
+      "content": "# Render skill: markdown → shareable doc (host)\n\nSource of truth = `cv.md` / `cover-letter.md` in each\n`job-applications/applications/<slug>/`. This skill turns them into a shareable\nfile on the host. **Not LaTeX** — keep simple.\n\n## Default: pandoc\n```bash\n# PDF (needs a PDF engine: wkhtmltopdf, weasyprint, or tectonic)\npandoc cover-letter.md -o cover-letter.pdf\npandoc cv.md -o cv.pdf\n# DOCX fallback (no PDF engine needed)\npandoc cv.md -o cv.docx\n```\n\n## Host output location\nMarkdown source lives in app memory (`job-applications/applications/<slug>/`), NOT\non the host. Rendered PDFs + anything you download to submit (forms, portal files)\nlive on the HOST here:\n\n```\nHOST_APP_BASE = ~/Documents/job-applications      # configurable — change here if the user prefers another dir\nper-application dir = $HOST_APP_BASE/<slug>/\n```\n\n`mkdir -p ~/Documents/job-applications/<slug>/` before rendering. This absolute\npath is recorded in each application's `notes.md` (`Host files:` line) so every\nskill knows where that job's real files sit.\n\n## Steps\n1. Check host: `pandoc --version`. If missing, tell user (`brew install pandoc`).\n2. `mkdir -p` the app's host dir (above). Write the markdown out of memory into it,\n   or pipe it directly to pandoc.\n3. Try PDF into that dir. If no PDF engine, fall back to `.docx` and note it.\n4. Optional: `--reference-doc=template.docx` or `-c style.css` for styling;\n   record the chosen template here once picked.\n5. Output PDFs land in `~/Documents/job-applications/<slug>/`, next to any\n   downloaded submission files.\n\n## Swappable\nRenderer is not fixed. If a nicer path is chosen (typst, md-to-docx template,\nHTML→PDF), update this file with the exact command. Keep cv.md/cover-letter.md\nrenderer-agnostic (plain markdown, no engine-specific syntax).\n",
+      "path": "job-applications/render-docs.md"
+    },
+    {
+      "content": "# Search Profile, relevancy rubric (the brain)\n\nRanks every opening for you. `/job-search` reads this before each run and\n`/apply-job` scores each row against it. Fill it during `/setup`, edit any time.\nAn empty Target roles or Must-haves section stops a search rather than guessing.\n\n## Target roles\n- (one per line: the titles and specialisms you want)\n-\n- Deprioritise (scoring only, not a hard filter):\n\n## Must-haves (hard filters)\nA job failing any of these is dropped, never written to the tracker.\n- Min compensation: (blank = no floor. An undisclosed salary always passes.)\n- Location / work-type: (e.g. Remote, or Hybrid in <city>)\n- Excluded work types: (e.g. full-time onsite)\n- Max age of posting: (e.g. 1 month. Older is dropped.)\n\n## Seniority\n- Preferred level:\n- Acceptable level:\n- Below that: skip.\n\n## Scoring (0-100)\n- Role fit: /40\n- Domain fit: /25\n- Seniority match: /20\n- Location/work-type: /15\n\n## Tiers\n- strong: >= 75\n- worth: 55-74\n- skip: < 55\n\n## Profile (who is applying)\nRead by /apply-job and doc-writer alongside cv.md. Keep it short.\n- Current level / title:\n- Core skills to match on:\n- Years of relevant experience:\n- What you want next:\n\n## Fit sub-scores (filled per application by /apply-job)\nEach 0-100, written onto the tracker row next to the roll-up `score`.\n- `skillsScore`: how well your skills match the JD's requirements\n- `expScore`: depth and relevance of your experience\n- `cultureScore`: company and team fit\n- `careerScore`: does this move your career where you want it\n- `locationPass`: Pass / Fail / Flag against the location must-have\n\n## People relevance (for /find-contacts + contact-scout)\nWho to surface for outreach, high->low priority:\n1. Hiring manager / the role's direct manager -- the decision-maker.\n2. Skip-level / function head (Head or Director of the team's function).\n3. Team lead the role would work under.\n4. In-house recruiter / talent partner named on the post.\n5. Senior teammate (same team, would-be peer) -- for team/culture questions.\nPrefer current employees. Drop anyone who left the company or the team.\n",
+      "path": "job-applications/search-profile.md"
+    },
+    {
+      "content": "{\n  \"appliedCompanies\": [],\n  \"seenUrls\": []\n}\n",
+      "path": "job-applications/seen.json"
+    },
+    {
+      "content": "# Sources, boards and queries\n\nWhere openings come from. `/job-search` fans out one **job-scout** per bucket\nbelow. Add or remove buckets to match your field.\n\n## Job boards\n- LinkedIn Jobs (logged-in, browser_* pass)\n- Otta / Welcome to the Jungle\n- Wellfound (AngelList)\n- Y Combinator, Work at a Startup\n- We Work Remotely, RemoteOK, Remotive (remote-first)\n- Indeed, Google Jobs\n\n## Company careers pages\n- (list the employers you want checked directly, one per line)\n\n## Browse-MCP queries (LinkedIn)\n- (your target titles plus location, one query per line)\n\n## Default websearch queries\n- (free-text queries for the boards above)\n\n## Event sources\nBuckets for `/find-events`. One event-scout fans out per bucket. Add or remove\nbuckets to match your field and city.\n\n### Bucket A, community event platforms\n- Meetup.com (the groups in your city and field)\n- Eventbrite (local conferences, meetups, workshops)\n- lu.ma (community, startup and VC-hosted calendars)\n\n### Bucket B, conference and summit aggregators\n- (conference calendars/aggregators for your field, one per line)\n- Publisher and community conference series (O'Reilly, QCon, InfoQ)\n\n### Bucket C, company and community public events\n- (the employers and labs whose public event pages you want checked, one per line)\n- (VC / accelerator community events in your area)\n\n### Bucket D, webinars and online\n- (vendors, tools and communities that run webinars or virtual summits)\n\n### Location sources (optional, standing hangout venues)\n- (cafes, coworking spaces, bars or clubhouses where your scene reliably gathers)\n",
+      "path": "job-applications/sources.md"
+    },
+    {
+      "content": "# Voice Rules (cover letters)\n\nTone rules that ground every cover letter draft. `doc-writer` obeys these exactly.\nEdit freely, delete a line to drop that rule.\n\n- Voice: (e.g. warm, direct, no corporate filler)\n- Sentence length: short, active\n- Never use: buzzwords, \"passionate about\", \"fast-paced\"\n- Always: a concrete result with a number where possible\n- Never write a gap or weakness section, frame everything as a strength (e.g.\n  adjacent tech = \"close to what I build\", not \"I lack X\")\n- Opening line style:\n- Punchiness: (e.g. plain standard prose, or short declarative hooks)\n- Sign-off style:\n",
+      "path": "job-applications/voice-rules.md"
+    },
+    {
+      "content": "# Job Search & Apply\n\n**Type:** tracker. Job-application pipeline: find roles, rank by fit, tailor + submit applications, track deadlines. Also finds relevant career events.\n\n## Components (canvas)\n- **Job Search tracker** (`tracker-3`) — 1 row/opening. Fields: company, role, location, workType, salary, score, tier, `status` (Lead → To Apply → Applied), source, posted, closing, url, why, gap, `docs` (memory path to the app's `notes.md` hub, set on apply), `contacts` (memory path to the app's `contacts.md` outreach hub, set by `/find-contacts`). Fit sub-scores: skillsScore / expScore / cultureScore / careerScore (0-100) + locationPass (Pass/Fail/Flag); `score` = roll-up.\n- **Relevant Events tracker** (`tracker-1`) — 1 row/event. Fields: name, type (Conference/Meetup/Hackathon/Webinar/Summit/Workshop/Networking), organizer, topic, location, format (In-person/Virtual/Hybrid), date, `closing` (reg deadline), cost, `relevance` (0-100), tier (strong/worth/skip), `status` (Lead → Interested → Registered → Attended), why, source, url. Kanban by `status`. Populated by `/find-events`.\n- **Deadlines calendar** (`calendar-1`) — job closing + follow-up events AND event dates + reg deadlines, `linkItem`-ed to their tracker row.\n- **Application Steps checklist** (`checklist-1`) — per-application step lists, linked to the row.\n\n## Skills\n- `/setup` — first-run: install host render toolchain (pandoc + PDF engine), collect profile/PII/experience memory files, pick scout runner, optionally collect event preferences (Part E). Run once per host + per profile.\n- `/job-search` — search boards + logged-in LinkedIn, gate on must-haves, score vs rubric, write tracker + calendar + dated report.\n- `/find-events` — search event sources, rank career/professional events (confs, meetups, hackathons, webinars, summits, workshops, networking) by relevance vs `events-profile.md`, write the Relevant Events tracker + Deadlines calendar + dated report.\n- `/apply-job <job>` — full prep + submit for a named opening: scaffold `<slug>/` docs, fill sub-scores, tailor CV/cover-letter, render, build linked checklist, submit via Playwright (pauses before final submit).\n- `/find-contacts <job>` — find outreach stakeholders (hiring manager, future manager, team lead, recruiter, senior teammates) for a role, write `<slug>/contacts.md` with a draft LinkedIn DM + email per person, point the row's `contacts` at it. Read-only discovery, never sends. Also runs as Phase 3.5 of `/apply-job`.\n- `/to-memory` — capture durable session learnings to `pupa/MEMORIES.md`.\n\n## Automation (`pupa/automations.json`)\n- `apply-on-move-to-apply` — dragging a row into the **To Apply** kanban column fires `/apply-job` for that row. `confirm:true` (Start/Dismiss bubble) — submits real applications, never auto-fires.\n\n## Subagents (`pupa/agents/`)\n- **job-scout** — searches one job-source bucket, location-gates, returns ranked JSON. Fan out one per bucket in `/job-search`.\n- **event-scout** — searches one event-source bucket, gates on location/format + date, returns upcoming events as JSON. Fan out one per bucket in `/find-events`.\n- **doc-writer** — tailors CV + cover letter from `experiences.md` + prior letters + profile. Drafts Phase 3 of `/apply-job`.\n- **contact-scout** — searches public web for the people behind one opening (hiring manager / future manager / team lead / recruiter / senior teammates), returns ranked JSON. Powers `/find-contacts` + `/apply-job` Phase 3.5.\n\n## Memory layout (`job-applications/`)\n- `search-profile.md` — job rubric + must-haves (the scoring brain).\n- `events-profile.md` — event types/topics/goals + must-haves (the `/find-events` relevance brain).\n- `personal-details.md` — PII (sole store). `cv.md` — base CV. `experiences.md` — STAR stories.\n- `sources.md` — job boards/queries + a `## Event sources` block for `/find-events`. `voice-rules.md` — tone. `render-docs.md` — renderer choice/commands. `seen.json` — dedupe ledger (shared by job + event search).\n- `applications/<slug>/` — per-app cv.md, cover-letter.md, job.md, notes.md, contacts.md (outreach hub).\n- `job_search/report-<date>.md` — dated job-search reports. `job_search/events-report-<date>.md` — dated event reports.\n\n## Rules\n- Preferences live in **app memory** (above), not on the host. Host holds only the installed render binaries.\n- PII / applications are sensitive — read/modify only when the task needs it; never fabricate profile or CV content (ask instead).\n- Target a component by explicit `componentId`. `linkItem`/`unlinkItem` attach refs between any two items.\n- `flow.md` (root of `job-applications/`) is an ascii map of app steps. No auto-trigger — regenerate it whenever a skill or subagent is added/edited/removed, so the map tracks reality.\n",
+      "path": "pupa/AGENTS.md"
+    },
+    {
+      "content": "# Pupa app memories\n\nDurable, app-level learnings for this app. `/to-memory` merges new insights in\nplace. These start as shipped defaults, edit or delete any of them.\n\n## Job search, surfacing volume\n- Do NOT dump many openings into the tracker at once. Lead with the strongest\n  handful and confirm scope before writing a large batch.\n- If a run legitimately produces many good matches, say so, explain why, and ask\n  whether to add all of them or just the top tier.\n- A big undifferentiated list is hard to act on. Prefer a tight ranked shortlist\n  plus an offer to expand.\n\n## Job search, writes to confirm\n- After building tracker rows, the dated report, seen.json and auto-opening the\n  tracker are steps the user may want to skip. Surface them and confirm rather\n  than firing them silently.\n",
+      "path": "pupa/MEMORIES.md"
+    },
+    {
+      "content": "---\nname: doc-writer\ndescription: Tailors a per-application CV + cover letter for one opening, drawing on the base CV, STAR experiences, prior cover letters, profile and voice rules. Delegate from /apply-job Phase 3.\nwhen_to_use: when /apply-job needs the CV + cover letter drafted (or redrafted) for a specific tracked opening\ntools: readMemoryFile, writeMemoryFile, editMemoryFile\nmodel: sonnet\n---\n\n# doc-writer\n\nDraft the two application docs for one opening. Prompt gives you the `<slug>` (folder already scaffolded) and the target company/role. Write markdown only — rendering happens on the host afterward.\n\n## Sources (read before drafting — do not invent claims)\n- `job-applications/applications/<slug>/job.md` — the JD, requirements, `gap`.\n- `job-applications/cv.md` — base/master CV (the narrative spine).\n- `job-applications/personal-details.md` — name and contact details for the CV header.\n- `job-applications/experiences.md` — STAR stories; mine concrete, numbered achievements.\n- `job-applications/search-profile.md` — profile + rubric.\n- `job-applications/voice-rules.md` — tone constraints (obey exactly; no em-dashes if it says so).\n- Prior `job-applications/applications/*/cover-letter.md` — reuse proven framing/phrasing; adapt, never copy verbatim.\n  On the first application this folder is empty. That is expected: draft from the base CV,\n  `experiences.md` and `voice-rules.md` alone, and do not treat the absence as an error.\n\n## Write\n0. **Find the role's bottleneck first.** Before drafting, infer the core problem this role exists to solve — the thing they're actually hiring to fix. Signal: what the JD repeats, front-loads, or phrases with urgency (scaling pain, a system to build, a gap on the team). Write it as one sentence at the top of `<slug>/cv.md` as an HTML comment (`<!-- bottleneck: ... -->`) so both docs target the same thing. This drives the cover letter's opening.\n1. `<slug>/cv.md` — reframe base-CV bullets to the JD's requirements. Only claims backed by `cv.md` / `experiences.md`. No fabrication.\n2. `<slug>/cover-letter.md` — one page, targeted: **open by naming the role's bottleneck + your strongest evidence you've solved that class of problem**, address the role's key needs, bridge the candidate `gap`, close with intent. Draw specifics from `experiences.md`.\n\n## Rules\n- **CV and cover letter divide labor — never repeat.** CV = what/scale/metrics: scannable proof, bullets, numbers. Cover letter = why/context/fit: the bottleneck, 1-2 STAR stories the CV can't show, and the reasoning that connects you to this role. No sentence in the letter may only restate a CV bullet — if it adds no context or narrative the CV already carries, cut it.\n- Never invent employers, dates, numbers, or skills. Missing evidence → omit or flag in your reply, don't fabricate.\n- Return a short summary of what you wrote + any gaps the human should fill. The files are the deliverable. In the summary, state the bottleneck you inferred so the human can sanity-check it.\n",
+      "path": "pupa/agents/doc-writer/AGENTS.md"
+    },
+    {
+      "content": "---\nname: job-scout\ndescription: Searches ONE job-source bucket and returns ranked, location-gated openings as JSON. Delegate one per bucket (in parallel) from the /job-search skill's HTTP pass.\nwhen_to_use: when /job-search fans out over source buckets, or the user wants a quick scan of a specific board/feed for relevant roles\ntools: WebSearch, WebFetch, readMemoryFile\nmodel: sonnet\n---\n\n# job-scout\n\n## Runner\napp\n\n<!-- app = parent uses `invoke_agent job-scout` (on-device Pupa sub-session).\n     backend = parent hands THIS persona + the bucket's boards/queries/gate to\n     the harness's own native subagent system, which spawns its own subagent.\n     Set by /setup Part D. -->\n\nStateless scout for ONE source bucket. Search, location-gate, return JSON. Do NOT drive a browser (no logged-in LinkedIn — the parent handles that in a single session). Do NOT write memory or the tracker — you only return data.\n\n## Steps\n1. `readMemoryFile job-applications/search-profile.md` — read **target roles** + **must-haves** (location/work-type gate). Read `sources.md` only if the parent didn't pass the bucket's boards/queries in the prompt.\n2. Search the bucket's boards for the target titles with `WebSearch`; `WebFetch` listing pages/JDs for detail. Prefer listings posted in the last 14 days.\n3. **Location gate ONLY** — drop anything failing the work-type/location must-have. Do NOT score, dedupe, or apply the comp/date gates — the parent does that against the full merged set.\n4. Return ~10-20 per source, skip obvious non-fits.\n\n## Output (return raw, no prose)\nJSON array; each object:\n`{ \"title\", \"company\", \"location\", \"workType\" (onsite|hybrid|remote), \"salary\", \"postedDate\", \"url\", \"source\", \"snippet\" }`\n`snippet` = 2-3 lines from the JD. Unknown fields → null. Your final message IS this JSON.\n",
+      "path": "pupa/agents/job-scout/AGENTS.md"
+    },
+    {
+      "content": "{\n  \"automations\": {\n    \"item.moved\": [\n      {\n        \"id\": \"apply-on-move-to-apply\",\n        \"matcher\": { \"toColumn\": \"To Apply\" },\n        \"action\": {\n          \"startThread\": {\n            \"prompt\": \"Run the apply-job skill for {{item.role}} at {{item.company}} (tracker row: {{item.title}}). Prep and submit this application. Pause for my confirmation before the final Playwright submit.\"\n          }\n        },\n        \"confirm\": true\n      }\n    ]\n  }\n}\n",
+      "path": "pupa/automations.json"
+    },
+    {
+      "content": "---\ndescription: Skills, subagents and multi-agent slack rooms\nwhen_to_use: when creating skills or subagents, using /commands, or working with slack rooms\nversion: 20\n---\n- **Skills** — reusable playbooks that double as `/commands` in chat.\n  Each app has its own set (this guide is one). Ask the agent to create\n  one, or write it yourself in the memory tree under `pupa/skills/`.\n- **Subagents** — named delegates with their own persona and\n  instructions. The main agent creates them and hands off focused tasks.\n- **Orchestrator** — the top-level agent: creates and manages myapps and\n  delegates work to each app's agent.\n\n**Slack rooms.** A component with channels, group DMs and DMs. The\nworkspace roster is simply *all* the myapp's subagents — creating a\nsubagent adds it to the roster; nothing lives in the component but rooms\nand their transcripts. @-mention an agent (or post in its DM) to wake it:\nit reads the channel's history for context, works with the app's tools,\nand posts its reply back to the channel. Agents can @-mention each other,\nso one message can start a chain of replies. Exporting the app keeps the\nchannels and the agent personas but strips the transcripts.",
+      "path": "pupa/plugins/pupa-guide/skills/pupa-agents/SKILL.md"
+    },
+    {
+      "content": "---\ndescription: React to canvas events (an item moved) by proposing a chat — the pupa/automations.json rule format and its guards\nwhen_to_use: when the user wants the app to act automatically on a canvas change, or when authoring or editing automation rules\nversion: 20\n---\nAn **automation** reacts *inside* a myapp to a canvas event by proposing a\nchat. Declarative config, no code — rules ride the `.pupa` bundle and only\never start a model turn, always behind a confirm bubble unless a rule\nexplicitly opts out.\n\n**Trigger (v1).** `item.moved` — a user changes any **select** field on a\ntracker item: dragging a kanban lane, editing the field on the card, or\nsaving the edit sheet. Independent of the board's group-by — a rule\nwatching `Priority` fires while the board is grouped by `Status`, and in\ngrid view too. One event per changed select field. Agent moves never\ntrigger (so a reaction can't loop on itself).\n\n**Where.** One file per app: `pupa/automations.json`. Shape mirrors Claude\nCode hook config — an `automations` map keyed by event name, each a list of\nrules — but these are Pupa domain events, not harness hooks.\n\n```json\n{\"automations\":{\"item.moved\":[\n  {\"id\":\"review-on-move\",\n   \"matcher\":{\"field\":\"Status\",\"toColumn\":\"Review\"},\n   \"action\":{\"startThread\":{\"prompt\":\"Review {{item.title}}.\"}},\n   \"confirm\":true}\n]}}\n```\n\n**Fields.**\n- `id` (required) — unique per rule; also the lock key.\n- `matcher` — field-equality predicates, **all must hold (AND)**; omit or\n  `{}` to match every move. Keys are any of the item's own fields plus the\n  transition keys `field` / `toColumn` / `fromColumn`. Add `field` whenever\n  two select fields share an option name, or the rule fires on both.\n- `action.startThread.prompt` (required) — the chat prompt. Templates:\n  `{{item.title}}`, `{{item.<field>}}`, `{{field}}`, `{{toColumn}}`,\n  `{{fromColumn}}`, substituted literally (no code).\n- `confirm` — `true` (default) proposes a Start/Dismiss bubble; `false`\n  auto-fires with no prompt. Only ship `confirm:false` in bundles you\n  trust — it invokes the model on a plain canvas move.\n\n**Guards (automatic — you don't configure them).**\n- **Self-mutation** — the reaction's own edits don't re-trigger the rule.\n- **Once-per-transition** — the same move fires once within a short window.\n- **In-flight lock** — while a rule's reaction for an item is running, the\n  same item won't re-fire it (a timeout backstop frees a stuck one).\n\n**Limits.** v1 has one event (`item.moved`), one action (`startThread`),\nequality-only matching, and no chaining. A malformed rule is skipped, not\nfatal — the rest of the file still loads.",
+      "path": "pupa/plugins/pupa-guide/skills/pupa-automations/SKILL.md"
+    },
+    {
+      "content": "---\ndescription: The component shapes a myapp canvas can hold and how they combine\nwhen_to_use: when choosing, combining or linking components, or asked what shapes exist\nversion: 20\n---\nA myapp's canvas holds components. Available shapes:\n\n- **calculator** — live numeric model with tunable inputs + formula rows\n- **calendar** — time-indexed events in a list or month grid\n- **chart** — pie/bar/line visualisation of tracker or calculator data\n- **checklist** — simple done/not-done items, no per-row fields\n- **slack** — multi-agent chat rooms (subagent personas, channels, @-mentions)\n- **tracker** — multi-field records in a table/kanban (fields, filters, cards)\n\n**Combining.** One myapp mixes shapes freely. Items link across\ncomponents — a tracker row to a calendar event, a task to a parent\nrecord. Calculators and charts read live from other components, and a\nchart can be embedded straight into chat.\n\n**Views, not shapes.** Kanban is a tracker view mode (table ⇄ cards),\nnot a separate component.\n\n**Finding and scanning.** Both tracker views have a search box above\nthe cards — it matches any field, including link URLs, and in kanban it\nnarrows the cards without dropping columns. The shrink button next to\nthe view toggle collapses every card to its title for a whole-board\nview; it sticks per component. Cards with several links show the first\nfew and a \"+N\" you can tap to see the rest.",
+      "path": "pupa/plugins/pupa-guide/skills/pupa-components/SKILL.md"
+    },
+    {
+      "content": "---\ndescription: How Pupa remembers: memories, sessions, change history, archive\nwhen_to_use: when asked what persists, how to undo changes, or how to hide an app\nversion: 20\n---\n- **Memories** — a filesystem-like tree of notes and folders that lives\n  *inside* the app, not on the device's file system. Notes are markdown\n  (`.md`); config notes can be `.json` and show verbatim as code, so\n  indentation survives. Browse and edit it from the Memories tab; the agent\n  reads and writes it too. Persists across sessions.\n- **Sessions** — \"New session\" starts a fresh conversation. The canvas\n  and memories stay. Past conversations are kept on-device and re-open with\n  their full history when you reopen the app — even after a long time away.\n- **History** — every canvas change is recorded per myapp. Browse the\n  History tab and restore any earlier state in one tap. Tap **Take\n  snapshot** to pin the current state permanently (kept forever); pinned\n  snapshots can be **Export**ed as a `.pupa` file (same share screen as\n  Settings, flagged as the pinned version). Pins survive deleting\n  the myapp — find them all in **Settings ▸ Pinned snapshots**, where a\n  deleted app can be restored (revived) from a pin.\n- **Archive** — hide a myapp without deleting it (its data and memories\n  are kept). Browse, restore or delete from Settings ▸ Archive.\n- **Recently deleted** — deleting a myapp is undoable for 180 days.\n  Settings ▸ Recently deleted lists them (including ones deleted on another\n  device, and ones a sync removed on its own) and restores the last saved\n  state — chats, components, and any skills or subagents a sync took with\n  it. Dismissing the \"Sync removed …\"\n  banner loses nothing — the app waits here. Each row can also be **deleted\n  permanently** — that erases its saved state, pinned snapshots included, on\n  every device.\n- **Recovering lost skills** — if a sync takes a skill or subagent from a\n  myapp that is still here, a \"Sync removed N memory files\" banner offers to\n  put them back. Recoverable for 30 days.",
+      "path": "pupa/plugins/pupa-guide/skills/pupa-memory/SKILL.md"
+    },
+    {
+      "content": "---\ndescription: Share and install myapps as .pupa files\nwhen_to_use: when exporting, sharing, importing or installing an app\nversion: 20\n---\nA `.pupa` file is an inert snapshot of a myapp: its components, optionally\nyour records and memories, plus the app's agent instructions and skills.\nNo code runs from the file itself.\n\n**Export.** Settings ▸ Import & Export: pick components, choose whether\nrecords and memories ride along, then Share (AirDrop, Messages, Files…) —\non Mac, Save, which writes the `.pupa` wherever you choose.\nExporting a pinned snapshot (from History or Settings ▸ Pinned snapshots)\nopens this same screen with a \"Pinned version\" banner — records and memories\ndefault off there too.\n\n**Install.** Open a `.pupa` file (or import from Settings). A confirmation\nsheet shows what's inside before anything is added. Imported agent\ninstructions run with your tools once installed — only install bundles\nyou trust.\n\n**Marketplace.** Settings ▸ Import & Export ▸ Import an app links out to\npupa-app.com/marketplace. Installing from there sends the app back to Pupa\nthrough the same confirmation sheet.",
+      "path": "pupa/plugins/pupa-guide/skills/pupa-sharing/SKILL.md"
+    },
+    {
+      "content": "---\ndescription: Where things live: the on-device app vs the backend, and standing instructions\nwhen_to_use: when unsure whether something belongs in the app or the backend, which skill system you're touching, or how to change standing behaviour\nversion: 20\n---\n**App vs backend.** Everything the user sees — components and their\nitems, memories, skills, `AGENTS.md` — is app state, created and edited\n**on the user's device** through the app's own tools. The backend only\nruns the model plus a few server-side tools (web search, shell, …) and\nstores **no app data**. Never write app content to a backend path or via\na shell unless explicitly told to; if unsure where something belongs, ask.\n\n**Canvas vs memory.** Components hold data items; memory is a *separate*\nper-app markdown note tree for durable context — not canvas data. Two\ndifferent stores; don't cross them. Memory paths are an in-app structure,\nnot host file paths — never reach for it via a shell.\n\n**Two skill systems.** *App* skills are on-device `SKILL.md` files —\nyours under `pupa/skills/<name>/`, bundled ones under\n`pupa/plugins/<plugin>/skills/<name>/` (this guide is one). A backend may\nseparately expose its own read-only skills library. App skills are\nalways the on-device files.\n\n**Standing behaviour.** Persistent instructions for an app's main agent\nlive at `pupa/AGENTS.md` (subagents: `pupa/agents/<name>/AGENTS.md`).\nEdit those to change behaviour permanently — not memory, not a skill.",
+      "path": "pupa/plugins/pupa-guide/skills/pupa-system/SKILL.md"
+    },
+    {
+      "content": "---\ndescription: What Pupa is and what it can do — guide entry point\nwhen_to_use: when the user asks what Pupa is, what it can do, or how its pieces fit together\nversion: 20\n---\nPupa builds apps around you: describe what you need in chat and the agent\nassembles a **myapp** — a canvas of components it edits live while you talk.\n\n**Boundaries — who is what**\n- **Orchestrator** — the top-level chat. Creates, renames, archives and\n  deletes myapps and delegates work to their agents. Has its own memories\n  and skills; no canvas of its own.\n- **Myapp** — one workspace: its own agent, canvas, memories, skills and\n  subagents.\n- **Component** — one shape on a myapp's canvas (tracker, calendar, …).\n- **Item** — one record inside a component (row, event, task…).\n- **Memories** — each myapp (and the orchestrator) keeps its own\n  filesystem-like tree of markdown notes and folders living *inside* the\n  app — not on the device's file system. Edited by you and the agent\n  alike; persists across sessions. Durable context, not records.\n\nItems can link across components *within one myapp*. Myapps don't share\ndata — an app moves between devices or people as a `.pupa` file.\n\n**Go deeper** (users: type the `/command`; agents: `app_skill_view`)\n- /pupa-components — the shapes a canvas can hold and how they combine\n- /pupa-sharing — export and install myapps as `.pupa` files\n- /pupa-memory — memories, sessions, change history, archive\n- /pupa-agents — skills, subagents and slack rooms\n- /pupa-automations — react to canvas events (an item moved) by proposing a chat\n- /pupa-system — where things live: on-device app vs backend, standing instructions",
+      "path": "pupa/plugins/pupa-guide/skills/pupa/SKILL.md"
+    },
+    {
+      "content": "---\ndescription: For a job the user names, run the full application prep+submit — set the tracker row to To Apply, scaffold the job's markdown folder (CV + cover letter + notes), fill fit sub-scores, tailor docs from the candidate profile, render via the host, generate a linked per-application checklist, and submit via Playwright (pausing for confirmation).\nwhen_to_use: when the user says \"apply to <job>\", \"/apply-job <job>\", \"start an application for X\", or wants to prep and submit an application for a tracked opening\n---\n\n# apply-job (Pupa)\n\nInvoked two ways:\n(a) chat — the user names one or more tracked openings; (b) automation — dragging a row into\nthe **To Apply** column fires the `apply-on-move-to-apply` rule (`pupa/automations.json`), which\nstarts this skill for that row behind a confirm bubble. Runs this flow per job.\n\n## Tools\nMemory `readMemoryFile`/`writeMemoryFile`/`createMemoryFolder`; tracker\n`searchTrackerItems`/`patchTrackerItems`; checklist `addChecklistItem`; calendar\n`addCalendarEvent`; `linkItem`; browser `browser_*` (Playwright); `invoke_agent` **doc-writer**\n(Phase 3 drafts); `invoke_agent` **contact-scout** / `/find-contacts` (Phase 3.5 outreach contacts). Sub-scores rubric: `search-profile.md`.\n\n---\n\n## Phase 0 — Resolve target(s)\n1. `readMemoryFile job-applications/search-profile.md` — profile + rubric. If empty,\n   ask the user to fill it before applying (do not invent CV content).\n2. For each name the user gave, `searchTrackerItems` the Job Search tracker → the row\n   id. Ambiguous / not found → ask, don't guess.\n\n## Phase 1 — Set state + scaffold\n3. `patchTrackerItems` the row `status` → `To Apply`.\n4. slug = `<company>-<role>` lowercased, non-alphanumerics → `-`.\n5. `createMemoryFolder job-applications/applications/<slug>/`, then `writeMemoryFile`:\n   - `job.md` — url, company, role, requirements, closing/interview dates (WebFetch the url)\n   - `notes.md` — research + red flags + follow-up log (seed empty sections). **First line\n     must be** `Host files: ~/Documents/job-applications/<slug>/` — the HOST dir where this\n     application's rendered PDFs + downloaded submission files live (memory holds only the\n     markdown source). Base dir is configurable in `render-docs.md`.\n5b. `mkdir -p ~/Documents/job-applications/<slug>/` on the host (Bash) so the dir exists\n   before render/submit.\n5c. `patchTrackerItems` the row `docs` → `job-applications/applications/<slug>/notes.md`\n   — memory link to the application's hub file (host-files path + follow-up log). Always\n   scaffolded, so the row always points at a real file.\n\n## Phase 2 — Evaluate fit (fill sub-scores)\n6. Score against the rubric: `skillsScore` `expScore` `cultureScore` `careerScore`\n   (0-100) + `locationPass` (Pass/Fail/Flag). `patchTrackerItems` onto the row; keep\n   `score` as roll-up. Refresh `why` / `gap`.\n\n## Phase 3 — Draft docs (markdown, source of truth)\n7. `invoke_agent` **doc-writer** with the `<slug>` + company/role. It reads the base CV,\n   `experiences.md`, prior cover letters, profile + voice-rules, and writes `<slug>/cv.md`\n   + `<slug>/cover-letter.md` (no fabrication — only profile-backed claims).\n8. Review its summary; if it flags gaps, fill them or re-invoke with corrections.\n9. Optional extra reviewer pass: `invoke_agent` a fresh critique of both drafts. Skip for\n   a fast pass.\n\n## Phase 3.5 -- Find stakeholders (outreach contacts)\n9b. Run the `/find-contacts` flow for this row (or `invoke_agent` **contact-scout**\n    directly): discover the hiring manager / future manager / team lead / recruiter /\n    senior teammates on public web, optionally confirm via logged-in LinkedIn\n    (read-only), and write `<slug>/contacts.md` with a draft LinkedIn DM + draft email\n    per person. `patchTrackerItems` the row `contacts` -> that path. **Never sends** --\n    drafts wait for the user. Skip only if the user says they don't want outreach.\n\n## Phase 4 -- Render (host)\n10. Follow `job-applications/render-docs.md` (pandoc → PDF, `.docx` fallback). Output\n    lands in the HOST dir `~/Documents/job-applications/<slug>/` (the `Host files:` path\n    from `notes.md`), NOT in app memory.\n\n## Phase 5 — Checklist (one per application, linked)\n11. Each application gets its OWN checklist component — never share a single checklist\n    across jobs. `addComponent(kind:\"checklist\", name:\"<Company> — <Role>\")` for this\n    opening (skip if its checklist already exists; reuse it). For the very first\n    application, rename and reuse the empty starter checklist `checklist-1` instead of\n    adding another component. Then in THAT component\n    `addChecklistItem` one per step, each `linkItem`-ed to the row: evaluate fit ·\n    research company · tailor CV · draft cover letter · render docs · submit via\n    Playwright · log submission · follow-up (+3d) · interview prep. Mark completed the\n    steps already done in Phases 2-4.\n\n## Phase 6 — Submit (Playwright, guarded)\n12. `readMemoryFile job-applications/personal-details.md` for the contact and\n    eligibility answers, then `browser_navigate` to the row `url` and read the form.\n    Do not type anything yet.\n    If a login wall shows, STOP and ask the user to log in — never enter credentials.\n12b. **ASK BEFORE FILLING (default).** Filling puts the user's name, email, phone and\n    eligibility answers onto a third party's page, which cannot be undone by declining\n    to submit afterwards. So before typing anything into the form, list the personal\n    details you are about to enter and wait for a yes. Three ways this goes:\n    - user says go ahead → fill the form from personal-details.md + profile +\n      cv.md, then continue to step 13.\n    - user asks you to stop asking (\"just fill them from now on\") → honour that for\n      the rest of the session and skip this gate on later applications.\n    - user decides to drop the application → stop here, fill nothing, leave the row\n      and its docs as they are, and say what was left unsent.\n13. **PAUSE**: show the user what will be submitted; wait for explicit \"submit\". Never\n    auto-submit.\n14. On confirm: submit → `patchTrackerItems` status → `Applied`, log date in `notes.md`,\n    append to `seen.json.appliedCompanies`.\n15. `addCalendarEvent` a follow-up on Deadlines (+3 days), `linkedItems` → the row.\n\n> Multi-job: run Phases 0-5 per job, batch the Phase 6 submits one at a time (each with\n> its own confirmation).\n",
+      "path": "pupa/skills/apply-job/SKILL.md"
+    },
+    {
+      "content": "---\ndescription: Search job boards (WebSearch/WebFetch + logged-in LinkedIn via browser tools), rank every opening by relevancy to the candidate, and write results into the Job Search tracker, Deadlines calendar, and a dated report memory.\nwhen_to_use: when the user says \"find jobs\", \"run a job search\", \"what roles are out there\", or wants a fresh pass of relevant openings\n---\n\n# job-search (Pupa)\n\nSearches job boards, ranks every opening by relevancy to the candidate, and writes results into the **Job Search tracker** + **Deadlines calendar**, plus a\ndated report memory.\n\n## Tools\n\n- Parallel stateless: `invoke_agent` **job-scout** — one per source bucket (each uses `WebSearch` + `WebFetch`).\n- Sequential logged-in: `browser_*` tools (Playwright MCP), single session, for LinkedIn.\n- Memory: `readMemoryFile` / `writeMemoryFile` / `editMemoryFile`.\n- Tracker: `addTrackerItems` / `patchTrackerItems` / `searchTrackerItems`.\n- Calendar: `addCalendarEvent` (closing dates), linked to the tracker row via `linkedItems`.\n\n---\n\n## Phase 0 — Load the filter\n\n1. `readMemoryFile job-applications/search-profile.md` — the relevancy rubric. Read first, every run.\n   If empty/placeholder, ask the user to fill target roles + must-haves before searching (this is a\n   new candidate; do NOT invent targeting).\n2. `readMemoryFile job-applications/seen.json` — dedupe ledger (`appliedCompanies`, `seenUrls`).\n3. `readMemoryFile job-applications/sources.md` — boards + query terms + buckets.\n\n## Phase 1 — Search\n\nRun the LinkedIn (Playwright) pass and the parallel HTTP buckets **separately** — never spawn a\nparallel Agent that also drives `browser_*` (one browser session, can't be shared).\n\n**Parallel (stateless HTTP):** run **job-scout** once per bucket in `sources.md`, all in ONE message\nso they run concurrently. Pass each: the bucket's boards/queries, the target titles, and the\nlocation gate from the profile. job-scout location-gates and returns a JSON array\n(title, company, location, workType, salary, postedDate, url, source, snippet); it does NOT score\nor dedupe — you do that in Phase 2.\n\n**Runner (set by `/setup` Part D).** Read the `## Runner` line in `pupa/agents/job-scout/AGENTS.md`:\n- `app` (default) — `invoke_agent` **job-scout** per bucket, as above.\n- `backend` — delegate each bucket to the harness's own native subagent system instead. Read\n  `pupa/agents/job-scout/AGENTS.md` and hand its persona (Steps + Output) plus the bucket's\n  boards/queries/gate to that subagent; the harness spawns its own subagent and returns the same\n  JSON array. Merge results in Phase 2 identically — only the runner differs.\nIf the Runner line is missing or unreadable, default to `app`.\n\n**Sequential (logged-in LinkedIn via `browser_*`):** `browser_navigate` to\n`https://www.linkedin.com/jobs/`. If a login wall shows, STOP and ask the user to log in — never\nenter credentials. For each term: search location + Remote/Hybrid filters + \"past week\". Also grab\nthe \"Recommended for you\" feed. `browser_snapshot` per results page; open a listing only when the\nsnippet is too thin. Polite: first 2-3 pages per term.\n\n## Phase 2 — Dedupe + classify\n\n1. Merge listings. Dedupe by URL and by `company+title`. Drop URLs already in `seen.json.seenUrls`\n   and companies in `seen.json.appliedCompanies`.\n2. Thin snippet → fetch fuller JD (`WebFetch`; `browser_*` for LinkedIn).\n3. **Hard gates first — enforce every must-have in `search-profile.md`.** Before scoring, DROP any\n   job that fails a must-have. A gate failure is NEVER written to the tracker (not even as `skip`):\n   - **Compensation:** disclosed salary below the floor set in `search-profile.md` → DROP. **If no comp is\n     mentioned (undisclosed), the comp gate PASSES — add the job to the tracker.** Only a\n     disclosed, below-floor number drops.\n   - **Posted date:** older than the max age of posting in the profile → DROP.\n   - **Work-type / location:** anything outside the profile's location / work-type rule,\n     or in its excluded work types → DROP.\n   Re-read the must-haves each run; new gates added to the profile apply automatically.\n4. Score each SURVIVING job against the rubric in `search-profile.md`:\n   - `score` 0-100\n   - `tier`: strong (>=75) · worth (55-74) · skip (<55). `skip` is only for low-scoring soft\n     non-fits that PASSED every hard gate — never for must-have failures (those were dropped in\n     step 3).\n   - `why`: one grounded line, key hits/misses. No em-dashes; follow voice-rules.md.\n   - `gap` (strong/worth): 1-2 things to bridge in the cover letter.\n   Keep these skip-tier rows (auditable soft filter).\n\n## Phase 3 — Output (Pupa)\n\n1. For each NON-duplicate job, `addTrackerItems` to the Job Search tracker. Field map:\n   `company, role, location, workType, salary, score, tier, status=\"Lead\", source, posted,\n   closing, url, why, gap`.\n2. If a job has a closing/interview date: `addCalendarEvent` on Deadlines (title\n   `\"<Company> — <Role> closes\"`, start=closing date), and `linkedItems` → the tracker row id.\n3. `writeMemoryFile job-applications/job_search/report-<today>.md`: intro line (date + counts),\n   then sections **Strong → Worth → Skip**. Each: `**Role** — Company · location · workType ·\n   salary · posted · source · **score/100**`, then `why`, then (top tiers) `Gap to bridge:`.\n4. Update `job-applications/seen.json`: append every newly surfaced URL to `seenUrls`.\n5. Tell the user the counts and open the Job Search tracker (`setActiveComponent`).\n\n> Scoring note: roles advertising salaries above the candidate's band should score seniority low\n> (likely a senior hire) unless the JD states junior/mid scope — drop from Strong/Worth unless the\n> body contradicts the salary signal.\n\n## Phase 4 — Scheduling (optional, only if asked)\n\nUse `CronCreate` or the `/loop` skill to run a recurring pass (e.g. weekly Monday 08:00). The run\nreuses `seen.json`, so each pass reports only what's new.\n",
+      "path": "pupa/skills/job-search/SKILL.md"
+    },
+    {
+      "content": "---\ndescription: First-run setup for the Job Applications myapp — install the host render toolchain (pandoc + a PDF engine, unless the user wants a different pipeline), verify host prerequisites, and collect the profile/PII/experience info the user must provide before applying to anything.\nwhen_to_use: when the user first opens this myapp, says \"/setup\", \"set up job applications\", \"get me started\", or when apply-job / render-docs fails because a prerequisite (pandoc, PDF engine, filled profile) is missing\n---\n\n# setup (Pupa Job Applications)\n\nRun once per host + once per user profile. Two parts: **host toolchain** (machine-side, needs shell) and **user info** (memory files the user must fill). Do host checks first; report what's missing; then walk the user through the info files. Never invent profile/PII content — ask.\n\n## Part A — Host toolchain (render pipeline)\n\nDocs are markdown (`cv.md` / `cover-letter.md`); the host turns them into shareable files. Default renderer = **pandoc**. See `job-applications/render-docs.md` for the render commands themselves — this skill only *installs/verifies* the toolchain.\n\n1. Ask first: **\"pandoc, or a different editing pipeline?\"** If the user names another (typst, HTML→PDF, an md→docx template, Word/Google Docs by hand), skip pandoc install, record their choice in `job-applications/render-docs.md`, and stop Part A.\n2. Default path — check + install pandoc:\n   ```bash\n   pandoc --version   # already installed? done\n   brew install pandoc # macOS; else apt/dnf/scoop per host OS\n   ```\n3. PDF engine (pandoc needs one for PDF; without it, only `.docx` works). Install one:\n   ```bash\n   brew install --cask wkhtmltopdf   # or: pip install weasyprint  | brew install tectonic\n   ```\n   If the user is fine with `.docx` output, skip the PDF engine and note it in `render-docs.md`.\n4. Confirm with a smoke render of any existing `cv.md`; if PDF fails, fall back to `.docx` and tell the user which engine to add.\n\n> Host-side only. Everything else in this myapp (memory, tracker, checklist) is on-device app state — do NOT install or write it via shell.\n\n## Part B — User info (fill before first apply)\n\nThese memory files gate `apply-job`. Walk the user through each; leave a file as-is if already filled.\n\n| File | What the user provides |\n|---|---|\n| `job-applications/personal-details.md` | PII — name, email, phone, LinkedIn, notice period, visa/sponsorship, clearance eligibility, salary stance. **Sole PII store**; don't duplicate elsewhere. |\n| `job-applications/search-profile.md` | Candidate profile + fit rubric (skills, experience, culture/career weights, location rules). Drives scoring and doc tailoring. |\n| `job-applications/cv.md` | Base/master CV, markdown. Source the per-job `cv.md` tailors from. |\n| `job-applications/experiences.md` | Long-form STAR stories (Situation/Action/Result-with-number) to pull from for cover letters. |\n| `job-applications/sources.md` | Job boards / feeds to search. Also holds a `## Event sources` block for `/find-events` (see Part E). |\n| `job-applications/voice-rules.md` | Tone/voice constraints for generated docs. |\n\nFor each empty or placeholder file, ask the user for the content and `writeMemoryFile` it. If they skip one, note it — `apply-job` will stop rather than fabricate.\n\n## Part C — Doc-writing rule (CV / cover letter)\n\nWhen preparing any CV or cover letter, **feed on more than the base profile**:\n- **`experiences.md`** — mine STAR stories for concrete, numbered achievements. Cover letters should draw claims from here, not invent them.\n- **Other applications' cover letters** — read past `job-applications/applications/<slug>/cover-letter.md` files for reusable phrasing, framing, and proven lines; adapt, don't copy verbatim.\n- Base `cv.md` + `search-profile.md` for the core narrative.\n\nRecord this so `apply-job` Phase 3 (draft docs) always pulls from `experiences.md` + prior cover letters, not just the profile.\n\n## Part D — Scout runner (how `job-search` + `find-events` fan out)\n\n`/job-search` and `/find-events` each fan out one scout per source bucket. Two ways to run each scout — ask the user which:\n\n1. **app** (default) — `invoke_agent` the scout. Runs in a Pupa scoped sub-session on-device. Zero host cost, uses the app's tool surface (`WebSearch`/`WebFetch`).\n2. **backend** — the main agent delegates to the backend harness's own native subagent system, seeding that subagent with the scout's persona (`pupa/agents/<scout>/AGENTS.md`) + the bucket's sites/queries/gate. Use when the user wants heavier/parallel search off-device on the harness.\n\nRecord the choice by setting the `## Runner` line (`app` or `backend`) via `editMemoryFile` in **both** `pupa/agents/job-scout/AGENTS.md` (used by `/job-search`) and `pupa/agents/event-scout/AGENTS.md` (used by `/find-events`). Each skill reads its scout's line every run. Default to `app` if the user has no preference.\n\n## Part E — Event preferences (optional — gates `/find-events`)\n\n`/find-events` finds upcoming career/professional events (conferences, meetups, hackathons, webinars, summits, workshops, networking) and ranks them. It reads two things — offer to set them up now, but this is **optional**: the user can skip and the app's other flows still work.\n\n1. Ask: **\"Want event-finding set up too?\"** If no, skip Part E entirely.\n2. If yes, walk the user through `job-applications/events-profile.md` (the relevance rubric — event types, target topics, goals for attending, must-haves: location/format, cost ceiling, date horizon). `editMemoryFile` to fill the `<...>` placeholders with their answers. If they leave it, `/find-events` will stop and ask rather than invent.\n3. Ask for **event sources** (Meetup, Eventbrite, lu.ma, conference aggregators, community calendars, specific org sites). Append them as a `## Event sources` block in `job-applications/sources.md`, grouped into buckets (one scout fans out per bucket).\n\n## Done when\n- Host: pandoc (or chosen renderer) verified, PDF engine present or `.docx` accepted, choice recorded in `render-docs.md`.\n- User info: the six files above filled or explicitly deferred.\n- User knows CV/CL drafting reads `experiences.md` + prior cover letters.\n- Scout runner (`app` or `backend`) recorded in **both** `job-scout/AGENTS.md` and `event-scout/AGENTS.md` `## Runner`.\n- Event-finding (optional): `events-profile.md` filled + `## Event sources` added to `sources.md`, OR the user explicitly skipped Part E.\n",
+      "path": "pupa/skills/setup/SKILL.md"
+    },
+    {
+      "content": "---\ndescription: Record durable, app-level learnings from this conversation to pupa/MEMORIES.md\nwhen_to_use: when the user runs /to-memory or asks to capture what was learned this session\n---\nCapture what would help next time someone works on *this* app — especially\npoints where the user redirected you or an initial approach needed realignment.\n\n1. Re-read this conversation. Extract *general, durable* guidance: conventions\n   clarified, preferences stated, gotchas, and anything that needed\n   realignment mid-task. Skip one-off task specifics.\n2. Read the existing `pupa/MEMORIES.md` (if present) so you merge, not duplicate.\n3. Write to `pupa/MEMORIES.md` or your AGENTS.md file with the merged result — short bullets under clear\n   headings, the new insight integrated in place. Choose AGENTS.md for info you should always be aware of in every conversation, \n   while choose MEMORIES.md for info that is not always needed.\n4. Tell the user in one line what you added.",
+      "path": "pupa/skills/to-memory/SKILL.md"
+    },
+    {
+      "path": "pupa/agents/contact-scout/AGENTS.md",
+      "content": "---\nname: contact-scout\ndescription: Searches public web for the stakeholders worth contacting about ONE opening (hiring manager, future manager, team lead, recruiter, senior teammates) and returns them as ranked JSON. Delegate from /find-contacts and /apply-job Phase 3.5.\nwhen_to_use: when /find-contacts or /apply-job needs the people behind a specific opening found, or the user wants a quick scan of who to DM/email for a role\ntools: WebSearch, WebFetch, readMemoryFile\nmodel: sonnet\n---\n\n# contact-scout\n\n## Runner\napp\n\n<!-- app = parent uses `invoke_agent contact-scout` (on-device Pupa sub-session).\n     backend = parent hands this persona to the harness's native subagent system.\n     Set by /setup Part D, same mechanism as job-scout. -->\n\nStateless people-finder for ONE opening. Search public web, relevance-rank, return JSON.\nDo NOT drive a browser (no logged-in LinkedIn -- the parent enriches those in its own\nsession). Do NOT write memory or the tracker -- you only return data.\n\n## Input (from the prompt)\nCompany, role/title, and (if given) the JD text or `<slug>/job.md` path + team/dept hints.\n\n## Steps\n1. `readMemoryFile job-applications/search-profile.md` -- read the **People relevance**\n   section (who ranks highest) if present; otherwise use the default ranking below.\n2. `WebSearch` for the people around this opening: the hiring manager / team lead the\n   role reports to, the function's head, the recruiter named on the post, and 1-2 senior\n   engineers/scientists on that team. Queries like:\n   `\"<Company>\" \"<team/function>\" (head OR lead OR manager OR director) site:linkedin.com/in`,\n   `\"<Company>\" recruiter \"<role area>\" site:linkedin.com/in`,\n   plus the JD/post page itself (often names the hiring manager or recruiter).\n3. `WebFetch` promising LinkedIn/profile/company-team pages for title + confirmation.\n4. Relevance-rank (default, high->low): hiring manager / role's direct manager >\n   function head (skip-level) > team lead > in-house recruiter/talent > senior\n   teammate (same team, would-be peer). Drop clearly-unrelated people.\n5. Return ~5-10 people. Prefer current employees; note if a match looks stale/left.\n\n## Rules\n- **Never fabricate an email.** Only include an email if it appears on a public page\n  (personal site, GitHub, conference bio, company page). Guessed/pattern emails -> `null`.\n- Public sources only. No logged-in scraping, no private data.\n- Unknown fields -> `null`. Do not invent names, titles, or URLs.\n\n## Output (return raw JSON, no prose)\nJSON array; each object:\n`{ \"name\", \"title\", \"relation\" (hiring_manager|skip_level|team_lead|recruiter|teammate),\n   \"linkedin_url\", \"email\", \"source\", \"why\" }`\n`why` = 1 line on why they're the right person to reach. Your final message IS this JSON.\n"
+    },
+    {
+      "path": "pupa/skills/find-contacts/SKILL.md",
+      "content": "---\ndescription: For a named opening, find the stakeholders worth reaching out to (hiring manager, future manager, team lead, recruiter, senior teammates), write them to the application's contacts.md hub with a draft LinkedIn DM + draft email per person, and point the tracker row at it. Discovery is read-only; drafts wait for you -- never auto-sends.\nwhen_to_use: when the user says \"find contacts for <job>\", \"who should I DM at <company>\", \"/find-contacts <job>\", or /apply-job reaches its find-stakeholders phase\n---\n\n# find-contacts (Pupa)\n\nFind the people behind one opening and prep outreach. Invoked two ways: (a) chat -- the\nuser names a tracked opening; (b) from `/apply-job` Phase 3.5 for the row being applied to.\nRuns this flow per job. **Discovery only -- never sends a DM or email; drafts are the\ndeliverable and you send them yourself.**\n\n## Tools\nMemory `readMemoryFile`/`writeMemoryFile`/`createMemoryFolder`; tracker\n`searchTrackerItems`/`patchTrackerItems`/`addTrackerField`; `invoke_agent` **contact-scout**;\noptional browser `browser_*` (logged-in LinkedIn enrichment); `linkItem`.\n\n---\n\n## Phase 0 -- Resolve target\n1. `searchTrackerItems` the Job Search tracker for the named opening -> row id +\n   company/role/url. Ambiguous / not found -> ask, don't guess.\n2. slug = `<company>-<role>` lowercased, non-alphanumerics -> `-` (same slug as /apply-job).\n   `createMemoryFolder job-applications/applications/<slug>/` if it doesn't exist yet.\n3. `readMemoryFile <slug>/job.md` if present (JD, team hints). If absent, use the row's\n   `role` + `company` + `url`.\n\n## Phase 1 -- Discover (subagent, public web)\n4. `invoke_agent` **contact-scout** with company, role, and the JD text / `<slug>/job.md`\n   path + any team/dept hints. It returns ranked JSON people (no browser, no writes).\n5. Review the JSON. Drop obvious mismatches (wrong company, left the role).\n\n## Phase 2 -- Enrich (optional, logged-in LinkedIn)\n6. If LinkedIn is worth confirming and the user is logged in, `browser_navigate` to a\n   returned profile / LinkedIn people-search to confirm the current title + get a clean\n   profile URL. **Read-only** -- do NOT connect, message, or send anything. If a login\n   wall shows, skip enrichment (don't log in for them) and note it.\n\n## Phase 3 -- Draft outreach (per person)\n7. `readMemoryFile job-applications/voice-rules.md` -- obey tone exactly.\n8. For each kept contact, draft a short **LinkedIn DM** (2-4 sentences, specific to the\n   role + one real hook from the candidate profile) and a **draft email** (subject +\n   short body) -- only if a public email exists; otherwise DM-only. Personalize per\n   relation: hiring manager -> fit + strongest proof; recruiter -> interest + availability;\n   teammate -> curiosity about the team/work. No fabricated shared history.\n\n## Phase 4 -- Persist\n9. `writeMemoryFile job-applications/applications/<slug>/contacts.md` using the template\n   below -- one section per person, each with relation, links, `Outreach status: not sent`,\n   and both drafts.\n10. `patchTrackerItems` the row `contacts` -> `job-applications/applications/<slug>/contacts.md`\n    (mirror of `docs`). If the `contacts` field doesn't exist on the tracker yet, add it\n    (`addTrackerField` type text) first.\n11. Reply with a short table (name . relation . has-email? . LinkedIn) and remind the user\n    the drafts are ready to send **manually** -- nothing was sent.\n\n## contacts.md template\n```\n# Contacts -- <Company>: <Role>\nRow: <tracker url or title>   .   Found: (public web + optional LinkedIn confirm)\nRule: drafts below are UNSENT. Send manually. No emails were guessed.\n\n## <Name> -- <Title>  (<relation>)\n- LinkedIn: <url or \"not found\">\n- Email: <email or \"not public -- DM only\">\n- Why: <1 line>\n- Outreach status: not sent\n\n### Draft -- LinkedIn DM\n<2-4 sentences>\n\n### Draft -- Email        (omit if no public email)\nSubject: <subject>\n<short body>\n\n---\n```\n\n## Rules\n- **Never send.** No connect requests, no DMs, no emails -- draft and stop.\n- **Never fabricate emails** or invent a mutual connection / shared history.\n- Public discovery only; logged-in LinkedIn is read-only confirmation, never outreach.\n- Contacts are real people's PII -- write only `contacts.md` for the specific opening;\n  don't spread names elsewhere.\n"
+    },
+    {
+      "content": "# Events Profile, relevance rubric (the brain for /find-events)\n\nRanks upcoming career/professional events for you. `/find-events` reads this\nbefore each run. Fill it during `/setup` Part E, edit any time. An empty Target\nevent types or Must-haves section stops a search rather than guessing.\n\n## Target event types\n- Conference, Summit, Meetup, Hackathon, Webinar, Workshop, Networking, Location\n- (delete the types you do not want, keep the rest)\n- **Location** = a standing hangout venue (cafe, coworking space, bar, clubhouse) where\n  your scene reliably gathers with no scheduled event. No date. Scored on networking\n  value plus how consistently the crowd shows up. Never pushed to the calendar.\n\n## Target topics (score high)\n- (one per line: the fields, technologies or communities you want events for)\n-\n- Falls back to the target roles/domains in `search-profile.md` when a topic is ambiguous.\n\n## Goals (why attend, weights the scoring)\n- (rank these: networking / meeting hiring teams, skill-building, visibility,\n  industry awareness, recruiting)\n-\n\n## Must-haves (hard filters)\nAn event failing any of these is dropped, never written to the tracker.\n- Location / format: (e.g. In-person in <city> OR Virtual anywhere)\n- Cost ceiling: (blank = no ceiling. An undisclosed cost always passes.)\n- Date window: upcoming only. Horizon: (e.g. next 3 months)\n\n## Scoring (0-100)\n- Networking value: /40 (quality of attendees and companies, hiring-team presence)\n- Topic fit: /25\n- Format/location fit: /20\n- Prestige / organizer quality: /15\n\n## Tiers\n- strong: >= 75\n- worth: 55-74\n- skip: < 55\n",
+      "path": "job-applications/events-profile.md"
+    },
+    {
+      "content": "---\nname: event-scout\ndescription: Searches ONE event-source bucket and returns gated, upcoming career events as JSON. Delegate one per bucket (in parallel) from the /find-events skill.\nwhen_to_use: when /find-events fans out over source buckets, or the user wants a quick scan of a specific site/feed for relevant events\ntools: WebSearch, WebFetch, readMemoryFile\nmodel: sonnet\n---\n\n# event-scout\n\n## Runner\napp\n\n<!-- app = parent uses `invoke_agent event-scout` (on-device Pupa sub-session).\n     backend = parent hands THIS persona + the bucket's sites/queries/gate to the\n     harness's own native subagent system, which spawns its own subagent.\n     Set by /setup Part E. -->\n\nStateless scout for ONE event-source bucket. Search, gate, return JSON. Do NOT drive a browser.\nDo NOT write memory or the tracker — you only return data.\n\n## Steps\n1. `readMemoryFile job-applications/events-profile.md` — read **target types + topics** and the\n   **must-haves** (location/format + date gate). Read `sources.md` `## Event sources` only if the\n   parent didn't pass the bucket's sites/queries in the prompt.\n2. Search the bucket's sites for the target topics with `WebSearch`; `WebFetch` listing pages for\n   detail. **Upcoming events only.**\n3. **Gate ONLY on location/format + date** — drop past events, out-of-horizon, and wrong-format.\n   Do NOT score, dedupe, or apply the cost gate — the parent does that against the merged set.\n4. Return ~10-20 per source, skip obvious non-fits.\n\n## Output (return raw JSON, no prose)\nJSON array; each object:\n`{ \"name\", \"type\", \"organizer\", \"topic\", \"location\", \"format\" (in-person|virtual|hybrid), \"date\", \"closing\" (reg deadline or null), \"cost\", \"url\", \"source\", \"snippet\" }`\n`snippet` = 2-3 lines. Unknown fields → null. Your final message IS this JSON.\n",
+      "path": "pupa/agents/event-scout/AGENTS.md"
+    },
+    {
+      "content": "---\ndescription: Search event sources (WebSearch/WebFetch, fan out event-scout per bucket) for upcoming career/professional events (conferences, meetups, hackathons, webinars, summits, workshops, networking) plus standing Location venues where the scene reliably gathers, rank each by relevance to the candidate, and write results into the Relevant Events tracker + Deadlines calendar + a dated report memory.\nwhen_to_use: when the user says \"find events\", \"any conferences/meetups\", \"what events should I go to\", or wants a fresh pass of relevant career events\n---\n\n# find-events (Pupa)\n\nFinds upcoming career/professional events, ranks by relevance to the candidate, and writes results\ninto the **Relevant Events tracker** (`tracker-1`) + **Deadlines calendar** (`calendar-1`), plus a\ndated report memory. Sibling of `/job-search` — same shape, events instead of openings.\n\n**`Location` type** — besides time-boxed events, this skill also tracks standing **hangout venues**\n(cafes, coworking spaces, bars, clubhouses) where the target scene reliably gathers with no scheduled\nevent. Set `type=\"Location\"`, leave `date` / `closing` empty, and score on networking value plus how\nconsistently the crowd shows up. Location rows are exempt from the date gate and are never pushed to\nthe calendar. Include a short `## Location sources` search alongside the event buckets when the user\nwants places to hang, not just dated events.\n\n## Tools\n- Parallel stateless: `invoke_agent` **event-scout** — one per source bucket (each uses `WebSearch` + `WebFetch`).\n- Memory: `readMemoryFile` / `writeMemoryFile` / `editMemoryFile`.\n- Tracker: `addTrackerItems` / `patchTrackerItems` / `searchTrackerItems`.\n- Calendar: `addCalendarEvent` (event date + reg deadline), linked to the tracker row via `linkItem`.\n\n---\n\n## Phase 0 — Load the filter\n1. `readMemoryFile job-applications/events-profile.md` — the relevance rubric. Read first, every run.\n   If empty/placeholder, ask the user to fill event types + topics + must-haves before searching\n   (or run `/setup` Part E). Do NOT invent preferences.\n2. `readMemoryFile job-applications/seen.json` — reuse `seenUrls` to dedupe events too.\n3. `readMemoryFile job-applications/sources.md` — read the `## Event sources` bucket list. If it is\n   missing, ask the user for event sources (or fall back to general web search over target topics).\n4. Optional: read `search-profile.md` target roles/topics to enrich topic targeting.\n\n## Phase 1 — Search\nFan out **event-scout** once per bucket, all in ONE message (concurrent). Pass each: the bucket's\nsites/queries, the target types + topics, and the location/format/date gate from the profile.\n\n**Runner** — read the `## Runner` line in `pupa/agents/event-scout/AGENTS.md` (`app` | `backend`),\nsame branch logic as `/job-search` Phase 1:\n- `app` — `invoke_agent` event-scout per bucket.\n- `backend` — hand event-scout's persona + the bucket to the harness's native subagent system.\nIf the line is missing/unreadable, default to `app`.\n\nEach scout gates on location/format + date and returns a JSON array; it does NOT score or dedupe —\nyou do that in Phase 2.\n\n## Phase 2 — Dedupe + gate + score\n1. Merge listings. Dedupe by URL and by `name+date`. Drop URLs already in `seen.json.seenUrls`.\n2. **Hard gates from events-profile.md must-haves** — DROP fails (never written, not even `skip`):\n   - **Date:** past event, or beyond the horizon → DROP. (Exempt `type=\"Location\"` standing venues — no date.)\n   - **Format/location:** wrong format, or in-person outside the allowed area → DROP.\n   - **Cost:** disclosed cost above the ceiling → DROP. **Undisclosed cost PASSES.**\n3. Score each survivor 0-100 vs the rubric:\n   - `relevance` 0-100 · `tier`: strong (>=75) · worth (55-74) · skip (<55).\n   - `why`: one grounded line, key hits/misses. No em-dashes; follow `voice-rules.md`.\n   Keep skip-tier rows (auditable soft filter).\n\n## Phase 3 — Output\n1. For each non-duplicate event, `addTrackerItems` to Relevant Events (`tracker-1`). Field map:\n   `name, type, organizer, topic, location, format, date, closing, cost, relevance, tier,\n   status=\"Lead\", why, source, url`.\n2. If a date and/or reg deadline is known: `addCalendarEvent` on Deadlines (`calendar-1`) —\n   `\"<Event> (event)\"` at the event date, and `\"<Event> — reg closes\"` at the reg deadline — then\n   `linkItem` each → the tracker row id.\n3. `writeMemoryFile job-applications/job_search/events-report-<today>.md`: intro line (date +\n   counts), then sections **Strong → Worth → Skip**. Each:\n   `**Event** — organizer · location · format · date · cost · **relevance/100**`, then `why`.\n4. Update `seen.json`: append every newly surfaced event URL to `seenUrls`.\n5. Tell the user the counts and open the tracker (`setActiveComponent tracker-1`).\n\n## Phase 4 — Scheduling (optional, only if asked)\n`CronCreate` or the `/loop` skill for a recurring pass (e.g. monthly). Reuses `seen.json`, so each\npass reports only what is new.\n",
+      "path": "pupa/skills/find-events/SKILL.md"
+    }
+  ]
+}

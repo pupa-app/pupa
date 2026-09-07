@@ -533,7 +533,7 @@ public final class MyAppStore {
         persist()
     }
 
-    /// Re-insert the seeded "Job Search" workspace if the user
+    /// Re-insert the seeded "Job Search & Apply" workspace if the user
     /// has deleted it. If a MyApp with `JobSearchExample.name` is already
     /// present, just makes it the active one — no duplicate is inserted.
     /// Wired into Settings → Examples → "Restore example MyApp".

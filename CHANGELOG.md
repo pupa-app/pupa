@@ -3,6 +3,25 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.282] — 2026-09-07
+
+### Changed
+
+- **The Job Search example is now the one people download.** The seeded
+  workspace was a hand-written interview-prep demo — skills, STAR stories and a
+  prep room — that shared a subject with the marketplace's `job-search-apply`
+  app and nothing else. The example is now that published app itself: the
+  `.pupa` bundle from the marketplace is embedded verbatim and decoded at seed
+  time, so what ships in the box and what pupa-app.com hands out can't drift.
+  The canvas arrives empty on purpose — a Job Search tracker with fit
+  sub-scores, a Relevant Events board, a Deadlines calendar and an Application
+  Steps checklist — and `/setup` fills it. What comes with it is the memory
+  layer: the job-scout, doc-writer, contact-scout and event-scout subagents,
+  the `/setup`, `/job-search`, `/apply-job`, `/find-contacts` and
+  `/find-events` skills, the search and voice profile notes, and an automation
+  that starts an application when a row lands in "To Apply". Guide-plugin
+  copies inside the bundle are skipped — those are re-seeded per launch.
+
 ## [0.0.281] — 2026-09-06
 
 ### Changed

@@ -8,6 +8,15 @@ app** the user can augment, not a feature demo. Code:
 Export format: [marketplace.md](marketplace.md). Build recipe (new shape):
 [adding-a-component.md](adding-a-component.md).
 
+Two ways to carry a template. Most build their `MyApp` and memory files from
+Swift literals. **Job Search & Apply** instead embeds the published
+`job-search-apply` bundle from the marketplace verbatim
+(`Resources/job-search-apply.pupa`) and decodes it, so the seed and the
+pupa-app.com download can't drift; its test pins the file's `sha256` against
+the marketplace `index.json`. Refreshing it = re-download the bundle and update
+that constant. Guide-plugin memories are filtered out on seed — `GuideSkills`
+owns those.
+
 ## Realism rubric
 
 A template ships only when it meets all of:
@@ -64,6 +73,7 @@ root `MemoryStore.appRoot(myAppId:)`). Each app `AGENTS.md` embeds a
 | Research / Competitive Intel | parallel competitor research → comparison table; weekly "what's new since last week" | [Hermes use cases](https://www.hostinger.com/tutorials/hermes-agent-use-cases) |
 | Daily Briefing | 7am briefing: weather + calendar + top-5 HN AI + GitHub notifs, <500 words | [Hermes use cases](https://www.hostinger.com/tutorials/hermes-agent-use-cases) |
 | Dev Workspace | scheduled system maintenance / disk + process audit | [Hermes use cases](https://www.hostinger.com/tutorials/hermes-agent-use-cases) |
+| Job Search & Apply | job-application pipeline: scout → score → tailor → submit → track | [marketplace `job-search-apply`](https://github.com/pupa-app/marketplace/tree/main/apps/job-search-apply) |
 
 Self-improvement pattern grounded in Hermes' five pillars (memory, skills,
 soul, crons, self-improvement) — see the
