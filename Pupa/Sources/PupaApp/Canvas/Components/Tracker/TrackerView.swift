@@ -25,7 +25,7 @@ public struct TrackerView: View {
     /// peek is chrome, and `persist()` is a whole-app encode + iCloud write —
     /// the same reason the search query above is not persisted. Component-keyed
     /// like the rest.
-    @State private var expandedByComponent: [String: Set<UUID>] = [:]
+    @State private var peeks = TrackerPeekState()
 
     public init(store: MyAppStore, data: TrackerData, myAppId: UUID, componentId: String? = nil) {
         self.store = store
@@ -71,9 +71,15 @@ public struct TrackerView: View {
             )
         }
         // The global shrink button overwrites every per-card peek. Keyed off
-        // the state rather than the button so undo, history restore and import
-        // clear the peeks too.
-        .onChange(of: data.shrinkCards) { expandedByComponent[componentId ?? ""] = [] }
+        // the state rather than the button so a `shrinkCards` change from any
+        // source clears the peeks. The key carries the component id because
+        // this `@State` outlives the component: without it, the canvas
+        // swapping in a tracker whose flag differs reads as a button press and
+        // closes cards nobody touched.
+        .onChange(of: TrackerShrinkKey(componentId: componentId ?? "", shrink: data.shrinkCards)) { old, new in
+            guard TrackerShrinkKey.isShrinkToggle(from: old, to: new) else { return }
+            peeks.clear(for: componentId)
+        }
         .sheet(item: $sheet) { target in
             ItemSheet(
                 target: target,
@@ -117,13 +123,9 @@ public struct TrackerView: View {
 
     private var query: String { queryByComponent[componentId ?? ""] ?? "" }
 
-    private var expandedIds: Set<UUID> { expandedByComponent[componentId ?? ""] ?? [] }
+    private var expandedIds: Set<UUID> { peeks.ids(for: componentId) }
 
-    private func toggleExpanded(_ itemId: UUID) {
-        var ids = expandedIds
-        if ids.remove(itemId) == nil { ids.insert(itemId) }
-        expandedByComponent[componentId ?? ""] = ids
-    }
+    private func toggleExpanded(_ itemId: UUID) { peeks.toggle(itemId, for: componentId) }
 
     private func setQuery(_ new: String) {
         guard new != query else { return }
@@ -218,9 +220,10 @@ private struct CardsSection: View {
                                 expanded: expandedIds.contains(entry.item.id)
                             ),
                             onTap: { onEdit(entry.item.id) },
-                            // Passed unconditionally now — `linkCap` is already
-                            // 0 at `.minimal`, so shrunk cards still show no
-                            // pills while a peeked one keeps them.
+                            // Passed unconditionally now: `.minimal` renders
+                            // `minimalCard`, which has neither the pills row
+                            // nor the linked-refs row, so the resolver is
+                            // inert there and needs no gate of its own.
                             resolveLinkName: resolveLinkName,
                             expansion: data.shrinkCards
                                 ? (isExpanded: expandedIds.contains(entry.item.id),

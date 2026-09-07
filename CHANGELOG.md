@@ -11,8 +11,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   was all-or-nothing: to read one item you expanded the whole board and lost
   the density you asked for. Every card on a shrunk board now carries a
   chevron that opens that card alone, at its normal size, leaving the rest as
-  one-liners — and the board doesn't reflow around it. The shrink button still
-  wins: pressing it closes every card that was opened this way.
+  one-liners — the columns keep their width, so nothing else changes shape.
+  The shrink button still wins: pressing it closes every card that was opened
+  this way.
 
 ## [0.0.282] — 2026-09-07
 

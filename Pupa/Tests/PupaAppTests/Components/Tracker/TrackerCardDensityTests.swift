@@ -23,12 +23,64 @@ struct TrackerCardDensityTests {
 
     @Test("The peek is inert on a board that is not shrunk")
     func peekWithoutShrinkIsInert() {
-        // Views only hand out the toggle while `shrinkCards` is on and clear
-        // the set when it flips, so this state should not arise — but the
-        // resolver must not invent a fourth behaviour if it does.
+        // Reachable on every render: the views read `expandedIds.contains(...)`
+        // unconditionally, and a set outlives the flag until the `onChange`
+        // clears it. The resolver must not invent a fourth behaviour.
         #expect(CardDensity.resolve(viewMode: .grid, shrink: false, expanded: true) == .comfortable)
         #expect(CardDensity.resolve(viewMode: .kanban, shrink: false, expanded: true) == .compact)
     }
+
+    // MARK: - Peek state
+
+    @Test("Toggling the same card twice opens then closes it")
+    func toggleRoundTrip() {
+        let id = UUID()
+        var peeks = TrackerPeekState()
+        peeks.toggle(id, for: "tracker-1")
+        #expect(peeks.ids(for: "tracker-1") == [id])
+        peeks.toggle(id, for: "tracker-1")
+        #expect(peeks.ids(for: "tracker-1").isEmpty)
+    }
+
+    @Test("Peeks do not leak between components sharing one view's state")
+    func peeksAreComponentScoped() {
+        let a = UUID(), b = UUID()
+        var peeks = TrackerPeekState()
+        peeks.toggle(a, for: "tracker-1")
+        peeks.toggle(b, for: "tracker-2")
+        #expect(peeks.ids(for: "tracker-1") == [a])
+        #expect(peeks.ids(for: "tracker-2") == [b])
+        peeks.clear(for: "tracker-1")
+        #expect(peeks.ids(for: "tracker-1").isEmpty)
+        #expect(peeks.ids(for: "tracker-2") == [b], "clearing one board must not touch the other")
+    }
+
+    @Test("A nil component id is its own key, not a wildcard")
+    func nilComponentIdIsItsOwnKey() {
+        let id = UUID()
+        var peeks = TrackerPeekState()
+        peeks.toggle(id, for: nil)
+        #expect(peeks.ids(for: nil) == [id])
+        #expect(peeks.ids(for: "tracker-1").isEmpty)
+    }
+
+    @Test("Only a same-component flag flip is the shrink button")
+    func shrinkKeyDistinguishesButtonFromComponentSwap() {
+        let shrunkA = TrackerShrinkKey(componentId: "tracker-1", shrink: true)
+        let openA = TrackerShrinkKey(componentId: "tracker-1", shrink: false)
+        let openB = TrackerShrinkKey(componentId: "tracker-2", shrink: false)
+
+        // The button: one board, flag moved.
+        #expect(TrackerShrinkKey.isShrinkToggle(from: shrunkA, to: openA))
+        #expect(TrackerShrinkKey.isShrinkToggle(from: openA, to: shrunkA))
+
+        // The canvas swapping a tracker into the same structural slot. The
+        // flag moves too, which is why the flag alone cannot be the trigger.
+        #expect(!TrackerShrinkKey.isShrinkToggle(from: shrunkA, to: openB))
+        #expect(!TrackerShrinkKey.isShrinkToggle(from: openB, to: shrunkA))
+    }
+
+    // MARK: - Density
 
     @Test("Chip and link caps tighten with density")
     func caps() {

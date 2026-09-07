@@ -606,6 +606,48 @@ private struct TextDetailEditor: View {
     }
 }
 
+// MARK: - Card peek
+
+/// Which cards are peeked open on a shrunk board, keyed by component id.
+/// A value type so both tracker views share one copy of the rules and the
+/// rules are testable without building a view.
+///
+/// Keyed rather than a bare `Set` for the reason `TrackerView.queryByComponent`
+/// documents: `CanvasView` builds component views without `.id(component.id)`,
+/// so the `@State` holding this survives the canvas swapping one tracker for
+/// another in the same structural slot.
+struct TrackerPeekState: Equatable {
+    private var idsByComponent: [String: Set<UUID>] = [:]
+
+    func ids(for componentId: String?) -> Set<UUID> {
+        idsByComponent[componentId ?? ""] ?? []
+    }
+
+    mutating func toggle(_ itemId: UUID, for componentId: String?) {
+        var ids = ids(for: componentId)
+        if ids.remove(itemId) == nil { ids.insert(itemId) }
+        idsByComponent[componentId ?? ""] = ids
+    }
+
+    mutating func clear(for componentId: String?) {
+        idsByComponent[componentId ?? ""] = []
+    }
+}
+
+/// `onChange` token for the global shrink button. Carries the component id
+/// alongside the flag so the handler can tell a button press from the canvas
+/// swapping in a different tracker — the flag alone changes value on both,
+/// which would clear the incoming board's peeks nobody asked to close.
+struct TrackerShrinkKey: Equatable {
+    let componentId: String
+    let shrink: Bool
+
+    /// True when the move is one board's shrink flag actually flipping.
+    static func isShrinkToggle(from old: Self, to new: Self) -> Bool {
+        old.componentId == new.componentId
+    }
+}
+
 // MARK: - Card density
 
 /// How much of an item a card shows. Derived from the view mode, the

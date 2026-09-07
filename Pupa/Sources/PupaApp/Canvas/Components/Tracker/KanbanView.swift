@@ -17,7 +17,7 @@ public struct KanbanView: View {
     @State private var filtersShownByComponent: [String: Bool] = [:]
     /// Cards peeked open despite `data.shrinkCards`. See the same property on
     /// `TrackerView` — ephemeral, component-keyed, never persisted.
-    @State private var expandedByComponent: [String: Set<UUID>] = [:]
+    @State private var peeks = TrackerPeekState()
 
     public init(store: MyAppStore, data: TrackerData, myAppId: UUID, componentId: String? = nil) {
         self.store = store
@@ -84,8 +84,11 @@ public struct KanbanView: View {
             )
         }
         // The global shrink button overwrites every per-card peek — see the
-        // same handler in `TrackerView`.
-        .onChange(of: data.shrinkCards) { expandedByComponent[componentId ?? ""] = [] }
+        // same handler in `TrackerView` for why the key carries the component.
+        .onChange(of: TrackerShrinkKey(componentId: componentId ?? "", shrink: data.shrinkCards)) { old, new in
+            guard TrackerShrinkKey.isShrinkToggle(from: old, to: new) else { return }
+            peeks.clear(for: componentId)
+        }
     }
 
     /// Same as TrackerView's helper — sourced row's `linkedItems` for the
@@ -100,13 +103,9 @@ public struct KanbanView: View {
 
     private var query: String { queryByComponent[componentId ?? ""] ?? "" }
 
-    private var expandedIds: Set<UUID> { expandedByComponent[componentId ?? ""] ?? [] }
+    private var expandedIds: Set<UUID> { peeks.ids(for: componentId) }
 
-    private func toggleExpanded(_ itemId: UUID) {
-        var ids = expandedIds
-        if ids.remove(itemId) == nil { ids.insert(itemId) }
-        expandedByComponent[componentId ?? ""] = ids
-    }
+    private func toggleExpanded(_ itemId: UUID) { peeks.toggle(itemId, for: componentId) }
 
     private func setQuery(_ new: String) {
         guard new != query else { return }

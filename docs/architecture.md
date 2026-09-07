@@ -1054,13 +1054,15 @@ a filter is never applied invisibly, and it can be cleared from either view.
 - **Per-card peek.** While a board is shrunk, each card carries a chevron that
   lifts that one card back to its view mode's density
   (`CardDensity.resolve(viewMode:shrink:expanded:)`). The peek set is
-  ephemeral `@State` keyed by component id, in `TrackerView` / `KanbanView` —
-  never persisted, for the same `persist()` cost reason as the search query,
-  and dropped on a grid⇄kanban switch. The global shrink button overwrites
-  every peek: both views clear the set from
-  `.onChange(of: data.shrinkCards)`, so undo, history restore and import clear
-  it too. Board geometry (grid column width, lane spacing) stays on the board
-  density, so one peek never reflows the rest.
+  ephemeral `TrackerPeekState` keyed by component id, in `TrackerView` /
+  `KanbanView` — never persisted, for the same `persist()` cost reason as the
+  search query, and dropped on a grid⇄kanban switch. The global shrink button
+  overwrites every peek: both views clear the set on a `shrinkCards` change
+  from any source. The `onChange` observes a `TrackerShrinkKey`
+  (component id + flag), not the flag alone: this `@State` outlives the
+  component it belongs to, so a bare flag would read a canvas swap as a button
+  press. Board geometry (grid column width, lane spacing) stays on the board
+  density; a peek grows its own row but never reflows the columns.
 - **Links:** `CardLayout` carries every `.link` field; the card caps per
   density (3 / 2 / 0) and offers a "+N" chip that expands into fixed-width
   rows. Chunking is a constant, never a measured wrap.
