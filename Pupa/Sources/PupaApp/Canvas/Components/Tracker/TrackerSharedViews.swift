@@ -608,43 +608,52 @@ private struct TextDetailEditor: View {
 
 // MARK: - Card peek
 
-/// Which cards are peeked open on a shrunk board, keyed by component id.
-/// A value type so both tracker views share one copy of the rules and the
-/// rules are testable without building a view.
+/// Identifies one tracker board. The component id alone does not: ids are
+/// allocated per MyApp (`MyAppStore.makeComponentId` uniques against that
+/// app's components only), so every MyApp's first tracker is `"tracker-1"`.
+struct TrackerBoardKey: Hashable {
+    let myAppId: UUID
+    let componentId: String
+
+    init(myAppId: UUID, componentId: String?) {
+        self.myAppId = myAppId
+        self.componentId = componentId ?? ""
+    }
+}
+
+/// Which cards are peeked open on a shrunk board, keyed by board. A value type
+/// so both tracker views share one copy of the rules and the rules are testable
+/// without building a view.
 ///
 /// Keyed rather than a bare `Set` for the reason `TrackerView.queryByComponent`
 /// documents: `CanvasView` builds component views without `.id(component.id)`,
 /// so the `@State` holding this survives the canvas swapping one tracker for
 /// another in the same structural slot.
 struct TrackerPeekState: Equatable {
-    private var idsByComponent: [String: Set<UUID>] = [:]
+    private var idsByBoard: [TrackerBoardKey: Set<UUID>] = [:]
 
-    func ids(for componentId: String?) -> Set<UUID> {
-        idsByComponent[componentId ?? ""] ?? []
-    }
+    func ids(for board: TrackerBoardKey) -> Set<UUID> { idsByBoard[board] ?? [] }
 
-    mutating func toggle(_ itemId: UUID, for componentId: String?) {
-        var ids = ids(for: componentId)
+    mutating func toggle(_ itemId: UUID, for board: TrackerBoardKey) {
+        var ids = ids(for: board)
         if ids.remove(itemId) == nil { ids.insert(itemId) }
-        idsByComponent[componentId ?? ""] = ids
+        idsByBoard[board] = ids
     }
 
-    mutating func clear(for componentId: String?) {
-        idsByComponent[componentId ?? ""] = []
-    }
+    mutating func clear(for board: TrackerBoardKey) { idsByBoard.removeValue(forKey: board) }
 }
 
-/// `onChange` token for the global shrink button. Carries the component id
-/// alongside the flag so the handler can tell a button press from the canvas
-/// swapping in a different tracker — the flag alone changes value on both,
-/// which would clear the incoming board's peeks nobody asked to close.
+/// `onChange` token for the global shrink button. Carries the board alongside
+/// the flag so the handler can tell a button press from the canvas swapping in
+/// a different tracker — the flag alone changes value on both, which would
+/// clear the incoming board's peeks nobody asked to close.
 struct TrackerShrinkKey: Equatable {
-    let componentId: String
+    let board: TrackerBoardKey
     let shrink: Bool
 
     /// True when the move is one board's shrink flag actually flipping.
     static func isShrinkToggle(from old: Self, to new: Self) -> Bool {
-        old.componentId == new.componentId
+        old.board == new.board
     }
 }
 

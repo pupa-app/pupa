@@ -70,15 +70,17 @@ public struct TrackerView: View {
                 onEdit: { itemId in sheet = .edit(itemId: itemId) }
             )
         }
-        // The global shrink button overwrites every per-card peek. Keyed off
-        // the state rather than the button so a `shrinkCards` change from any
-        // source clears the peeks. The key carries the component id because
-        // this `@State` outlives the component: without it, the canvas
-        // swapping in a tracker whose flag differs reads as a button press and
-        // closes cards nobody touched.
-        .onChange(of: TrackerShrinkKey(componentId: componentId ?? "", shrink: data.shrinkCards)) { old, new in
+        // The global shrink button overwrites this board's peeks. Keyed off the
+        // state rather than the button so a `shrinkCards` change from any source
+        // clears them — the button, an agent's `setTrackerCardsShrunk`, or a
+        // History restore. The key carries the whole board because this `@State`
+        // outlives the component: without it, the canvas swapping in another
+        // tracker whose flag differs reads as a button press and closes cards
+        // nobody touched. A flag flipped while the user is on a different board
+        // is not cleared here; that board reads its own bucket when it returns.
+        .onChange(of: TrackerShrinkKey(board: board, shrink: data.shrinkCards)) { old, new in
             guard TrackerShrinkKey.isShrinkToggle(from: old, to: new) else { return }
-            peeks.clear(for: componentId)
+            peeks.clear(for: board)
         }
         .sheet(item: $sheet) { target in
             ItemSheet(
@@ -123,9 +125,13 @@ public struct TrackerView: View {
 
     private var query: String { queryByComponent[componentId ?? ""] ?? "" }
 
-    private var expandedIds: Set<UUID> { peeks.ids(for: componentId) }
+    private var board: TrackerBoardKey {
+        TrackerBoardKey(myAppId: myAppId, componentId: componentId)
+    }
 
-    private func toggleExpanded(_ itemId: UUID) { peeks.toggle(itemId, for: componentId) }
+    private var expandedIds: Set<UUID> { peeks.ids(for: board) }
+
+    private func toggleExpanded(_ itemId: UUID) { peeks.toggle(itemId, for: board) }
 
     private func setQuery(_ new: String) {
         guard new != query else { return }
@@ -161,7 +167,8 @@ private struct CardsSection: View {
     /// myAppId from `TrackerView`.
     let resolveLinkName: (ComponentItemRef) -> String?
     let filtered: [TrackerFiltering.Entry]
-    /// Cards peeked open on a shrunk board. Empty unless `data.shrinkCards`.
+    /// Cards peeked open on a shrunk board. Non-empty only on a shrunk board,
+    /// plus the one render after the flag flips and before `onChange` clears.
     let expandedIds: Set<UUID>
     let onToggleExpand: (UUID) -> Void
     let onAdd: () -> Void

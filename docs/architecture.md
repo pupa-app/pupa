@@ -1054,15 +1054,21 @@ a filter is never applied invisibly, and it can be cleared from either view.
 - **Per-card peek.** While a board is shrunk, each card carries a chevron that
   lifts that one card back to its view mode's density
   (`CardDensity.resolve(viewMode:shrink:expanded:)`). The peek set is
-  ephemeral `TrackerPeekState` keyed by component id, in `TrackerView` /
+  ephemeral `TrackerPeekState` keyed by `TrackerBoardKey`, in `TrackerView` /
   `KanbanView` — never persisted, for the same `persist()` cost reason as the
   search query, and dropped on a grid⇄kanban switch. The global shrink button
-  overwrites every peek: both views clear the set on a `shrinkCards` change
-  from any source. The `onChange` observes a `TrackerShrinkKey`
-  (component id + flag), not the flag alone: this `@State` outlives the
-  component it belongs to, so a bare flag would read a canvas swap as a button
-  press. Board geometry (grid column width, lane spacing) stays on the board
-  density; a peek grows its own row but never reflows the columns.
+  overwrites that board's peeks: both views clear on a `shrinkCards` change
+  from any source — the button, `setTrackerCardsShrunk`, or a History restore
+  (shrink is view-only but still rides `persist()`, so it does record a
+  snapshot). The `onChange` observes a `TrackerShrinkKey` (board + flag), not
+  the flag alone: this `@State` outlives the component it belongs to, so a bare
+  flag would read a canvas swap as a button press. The key is the board, not
+  the component id — ids are allocated per MyApp, so every MyApp's first
+  tracker is `"tracker-1"` and a sidebar MyApp switch would otherwise look like
+  a button press. A flag flipped while the user is on a different board is not
+  cleared; that board reads its own bucket when it returns. Board geometry
+  (grid column width, lane spacing) stays on the board density; a peek grows
+  its own row but never reflows the columns.
 - **Links:** `CardLayout` carries every `.link` field; the card caps per
   density (3 / 2 / 0) and offers a "+N" chip that expands into fixed-width
   rows. Chunking is a constant, never a measured wrap.

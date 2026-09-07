@@ -83,11 +83,11 @@ public struct KanbanView: View {
                 onClose: { sheet = nil }
             )
         }
-        // The global shrink button overwrites every per-card peek — see the
-        // same handler in `TrackerView` for why the key carries the component.
-        .onChange(of: TrackerShrinkKey(componentId: componentId ?? "", shrink: data.shrinkCards)) { old, new in
+        // The global shrink button overwrites this board's peeks — see the same
+        // handler in `TrackerView` for why the key carries the whole board.
+        .onChange(of: TrackerShrinkKey(board: board, shrink: data.shrinkCards)) { old, new in
             guard TrackerShrinkKey.isShrinkToggle(from: old, to: new) else { return }
-            peeks.clear(for: componentId)
+            peeks.clear(for: board)
         }
     }
 
@@ -103,9 +103,13 @@ public struct KanbanView: View {
 
     private var query: String { queryByComponent[componentId ?? ""] ?? "" }
 
-    private var expandedIds: Set<UUID> { peeks.ids(for: componentId) }
+    private var board: TrackerBoardKey {
+        TrackerBoardKey(myAppId: myAppId, componentId: componentId)
+    }
 
-    private func toggleExpanded(_ itemId: UUID) { peeks.toggle(itemId, for: componentId) }
+    private var expandedIds: Set<UUID> { peeks.ids(for: board) }
+
+    private func toggleExpanded(_ itemId: UUID) { peeks.toggle(itemId, for: board) }
 
     private func setQuery(_ new: String) {
         guard new != query else { return }
