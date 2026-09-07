@@ -608,9 +608,9 @@ private struct TextDetailEditor: View {
 
 // MARK: - Card peek
 
-/// Identifies one tracker board. The component id alone does not: ids are
-/// allocated per MyApp (`MyAppStore.makeComponentId` uniques against that
-/// app's components only), so every MyApp's first tracker is `"tracker-1"`.
+/// Identifies one tracker board. The component id alone does not: `addComponent`
+/// uniques ids against one MyApp's own components, so every MyApp's first
+/// tracker is `"tracker-1"`. See `MyAppStore.addComponent`.
 struct TrackerBoardKey: Hashable {
     let myAppId: UUID
     let componentId: String
@@ -637,7 +637,9 @@ struct TrackerPeekState: Equatable {
     mutating func toggle(_ itemId: UUID, for board: TrackerBoardKey) {
         var ids = ids(for: board)
         if ids.remove(itemId) == nil { ids.insert(itemId) }
-        idsByBoard[board] = ids
+        // Drop the bucket rather than store an empty set, so "nothing peeked"
+        // has one representation and `==` means what it looks like.
+        if ids.isEmpty { idsByBoard.removeValue(forKey: board) } else { idsByBoard[board] = ids }
     }
 
     mutating func clear(for board: TrackerBoardKey) { idsByBoard.removeValue(forKey: board) }

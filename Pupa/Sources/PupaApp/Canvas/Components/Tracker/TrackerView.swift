@@ -23,8 +23,8 @@ public struct TrackerView: View {
     @State private var filtersShownByComponent: [String: Bool] = [:]
     /// Cards peeked open despite `data.shrinkCards`. Ephemeral on purpose: a
     /// peek is chrome, and `persist()` is a whole-app encode + iCloud write —
-    /// the same reason the search query above is not persisted. Component-keyed
-    /// like the rest.
+    /// the same reason the search query above is not persisted. Keyed by board,
+    /// not by component id — see `TrackerBoardKey`.
     @State private var peeks = TrackerPeekState()
 
     public init(store: MyAppStore, data: TrackerData, myAppId: UUID, componentId: String? = nil) {
@@ -167,8 +167,9 @@ private struct CardsSection: View {
     /// myAppId from `TrackerView`.
     let resolveLinkName: (ComponentItemRef) -> String?
     let filtered: [TrackerFiltering.Entry]
-    /// Cards peeked open on a shrunk board. Non-empty only on a shrunk board,
-    /// plus the one render after the flag flips and before `onChange` clears.
+    /// Cards peeked open on a shrunk board. Non-empty only while this board is
+    /// shrunk, or until the next same-board flag flip clears it — a flag moved
+    /// while the user is elsewhere leaves the bucket standing.
     let expandedIds: Set<UUID>
     let onToggleExpand: (UUID) -> Void
     let onAdd: () -> Void

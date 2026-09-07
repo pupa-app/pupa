@@ -38,6 +38,30 @@ struct TrackerCardDensityTests {
         TrackerBoardKey(myAppId: app, componentId: cid)
     }
 
+    /// The premise the board key exists for. Asserted against the real
+    /// allocator rather than stated in a comment: if this ever stops being
+    /// true, keying on the component id alone would become safe and this
+    /// machinery could go.
+    @MainActor
+    @Test("Two MyApps' first trackers really are both \"tracker-1\"")
+    func componentIdsCollideAcrossMyApps() {
+        MyAppTypeRegistry.shared.registerBuiltins()
+        let a = MyApp(name: "A", iconSystemName: "list.bullet", typeId: MyAppType.tracker.id)
+        let b = MyApp(name: "B", iconSystemName: "list.bullet", typeId: MyAppType.tracker.id)
+        let store = MyAppStore(initial: ([a, b], a.id))
+
+        let idInA = store.addComponent(
+            kind: "tracker", name: "T", iconSystemName: "list.bullet", myAppId: a.id)
+        let idInB = store.addComponent(
+            kind: "tracker", name: "T", iconSystemName: "list.bullet", myAppId: b.id)
+
+        #expect(idInA == "tracker-1")
+        #expect(idInB == "tracker-1", "ids are uniqued per MyApp, so they collide across apps")
+        #expect(TrackerBoardKey(myAppId: a.id, componentId: idInA)
+                != TrackerBoardKey(myAppId: b.id, componentId: idInB),
+                "the board key must still tell these two apart")
+    }
+
     @Test("Toggling the same card twice opens then closes it")
     func toggleRoundTrip() {
         let id = UUID()
@@ -66,8 +90,9 @@ struct TrackerCardDensityTests {
 
     @Test("Two MyApps' first trackers are different boards despite sharing a component id")
     func componentIdIsNotUniqueAcrossMyApps() {
-        // `MyAppStore.makeComponentId` uniques ids against one MyApp's own
-        // components, so every MyApp's first tracker is "tracker-1". Keying on
+        // `MyAppStore.addComponent` uniques ids against one MyApp's own
+        // components, so every MyApp's first tracker is "tracker-1" — asserted
+        // against the real store in `componentIdsCollideAcrossMyApps`. Keying on
         // the component id alone merged their peeks and made a MyApp switch
         // look like a shrink press.
         let mine = UUID(), theirs = UUID()
@@ -85,8 +110,9 @@ struct TrackerCardDensityTests {
         #expect(peeks.ids(for: inA) == [mine], "clearing one MyApp's board must not touch another's")
     }
 
-    @Test("A nil component id is its own key, not a wildcard")
-    func nilComponentIdIsItsOwnKey() {
+    @Test("A nil component id normalises to the empty-string key")
+    func nilComponentIdNormalises() {
+        #expect(Self.board(Self.appA, nil) == Self.board(Self.appA, ""))
         let id = UUID()
         var peeks = TrackerPeekState()
         peeks.toggle(id, for: Self.board(Self.appA, nil))

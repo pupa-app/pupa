@@ -16,7 +16,7 @@ public struct KanbanView: View {
     /// Filter-panel disclosure, collapsed by default.
     @State private var filtersShownByComponent: [String: Bool] = [:]
     /// Cards peeked open despite `data.shrinkCards`. See the same property on
-    /// `TrackerView` — ephemeral, component-keyed, never persisted.
+    /// `TrackerView` — ephemeral, board-keyed, never persisted.
     @State private var peeks = TrackerPeekState()
 
     public init(store: MyAppStore, data: TrackerData, myAppId: UUID, componentId: String? = nil) {
