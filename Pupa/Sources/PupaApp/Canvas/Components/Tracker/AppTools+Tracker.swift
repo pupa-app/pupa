@@ -3,10 +3,9 @@ import AGUIKit
 
 extension AppTools {
     /// Register the tracker component's frontend tools (render / add / patch /
-    /// remove items, field-schema mutators, filter + view mode). Extracted from
-    /// the `registerMyAppTools` monolith into the Tracker component folder
-    /// (issue #162); `TrackerModule.registerTools` forwards here. Discovery tools
-    /// (list/search/get) still register separately. Zero logic change.
+    /// remove items, field-schema mutators, filter + view mode).
+    /// `TrackerModule.registerTools` forwards here. Discovery tools
+    /// (list/search/get) still register separately.
     @MainActor
     static func registerTrackerTools(
         on registry: ToolRegistry,

@@ -1,7 +1,7 @@
 import SwiftUI
 import AGUIKit
 
-/// The chart kind's `ComponentModule` (issue #162). No `itemPolicy` (a chart's
+/// The chart kind's `ComponentModule`. No `itemPolicy` (a chart's
 /// series reference other components via specs, handled by the unified ref
 /// model on `CanvasApp`, not the universal item graph).
 @MainActor

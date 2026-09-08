@@ -122,7 +122,7 @@ public struct ComponentSummary: Encodable, Sendable {
 
     @MainActor
     private static func itemCount(of body: CanvasApp) -> Int {
-        // Each kind counts its own items via its module (issue #162); `.empty`
+        // Each kind counts its own items via its module; `.empty`
         // has no module and counts as 0.
         ComponentRegistry.shared.module(forKind: body.kindString)?.itemCount(body) ?? 0
     }

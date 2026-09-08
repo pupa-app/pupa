@@ -1023,7 +1023,7 @@ enum MarkdownCache {
     /// Eviction is **random**, which looks odd and is deliberate. The list is
     /// a `LazyVStack`, so steady-state scrolling touches only visible rows —
     /// but `defaultScrollAnchor(.bottom)` forces the whole thread to be laid
-    /// out at **mount**, i.e. once per chat open (#184). For a thread longer
+    /// out at **mount**, i.e. once per chat open. For a thread longer
     /// than the cap that sweep is a cyclic scan larger than the cache, which
     /// is the pathological case for FIFO and LRU alike: each sweep evicts
     /// precisely what the next one asks for first, pinning the hit rate at

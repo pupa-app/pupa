@@ -34,13 +34,13 @@ public enum SessionEvent: Sendable {
     case error(message: String, code: String?)
     /// The replay cursor advanced: the frame stamped with this seq has been
     /// fully delivered (its session event, if any, was yielded first). Hosts
-    /// that persist the cursor per thread (pupa#103) track this instead of
+    /// that persist the cursor per thread track this instead of
     /// `AgentSession.lastEventSeq` so a persisted value never runs ahead of
     /// the UI state saved alongside it.
     case cursorAdvanced(Int)
     /// The turn just parked on a frontend-tool interrupt. `afterSeq` is the
     /// replay cursor value that re-delivers that interrupt frame — persist it
-    /// (pupa#258) and seed it via `seedReplayCursor` on relaunch so a turn
+    /// and seed it via `seedReplayCursor` on relaunch so a turn
     /// killed mid-dispatch can be resumed instead of silently restarted.
     /// Not emitted when the backend didn't stamp the frame with a seq.
     case frontendDispatchParked(afterSeq: Int)
@@ -171,7 +171,7 @@ public actor AgentSession {
     /// case re-attach replays the whole buffered turn — events the UI has
     /// already applied may repeat; acceptable degraded mode). Readable so the
     /// host can persist it per thread and seed a relaunched session via
-    /// `seedReplayCursor` — the launch-time catch-up half of pupa#103.
+    /// `seedReplayCursor` — the launch-time catch-up path.
     public private(set) var lastEventSeq: Int?
 
     /// Adopt a persisted replay cursor (relaunch catch-up after an app kill).
@@ -184,12 +184,11 @@ public actor AgentSession {
     }
 
     /// Move the cursor BACK to a `.frontendDispatchParked` rewind point so the
-    /// backend re-delivers the interrupt frame a dispatch never answered
-    /// (pupa#258). Unlike `seedReplayCursor` this is not monotonic — rewinding
-    /// is the whole point — so it is only for that recovery: a live cursor is
-    /// otherwise the newest truth. Events between the rewind point and the old
-    /// cursor are replayed; the host has already applied them, so it must be
-    /// able to tolerate the repeat (the journal makes the tool calls idempotent).
+    /// backend re-delivers the interrupt frame a dispatch never answered.
+    /// Not monotonic, unlike `seedReplayCursor` — recovery only. Events between
+    /// the rewind point and the old cursor are replayed; the host has already
+    /// applied them, so it must tolerate the repeat (the journal makes the tool
+    /// calls idempotent).
     public func rewindReplayCursor(to seq: Int) {
         guard lastEventSeq != seq else { return }
         lastEventSeq = seq
@@ -203,7 +202,7 @@ public actor AgentSession {
     private let maxReattachAttempts: Int
     private let reattachBaseDelayNanos: UInt64
 
-    /// Liveness heartbeat (pupa-backend#82): while a frontend-tool dispatch is
+    /// Liveness heartbeat: while a frontend-tool dispatch is
     /// in flight the backend's handler is parked with no open socket, so the
     /// session POSTs `command.keepalive` every `keepaliveInterval` seconds.
     /// The backend fails a silent (dead) app one grace period after the last
@@ -219,7 +218,7 @@ public actor AgentSession {
 
     /// Host-supplied record of frontend-tool progress, so a turn killed
     /// mid-dispatch can be answered on relaunch without re-running side
-    /// effects (pupa#258). `nil` disables the feature.
+    /// effects. `nil` disables the feature.
     private let journal: FrontendDispatchJournal?
 
     public init(
@@ -267,7 +266,7 @@ public actor AgentSession {
             // Moving to a different thread abandons whatever the journal
             // described. NOT cleared on a plain history re-seed: hosts call
             // that on every open, including the relaunch that is about to
-            // replay the journal to answer a parked turn (pupa#258).
+            // replay the journal to answer a parked turn.
             // Fire-and-forget — `reset` is sync for its callers.
             if let journal { Task { await journal.clear() } }
             AGUIKitLog.session("AgentSession reset threadId=\(threadId)")
@@ -348,10 +347,10 @@ public actor AgentSession {
     /// - Parameter toolFilter: Same contract as `send`'s, and it matters just as
     ///   much here: the resume's `tools_after_round` tells the backend which
     ///   frontend tools to expose next. Advertising the unfiltered registry from
-    ///   a recovery would look like a gate unlock to the backend, which answers
-    ///   one by rebuilding its client with a widened surface — breaking the
-    ///   prompt cache and injecting a synthetic "the tools you activated are now
-    ///   available" turn for a gate the user never touched (pupa#258).
+    ///   a recovery reads as a gate unlock — the backend rebuilds its client
+    ///   with a widened surface, breaking the prompt cache and injecting a
+    ///   synthetic "the tools you activated are now available" turn for a gate
+    ///   the user never touched.
     public nonisolated func reattach(
         toolFilter: (@Sendable () async -> Set<String>)? = nil
     ) -> AsyncThrowingStream<SessionEvent, Error> {
@@ -377,11 +376,10 @@ public actor AgentSession {
         toolFilter: (@Sendable () async -> Set<String>)? = nil,
         yield: @Sendable (SessionEvent) -> Void
     ) async throws {
-        // No replay cursor → either the backend never stamped a seq (predates
-        // the replay layer) or this session never streamed. Reattaching would
-        // hit a real agent loop with an empty message list — do nothing.
+        // No replay cursor → nothing to catch up on. Reattaching would hit a
+        // real agent loop with an empty message list, so do nothing.
         // (Launch-time catch-up after an app kill seeds the persisted cursor
-        // via `seedReplayCursor` before calling this — pupa#103.)
+        // via `seedReplayCursor` before calling this.)
         guard lastEventSeq != nil else {
             AGUIKitLog.session("reattach() skipped — no replay cursor for thread=\(threadId)")
             // Nothing to catch up on — not a silent stop, so no notice.
@@ -725,7 +723,7 @@ public actor AgentSession {
     /// Tell the session the host app's scene phase changed. While a dispatch
     /// is in flight, a transition posts one immediate keepalive carrying the
     /// new state — backgrounding tells the backend to fall back to its
-    /// absolute wall (pupa-backend#82); foregrounding re-arms the short
+    /// absolute wall; foregrounding re-arms the short
     /// liveness grace. The periodic pinger pauses while backgrounded.
     public func setHostBackgrounded(_ flag: Bool) async {
         guard flag != hostBackgrounded else { return }
@@ -764,7 +762,7 @@ public actor AgentSession {
     /// Run every frontend tool the backend asked us to dispatch, pinging
     /// `command.keepalive` every `keepaliveInterval` while the dispatch is in
     /// flight so the backend's parked handler can tell a slow tool from a
-    /// dead app (pupa-backend#82).
+    /// dead app.
     private func dispatchFrontendTools(
         calls: [FrontendToolCall],
         yield: @Sendable (SessionEvent) -> Void
@@ -795,7 +793,7 @@ public actor AgentSession {
     /// order so the resume payload mirrors the call order the model emitted,
     /// and the caller's `.toolCallFinished` events fire deterministically.
     ///
-    /// Journal-aware (pupa#258). An entry keyed by `toolCallId` means a
+    /// Journal-aware. An entry keyed by `toolCallId` means a
     /// previous process already got this far, so the call is answered from the
     /// record instead of re-run: a stored result is replayed verbatim, and a
     /// started-but-unfinished call is reported incomplete rather than
@@ -1057,8 +1055,8 @@ public actor AgentSession {
     /// An empty tail is the signal to re-POST: a parked backend emits nothing
     /// until it has the results, so nothing-past-the-cursor means they never
     /// arrived. Re-attaching forever would read as a clean finish while the run
-    /// stays parked — losing the very turn the journal exists to save
-    /// (pupa#258). With no cursor at all there is nothing to probe, so a resume
+    /// stays parked — losing the very turn the journal exists to save.
+    /// With no cursor at all there is nothing to probe, so a resume
     /// is re-POSTed directly; a bare re-attach carrying `after_seq: -1` and an
     /// empty message list is never sent, because the replay middleware wouldn't
     /// short-circuit it and it would land on a real agent loop.
@@ -1148,7 +1146,7 @@ public actor AgentSession {
             }
             state.outcome.sawAnyFrame = true
             // Set by the `on_interrupt` branch so the rewind point can be
-            // yielded once the frame's own seq is known (pupa#258).
+            // yielded once the frame's own seq is known.
             var parkedThisFrame = false
             switch sequenced.event {
             case .runStarted:
@@ -1218,7 +1216,7 @@ public actor AgentSession {
                 yield(.cursorAdvanced(seq))
                 // Hand the host the cursor value that re-delivers THIS frame,
                 // so a kill during the dispatch that follows can be recovered
-                // by rewinding to it (pupa#258). An unstamped frame (backend
+                // by rewinding to it. An unstamped frame (backend
                 // predating the replay layer) can't be rewound to — the turn
                 // then degrades to the old restart-on-wake behaviour.
                 if parkedThisFrame {

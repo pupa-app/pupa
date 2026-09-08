@@ -3,7 +3,7 @@ import AGUIKit
 
 extension AppTools {
     // Checklist component frontend tools. Relocated from the AppTools
-    // monolith into the Checklist folder (issue #162). Zero logic change.
+    // monolith into the Checklist folder. Zero logic change.
     @MainActor
     static func registerChecklistTools(
         on registry: ToolRegistry,

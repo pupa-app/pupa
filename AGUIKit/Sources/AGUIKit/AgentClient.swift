@@ -29,7 +29,7 @@ public enum AgentClientError: Error, Sendable, CustomStringConvertible {
 /// backend predates the replay middleware or the frame carried no id.
 /// Consumers track the highest seen `seq` so a dropped socket can re-attach
 /// with `forwardedProps.command.reattach.after_seq` and replay only what was
-/// missed. See pupa#103 / pupa-backend#40.
+/// missed.
 public struct SequencedAgentEvent: Sendable {
     public let event: AgentEvent
     public let seq: Int?

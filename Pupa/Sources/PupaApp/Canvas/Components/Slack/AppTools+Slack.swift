@@ -419,14 +419,12 @@ extension AppTools {
     /// max-depth all surface as `{ok: false, error}` rows so the
     /// invoking agent can react without parsing free-form text.
     ///
-    /// TODO(#193 follow-up): bring this echo to parity with
-    /// `invokeMyAppAgent`'s `agent_unavailable` payload — surface
-    /// `target` (as `AgentInvocationKey.wireValue`), `callPath`, and
-    /// `treeRootedAt` so a Slack agent can reason about the forest
-    /// programmatically instead of only reading the human-readable
-    /// `error` string. Requires plumbing the rejection's structured
-    /// fields through `SlackInvoker.InvocationOutcome`, which today
-    /// only carries `targetName` + `depth`.
+    /// TODO: surface `target` (as `AgentInvocationKey.wireValue`),
+    /// `callPath` and `treeRootedAt` here, for parity with
+    /// `invokeMyAppAgent`'s `agent_unavailable` payload. Needs the
+    /// rejection's structured fields plumbed through
+    /// `SlackInvoker.InvocationOutcome`, which carries only
+    /// `targetName` + `depth`.
     private static func encodeFanOutOutcome(
         agentId: String,
         outcome: SlackInvoker.InvocationOutcome

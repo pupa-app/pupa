@@ -160,8 +160,8 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
     /// User-level long-term memory filesystem tools. Always advertised to
     /// the .memory orchestrator scope; gated behind `get_tools_memories` in
     /// .myApp scope (the memories surface is not myApp-scoped, but per-myApp
-    /// turns rarely need it — keeping the descriptions out of the per-turn
-    /// payload until first use saves ~560 tokens; see issue #220).
+    /// turns rarely need it, so the descriptions stay out of the per-turn
+    /// payload until first use).
     public static let memoryToolNames: Set<String> = [
         "lsMemories",
         "readMemoryFile",
@@ -261,7 +261,7 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
             "unlinkItem",
         ],
         // Assembled from each component's `ComponentModule.kindSpec` — the
-        // modules own their tools + prompt + catalog blurb (issue #162). Adding
+        // modules own their tools + prompt + catalog blurb. Adding
         // a kind = write its module and add one line here; no literal to drift.
         kinds: [
             "tracker": TrackerModule.kindSpec,

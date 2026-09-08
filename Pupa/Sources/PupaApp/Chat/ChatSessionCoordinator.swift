@@ -162,7 +162,7 @@ public final class ChatSessionCoordinator {
             // Do NOT bake the type fragment here. It is applied dynamically
             // (base + catalog + per-kind) and layered under AGENTS.md by
             // MyAppPolicy.buildSystemPrompt; freezing it would drop per-kind
-            // guidance as the canvas changes (issue #164). AGENTS.md is now
+            // guidance as the canvas changes. AGENTS.md is now
             // purely the user's customization surface.
             let content = """
                 # \(myApp.name)
@@ -247,24 +247,23 @@ public final class ChatSessionCoordinator {
     /// Foreground recovery: ask every live session to re-attach to any run
     /// whose stream died while the app was backgrounded. Each VM no-ops
     /// unless its last turn was actually interrupted, so calling this on
-    /// every foreground transition is cheap. See pupa#103.
+    /// every foreground transition is cheap.
     public func reattachAllAfterForeground() {
         for vm in sessions.values { vm.reattachIfNeeded() }
     }
 
     /// Backgrounding hook: snapshot every in-flight session's transcript +
     /// replay cursor so an OS kill while backgrounded can catch up on next
-    /// launch (pupa#103). Idle sessions no-op. Called on scene-phase
+    /// launch. Idle sessions no-op. Called on scene-phase
     /// `.background` and again when the iOS background task expires (the
     /// cursor keeps advancing while the socket survives the grace window).
     public func persistAllForBackground() {
         for vm in sessions.values { vm.persistForBackground() }
     }
 
-    /// Scene-phase fan-out for the frontend-tool liveness heartbeat
-    /// (pupa-backend#82): every live session notifies the backend of the
-    /// background/foreground transition so parked tools switch between the
-    /// short liveness grace and the absolute wall.
+    /// Scene-phase fan-out for the frontend-tool liveness heartbeat: every live
+    /// session notifies the backend of the background/foreground transition so
+    /// parked tools switch between the short liveness grace and the absolute wall.
     public func setAllHostBackgrounded(_ flag: Bool) {
         for vm in sessions.values { vm.setHostBackgrounded(flag) }
     }

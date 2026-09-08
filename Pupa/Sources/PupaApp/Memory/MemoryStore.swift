@@ -491,8 +491,8 @@ public final class MemoryStore {
 
     /// Rebuild the tree from disk. Called by the iCloud watcher when remote
     /// edits land so the sidebar refreshes live. The disk walk runs off the
-    /// main actor (pupa#110 — the watcher fires this repeatedly during an
-    /// initial iCloud download); only the tree republish touches main state.
+    /// main actor — the watcher fires this repeatedly during an initial iCloud
+    /// download; only the tree republish touches main state.
     public func reloadFromDisk() async {
         let root = self.root
         let rebuilt = await Task.detached(priority: .utility) { Self.scan(root: root) }.value

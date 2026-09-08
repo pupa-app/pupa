@@ -1,7 +1,7 @@
 import SwiftUI
 import AGUIKit
 
-/// The slack kind's `ComponentModule` (issue #162). Unlike the item-bearing
+/// The slack kind's `ComponentModule`. Unlike the item-bearing
 /// kinds, slack has no `itemPolicy` (messages aren't link targets), its view
 /// needs the live `coordinator` (agent fan-out), and its tools register only
 /// when a `SlackToolContext` is present.

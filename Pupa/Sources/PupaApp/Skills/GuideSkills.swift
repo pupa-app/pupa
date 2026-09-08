@@ -256,7 +256,7 @@ enum GuideSkills {
     channels and the agent personas but strips the transcripts.
     """
 
-    /// Bundle automations (issue #209): the authoring contract for
+    /// Bundle automations: the authoring contract for
     /// `pupa/automations.json` — trigger catalog, matcher, action templates,
     /// and the guards. User-conceptual up top; the JSON block is the agent's
     /// write recipe (loaded via `app_skill_view`). Keep in sync with

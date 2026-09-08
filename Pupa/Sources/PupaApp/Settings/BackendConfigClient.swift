@@ -1,15 +1,14 @@
 import Foundation
 
 /// Probe response from `GET /auth/config`. Powers the per-backend status
-/// badge in the Settings list ([#73](https://github.com/*/issues/73)).
+/// badge in the Settings list.
 public struct BackendConfig: Codable, Equatable, Sendable {
     public let authRequired: Bool
     public let methods: [String]
     public let version: String?
 
     /// Convenience — true when the backend accepts the shared-secret
-    /// API key mechanism (today's only method; `"pairing"` and `"apple"`
-    /// arrive with [#163](https://github.com/*/issues/163)).
+    /// API key mechanism.
     public var acceptsAPIKey: Bool { methods.contains("api_key") }
 }
 

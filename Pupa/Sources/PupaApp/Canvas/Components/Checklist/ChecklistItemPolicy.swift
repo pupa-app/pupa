@@ -2,7 +2,7 @@ import Foundation
 
 /// Per-kind guardrails for `ChecklistItem`. Registered in `ItemPolicyRegistry`
 /// at app bootstrap so `MyAppStore.linkItems` and cascade routing can consult
-/// it uniformly now that Phase 4 completes the full migration.
+/// it uniformly.
 public struct ChecklistItemPolicy: ItemPolicy {
     public typealias ItemType = ChecklistItem
 

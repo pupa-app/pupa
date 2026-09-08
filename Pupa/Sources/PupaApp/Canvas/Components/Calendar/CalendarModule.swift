@@ -1,7 +1,7 @@
 import SwiftUI
 import AGUIKit
 
-/// The calendar kind's `ComponentModule` (issue #162). Mirrors `TrackerModule`:
+/// The calendar kind's `ComponentModule`. Mirrors `TrackerModule`:
 /// one folder, one self-registering module, own single-case unwrap on
 /// `CanvasApp` instead of the central exhaustive switch.
 @MainActor

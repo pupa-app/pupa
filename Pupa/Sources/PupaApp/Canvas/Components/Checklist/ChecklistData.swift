@@ -1,6 +1,6 @@
 import Foundation
 
-// Checklist component data model. Moved out of CanvasState (issue #162).
+// Checklist component data model. Moved out of CanvasState.
 // The `CanvasApp.checklist` enum arm + its Codable stay in CanvasState.
 
 /// One row in a checklist. `id` is stable across reorderings so the agent

@@ -62,8 +62,8 @@ public enum AgentCallerContext: Hashable, Sendable {
 /// via `parentInvocationId`. Tree roots have `parentInvocationId ==
 /// nil` and `treeRootInvocationId == invocationId`.
 ///
-/// `turnsWithParent` is reserved for Phase 1c (per-pair multi-turn
-/// budget — issue #193); Phase 1b always sets it to 1.
+/// `turnsWithParent` is vestigial and always 1 — the per-pair budget
+/// is counted on the gate itself, in `pairTurnCounts`.
 public struct InvocationNode: Hashable, Sendable {
     public let invocationId: UUID
     public let agentKey: AgentInvocationKey
@@ -95,9 +95,8 @@ public struct InvocationNode: Hashable, Sendable {
 /// call without mutating gate state, so the active forest stays
 /// intact and the outer turns can unwind cleanly.
 ///
-/// `.busy` remains in the enum for the (future) strict-mode toggle
-/// — issue #193 promotes "concurrent same-key" to allow-by-default,
-/// so Phase 1b never returns it from `decide(...)`.
+/// `.busy` remains in the enum for a future strict-mode toggle;
+/// `decide(...)` never returns it — concurrent same-key is allowed.
 public enum AgentInvocationDecision: Equatable, Sendable {
     case proceed(invocationId: UUID, treeRoot: UUID)
     case reentrant(target: AgentInvocationKey, ancestorPath: [AgentInvocationKey])
@@ -123,21 +122,10 @@ public enum AgentInvocationDecision: Equatable, Sendable {
 /// are explicitly allowed, even when they share an `AgentInvocationKey`,
 /// because neither sits above the other on the tree.
 ///
-/// **Concurrent same-key.** Multiple roots — or unrelated branches —
-/// may share an `AgentInvocationKey` (e.g. two top-level runs against
-/// `.myApp(X)`). They do not collide. The `.busy` case is retained
-/// for a future strict-mode setting; Phase 1b never produces it.
-///
-/// **Chain depth.** Counted along the *caller's ancestor chain*
-/// (depth 1 = a root). Hard cap of `maxChainDepth` blocks any further
-/// nested call. Default 4 — well past the depth a useful conversation
-/// needs but tight enough to fail fast on runaway A2A loops.
-///
-/// Lifecycle is explicit (`decide` → `enter` → `exit`, not RAII) to
-/// mirror the original `SlackInvoker` idiom: call sites use
-/// `defer { exit }` so the slot releases on every exit path. Every
-/// `enter` MUST be paired with exactly one `exit` for the same
-/// `invocationId`.
+/// Lifecycle is explicit (`decide` → `enter` → `exit`, not RAII):
+/// call sites use `defer { exit }` so the slot releases on every exit
+/// path. Every `enter` MUST be paired with exactly one `exit` for the
+/// same `invocationId`.
 @MainActor
 @Observable
 public final class AgentInvocationGate {
@@ -327,8 +315,7 @@ public struct AgentInvocationRejection: Error, Equatable, Sendable {
     public let callPath: [AgentInvocationKey]
     public let depth: Int?
     /// Root-of-tree key for the caller that triggered this rejection.
-    /// Nil only for the pathological case of a root rejection (which
-    /// Phase 1b never produces). Surfaced in the `agent_unavailable`
+    /// Nil only for a root rejection. Surfaced in the `agent_unavailable`
     /// echo as `treeRootedAt`.
     public let treeRootKey: AgentInvocationKey?
     /// For `.budgetExhausted`: the turn limit that was reached.

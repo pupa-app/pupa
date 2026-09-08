@@ -9,13 +9,6 @@ import Observation
 /// stored here so we can `DELETE /auth/devices/<id>` on unpair. The actual
 /// device token never lives in this struct; it goes to the iOS Keychain via
 /// `BackendCredentialStore`.
-///
-/// Auth shape: the only client-side credential is a paired-device token in
-/// the Keychain. The pre-#163 `apiKey` field has been dropped — operators
-/// who used to paste `PUPA_API_KEY` into Settings now run `pupa-backend pair`
-/// and pair instead. The server-side `PUPA_API_KEY` is still accepted
-/// by the backend middleware but is server-side bootstrap only (used by
-/// `pupa-backend pair` to mint the first code) and is never exposed to clients.
 public struct BackendEntry: Identifiable, Codable, Equatable, Sendable {
     public let id: UUID
     public var label: String
@@ -64,17 +57,14 @@ public struct BackendEntry: Identifiable, Codable, Equatable, Sendable {
 ///     `activeBackendID` picks which one drives `backendURL` / `authHeaders`.
 ///     The previous single-URL schema (snapshot field `backendURL`) migrates
 ///     to a single-entry list on first load and keeps deserialising forever.
-///     The pre-#163 `apiKey` snapshot field is silently dropped on read —
-///     paired-device tokens have replaced it client-side.
 @MainActor
 @Observable
 public final class SettingsStore {
-    /// Legacy UserDefaults key. No longer the persistence backend (state moved
-    /// to `state/settings.json`); retained only for onboarding's existing-user
-    /// probe in `OnboardingMigration`.
+    /// Legacy UserDefaults key, kept only for onboarding's existing-user probe
+    /// in `OnboardingMigration`. State lives in `state/settings.json`.
     public static let storageKey = "pupa.settings.v1"
 
-    // `nonisolated` so the off-main `load()` (pupa#110) can read these defaults.
+    // `nonisolated` so the off-main `load()` can read these defaults.
     public nonisolated static let defaultBackendURL = URL(string: "http://localhost:8004/")!
     public nonisolated static let defaultBackendLabel = "Local backend"
 
@@ -363,7 +353,7 @@ public final class SettingsStore {
         persist()
     }
 
-    /// Flip which backend drives `backendURL` / `apiKey` / `authHeaders`.
+    /// Flip which backend drives `backendURL` / `authHeaders`.
     /// No-op for unknown id.
     public func setActiveBackend(_ id: UUID) {
         guard backends.contains(where: { $0.id == id }) else { return }
@@ -471,11 +461,10 @@ public final class SettingsStore {
 
     // MARK: - Auth headers
 
-    /// Headers to add to every backend request — empty when the active
-    /// backend hasn't been paired yet. The only client-side credential is the
-    /// paired-device token in the Keychain (per [#163](https://github.com/*/issues/163)
-    /// Phase 3b). The server-side `PUPA_API_KEY` still works as a
-    /// bootstrap credential for `pupa-backend pair`, but it's never given to clients.
+    /// Headers to add to every backend request — empty when the active backend
+    /// hasn't been paired yet. The only client-side credential is the
+    /// paired-device token in the Keychain. The server-side `PUPA_API_KEY` is
+    /// bootstrap for `pupa-backend pair` and is never given to clients.
     public var authHeaders: [String: String] {
         let active = activeBackend
         guard let deviceToken = credentials.token(for: active.id), !deviceToken.isEmpty else {
@@ -503,8 +492,8 @@ public final class SettingsStore {
 
     /// Locally clear the pairing — removes the token from the credential
     /// store and the deviceID from the entry. The server still has the
-    /// device; call `BackendDevicesClient.revoke(deviceID:)` (Phase 5) to
-    /// also tell the backend.
+    /// device; call `BackendDevicesClient.revoke(deviceID:)` to also tell the
+    /// backend.
     public func clearPairing(backendID: UUID) throws {
         try credentials.removeToken(for: backendID)
         updateBackend(backendID, deviceID: .some(nil))
@@ -547,35 +536,26 @@ public final class SettingsStore {
         PupaStorage.stateRoot.appendingPathComponent("settings.json")
     }
 
-    /// On-disk shape. Backwards-compatible for two old shapes:
-    ///   1. Pre-#72: top-level `backendURL` (single backend, no list).
-    ///   2. Pre-#163 Phase 3b: `BackendEntry.apiKey` per entry.
-    /// The pre-#72 field is decoded for migration; never re-encoded. The
-    /// per-entry `apiKey` is silently dropped on decode — Swift's default
-    /// Codable ignores unknown JSON keys, and we don't migrate stale keys
-    /// into the Keychain because we can't know whether they're still valid
-    /// against the backend. Operators with paired devices already have
-    /// Keychain tokens; those without need to re-pair to chat.
+    /// On-disk shape. Decodes two legacy shapes: a top-level `backendURL`
+    /// (migrated to a single-entry list, never re-encoded) and a per-entry
+    /// `apiKey` (dropped — stale keys are not migrated into the Keychain,
+    /// since we can't know whether they still validate against the backend).
     private struct Snapshot: Codable {
         var disabledBackendTools: [String] = []
-        // Optional so pre-existing blobs decode; `load()` substitutes [:].
+        // All optional so older blobs decode; `load()` substitutes defaults.
+        // `orchestratorThinking` is the exception: nil = backend default.
         var backendHarnessControls: [String: [String: HarnessSettingValue]]?
         var backends: [BackendEntry]?
         var activeBackendID: UUID?
         var shellApprovalDisabled: Bool?
         var orchestratorLLMProvider: String?
         var orchestratorLLMModel: String?
-        // Optional so pre-thinking blobs decode; nil = backend default.
         var orchestratorThinking: String?
-        // Optional so pre-existing blobs decode; `load()` substitutes [].
         var orchestratorDisabledTools: [String]?
-        // Optional so pre-A2A blobs decode; `load()` substitutes the defaults.
         var a2aMaxChainDepth: Int?
         var a2aMaxTurnsPerPair: Int?
-        // Optional so pre-existing blobs decode; `load()` substitutes the default.
         var maxToolRounds: Int?
         var toolRoundsUnlimited: Bool?
-        // Optional so pre-thread-cap blobs decode; `load()` substitutes defaults.
         var threadCapEnabled: Bool?
         var threadCapMB: Double?
         // Legacy single-backend field. Decoded for migration; never re-encoded.
@@ -651,7 +631,7 @@ public final class SettingsStore {
             } ?? stored[0].id
             return (stored, active)
         }
-        // Pre-#72 migration: build a single entry from the legacy URL field.
+        // Legacy migration: build a single entry from the old top-level URL field.
         let url = snap.backendURL.flatMap(URL.init(string:)) ?? defaultBackendURL
         let entry = BackendEntry(label: defaultBackendLabel, url: url)
         return ([entry], entry.id)
@@ -663,7 +643,7 @@ public final class SettingsStore {
 
     /// Reload settings from disk and republish. Called by the iCloud watcher
     /// when a remote edit lands. Keychain-held tokens are untouched. The disk
-    /// read runs off the main actor (pupa#110); only the republish is on main.
+    /// read runs off the main actor; only the republish is on main.
     public func reloadFromDisk() async {
         let loaded = await Task.detached(priority: .utility) { Self.load() }.value
         disabledBackendTools = loaded.disabledTools

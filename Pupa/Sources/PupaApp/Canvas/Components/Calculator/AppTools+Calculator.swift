@@ -3,7 +3,7 @@ import AGUIKit
 
 extension AppTools {
     // Calculator component frontend tools. Relocated from the AppTools
-    // monolith into the Calculator folder (issue #162). Zero logic change.
+    // monolith into the Calculator folder. Zero logic change.
     @MainActor
     static func registerCalculatorTools(
         on registry: ToolRegistry,

@@ -19,9 +19,9 @@ public struct FrontendCallRecord: Codable, Sendable, Equatable {
 
 /// Host-supplied, per-thread record of frontend-tool dispatch progress.
 ///
-/// The backend parks with its SSE closed while the client runs a frontend tool
-/// (pupa#258). If the app is killed before it POSTs `command.resume`, the
-/// result is lost — and on relaunch nothing distinguishes a call that never ran
+/// The backend parks with its SSE closed while the client runs a frontend tool.
+/// If the app is killed before it POSTs `command.resume`, the result is lost —
+/// and on relaunch nothing distinguishes a call that never ran
 /// from one that ran and only failed to report. Re-dispatching blind would
 /// double-apply side effects (`addComponent`, calendar writes).
 ///
@@ -30,8 +30,7 @@ public struct FrontendCallRecord: Codable, Sendable, Equatable {
 /// as incomplete, and runs only what has no entry at all.
 ///
 /// AGUIKit owns no storage; the host supplies the persistence. A `nil` journal
-/// disables the feature — every call simply runs, which is the pre-#258
-/// behaviour.
+/// disables the feature — every call simply runs.
 public protocol FrontendDispatchJournal: Sendable {
     /// About to invoke `callId`'s handler.
     func noteStarted(callId: String, name: String) async

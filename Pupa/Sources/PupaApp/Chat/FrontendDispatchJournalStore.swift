@@ -1,7 +1,7 @@
 import Foundation
 import AGUIKit
 
-/// On-disk record of one thread's in-flight frontend-tool dispatch (pupa#258).
+/// On-disk record of one thread's in-flight frontend-tool dispatch.
 ///
 /// Written while the backend is parked waiting for `command.resume`, so an app
 /// killed mid-dispatch can answer the parked turn on relaunch with the results

@@ -39,7 +39,7 @@ public final class MyAppStore {
     /// so this store stays decoupled from `SettingsStore`.
     @ObservationIgnored public var threadCapBytes: (() -> Int?)? = nil
     /// Typed canvas-domain event stream — the trigger side of bundle
-    /// automations (issue #209). Fed from the single mutation choke-point;
+    /// automations. Fed from the single mutation choke-point;
     /// wired to `RuleEngine` by `AppView`. A closure so the store stays
     /// decoupled from the automation layer. Only user-actor moves emit (the
     /// self-mutation guard: agent/reaction moves never re-trigger a rule).
@@ -2249,8 +2249,8 @@ public final class MyAppStore {
     // Mirror the checklist mutators: kind-routed via `mutate(_:kind:"calculator")`
     // (or `byComponentId` for a targeted call), `@discardableResult`, persist
     // only on change. Calc-row edits emit an `ItemEvent` for the History
-    // sheet but carry no inverse — calculator rows aren't in the undo graph
-    // yet (Phase 1), so they show as non-reversible entries. The UI tuning
+    // sheet but carry no inverse — calculator rows aren't in the undo graph,
+    // so they show as non-reversible entries. The UI tuning
     // path (`setCalculatorVariable`) deliberately emits NO event: a slider
     // drag would otherwise flood the log, exactly as `setChecklistItemDone`
     // stays silent next to `toggleChecklistItem`.
@@ -3666,7 +3666,7 @@ public final class MyAppStore {
 
     /// Re-materialize memory files the app lost to a sync-driven local delete —
     /// the `pupa/agents/<slug>/AGENTS.md` and `pupa/skills/<name>/SKILL.md`
-    /// bodies that otherwise come back as empty folders (#251). `MyApp` carries
+    /// bodies that otherwise come back as empty folders. `MyApp` carries
     /// no memory files, so no snapshot can hold them.
     ///
     /// Quarantine can't tell a bad sync from a file deliberately deleted on
@@ -4055,15 +4055,14 @@ public final class MyAppStore {
     /// Before overwriting local state we (1) checkpoint any dirty in-memory
     /// MyApp that hasn't been persisted, and (2) capture + resolve any iCloud
     /// `NSFileVersion` conflicts — snapshotting every side so no offline edit
-    /// is ever silently lost (issue #82).
+    /// is ever silently lost.
     ///
     /// The heavy file IO — the whole-tree conflict scan and the coordinated
-    /// reads of `index.json` + every app file — runs **off the main actor**
-    /// (pupa#110): during an initial iCloud download the watcher fires this
-    /// repeatedly, and doing that IO on main stampeded the UI thread. Only the
-    /// in-memory dirty check (before) and the republish (after) touch main
-    /// state. The watcher keeps `NSMetadataQuery` updates suppressed until this
-    /// returns, so reloads can't overlap.
+    /// reads of `index.json` + every app file — runs **off the main actor**:
+    /// during an initial iCloud download the watcher fires this repeatedly.
+    /// Only the in-memory dirty check (before) and the republish (after) touch
+    /// main state. The watcher keeps `NSMetadataQuery` updates suppressed until
+    /// this returns, so reloads can't overlap.
     public func reloadFromDisk() async {
         let enc = Self.stateEncoder()
         // Not while provisioning: checkpointing the in-memory placeholder writes
@@ -4342,7 +4341,7 @@ public final class MyAppStore {
 
     /// Raise `pendingMemoryLoss` when a sync took memory files from apps that
     /// are still in the roster — the half `recoverMemoryFiles` can't reach,
-    /// since it only runs on an un-delete (#251 follow-up).
+    /// since it only runs on an un-delete.
     ///
     /// **Trigger is a lost *unit*, not a lost file.** A file deleted
     /// deliberately on another device arrives as the same `.deleteLocal` and is

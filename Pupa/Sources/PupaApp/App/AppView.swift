@@ -27,7 +27,7 @@ public struct AppView: View {
     @State private var settings: SettingsStore
     @State private var modelCatalog = ModelCatalogStore()
     @State private var coordinator: ChatSessionCoordinator
-    /// Bundle-automation reactor (issue #209). Fed the canvas-event stream from
+    /// Bundle-automation reactor. Fed the canvas-event stream from
     /// `store.onCanvasEvent`; publishes confirm-bubble / auto-fire proposals.
     @State private var engine = RuleEngine()
     /// Reaction threadId → the rule lock it holds. Set when a reaction thread
@@ -149,9 +149,9 @@ public struct AppView: View {
         store.threadCapBytes = { [weak settings] in settings?.effectiveThreadCapBytes }
         if settings.threadCapEnabled { store.pruneAllThreads() }
         // Reap dispatch journals no relaunch can act on any more: the backend's
-        // park wall is 300s, so anything a day old is provably undeliverable
-        // (pupa#258). Belt-and-braces — the normal paths clear their own.
-        // Off-main: it enumerates a directory and stats every file (pupa#120).
+        // park wall is 300s, so anything a day old is provably undeliverable.
+        // Belt-and-braces — the normal paths clear their own.
+        // Off-main: it enumerates a directory and stats every file.
         Task.detached(priority: .utility) { FrontendDispatchJournalStore.sweep() }
         self._store = State(initialValue: store)
         self._memory = State(initialValue: memory)
@@ -362,7 +362,7 @@ public struct AppView: View {
                 Alert(title: Text("Reminder unavailable"), message: Text(note.message),
                       dismissButton: .default(Text("OK")))
             }
-            // Bundle automations (issue #209): wire the canvas-event stream to
+            // Bundle automations: wire the canvas-event stream to
             // the rule engine, surface the confirm bubble for matched rules,
             // and auto-fire `confirm: false` rules.
             .task { wireAutomations() }
@@ -438,7 +438,7 @@ public struct AppView: View {
                     await convergeAndReloadStores()
                 }
             }
-            // Resumable SSE lifecycle (pupa#103): ride out short backgrounds
+            // Resumable SSE lifecycle: ride out short backgrounds
             // with a UIKit background task so in-flight streams survive, and
             // on return to foreground re-attach any stream the OS killed —
             // the backend's replay log serves back what was missed.
@@ -485,9 +485,9 @@ public struct AppView: View {
         switch phase {
         case .background:
             // Tell parked frontend tools we're backgrounding (backend falls
-            // back to its absolute wall — pupa-backend#82) while the network
-            // is still alive, then snapshot in-flight turns so an OS kill can
-            // catch up on next launch (pupa#103).
+            // back to its absolute wall) while the network is still alive,
+            // then snapshot in-flight turns so an OS kill can
+            // catch up on next launch.
             coordinator.setAllHostBackgrounded(true)
             coordinator.persistAllForBackground()
             guard coordinator.anyStreaming, streamKeepAlive == .invalid else { return }

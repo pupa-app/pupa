@@ -54,7 +54,7 @@ public struct MyAppPolicy: AgentPolicy {
         // AGENTS.md layers *over* the type fragment, it no longer replaces it.
         // The type fragment (base + catalog + per-kind, resolved against the
         // current canvas) is dynamic, so a seeded AGENTS.md must not freeze it —
-        // otherwise per-kind guidance is lost as components change (issue #164).
+        // otherwise per-kind guidance is lost as components change.
         let agentsMd = (try? memory.readFile(path: MemoryStore.pupaAgentsPath))?.content
         var parts: [String] = []
         if !typeFragment.isEmpty {

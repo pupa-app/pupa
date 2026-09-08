@@ -2,7 +2,7 @@ import Foundation
 
 /// Per-kind guardrails for `CalendarEvent`. Registered in `ItemPolicyRegistry`
 /// at app bootstrap so `MyAppStore.linkItems` and cascade routing can consult
-/// it uniformly once Phase 4 completes the full migration.
+/// it uniformly.
 public struct CalendarEventPolicy: ItemPolicy {
     public typealias ItemType = CalendarEvent
 

@@ -3,7 +3,7 @@ import AGUIKit
 
 extension AppTools {
     // Calendar component frontend tools. Relocated from the AppTools
-    // monolith into the Calendar component folder (issue #162);
+    // monolith into the Calendar component folder;
     // registerMyAppTools + CalendarModule.registerTools both call it.
     // Zero logic change.
     @MainActor

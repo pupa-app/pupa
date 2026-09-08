@@ -1,7 +1,7 @@
 import SwiftUI
 import AGUIKit
 
-/// The calculator kind's `ComponentModule` (issue #162). No `itemPolicy`
+/// The calculator kind's `ComponentModule`. No `itemPolicy`
 /// (calculator rows aren't universal link targets — cross-component refs are
 /// handled by the unified ref model on `CanvasApp`).
 @MainActor

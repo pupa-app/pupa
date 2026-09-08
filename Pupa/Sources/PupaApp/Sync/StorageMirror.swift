@@ -7,7 +7,7 @@ import os
 ///
 /// The local tree is always the store of record — the app reads and writes it
 /// directly and never blocks on iCloud — so turning iCloud off in iOS Settings
-/// can't hide MyApps or strand offline edits (pupa#110 follow-up). When iCloud
+/// can't hide MyApps or strand offline edits. When iCloud
 /// is available, `reconcile()` converges the two trees.
 ///
 /// **Merge is baseline-aware (3-way), not naive newest-wins.** A persisted

@@ -1,7 +1,7 @@
 import SwiftUI
 import AGUIKit
 
-/// The checklist kind's `ComponentModule` (issue #162). Mirrors `TrackerModule`.
+/// The checklist kind's `ComponentModule`. Mirrors `TrackerModule`.
 @MainActor
 public struct ChecklistModule: ComponentModule {
     public init() {}

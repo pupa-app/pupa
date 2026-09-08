@@ -33,7 +33,7 @@ public final class MyAppTypeRegistry {
             register(.tracker)
         }
 
-        // Component modules — one self-registering module per kind (issue #162).
+        // Component modules — one self-registering module per kind.
         // Migrated incrementally: registered kinds route through the module at
         // the inverted central sites; unregistered kinds fall back to the legacy
         // switches. `ComponentRegistry.assertComplete` is wired once every
