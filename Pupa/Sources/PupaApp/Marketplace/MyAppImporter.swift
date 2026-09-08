@@ -304,8 +304,8 @@ public enum MyAppImporter {
         }
     }
 
-    /// Keep only allow-listed settings; re-validate the LLM pair against the
-    /// catalog (drop both if the pair is unknown). Returns the dropped keys.
+    /// Keep only allow-listed settings; drop the LLM pair unless both fields
+    /// are non-empty. Returns the dropped keys.
     private static func sanitizeSettings(
         _ raw: [String: SettingValue]
     ) -> (clean: [String: SettingValue], dropped: [String]) {
@@ -314,10 +314,10 @@ public enum MyAppImporter {
         for (k, v) in raw {
             if allowedSettingKeys.contains(k) { clean[k] = v } else { dropped.append(k) }
         }
-        // The model catalog is now backend-provided (per-harness discovery), so
-        // we can't validate the pair against a static list here. Keep it if both
-        // fields are non-empty strings; an unknown pair is rejected by the
-        // backend at request time with a clear error toast.
+        // No static catalog to validate against — the model list is
+        // backend-provided per harness. Keep the pair if both fields are
+        // non-empty strings; an unknown pair is rejected by the backend at
+        // request time with a clear error toast.
         if case .string(let provider)? = clean[MyAppStore.llmProviderSettingsKey],
            case .string(let model)? = clean[MyAppStore.llmModelSettingsKey],
            !provider.isEmpty, !model.isEmpty {

@@ -1104,18 +1104,16 @@ public final class ChatSessionCoordinator {
         return false
     }
 
+    /// Max channel messages included in a Slack agent's invocation prompt.
+    /// Channels grow without bound, and sending the full transcript every turn
+    /// would burn input tokens and eventually blow the context window. Older
+    /// messages stay reachable via `slackReadChannelHistory`'s `before` cursor.
+    static let slackInvocationHistoryLimit = 30
+
     /// Render the channel history as a chronological transcript and
     /// wrap it in a single user prompt for the invoked agent. The
     /// model receives this as the latest user message; persona +
     /// canvas state arrive separately via context entries.
-    /// Default cap on the number of channel messages stuffed into a
-    /// Slack agent's invocation prompt. Channels can grow without
-    /// bound; sending the full transcript on every turn would burn
-    /// input tokens and eventually blow the model's context window.
-    /// Older messages remain reachable via the `slackReadChannelHistory`
-    /// tool's `before` cursor.
-    static let slackInvocationHistoryLimit = 30
-
     static func slackInvocationPrompt(
         agentName: String,
         agentSlug: String,

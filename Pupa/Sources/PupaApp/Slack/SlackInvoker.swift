@@ -368,9 +368,6 @@ public struct SlackInvocationState: Equatable {
     }
 }
 
-/// The view of a parked `ask_user_questions` call inside a Slack
-/// sub-agent's invocation state. `rows` mirrors the request the model
-/// sent; `answers` carries the user's per-row input as they fill it in.
 /// The view of a parked `request_shell_approval` call inside a Slack
 /// sub-agent's invocation state. `SlackView` renders an inline approval card.
 public struct SlackPendingShellApproval: Equatable, Sendable {
@@ -378,6 +375,9 @@ public struct SlackPendingShellApproval: Equatable, Sendable {
     public init(command: String) { self.command = command }
 }
 
+/// The view of a parked `ask_user_questions` call inside a Slack
+/// sub-agent's invocation state. `rows` mirrors the request the model
+/// sent; `answers` carries the user's per-row input as they fill it in.
 public struct SlackPendingQuestion: Equatable, Sendable {
     public var rows: [HumanQuestionRow]
     public var answers: [PendingAnswer]

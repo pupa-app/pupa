@@ -852,12 +852,9 @@ public struct ChatPanel: View {
         viewModel.isStreaming && !viewModel.isAwaitingHumanInput && !composerHasContent
     }
 
-    /// The TextField is disabled while a turn is in flight, so swap the
-    /// placeholder so the lock state is self-explanatory and the user
-    /// knows Stop is their only mid-turn action. When the agent is parked
-    /// on an `ask_user_questions` interrupt the composer is gated too —
-    /// answers travel through the bubble's Submit button, not the
-    /// composer, so the placeholder explains where to reply.
+    /// Placeholder says where the user can act. Typing stays enabled while
+    /// streaming (the message queues), but a human-in-the-loop interrupt gates
+    /// the field — answers travel through the bubble's Submit button.
     private var composerPlaceholder: String {
         // Interrupt copy wins over the streaming copy: while parked, the turn
         // is technically still in flight (`isStreaming == true`) but the user's
@@ -1347,15 +1344,14 @@ private struct ShellApprovalBubbleView: View {
 }
 
 /// A clarifying-question panel raised by the agent via the
-/// `ask_user_questions` backend tool. The backend is paused on an
+/// `ask_user_questions` frontend tool. The backend is paused on an
 /// interrupt; the user picks an option or types a custom reply per
 /// question and taps Submit; `ChatViewModel.submitInterruptAnswers()`
 /// routes the collected list into `AgentSession.resume(answers:)`.
 ///
-/// Visual contract: yellow tint + question-mark glyph so the user can tell
-/// at a glance the agent is waiting on them. When `isLive` is false the
-/// bubble renders the historical state read-only (a previously-submitted
-/// panel staying in the transcript for context).
+/// Yellow tint + question-mark glyph so the user can tell at a glance the
+/// agent is waiting on them. `isLive == false` renders a previously-submitted
+/// panel read-only, for transcript context.
 private struct HumanQuestionBubbleView: View {
     let bubble: ChatBubble
     let isLive: Bool

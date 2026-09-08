@@ -1841,10 +1841,6 @@ public final class MyAppStore {
             .components.first(where: { $0.id == componentId })?.name
     }
 
-    /// Attach a tracker item to a calendar event. No-op if the ref is
-    /// already in the event's `linkedItems`, the event doesn't exist, or
-    /// the calendar component is missing. Returns the updated link count
-    /// on success.
     /// Replace a calendar event's `linkedItems` wholesale. Used by
     /// `patchCalendarEvent` when the agent supplies a `linkedItems`
     /// patch.

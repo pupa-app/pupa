@@ -2247,10 +2247,9 @@ public final class ChatViewModel {
 // MARK: - HumanInTheLoopBridge
 
 extension ChatViewModel: HumanInTheLoopBridge {
-    /// Render a `humanQuestion` bubble for the given rows, suspend the
-    /// caller until the user taps Submit (or cancels), return the
-    /// collected answers. Driven by the `ask_user_questions` frontend
-    /// tool's handler in [AppTools.swift](../Tools/AppTools.swift).
+    /// Render a `shellApproval` bubble for `command` and suspend the caller
+    /// until the user approves or denies it. `remember` carries the "don't ask
+    /// again" choice. Cancellation resumes as a denial.
     public func requestShellApproval(command: String) async -> (approved: Bool, remember: Bool) {
         openToolRoundId = nil
         let bubble = ChatBubble(role: .shellApproval, text: command)
@@ -2270,6 +2269,10 @@ extension ChatViewModel: HumanInTheLoopBridge {
         }
     }
 
+    /// Render a `humanQuestion` bubble for the given rows, suspend the
+    /// caller until the user taps Submit (or cancels), return the
+    /// collected answers. Driven by the `ask_user_questions` frontend
+    /// tool's handler in [AppTools.swift](../Tools/AppTools.swift).
     public func askQuestions(_ questions: [HumanQuestionRow]) async -> [String] {
         // Close any open tool-round bubble — `ask_user_questions` is
         // typically the only call in its batch, so the spinner should

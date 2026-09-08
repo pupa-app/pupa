@@ -13,8 +13,8 @@ import Observation
 /// and an orphan key left behind by a deleted agent is harmless — the
 /// overview only shows stats for agents a live descriptor resolves.
 ///
-/// Persistence is a single JSON blob under `pupa.agentstats.v1`,
-/// mirroring `MyAppStore` / `SettingsStore`.
+/// Persistence is a single JSON blob in `UserDefaults` under
+/// `pupa.agentstats.v1`.
 @MainActor
 @Observable
 public final class AgentStatsStore {

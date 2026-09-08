@@ -4,24 +4,12 @@ import SwiftUI
 /// pattern from the New MyApp / Rename MyApp sheets so iOS / macOS gets a
 /// system-shaped layout for free.
 ///
-/// Categories (each pushes its own screen):
-///   - **Backend** — base URL + optional shared API key (sent as
-///     `Authorization: Bearer <key>` to match the backend's
-///     `PUPA_API_KEY` env var). Both are persisted via `SettingsStore`
-///     and take effect on the next message — no app restart needed (see
-///     `ChatViewModel.rebuildSessionIfSettingsChanged`).
-///   - **Agents** — hub for everything agent-governing: the roster, the
-///     tools agents may call (shell approval + per-tool backend toggles),
-///     the A2A / turn limits, and the conversation threads.
-///   - **Notifications** — Active (grouped by who scheduled them) and Past
-///     (fired / cancelled), backed by `NotificationLogStore`; rows can be
-///     edited or cancelled.
-///   - **Manage MyApps** — the per-app housekeeping pages: Agents, Import &
-///     Export, Pinned snapshots, Archive, Recently deleted.
-///   - **Examples** — add a sample workspace to the sidebar; the guided tour
-///     replay sits at the bottom of that page.
-///   - **Screen share** — secondary viewer, pushed on the main detail stack
-///     (the sheet closes first) so the video gets the whole window.
+/// Each category pushes its own screen: Backend, Agents, Notifications,
+/// Manage MyApps, Examples, Screen share. Backend edits are persisted via
+/// `SettingsStore` and take effect on the next message, no restart — see
+/// `ChatViewModel.rebuildSessionIfSettingsChanged`. Screen share is pushed on
+/// the main detail stack (the sheet closes first) so the video gets the whole
+/// window.
 public struct SettingsSheet: View {
     @Bindable var settings: SettingsStore
     var onRestoreExample: ((any ExampleMyApp.Type) -> Void)?
