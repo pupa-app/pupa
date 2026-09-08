@@ -29,14 +29,17 @@ public struct SlackView: View {
     /// unused.
     @State private var sidebarPresented: Bool = false
 
-    /// Per-channel scroll restoration. Maps `channelId` → the id of
+    /// Per-channel scroll restoration. Maps a channel → the id of
     /// the message (or bottom marker) we should anchor to the bottom
     /// of the viewport when re-entering that channel. Lives at the
     /// SlackView level so the inner ScrollView's `.id(channel.id)`
     /// rebuild on channel switch doesn't wipe it. Channels with no
     /// entry default to the bottom anchor — fresh visits land on the
     /// latest message.
-    @State private var channelScrollAnchor: [String: String] = [:]
+    ///
+    /// Keyed by `SlackChannelKey`, not the channel id: this `@State`
+    /// outlives the component it belongs to, and channel ids repeat.
+    @State private var channelScrollAnchor: [SlackChannelKey: String] = [:]
 
     /// True iff we're in a horizontally cramped environment
     /// (iPhone portrait). Drives the top-level layout switch —
@@ -404,7 +407,8 @@ public struct SlackView: View {
         // to ThinkingBubbles appearing/disappearing as agents start
         // and finish — they live above this marker too.
         let bottomAnchor = "slack-bottom"
-        let channelId = channel.id
+        let channelKey = SlackChannelKey(
+            myAppId: myAppId, componentId: componentId, channelId: channel.id)
 
         // Two-way binding into `channelScrollAnchor`. Default value is
         // `bottomAnchor` so first-time visits open at the most recent
@@ -412,10 +416,10 @@ public struct SlackView: View {
         // id of whatever is anchored at the viewport's bottom edge —
         // that's what we restore on the next visit.
         let scrollAnchorBinding = Binding<String?>(
-            get: { channelScrollAnchor[channelId] ?? bottomAnchor },
+            get: { channelScrollAnchor[channelKey] ?? bottomAnchor },
             set: { newId in
                 guard let newId else { return }
-                channelScrollAnchor[channelId] = newId
+                channelScrollAnchor[channelKey] = newId
             }
         )
 
@@ -458,7 +462,10 @@ public struct SlackView: View {
             .padding(.vertical, 12)
         }
         .scrollPosition(id: scrollAnchorBinding, anchor: .bottom)
-        .id(channelId)
+        // Identify on the whole channel, not its id: two workspaces both show
+        // a "channel-1", and a bare id would not rebuild the scroll view when
+        // the canvas swaps one Slack component for another.
+        .id(channelKey)
         .frame(maxHeight: .infinity)
     }
 

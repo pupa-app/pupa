@@ -3,6 +3,19 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.285] — 2026-09-08
+
+### Fixed
+
+- **A Slack channel's scroll position no longer follows you into another
+  workspace.** Scrolling up in one workspace's first channel, then switching to
+  a different MyApp (or a second Slack component in the same one), restored
+  that scroll position into a different channel's messages — landing somewhere
+  arbitrary instead of on the latest message. The anchor was keyed by channel
+  id, but channel ids are uniqued within one Slack component, so `channel-1` is
+  the first channel of every workspace. Both the anchor and the message list's
+  identity now key on the whole channel.
+
 ## [0.0.284] — 2026-09-08
 
 ### Fixed

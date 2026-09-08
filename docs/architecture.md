@@ -1355,6 +1355,16 @@ DM) calls `invokeSlackAgent`, a thin Slack wrapper over the same subagent runner
 that adds channel-history context, live `SlackInvoker` bubbles, and auto-posting
 of the reply.
 
+Per-channel scroll restoration lives in `SlackView` `@State`, keyed by
+`SlackChannelKey` (myApp id + component id + channel id) — and the message
+`ScrollView` is identified the same way. All three parts are load-bearing:
+`nextSlackId` uniques channel ids within one component and `addComponent`
+uniques component ids within one MyApp, so `channel-1` of `slack-1` names a
+different channel in every MyApp, and in every Slack component of the same
+MyApp. `CanvasView` builds component views without `.id(component.id)`, so this
+`@State` outlives the component it belongs to. Same shape as tracker's
+`TrackerBoardKey`, one level further down.
+
 Full reference: [skills.md](skills.md).
 
 ## Persistence
