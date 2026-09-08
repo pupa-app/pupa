@@ -13,18 +13,19 @@ public struct TrackerView: View {
     /// init paths; CanvasView always supplies it.
     let componentId: String?
     @State private var sheet: SheetTarget?
-    /// Debounced search text, keyed by component id. `CanvasView` builds
-    /// component views without `.id(component.id)`, so `@State` is keyed by
-    /// structural position — a bare `String` here would leak one tracker's
-    /// query onto the next. Same fix `SlackView.channelScrollAnchor` uses.
-    @State private var queryByComponent: [String: String] = [:]
-    /// Filter-panel disclosure, collapsed by default. Component-keyed for the
+    /// Debounced search text, keyed by board. `CanvasView` builds component
+    /// views without `.id(component.id)`, so `@State` is keyed by structural
+    /// position — a bare `String` here would leak one tracker's query onto the
+    /// next. The key must be the board, not the component id: ids repeat
+    /// across MyApps (`MyAppStore.addComponent`).
+    @State private var queryByBoard: [TrackerBoardKey: String] = [:]
+    /// Filter-panel disclosure, collapsed by default. Board-keyed for the
     /// same reason as the query.
-    @State private var filtersShownByComponent: [String: Bool] = [:]
+    @State private var filtersShownByBoard: [TrackerBoardKey: Bool] = [:]
     /// Cards peeked open despite `data.shrinkCards`. Ephemeral on purpose: a
     /// peek is chrome, and `persist()` is a whole-app encode + iCloud write —
-    /// the same reason the search query above is not persisted. Keyed by board,
-    /// not by component id — see `TrackerBoardKey`.
+    /// the same reason the search query above is not persisted. Keyed by board
+    /// like the rest — see `TrackerBoardKey`.
     @State private var peeks = TrackerPeekState()
 
     public init(store: MyAppStore, data: TrackerData, myAppId: UUID, componentId: String? = nil) {
@@ -32,6 +33,11 @@ public struct TrackerView: View {
         self.data = data
         self.myAppId = myAppId
         self.componentId = componentId
+    }
+
+    /// Scopes view `@State` to this board. See `TrackerBoardKey`.
+    private var board: TrackerBoardKey {
+        TrackerBoardKey(myAppId: myAppId, componentId: componentId)
     }
 
     public var body: some View {
@@ -46,7 +52,7 @@ public struct TrackerView: View {
 
             if !data.items.isEmpty {
                 TrackerSearchField(initialText: query, onQueryChange: setQuery)
-                    .id(componentId)
+                    .id(board)
             }
 
             if hasAnyFilters, filtersShown {
@@ -110,12 +116,12 @@ public struct TrackerView: View {
         data.visibleFields.contains { $0.type == .select && !($0.options ?? []).isEmpty }
     }
 
-    private var filtersShown: Bool { filtersShownByComponent[componentId ?? ""] ?? false }
+    private var filtersShown: Bool { filtersShownByBoard[board] ?? false }
 
     private var filtersShownBinding: Binding<Bool> {
         Binding(
             get: { filtersShown },
-            set: { filtersShownByComponent[componentId ?? ""] = $0 }
+            set: { filtersShownByBoard[board] = $0 }
         )
     }
 
@@ -123,11 +129,7 @@ public struct TrackerView: View {
         data.filter.reduce(into: 0) { n, entry in if !entry.value.isEmpty { n += 1 } }
     }
 
-    private var query: String { queryByComponent[componentId ?? ""] ?? "" }
-
-    private var board: TrackerBoardKey {
-        TrackerBoardKey(myAppId: myAppId, componentId: componentId)
-    }
+    private var query: String { queryByBoard[board] ?? "" }
 
     private var expandedIds: Set<UUID> { peeks.ids(for: board) }
 
@@ -135,7 +137,7 @@ public struct TrackerView: View {
 
     private func setQuery(_ new: String) {
         guard new != query else { return }
-        queryByComponent[componentId ?? ""] = new
+        queryByBoard[board] = new
     }
 
     private var filtered: [TrackerFiltering.Entry] {

@@ -11,10 +11,10 @@ public struct KanbanView: View {
     let myAppId: UUID
     let componentId: String?
     @State private var sheet: SheetTarget?
-    /// See `TrackerView.queryByComponent` — same structural-`@State` caveat.
-    @State private var queryByComponent: [String: String] = [:]
+    /// See `TrackerView.queryByBoard` — same structural-`@State` caveat.
+    @State private var queryByBoard: [TrackerBoardKey: String] = [:]
     /// Filter-panel disclosure, collapsed by default.
-    @State private var filtersShownByComponent: [String: Bool] = [:]
+    @State private var filtersShownByBoard: [TrackerBoardKey: Bool] = [:]
     /// Cards peeked open despite `data.shrinkCards`. See the same property on
     /// `TrackerView` — ephemeral, board-keyed, never persisted.
     @State private var peeks = TrackerPeekState()
@@ -24,6 +24,11 @@ public struct KanbanView: View {
         self.data = data
         self.myAppId = myAppId
         self.componentId = componentId
+    }
+
+    /// Scopes view `@State` to this board. See `TrackerBoardKey`.
+    private var board: TrackerBoardKey {
+        TrackerBoardKey(myAppId: myAppId, componentId: componentId)
     }
 
     public var body: some View {
@@ -39,7 +44,7 @@ public struct KanbanView: View {
             if let column = resolvedColumnField {
                 if !data.items.isEmpty {
                     TrackerSearchField(initialText: query, onQueryChange: setQuery)
-                        .id(componentId)
+                        .id(board)
                 }
                 // Kanban honours `data.filter` too, so the chips must be
                 // reachable from here — otherwise an agent- or grid-set filter
@@ -101,11 +106,7 @@ public struct KanbanView: View {
         }
     }
 
-    private var query: String { queryByComponent[componentId ?? ""] ?? "" }
-
-    private var board: TrackerBoardKey {
-        TrackerBoardKey(myAppId: myAppId, componentId: componentId)
-    }
+    private var query: String { queryByBoard[board] ?? "" }
 
     private var expandedIds: Set<UUID> { peeks.ids(for: board) }
 
@@ -113,19 +114,19 @@ public struct KanbanView: View {
 
     private func setQuery(_ new: String) {
         guard new != query else { return }
-        queryByComponent[componentId ?? ""] = new
+        queryByBoard[board] = new
     }
 
     private var hasAnyFilters: Bool {
         data.visibleFields.contains { $0.type == .select && !($0.options ?? []).isEmpty }
     }
 
-    private var filtersShown: Bool { filtersShownByComponent[componentId ?? ""] ?? false }
+    private var filtersShown: Bool { filtersShownByBoard[board] ?? false }
 
     private var filtersShownBinding: Binding<Bool> {
         Binding(
             get: { filtersShown },
-            set: { filtersShownByComponent[componentId ?? ""] = $0 }
+            set: { filtersShownByBoard[board] = $0 }
         )
     }
 

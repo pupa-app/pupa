@@ -5,6 +5,24 @@ import SwiftUI
 // `TrackerData` — only the layout around items differs — so the card body,
 // add/edit sheet, and section card live here to avoid drift.
 
+// MARK: - Board identity
+
+/// Identifies one tracker board. The component id alone does not:
+/// `MyAppStore.addComponent` uniques ids against one MyApp's own components,
+/// so every MyApp's first tracker is `"tracker-1"`. `CanvasView` builds
+/// component views without `.id(component.id)`, so view `@State` outlives the
+/// component it belongs to — keyed on the component id it leaks across a
+/// sidebar MyApp switch, and makes a swap look like a shrink press.
+struct TrackerBoardKey: Hashable {
+    let myAppId: UUID
+    let componentId: String
+
+    init(myAppId: UUID, componentId: String?) {
+        self.myAppId = myAppId
+        self.componentId = componentId ?? ""
+    }
+}
+
 // MARK: - Canvas title bar
 
 /// Title + shrink toggle + view-mode toggle. The view-mode toggle flips
@@ -608,26 +626,12 @@ private struct TextDetailEditor: View {
 
 // MARK: - Card peek
 
-/// Identifies one tracker board. The component id alone does not: `addComponent`
-/// uniques ids against one MyApp's own components, so every MyApp's first
-/// tracker is `"tracker-1"`. See `MyAppStore.addComponent`.
-struct TrackerBoardKey: Hashable {
-    let myAppId: UUID
-    let componentId: String
-
-    init(myAppId: UUID, componentId: String?) {
-        self.myAppId = myAppId
-        self.componentId = componentId ?? ""
-    }
-}
-
 /// Which cards are peeked open on a shrunk board, keyed by board. A value type
 /// so both tracker views share one copy of the rules and the rules are testable
 /// without building a view.
 ///
-/// Keyed rather than a bare `Set` for the reason `TrackerView.queryByComponent`
-/// documents: `CanvasView` builds component views without `.id(component.id)`,
-/// so the `@State` holding this survives the canvas swapping one tracker for
+/// Keyed rather than a bare `Set` for the reason `TrackerBoardKey` documents:
+/// the `@State` holding this survives the canvas swapping one tracker for
 /// another in the same structural slot.
 struct TrackerPeekState: Equatable {
     private var idsByBoard: [TrackerBoardKey: Set<UUID>] = [:]
