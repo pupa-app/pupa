@@ -630,9 +630,8 @@ private struct TextDetailEditor: View {
 /// so both tracker views share one copy of the rules and the rules are testable
 /// without building a view.
 ///
-/// Keyed rather than a bare `Set` for the reason `TrackerView.queryByComponent`
-/// documents: `CanvasView` builds component views without `.id(component.id)`,
-/// so the `@State` holding this survives the canvas swapping one tracker for
+/// Keyed rather than a bare `Set` for the reason `TrackerBoardKey` documents:
+/// the `@State` holding this survives the canvas swapping one tracker for
 /// another in the same structural slot.
 struct TrackerPeekState: Equatable {
     private var idsByBoard: [TrackerBoardKey: Set<UUID>] = [:]
