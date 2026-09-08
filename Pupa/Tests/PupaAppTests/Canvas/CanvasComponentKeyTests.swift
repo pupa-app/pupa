@@ -7,7 +7,7 @@ import AGUIKit
 /// (search query, filter-panel disclosure) to one board. These tests pin the
 /// premise it exists for: component ids are unique per MyApp, not globally.
 @MainActor
-@Suite("Tracker board key")
+@Suite("Canvas component key")
 struct CanvasComponentKeyTests {
 
     private func makeMyApp(_ name: String) -> MyApp {
