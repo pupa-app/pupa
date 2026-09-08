@@ -10,6 +10,23 @@ import Foundation
 /// easier to pin in a test that needs no store.
 enum TrackerFiltering {
 
+    #if DEBUG
+    /// Test-only tally of the once-per-call normalisations: the search needle
+    /// plus each active filter value. Backs the perf invariant that these are
+    /// hoisted out of the row loop — the count must not move with item count.
+    /// Unsafe by declaration, safe in practice: Pupa's suite is `--no-parallel`.
+    nonisolated(unsafe) static var normalizeCountForTesting = 0
+    /// Test-only tally of per-row value lowercasings. This is the term that
+    /// scales with the board, so what matters is how *few* rows and fields it
+    /// touches: an idle board must not pay for search at all.
+    nonisolated(unsafe) static var valueScanCountForTesting = 0
+
+    static func resetCountersForTesting() {
+        normalizeCountForTesting = 0
+        valueScanCountForTesting = 0
+    }
+    #endif
+
     struct Entry: Identifiable, Hashable {
         let item: TrackerItem
         /// Index in the UNFILTERED items array. Drives the card's
@@ -33,7 +50,15 @@ enum TrackerFiltering {
         query: String
     ) -> [Entry] {
         let activeFilter = filter.filter { !$0.value.isEmpty }
-            .mapValues { $0.lowercased() }
+            .mapValues { value -> String in
+                #if DEBUG
+                normalizeCountForTesting += 1
+                #endif
+                return value.lowercased()
+            }
+        #if DEBUG
+        normalizeCountForTesting += 1
+        #endif
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let searchable = fields.filter { $0.type != .image }.map(\.name)
 
@@ -49,6 +74,9 @@ enum TrackerFiltering {
 
     private static func matchesFilter(_ item: TrackerItem, _ filter: [String: String]) -> Bool {
         for (field, wanted) in filter {
+            #if DEBUG
+            valueScanCountForTesting += 1
+            #endif
             if (item.values[field] ?? "").lowercased() != wanted { return false }
         }
         return true
@@ -61,6 +89,9 @@ enum TrackerFiltering {
     ) -> Bool {
         fields.contains { name in
             guard let value = item.values[name], !value.isEmpty else { return false }
+            #if DEBUG
+            valueScanCountForTesting += 1
+            #endif
             return value.lowercased().contains(needle)
         }
     }

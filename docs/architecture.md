@@ -1069,6 +1069,14 @@ a filter is never applied invisibly, and it can be cleared from either view.
   cleared; that board reads its own bucket when it returns. Board geometry
   (grid column width, lane spacing) stays on the board density; a peek grows
   its own row but never reflows the columns.
+- **Filtering cost.** `TrackerFiltering.visibleEntries` runs on every render of
+  both views over every item, so its per-row string work is the board's
+  per-frame budget. The needle and each active filter value are normalised once
+  per call; an idle board (no filter, no query) does no per-row work at all;
+  the select filter runs before the query so rejected rows are never searched;
+  and `matchesQuery` stops at the first matching field. `TrackerFilteringPerfTests`
+  pins all four by counting lowercasings behind `#if DEBUG` counters — counts,
+  not timings, so the guard means the same thing on a loaded machine.
 - **Links:** `CardLayout` carries every `.link` field; the card caps per
   density (3 / 2 / 0) and offers a "+N" chip that expands into fixed-width
   rows. Chunking is a constant, never a measured wrap.
