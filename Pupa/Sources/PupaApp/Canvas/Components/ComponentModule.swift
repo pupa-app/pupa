@@ -26,36 +26,29 @@ public struct ComponentToolContext {
     }
 }
 
-/// One self-registering canvas component kind. Collapses the per-kind
-/// registration that used to be smeared across `CanvasView`, `CanvasSummary`,
-/// `CanvasState`, `AppTools`, `MyAppType`, and three separate registries into a
-/// single type a contributor writes once. Mirrors `ItemPolicyRegistry` /
-/// `ComponentExportRegistry`: `@MainActor`, keyed by the lowercase `kind`
-/// string, registered at bootstrap in `MyAppTypeRegistry.registerBuiltins()`.
+/// One self-registering canvas component kind — everything a contributor writes
+/// once for a new kind. Mirrors `ItemPolicyRegistry` / `ComponentExportRegistry`:
+/// `@MainActor`, keyed by the lowercase `kind` string, registered at bootstrap
+/// in `MyAppTypeRegistry.registerBuiltins()`.
 ///
-/// The `CanvasApp` Codable enum stays the persistence discriminator (the Tier 1
-/// boundary) — each module does its own single-case unwrap
-/// (`guard case .tracker(let d) = body`) instead of the central exhaustive
-/// switch, so a module owns only its own case.
+/// The `CanvasApp` Codable enum stays the persistence discriminator — each
+/// module does its own single-case unwrap (`guard case .tracker(let d) = body`)
+/// instead of the central exhaustive switch, so a module owns only its own case.
 @MainActor
 public protocol ComponentModule: Sendable {
     /// Lowercase kind string, matching `CanvasApp.kindString` (`"tracker"`).
     var kind: String { get }
-    /// Tools + prompt prose + catalog blurb for this kind (was a
-    /// `MyAppType.kinds[…]` literal).
+    /// Tools + prompt prose + catalog blurb for this kind.
     var kindSpec: ComponentKindSpec { get }
-    /// SF Symbol seeded onto a freshly added component (was
-    /// `AppTools.defaultIcon(forKind:)`).
+    /// SF Symbol seeded onto a freshly added component.
     var defaultIcon: String { get }
 
-    /// Empty typed body for a new component of this kind (was
-    /// `CanvasApp.emptyBody(forKind:)`).
+    /// Empty typed body for a new component of this kind.
     func makeEmptyBody() -> CanvasApp
-    /// Item count for the canvas summary size bucket (was
-    /// `CanvasSummary.itemCount(of:)`). Returns 0 for a body of another kind.
+    /// Item count for the canvas summary size bucket. Returns 0 for a body of
+    /// another kind.
     func itemCount(_ body: CanvasApp) -> Int
-    /// Empty-state copy for the canvas placeholder (was the `EmptyComponentHint`
-    /// switches in `CanvasView`).
+    /// Empty-state copy for the canvas placeholder.
     func emptyHint() -> (headline: String, subline: String)
     /// The component's canvas view. `coordinator` is only used by slack; other
     /// kinds ignore it.
@@ -137,10 +130,7 @@ public final class ComponentRegistry {
     public var allModules: [any ComponentModule] { Array(table.values) }
 
     /// Fail fast at bootstrap if a supported kind has no module — the runtime
-    /// replacement for the enum's compile-time exhaustiveness on the inverted
-    /// sites. Not called until every supported kind ships a module (Tier 1
-    /// completes); during the incremental migration unregistered kinds fall
-    /// back to the legacy switches.
+    /// replacement for the enum's compile-time exhaustiveness.
     public func assertComplete(supportedKinds: Set<String>) {
         // `empty` is a placeholder body with no module.
         let required = supportedKinds.subtracting(["empty"])

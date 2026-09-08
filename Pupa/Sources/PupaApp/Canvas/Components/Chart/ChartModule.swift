@@ -11,7 +11,7 @@ public struct ChartModule: ComponentModule {
     public let kind = "chart"
     public let defaultIcon = "chart.pie"
 
-    /// Owned here; `MyAppType.tracker.kinds` assembles from this at load.
+    /// Owned here; `MyAppType` assembles the kind list from every module at load.
     public nonisolated static let kindSpec = ComponentKindSpec(
         tools: [
             "renderChart",

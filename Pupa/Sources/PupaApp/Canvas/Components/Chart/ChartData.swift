@@ -1,6 +1,7 @@
 import Foundation
 
-// Chart component data model. Moved out of CanvasState.
+// Chart component data model. The `CanvasApp.chart` arm and its Codable stay
+// in CanvasState.
 // The `CanvasApp.chart` enum arm + its Codable stay in CanvasState; the
 // unified cross-component ref extensions also stay there.
 

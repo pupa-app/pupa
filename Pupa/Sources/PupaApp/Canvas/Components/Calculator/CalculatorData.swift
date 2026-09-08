@@ -1,6 +1,7 @@
 import Foundation
 
-// Calculator component data model. Moved out of CanvasState.
+// Calculator component data model. The `CanvasApp.calculator` arm and its
+// Codable stay in CanvasState.
 // The `CanvasApp.calculator` enum arm + its Codable stay in CanvasState.
 
 // MARK: - Calculator component
