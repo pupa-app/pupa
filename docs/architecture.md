@@ -1051,6 +1051,32 @@ a filter is never applied invisibly, and it can be cleared from either view.
   `columnField`. It feeds `CardDensity` (`.comfortable` grid, `.compact`
   kanban lane, `.minimal` shrunk one-liner); shrink collapses both modes onto
   `.minimal` rather than doubling the layouts. No frontend tool — UI only.
+- **Per-card peek.** While a board is shrunk, each card carries a chevron that
+  lifts that one card back to its view mode's density
+  (`CardDensity.resolve(viewMode:shrink:expanded:)`). The peek set is
+  ephemeral `TrackerPeekState` keyed by `TrackerBoardKey`, in `TrackerView` /
+  `KanbanView` — never persisted, for the same `persist()` cost reason as the
+  search query, and dropped on a grid⇄kanban switch. The global shrink button
+  overwrites that board's peeks: both views clear on a `shrinkCards` change
+  from any source — the button, `setTrackerCardsShrunk`, or a History restore
+  (shrink is view-only but still rides `persist()`, so it does record a
+  snapshot). The `onChange` observes a `TrackerShrinkKey` (board + flag), not
+  the flag alone: this `@State` outlives the component it belongs to, so a bare
+  flag would read a canvas swap as a button press. The key is the board, not
+  the component id — ids are allocated per MyApp, so every MyApp's first
+  tracker is `"tracker-1"` and a sidebar MyApp switch would otherwise look like
+  a button press. A flag flipped while the user is on a different board is not
+  cleared; that board reads its own bucket when it returns. Board geometry
+  (grid column width, lane spacing) stays on the board density; a peek grows
+  its own row but never reflows the columns.
+- **Filtering cost.** `TrackerFiltering.visibleEntries` runs on every render of
+  both views over every item, so its per-row string work is the board's
+  per-frame budget. The needle and each active filter value are normalised once
+  per call; an idle board (no filter, no query) does no per-row work at all;
+  the select filter runs before the query so rejected rows are never searched;
+  and `matchesQuery` stops at the first matching field. `TrackerFilteringPerfTests`
+  pins all four by counting lowercasings behind `#if DEBUG` counters — counts,
+  not timings, so the guard means the same thing on a loaded machine.
 - **Links:** `CardLayout` carries every `.link` field; the card caps per
   density (3 / 2 / 0) and offers a "+N" chip that expands into fixed-width
   rows. Chunking is a constant, never a measured wrap.

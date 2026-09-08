@@ -15,6 +15,9 @@ public struct KanbanView: View {
     @State private var queryByComponent: [String: String] = [:]
     /// Filter-panel disclosure, collapsed by default.
     @State private var filtersShownByComponent: [String: Bool] = [:]
+    /// Cards peeked open despite `data.shrinkCards`. See the same property on
+    /// `TrackerView` — ephemeral, board-keyed, never persisted.
+    @State private var peeks = TrackerPeekState()
 
     public init(store: MyAppStore, data: TrackerData, myAppId: UUID, componentId: String? = nil) {
         self.store = store
@@ -47,7 +50,9 @@ public struct KanbanView: View {
                 GroupByBar(store: store, fields: data.visibleFields, currentColumn: column, componentId: componentId)
                 LanesScroller(
                     entries: filtered,
-                    density: CardDensity.resolve(viewMode: .kanban, shrink: data.shrinkCards),
+                    shrink: data.shrinkCards,
+                    expandedIds: expandedIds,
+                    onToggleExpand: toggleExpanded,
                     isNarrowed: !query.isEmpty || data.filter.contains { !$0.value.isEmpty },
                     visibleFields: data.visibleFields,
                     column: column,
@@ -78,6 +83,12 @@ public struct KanbanView: View {
                 onClose: { sheet = nil }
             )
         }
+        // The global shrink button overwrites this board's peeks — see the same
+        // handler in `TrackerView` for why the key carries the whole board.
+        .onChange(of: TrackerShrinkKey(board: board, shrink: data.shrinkCards)) { old, new in
+            guard TrackerShrinkKey.isShrinkToggle(from: old, to: new) else { return }
+            peeks.clear(for: board)
+        }
     }
 
     /// Same as TrackerView's helper — sourced row's `linkedItems` for the
@@ -91,6 +102,14 @@ public struct KanbanView: View {
     }
 
     private var query: String { queryByComponent[componentId ?? ""] ?? "" }
+
+    private var board: TrackerBoardKey {
+        TrackerBoardKey(myAppId: myAppId, componentId: componentId)
+    }
+
+    private var expandedIds: Set<UUID> { peeks.ids(for: board) }
+
+    private func toggleExpanded(_ itemId: UUID) { peeks.toggle(itemId, for: board) }
 
     private func setQuery(_ new: String) {
         guard new != query else { return }
@@ -217,7 +236,11 @@ private struct LanesScroller: View {
     /// Already filtered and searched by `KanbanView`. Bucketing never sees
     /// the raw item list, which is what stopped kanban ignoring `data.filter`.
     let entries: [TrackerFiltering.Entry]
-    let density: CardDensity
+    /// Board-level shrink flag. Each card resolves its own density from this
+    /// plus `expandedIds`; lane geometry uses the board value alone.
+    let shrink: Bool
+    let expandedIds: Set<UUID>
+    let onToggleExpand: (UUID) -> Void
     /// A filter or query is active — switches empty lanes to "No matches".
     let isNarrowed: Bool
     let visibleFields: [FieldDef]
@@ -237,7 +260,9 @@ private struct LanesScroller: View {
                         count: lane.entries.count,
                         items: lane.entries,
                         layout: cardLayout,
-                        density: density,
+                        shrink: shrink,
+                        expandedIds: expandedIds,
+                        onToggleExpand: onToggleExpand,
                         isNarrowed: isNarrowed,
                         accentTint: tint(for: lane),
                         laneValue: lane.laneValue,
@@ -281,7 +306,9 @@ private struct Lane: View {
     let count: Int
     let items: [TrackerFiltering.Entry]
     let layout: CardLayout
-    let density: CardDensity
+    let shrink: Bool
+    let expandedIds: Set<UUID>
+    let onToggleExpand: (UUID) -> Void
     let isNarrowed: Bool
     let accentTint: Color
     /// Value written to the column field when an item is dropped here.
@@ -338,14 +365,23 @@ private struct Lane: View {
                 // stack has no viewport to virtualize against there, builds
                 // every row anyway, and its placement/estimation pass is one
                 // half of the layout loop that froze the board (pupa#120).
-                VStack(spacing: density == .minimal ? 4 : 8) {
+                // Spacing follows the board, never a single peek.
+                VStack(spacing: shrink ? 4 : 8) {
                     ForEach(items) { entry in
                         TrackerItemCard(
                             item: entry.item,
                             layout: layout,
                             positionIndex: entry.positionIndex,
-                            density: density,
-                            onTap: { onEdit(entry.item.id) }
+                            density: CardDensity.resolve(
+                                viewMode: .kanban,
+                                shrink: shrink,
+                                expanded: expandedIds.contains(entry.item.id)
+                            ),
+                            onTap: { onEdit(entry.item.id) },
+                            expansion: shrink
+                                ? (isExpanded: expandedIds.contains(entry.item.id),
+                                   toggle: { onToggleExpand(entry.item.id) })
+                                : nil
                         )
                         .draggable(entry.item.id.uuidString)
                     }

@@ -15,6 +15,133 @@ struct TrackerCardDensityTests {
         #expect(CardDensity.resolve(viewMode: .kanban, shrink: true) == .minimal)
     }
 
+    @Test("A peeked card lifts back to its view mode's density")
+    func resolveWithPeek() {
+        #expect(CardDensity.resolve(viewMode: .grid, shrink: true, expanded: true) == .comfortable)
+        #expect(CardDensity.resolve(viewMode: .kanban, shrink: true, expanded: true) == .compact)
+    }
+
+    @Test("The peek is inert on a board that is not shrunk")
+    func peekWithoutShrinkIsInert() {
+        // Reachable on every render: the views read `expandedIds.contains(...)`
+        // unconditionally, and a set outlives the flag until the `onChange`
+        // clears it. The resolver must not invent a fourth behaviour.
+        #expect(CardDensity.resolve(viewMode: .grid, shrink: false, expanded: true) == .comfortable)
+        #expect(CardDensity.resolve(viewMode: .kanban, shrink: false, expanded: true) == .compact)
+    }
+
+    // MARK: - Peek state
+
+    private static let appA = UUID()
+    private static let appB = UUID()
+    private static func board(_ app: UUID, _ cid: String?) -> TrackerBoardKey {
+        TrackerBoardKey(myAppId: app, componentId: cid)
+    }
+
+    /// The premise the board key exists for. Asserted against the real
+    /// allocator rather than stated in a comment: if this ever stops being
+    /// true, keying on the component id alone would become safe and this
+    /// machinery could go.
+    @MainActor
+    @Test("Two MyApps' first trackers really are both \"tracker-1\"")
+    func componentIdsCollideAcrossMyApps() {
+        MyAppTypeRegistry.shared.registerBuiltins()
+        let a = MyApp(name: "A", iconSystemName: "list.bullet", typeId: MyAppType.tracker.id)
+        let b = MyApp(name: "B", iconSystemName: "list.bullet", typeId: MyAppType.tracker.id)
+        let store = MyAppStore(initial: ([a, b], a.id))
+
+        let idInA = store.addComponent(
+            kind: "tracker", name: "T", iconSystemName: "list.bullet", myAppId: a.id)
+        let idInB = store.addComponent(
+            kind: "tracker", name: "T", iconSystemName: "list.bullet", myAppId: b.id)
+
+        #expect(idInA == "tracker-1")
+        #expect(idInB == "tracker-1", "ids are uniqued per MyApp, so they collide across apps")
+        #expect(TrackerBoardKey(myAppId: a.id, componentId: idInA)
+                != TrackerBoardKey(myAppId: b.id, componentId: idInB),
+                "the board key must still tell these two apart")
+    }
+
+    @Test("Toggling the same card twice opens then closes it")
+    func toggleRoundTrip() {
+        let id = UUID()
+        let b = Self.board(Self.appA, "tracker-1")
+        var peeks = TrackerPeekState()
+        peeks.toggle(id, for: b)
+        #expect(peeks.ids(for: b) == [id])
+        peeks.toggle(id, for: b)
+        #expect(peeks.ids(for: b).isEmpty)
+    }
+
+    @Test("Peeks do not leak between boards sharing one view's state")
+    func peeksAreBoardScoped() {
+        let one = UUID(), two = UUID()
+        let b1 = Self.board(Self.appA, "tracker-1")
+        let b2 = Self.board(Self.appA, "tracker-2")
+        var peeks = TrackerPeekState()
+        peeks.toggle(one, for: b1)
+        peeks.toggle(two, for: b2)
+        #expect(peeks.ids(for: b1) == [one])
+        #expect(peeks.ids(for: b2) == [two])
+        peeks.clear(for: b1)
+        #expect(peeks.ids(for: b1).isEmpty)
+        #expect(peeks.ids(for: b2) == [two], "clearing one board must not touch the other")
+    }
+
+    @Test("Two MyApps' first trackers are different boards despite sharing a component id")
+    func componentIdIsNotUniqueAcrossMyApps() {
+        // `MyAppStore.addComponent` uniques ids against one MyApp's own
+        // components, so every MyApp's first tracker is "tracker-1" — asserted
+        // against the real store in `componentIdsCollideAcrossMyApps`. Keying on
+        // the component id alone merged their peeks and made a MyApp switch
+        // look like a shrink press.
+        let mine = UUID(), theirs = UUID()
+        let inA = Self.board(Self.appA, "tracker-1")
+        let inB = Self.board(Self.appB, "tracker-1")
+        #expect(inA != inB)
+
+        var peeks = TrackerPeekState()
+        peeks.toggle(mine, for: inA)
+        peeks.toggle(theirs, for: inB)
+        #expect(peeks.ids(for: inA) == [mine])
+        #expect(peeks.ids(for: inB) == [theirs])
+
+        peeks.clear(for: inB)
+        #expect(peeks.ids(for: inA) == [mine], "clearing one MyApp's board must not touch another's")
+    }
+
+    @Test("A nil component id normalises to the empty-string key")
+    func nilComponentIdNormalises() {
+        #expect(Self.board(Self.appA, nil) == Self.board(Self.appA, ""))
+        let id = UUID()
+        var peeks = TrackerPeekState()
+        peeks.toggle(id, for: Self.board(Self.appA, nil))
+        #expect(peeks.ids(for: Self.board(Self.appA, nil)) == [id])
+        #expect(peeks.ids(for: Self.board(Self.appA, "tracker-1")).isEmpty)
+    }
+
+    @Test("Only a same-board flag flip is the shrink button")
+    func shrinkKeyDistinguishesButtonFromBoardSwap() {
+        let shrunkA = TrackerShrinkKey(board: Self.board(Self.appA, "tracker-1"), shrink: true)
+        let openA = TrackerShrinkKey(board: Self.board(Self.appA, "tracker-1"), shrink: false)
+        let openA2 = TrackerShrinkKey(board: Self.board(Self.appA, "tracker-2"), shrink: false)
+        // The board the old componentId-only key could not tell from `shrunkA`.
+        let openB = TrackerShrinkKey(board: Self.board(Self.appB, "tracker-1"), shrink: false)
+
+        // The button: one board, flag moved.
+        #expect(TrackerShrinkKey.isShrinkToggle(from: shrunkA, to: openA))
+        #expect(TrackerShrinkKey.isShrinkToggle(from: openA, to: shrunkA))
+
+        // The canvas swapping a tracker into the same structural slot. The flag
+        // moves too, which is why the flag alone cannot be the trigger.
+        #expect(!TrackerShrinkKey.isShrinkToggle(from: shrunkA, to: openA2))
+        #expect(!TrackerShrinkKey.isShrinkToggle(from: shrunkA, to: openB),
+                "a sidebar MyApp switch is not a shrink press, even though both boards are \"tracker-1\"")
+        #expect(!TrackerShrinkKey.isShrinkToggle(from: openB, to: shrunkA))
+    }
+
+    // MARK: - Density
+
     @Test("Chip and link caps tighten with density")
     func caps() {
         #expect(CardDensityMetrics.chipCap(.comfortable) == 3)

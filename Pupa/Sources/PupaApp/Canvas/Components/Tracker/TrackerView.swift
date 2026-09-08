@@ -21,6 +21,11 @@ public struct TrackerView: View {
     /// Filter-panel disclosure, collapsed by default. Component-keyed for the
     /// same reason as the query.
     @State private var filtersShownByComponent: [String: Bool] = [:]
+    /// Cards peeked open despite `data.shrinkCards`. Ephemeral on purpose: a
+    /// peek is chrome, and `persist()` is a whole-app encode + iCloud write —
+    /// the same reason the search query above is not persisted. Keyed by board,
+    /// not by component id — see `TrackerBoardKey`.
+    @State private var peeks = TrackerPeekState()
 
     public init(store: MyAppStore, data: TrackerData, myAppId: UUID, componentId: String? = nil) {
         self.store = store
@@ -59,9 +64,23 @@ public struct TrackerView: View {
                     )
                 },
                 filtered: filtered,
+                expandedIds: expandedIds,
+                onToggleExpand: toggleExpanded,
                 onAdd: { sheet = .add() },
                 onEdit: { itemId in sheet = .edit(itemId: itemId) }
             )
+        }
+        // The global shrink button overwrites this board's peeks. Keyed off the
+        // state rather than the button so a `shrinkCards` change from any source
+        // clears them — the button, an agent's `setTrackerCardsShrunk`, or a
+        // History restore. The key carries the whole board because this `@State`
+        // outlives the component: without it, the canvas swapping in another
+        // tracker whose flag differs reads as a button press and closes cards
+        // nobody touched. A flag flipped while the user is on a different board
+        // is not cleared here; that board reads its own bucket when it returns.
+        .onChange(of: TrackerShrinkKey(board: board, shrink: data.shrinkCards)) { old, new in
+            guard TrackerShrinkKey.isShrinkToggle(from: old, to: new) else { return }
+            peeks.clear(for: board)
         }
         .sheet(item: $sheet) { target in
             ItemSheet(
@@ -106,6 +125,14 @@ public struct TrackerView: View {
 
     private var query: String { queryByComponent[componentId ?? ""] ?? "" }
 
+    private var board: TrackerBoardKey {
+        TrackerBoardKey(myAppId: myAppId, componentId: componentId)
+    }
+
+    private var expandedIds: Set<UUID> { peeks.ids(for: board) }
+
+    private func toggleExpanded(_ itemId: UUID) { peeks.toggle(itemId, for: board) }
+
     private func setQuery(_ new: String) {
         guard new != query else { return }
         queryByComponent[componentId ?? ""] = new
@@ -140,6 +167,11 @@ private struct CardsSection: View {
     /// myAppId from `TrackerView`.
     let resolveLinkName: (ComponentItemRef) -> String?
     let filtered: [TrackerFiltering.Entry]
+    /// Cards peeked open on a shrunk board. Non-empty only while this board is
+    /// shrunk, or until the next same-board flag flip clears it — a flag moved
+    /// while the user is elsewhere leaves the bucket standing.
+    let expandedIds: Set<UUID>
+    let onToggleExpand: (UUID) -> Void
     let onAdd: () -> Void
     let onEdit: (UUID) -> Void
 
@@ -181,16 +213,30 @@ private struct CardsSection: View {
                     .padding(.vertical, 8)
             } else {
                 let layout = CardLayout.from(fields: data.visibleFields)
-                let density = CardDensity.resolve(viewMode: .grid, shrink: data.shrinkCards)
-                LazyVGrid(columns: gridColumns(density), alignment: .leading, spacing: 12) {
+                // Column width follows the board, never a single peek: one tap
+                // must not reflow every other card.
+                let boardDensity = CardDensity.resolve(viewMode: .grid, shrink: data.shrinkCards)
+                LazyVGrid(columns: gridColumns(boardDensity), alignment: .leading, spacing: 12) {
                     ForEach(filtered) { entry in
                         TrackerItemCard(
                             item: entry.item,
                             layout: layout,
                             positionIndex: entry.positionIndex,
-                            density: density,
+                            density: CardDensity.resolve(
+                                viewMode: .grid,
+                                shrink: data.shrinkCards,
+                                expanded: expandedIds.contains(entry.item.id)
+                            ),
                             onTap: { onEdit(entry.item.id) },
-                            resolveLinkName: density == .minimal ? nil : resolveLinkName
+                            // Passed unconditionally now: `.minimal` renders
+                            // `minimalCard`, which has neither the pills row
+                            // nor the linked-refs row, so the resolver is
+                            // inert there and needs no gate of its own.
+                            resolveLinkName: resolveLinkName,
+                            expansion: data.shrinkCards
+                                ? (isExpanded: expandedIds.contains(entry.item.id),
+                                   toggle: { onToggleExpand(entry.item.id) })
+                                : nil
                         )
                     }
                 }
