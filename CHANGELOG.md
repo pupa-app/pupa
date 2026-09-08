@@ -3,6 +3,20 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.284] — 2026-09-08
+
+### Fixed
+
+- **A tracker's search box no longer follows you into the next MyApp.** Typing
+  a query on one board, then picking another MyApp in the sidebar, rendered the
+  new board through the old query — the text still sitting in the search field,
+  cards missing with no visible cause. `TrackerView` and `KanbanView` keyed
+  their query and filter-panel state on the component id, but that is not a
+  board identity: `MyAppStore.addComponent` uniques ids against one MyApp's own
+  components, so every MyApp's first tracker is `tracker-1`. Both views now key
+  on `TrackerBoardKey` (myApp id + component id), and the search field is
+  identified the same way so it rebuilds on the switch.
+
 ## [0.0.283] — 2026-09-08
 
 ### Added
@@ -14,6 +28,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   one-liners — the columns keep their width, so nothing else changes shape.
   The shrink button still wins: pressing it closes every card that was opened
   this way.
+
 
 ## [0.0.282] — 2026-09-07
 

@@ -1041,9 +1041,13 @@ a filter is never applied invisibly, and it can be cleared from either view.
   lives in `@State` — and specifically inside the leaf `TrackerSearchField`,
   which hands the parent a 150ms-debounced query. A parent-owned `@State`
   would rebuild every card on each character regardless of debounce. The
-  applied query is keyed by component id, because `CanvasView` builds
+  applied query — and the filter-panel disclosure — is keyed by
+  `TrackerBoardKey` (myApp id + component id), because `CanvasView` builds
   component views without `.id(component.id)` and bare `@State` would leak
-  across two trackers of the same kind.
+  across two trackers of the same kind. The component id alone is not a board
+  identity: `MyAppStore.addComponent` uniques ids within one MyApp, so every
+  MyApp's first tracker is `tracker-1` and a sidebar MyApp switch reused the
+  previous board's query.
 - **Lanes never reflow.** `TrackerFiltering.lanes` returns one bucket per
   column option plus `(Unset)` unconditionally, so filtering or searching
   narrows cards but leaves the board's columns in place.
