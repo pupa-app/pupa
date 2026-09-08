@@ -11,10 +11,10 @@ public struct KanbanView: View {
     let myAppId: UUID
     let componentId: String?
     @State private var sheet: SheetTarget?
-    /// See `TrackerView.queryByBoard` — same structural-`@State` caveat.
-    @State private var queryByBoard: [TrackerBoardKey: String] = [:]
+    /// See `TrackerView.queryByComponentKey` — same structural-`@State` caveat.
+    @State private var queryByComponentKey: [CanvasComponentKey: String] = [:]
     /// Filter-panel disclosure, collapsed by default.
-    @State private var filtersShownByBoard: [TrackerBoardKey: Bool] = [:]
+    @State private var filtersShownByComponentKey: [CanvasComponentKey: Bool] = [:]
     /// Cards peeked open despite `data.shrinkCards`. See the same property on
     /// `TrackerView` — ephemeral, board-keyed, never persisted.
     @State private var peeks = TrackerPeekState()
@@ -26,9 +26,10 @@ public struct KanbanView: View {
         self.componentId = componentId
     }
 
-    /// Scopes view `@State` to this board. See `TrackerBoardKey`.
-    private var board: TrackerBoardKey {
-        TrackerBoardKey(myAppId: myAppId, componentId: componentId)
+    /// Identity every piece of this view's per-component `@State` keys on.
+    /// See `CanvasComponentKey` — never key on `componentId` alone.
+    private var componentKey: CanvasComponentKey {
+        CanvasComponentKey(myAppId: myAppId, componentId: componentId)
     }
 
     public var body: some View {
@@ -44,7 +45,7 @@ public struct KanbanView: View {
             if let column = resolvedColumnField {
                 if !data.items.isEmpty {
                     TrackerSearchField(initialText: query, onQueryChange: setQuery)
-                        .id(board)
+                        .id(componentKey)
                 }
                 // Kanban honours `data.filter` too, so the chips must be
                 // reachable from here — otherwise an agent- or grid-set filter
@@ -90,9 +91,9 @@ public struct KanbanView: View {
         }
         // The global shrink button overwrites this board's peeks — see the same
         // handler in `TrackerView` for why the key carries the whole board.
-        .onChange(of: TrackerShrinkKey(board: board, shrink: data.shrinkCards)) { old, new in
+        .onChange(of: TrackerShrinkKey(component: componentKey, shrink: data.shrinkCards)) { old, new in
             guard TrackerShrinkKey.isShrinkToggle(from: old, to: new) else { return }
-            peeks.clear(for: board)
+            peeks.clear(for: componentKey)
         }
     }
 
@@ -106,27 +107,27 @@ public struct KanbanView: View {
         }
     }
 
-    private var query: String { queryByBoard[board] ?? "" }
+    private var query: String { queryByComponentKey[componentKey] ?? "" }
 
-    private var expandedIds: Set<UUID> { peeks.ids(for: board) }
+    private var expandedIds: Set<UUID> { peeks.ids(for: componentKey) }
 
-    private func toggleExpanded(_ itemId: UUID) { peeks.toggle(itemId, for: board) }
+    private func toggleExpanded(_ itemId: UUID) { peeks.toggle(itemId, for: componentKey) }
 
     private func setQuery(_ new: String) {
         guard new != query else { return }
-        queryByBoard[board] = new
+        queryByComponentKey[componentKey] = new
     }
 
     private var hasAnyFilters: Bool {
         data.visibleFields.contains { $0.type == .select && !($0.options ?? []).isEmpty }
     }
 
-    private var filtersShown: Bool { filtersShownByBoard[board] ?? false }
+    private var filtersShown: Bool { filtersShownByComponentKey[componentKey] ?? false }
 
     private var filtersShownBinding: Binding<Bool> {
         Binding(
             get: { filtersShown },
-            set: { filtersShownByBoard[board] = $0 }
+            set: { filtersShownByComponentKey[componentKey] = $0 }
         )
     }
 

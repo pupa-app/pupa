@@ -3,12 +3,12 @@ import Testing
 import AGUIKit
 @testable import PupaApp
 
-/// `TrackerBoardKey` is what scopes `TrackerView` / `KanbanView` `@State`
+/// `CanvasComponentKey` is what scopes `TrackerView` / `KanbanView` `@State`
 /// (search query, filter-panel disclosure) to one board. These tests pin the
 /// premise it exists for: component ids are unique per MyApp, not globally.
 @MainActor
-@Suite("Tracker board key")
-struct TrackerBoardKeyTests {
+@Suite("Canvas component key")
+struct CanvasComponentKeyTests {
 
     private func makeMyApp(_ name: String) -> MyApp {
         MyAppTypeRegistry.shared.registerBuiltins()
@@ -36,8 +36,8 @@ struct TrackerBoardKeyTests {
         // ... which is exactly why the component id cannot be the key.
         #expect(idA == idB)
         #expect(
-            TrackerBoardKey(myAppId: a.id, componentId: idA)
-            != TrackerBoardKey(myAppId: b.id, componentId: idB)
+            CanvasComponentKey(myAppId: a.id, componentId: idA)
+            != CanvasComponentKey(myAppId: b.id, componentId: idB)
         )
     }
 
@@ -54,8 +54,8 @@ struct TrackerBoardKeyTests {
         #expect(first == "tracker-1")
         #expect(second == "tracker-2")
         #expect(
-            TrackerBoardKey(myAppId: a.id, componentId: first)
-            != TrackerBoardKey(myAppId: a.id, componentId: second)
+            CanvasComponentKey(myAppId: a.id, componentId: first)
+            != CanvasComponentKey(myAppId: a.id, componentId: second)
         )
     }
 
@@ -64,12 +64,12 @@ struct TrackerBoardKeyTests {
     @Test("Same myApp + component id is one key")
     func sameBoardIsOneKey() {
         let id = UUID()
-        let lhs = TrackerBoardKey(myAppId: id, componentId: "tracker-1")
-        let rhs = TrackerBoardKey(myAppId: id, componentId: "tracker-1")
+        let lhs = CanvasComponentKey(myAppId: id, componentId: "tracker-1")
+        let rhs = CanvasComponentKey(myAppId: id, componentId: "tracker-1")
 
         #expect(lhs == rhs)
         #expect(lhs.hashValue == rhs.hashValue)
-        var state: [TrackerBoardKey: String] = [:]
+        var state: [CanvasComponentKey: String] = [:]
         state[lhs] = "urgent"
         #expect(state[rhs] == "urgent")
     }
@@ -80,21 +80,21 @@ struct TrackerBoardKeyTests {
     func nilAndEmptyComponentIdAlias() {
         let id = UUID()
         #expect(
-            TrackerBoardKey(myAppId: id, componentId: nil)
-            == TrackerBoardKey(myAppId: id, componentId: "")
+            CanvasComponentKey(myAppId: id, componentId: nil)
+            == CanvasComponentKey(myAppId: id, componentId: "")
         )
-        #expect(TrackerBoardKey(myAppId: id, componentId: nil).componentId == "")
+        #expect(CanvasComponentKey(myAppId: id, componentId: nil).componentId == "")
     }
 
     /// The other half of the identity: two MyApps sharing a component id must
     /// not read each other's state out of a board-keyed dictionary.
     @Test("Different myAppIds with the same component id do not collide")
     func differentMyAppIdsDoNotCollide() {
-        let lhs = TrackerBoardKey(myAppId: UUID(), componentId: "tracker-1")
-        let rhs = TrackerBoardKey(myAppId: UUID(), componentId: "tracker-1")
+        let lhs = CanvasComponentKey(myAppId: UUID(), componentId: "tracker-1")
+        let rhs = CanvasComponentKey(myAppId: UUID(), componentId: "tracker-1")
 
         #expect(lhs != rhs)
-        var state: [TrackerBoardKey: String] = [:]
+        var state: [CanvasComponentKey: String] = [:]
         state[lhs] = "A's query"
         // Board B reads its own (absent) entry rather than inheriting A's.
         #expect(state[rhs] == nil)
