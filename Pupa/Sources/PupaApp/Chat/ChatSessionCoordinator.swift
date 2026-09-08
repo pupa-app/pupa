@@ -82,22 +82,17 @@ public final class ChatSessionCoordinator {
     /// `invocationsReceived` through one path.
     public let agentStats: AgentStatsStore
 
-    /// Cross-scope agent-invocation policy. Owns the busy set,
-    /// invocation stack, and chain-depth cap. Shared with
-    /// `slackInvoker` (which adds Slack-specific UI substrate on top)
-    /// so MyApp sub-runs and Slack sub-agents participate in a single
-    /// invocation graph — reentrancy is detected across the two
-    /// scopes. Reads by SwiftUI go through `slackInvoker` for the
-    /// Slack-shaped views; future agent scopes will gain their own
-    /// thin adapters around this same gate.
+    /// Cross-scope agent-invocation policy. Owns the busy set, invocation
+    /// stack, and chain-depth cap. Shared with `slackInvoker` (which adds
+    /// Slack-specific UI substrate on top) so MyApp sub-runs and Slack
+    /// sub-agents share one invocation graph and reentrancy is detected
+    /// across both.
     public let agentInvocationGate: AgentInvocationGate
 
-    /// Per-Slack-agent lock + invocation-stack state. Driven by
-    /// `invokeSlackAgent` and read by `SlackView` to show per-agent
-    /// "thinking…" indicators. Held here (not on `SlackView`) so the
-    /// state survives view rebinds and so a sub-agent invocation
-    /// chain shares the same lock state as the user-triggered run
-    /// that started it.
+    /// Per-Slack-agent lock + invocation state, driven by `invokeSlackAgent`
+    /// and read by `SlackView` for its "thinking…" indicators. Held here, not
+    /// on `SlackView`, so it survives view rebinds and a whole invocation
+    /// chain shares one lock state.
     public let slackInvoker: SlackInvoker
 
     public init(
@@ -489,10 +484,9 @@ public final class ChatSessionCoordinator {
                 if !accumulated.isEmpty { accumulated.append("\n") }
                 accumulated.append(text)
             case .error(let message, _):
-                // An in-band RUN_ERROR from the delegated agent used to be
-                // dropped (default: break), returning "" to the orchestrator —
-                // the parent model then had no idea the sub-run failed. Fold it
-                // into the result so the parent can react / tell the user.
+                // Fold an in-band RUN_ERROR from the delegated agent into the
+                // result — dropping it returns "" and the parent model reads a
+                // failed sub-run as success.
                 if !accumulated.isEmpty { accumulated.append("\n") }
                 accumulated.append("[sub-agent error: \(message)]")
             case .completed(let outcome):

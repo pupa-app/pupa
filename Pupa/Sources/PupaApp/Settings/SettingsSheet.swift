@@ -209,9 +209,7 @@ public struct SettingsSheet: View {
                 categoryDetail(category)
             }
             .task { await refreshHasDeletedApps() }
-            // Keyed on `historyRevision` so pinning or unpinning re-runs the
-            // gate — the observation dependency the removed synchronous
-            // accessor used to establish with a bare `_ = historyRevision`.
+            // Keyed on `historyRevision` so pinning or unpinning re-runs the gate.
             .task(id: store?.historyRevision) {
                 hasPinnedSnapshots = await SnapshotStore.hasAnyPins()
             }

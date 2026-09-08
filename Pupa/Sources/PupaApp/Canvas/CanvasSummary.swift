@@ -1,8 +1,7 @@
 import Foundation
 import AGUIKit
 
-/// Stable, cache-friendly summary of a MyApp's canvas. Replaces the full
-/// `CanvasSnapshot` JSON that ChatViewModel used to ship in the
+/// Stable, cache-friendly summary of a MyApp's canvas, shipped in the
 /// "Live canvas state" context entry every turn.
 ///
 /// The summary is intentionally **thin** — just enough for the agent to
@@ -23,10 +22,9 @@ import AGUIKit
 /// overwrites it.
 ///
 /// The **active** (on-screen) component is deliberately NOT here. It is a
-/// pure view pointer that changes as the user browses, so carrying it
-/// would bust the prompt cache every navigation — and tools no longer
-/// target it, so the agent doesn't need it by default. When the agent
-/// genuinely needs "the one the user is looking at" it fetches it on
+/// pure view pointer that changes as the user browses, so carrying it would
+/// bust the prompt cache every navigation, and no tool targets it. When the
+/// agent genuinely needs "the one the user is looking at" it fetches it on
 /// demand via the `getActiveComponent` tool.
 public struct CanvasSummary: Encodable, Sendable {
     public let components: [ComponentSummary]
@@ -35,9 +33,8 @@ public struct CanvasSummary: Encodable, Sendable {
         self.components = components
     }
 
-    /// Build a summary of `myApp`. The `previewTracker` argument is
-    /// retained for now to keep the call-site signatures stable; the
-    /// summary itself no longer carries a per-component item preview.
+    /// Build a summary of `myApp`. `previewTracker` is unused — the summary
+    /// carries no per-component item preview.
     @MainActor
     public static func build(
         myApp: MyApp,

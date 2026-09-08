@@ -180,14 +180,12 @@ public enum SnapshotStore {
     // MARK: - Derived listing index
 
     /// Local, never-synced listing cache for one app's history — a pure
-    /// function of `dir(appId)`. Reading every record just to list them meant
-    /// `metas` (and so `head`, and so every debounced edit) pulled and parsed
-    /// the whole history off disk: `readHeader` reads the entire file and
-    /// `JSONDecoder` parses all of it before discarding `base`/`diff`.
+    /// function of `dir(appId)`. Exists because `readHeader` reads and parses
+    /// an entire record before discarding `base`/`diff`, so listing without it
+    /// pulls the whole history off disk.
     ///
     /// Kept current by `writeRecord` / `deleteRecords`, validated on every
-    /// read, and never authoritative — the worst failure is a rebuild, which
-    /// is what the old code did every time.
+    /// read, and never authoritative — the worst failure is a rebuild.
     private struct SnapshotIndex: Codable {
         static let currentSchema = 1
         var schema: Int

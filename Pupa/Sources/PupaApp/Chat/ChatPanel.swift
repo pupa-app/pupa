@@ -397,9 +397,7 @@ public struct ChatPanel: View {
 
     /// The turn stopped, and there is something to pick back up. Three ways in,
     /// one affordance: a reattachable drop, an outright failure, and a turn that
-    /// ended cleanly but unsettled. The last is the commonest of the three and
-    /// used to render nothing at all — just a transcript bubble telling the user
-    /// to type "continue" by hand.
+    /// ended cleanly but unsettled.
     @ViewBuilder
     private var turnEndedBanner: some View {
         switch viewModel.connectionIssue {
@@ -1017,19 +1015,14 @@ enum MarkdownCache {
 
     /// Parses on a miss.
     ///
-    /// Eviction is **random**, which looks odd and is deliberate. The list is
-    /// a `LazyVStack`, so steady-state scrolling touches only visible rows —
-    /// but `defaultScrollAnchor(.bottom)` forces the whole thread to be laid
-    /// out at **mount**, i.e. once per chat open. For a thread longer
-    /// than the cap that sweep is a cyclic scan larger than the cache, which
-    /// is the pathological case for FIFO and LRU alike: each sweep evicts
-    /// precisely what the next one asks for first, pinning the hit rate at
-    /// zero and leaving the cache costing hashing on top of the original
-    /// parse — worse than no cache, for exactly the users with the longest
-    /// transcripts. Random eviction is scan-resistant: measured ~48% hits at
-    /// 1500 entries against a 1200 cap, falling to ~7% at 3000, where FIFO and
-    /// LRU both score exactly 0%. LRU would win in the scrolling regime; it
-    /// loses badly in the one that hurts.
+    /// Eviction is **random**, deliberately. `defaultScrollAnchor(.bottom)`
+    /// lays the whole thread out at mount, so a thread longer than the cap
+    /// drives a cyclic scan larger than the cache — the pathological case for
+    /// FIFO and LRU alike, where each sweep evicts exactly what the next asks
+    /// for first and the hit rate pins at zero. Random eviction is
+    /// scan-resistant: ~48% hits at 1500 entries against a 1200 cap and ~7% at
+    /// 3000, where FIFO and LRU both score 0%. LRU wins while scrolling and
+    /// loses badly in the regime that hurts.
     static func content(id: String, text: String) -> MarkdownContent {
         let hash = text.hashValue
         if let hit = entries[id], hit.hash == hash { return hit.content }

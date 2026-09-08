@@ -39,9 +39,8 @@ public struct AppView: View {
     /// reference material read *while* talking to the agent, so they overlay the
     /// canvas the way chat does instead of replacing it.
     @State private var memoryFileSheet: MemoryFileRoute?
-    /// Settings sheet presentation. Owned here, not by the sidebar: Settings
-    /// is reached from the bottom bar's menu now that the sidebar footer
-    /// is gone, and the bar is mounted by `AppView`.
+    /// Settings sheet presentation. Owned here, not by the sidebar: Settings is
+    /// reached from the bottom bar's menu, and the bar is mounted by `AppView`.
     @State private var settingsSheetPresented = false
     /// Watches the iCloud container for remote edits; reloads the synced
     /// stores so changes from another device appear live. Nil until started.
@@ -57,8 +56,7 @@ public struct AppView: View {
     /// iOS clears this back to nil after each tap so re-taps re-fire.
     @State private var selection: SidebarSelection?
     #if os(iOS)
-    /// Whether the MyApps sheet is up. Session state, not persisted: the drawer
-    /// used to restore its open/closed position across launches, but a *sheet*
+    /// Whether the MyApps sheet is up. Session state, not persisted — a sheet
     /// that re-presents itself on launch is a modal nobody asked for.
     @State private var showSidebar = false
     #endif
@@ -126,8 +124,8 @@ public struct AppView: View {
         // new guide bodies on app update — the one exception to the
         // seed-once rule below. Runs before `MemoryStore()` so the global
         // sidebar store's init rescan already sees the files.
-        // Before seeding: adopt any pre-0.0.249 slug-keyed memory folder into
-        // its app's id folder, so the seed lands in a tree that still holds the
+        // Before seeding: adopt any legacy slug-keyed memory folder into its
+        // app's id folder, so the seed lands in a tree that still holds the
         // user's notes rather than beside it. Self-disabling — see
         // `MemoryFolderMigration`.
         MemoryFolderMigration.run(apps: store.myApps.map { (id: $0.id, name: $0.name) })
@@ -388,8 +386,7 @@ public struct AppView: View {
             // every change to the active backend. Keying on `activeBackend`
             // (not just `activeBackendID`) re-fetches when the URL is edited in
             // place or a pairing completes — both mutate the entry without
-            // changing its id, which previously left the picker stuck on the
-            // stale/fallback list until a cold relaunch.
+            // changing its id.
             .task(id: settings.activeBackend) {
                 await modelCatalog.refresh(settings: settings)
                 // Drop any per-agent thinking override the (now-current) harness
@@ -904,8 +901,7 @@ public struct AppView: View {
 
         }
         // MyApps arrives from the bottom, like every other overlay in the app —
-        // Settings, memory notes, the composers. It used to slide in from the
-        // left, which made it the only surface with its own idiom.
+        // Settings, memory notes, the composers.
         .sheet(isPresented: $showSidebar) {
             MyAppSidebarView(
                 store: store,
@@ -1044,19 +1040,16 @@ public struct AppView: View {
     /// The detail pane's `NavigationStack` root — the current top-level page
     /// (bottom-bar tab, sidebar pick, orchestrator, screen share). Replaced in
     /// place (never pushed) with animations disabled; combined with the
-    /// keep-alive panes in `content`, a page switch is an opacity flip instead
-    /// of the 100–200ms click→frame teardown/rebuild it used to be. All
-    /// writers go through `setRoot`.
+    /// keep-alive panes in `content`, a page switch is an opacity flip rather
+    /// than a teardown and rebuild. All writers go through `setRoot`.
     private var rootPage: SidebarSelection { nav.rootPage }
 
     /// The `NavigationStack` root's content. The current subject's bar tabs
     /// (home / agents / memories / the active component canvas) stay mounted
-    /// in a `ZStack` and switch by opacity — rebuilding a page tree on every
-    /// tab click measured 100–145ms click→frame even in release; an opacity
-    /// flip is near-free. Populated lazily: mounting every tab of a subject on
-    /// a MyApp switch measured ~45% of the switch's cost, for pages the user
-    /// hadn't asked for. Pages outside the set (history, screen share, memory
-    /// files, agent details) build on demand as before.
+    /// in a `ZStack` and switch by opacity — rebuilding a page tree per tab
+    /// click is measurably slower. Populated lazily, so a MyApp switch doesn't
+    /// mount tabs the user hasn't asked for. Pages outside the set (history,
+    /// screen share, memory files, agent details) build on demand.
     @ViewBuilder
     private var content: some View {
         let mounted = keepAlivePages(for: rootPage)
@@ -1096,10 +1089,9 @@ public struct AppView: View {
     }
 
     /// The panes to mount for `root` — the subject's tabs, **already limited
-    /// to those visited**. The filter lives here rather than at the call site
-    /// on purpose: when `content` did the filtering itself, dropping it
-    /// silently restored eager mounting and every test stayed green. There is
-    /// no accessor for the unfiltered list.
+    /// to those visited**. The filter lives here, not at the call site, and
+    /// there is deliberately no accessor for the unfiltered list: losing the
+    /// filter silently restores eager mounting.
     private func keepAlivePages(for root: SidebarSelection) -> [SidebarSelection] {
         nav.panes(from: subjectTabs(for: root))
     }
@@ -1337,9 +1329,8 @@ public struct AppView: View {
         }
     }
 
-    /// Settings, reached from the bar's menu. Moved here from the sidebar
-    /// along with the footer that used to hold it — this is also the only view
-    /// that still holds every store the sheet needs.
+    /// Settings, reached from the bar's menu. Lives here — the only view that
+    /// holds every store the sheet needs.
     @ViewBuilder
     private var settingsSheet: some View {
         SettingsSheet(
@@ -1521,10 +1512,8 @@ public struct AppView: View {
     }
 
     /// Memory files are presented as a sheet; everything else pushes. Both
-    /// route the chat scope first, so opening a note still binds the chat the
-    /// same way it did when notes pushed. (Only the orchestrator arm of
-    /// `dispatchSelection` sets `memoryFocusedPath`; that asymmetry predates
-    /// this fork and is unchanged by it.)
+    /// route the chat scope first. (Only the orchestrator arm of
+    /// `dispatchSelection` sets `memoryFocusedPath`.)
     private func presentOrPush(_ sel: SidebarSelection) {
         dispatchSelection(sel)
         guard let route = MemoryFileRoute(sel) else {
@@ -1946,11 +1935,9 @@ extension EnvironmentValues {
 ///
 /// These live in one value because they must move together: the root page has
 /// to be *recorded* as mounted, or the next navigation reads as a subject
-/// change and tears it down. Two earlier attempts kept them as separate state
-/// and both regressed — first by never seeding the launch page, then by
-/// leaving the recording call deletable with every test still green. Here
-/// `setRoot` does both, `init` requires a root page, and the subject is
-/// derived rather than passed in, so there is nothing left to forget.
+/// change and tears it down. `setRoot` does both, `init` requires a root page,
+/// and the subject is derived rather than passed in, so there is nothing left
+/// to forget.
 struct NavState: Equatable {
     private(set) var rootPage: SidebarSelection
     private(set) var subject: MyAppHomeView.Subject?

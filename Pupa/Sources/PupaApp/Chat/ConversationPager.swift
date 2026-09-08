@@ -3,8 +3,8 @@ import SwiftUI
 /// Hosts the `ChatPanel` for the scope's currently-selected conversation
 /// thread.
 ///
-/// Thread switching used to be a horizontal swipe-pager; it's now a dropdown
-/// in the panel header (`ChatPanel.threadDropdown`). This view simply renders
+/// Thread switching is a dropdown in the panel header
+/// (`ChatPanel.threadDropdown`). This view simply renders
 /// the panel for `store.currentThreadId(for: scope)` and re-renders when the
 /// store's selection changes. Each thread lazily creates its `ChatViewModel`
 /// via `coordinator.session(for:threadId:)`; `loadHistoryIfNeeded()` runs

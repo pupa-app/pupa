@@ -271,12 +271,9 @@ public struct MyAppType: Sendable, Hashable, Identifiable {
             "calculator": CalculatorModule.kindSpec,
             "chart": ChartModule.kindSpec,
         ]
-        // No cross-kind gates as of project `0.0.41`. The generic
+        // `coPresenceGates` is omitted (defaults to empty): the generic
         // `linkItem` / `unlinkItem` pair lives in `baseToolNames` and
-        // validates source / target at call time, so we no longer need
-        // to hide kind-specific link tools behind co-presence
-        // requirements. Per-kind tools that don't depend on another
-        // kind sit in their own `ComponentKindSpec.tools` alone — so
-        // `coPresenceGates` defaults to empty and is omitted here.
+        // validates source / target at call time, so no kind-specific
+        // link tool needs hiding behind a co-presence requirement.
     )
 }

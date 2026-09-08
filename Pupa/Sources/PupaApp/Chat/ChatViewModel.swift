@@ -320,9 +320,8 @@ public final class ChatViewModel {
     ///
     /// Deliberately NOT derived from `connectionIssue`: how loudly the banner
     /// reports a drop and whether the turn is still recoverable are different
-    /// questions. They used to be one flag, and reading recoverability off the
-    /// banner variant meant that making the copy more honest silently disabled
-    /// the relaunch catch-up for every code except two.
+    /// questions — reading recoverability off the banner variant couples the
+    /// relaunch catch-up to user-facing copy.
     public private(set) var turnMayStillBeRunning = false
     /// A turn that ended cleanly but unsettled — the *notice* ending. Disjoint
     /// from `connectionIssue` (the *throw* ending) right up to the UI, where
@@ -1351,8 +1350,8 @@ public final class ChatViewModel {
         consume(stream: session.reattach(toolFilter: currentToolFilter()))
     }
 
-    /// Shared event-pump for both the initial `send` and the post-interrupt
-    /// `resume` streams. Mirrors what was previously inlined in `send`.
+    /// Shared event pump for the initial `send` and the post-interrupt
+    /// `resume` streams.
     private func consume(stream: AsyncThrowingStream<SessionEvent, Error>) {
         streamTask?.cancel()
         // Captured up front: the banner names the host it failed to reach, and
@@ -1472,7 +1471,7 @@ public final class ChatViewModel {
         // (a clean completion always leaves `appliedEventSeq` set), which would
         // read an empty tail and declare the turn settled all over again: the
         // user presses Continue and watches nothing happen. Say "continue" for
-        // them instead, which is what the old copy asked them to type.
+        // them instead.
         if connectionIssue == nil, stoppedNotice != nil {
             stoppedNotice = nil
             return send(Self.continueDroppedTurnText)
@@ -1782,9 +1781,8 @@ public final class ChatViewModel {
             // A turn that ended before the agent settled would otherwise just
             // drop the spinner and look dead. Show an inline system note with
             // the reason so the user knows it stopped (and can nudge it) rather
-            // than wondering if it crashed. `.truncated` counts too — a turn
-            // that narrated first and *then* hit the round cap used to report
-            // clean and show nothing at all.
+            // than wondering if it crashed. `.truncated` counts too: a turn that
+            // narrated first and *then* hit the round cap is still incomplete.
             if let reason = outcome.noticeReason, !didUserStop {
                 var truncated = false
                 if case .truncated = outcome { truncated = true }
@@ -1878,12 +1876,10 @@ public final class ChatViewModel {
         // open one). In the mixed frontend+backend case backend tools get one
         // `TOOL_CALL_START` in round 1 (model emission) and another in round
         // 2 when `ToolNode` actually executes them after the frontend
-        // interrupt resumes — same id both times. The shell-approval flow
-        // makes this worse: between the two starts an `.assistantMessageStart`
-        // can close round 1's bubble (resetting `openToolRoundId` to nil),
-        // so a per-open-bubble dedupe would miss and a fresh empty bubble B
-        // would open. `.toolCallFinished` then picks bubble A via its fallback
-        // scan and bubble B's `.pending` entry never resolves — stuck spinner.
+        // interrupt resumes — same id both times. An `.assistantMessageStart`
+        // between the two starts can close round 1's bubble, so a
+        // per-open-bubble dedupe would open a second bubble whose `.pending`
+        // entry never resolves.
         // Scanning every toolRound bubble keeps round 1's entry the single
         // source of truth.
         if bubbles.contains(where: { $0.role == .toolRound && $0.toolEntries.contains(where: { $0.id == id }) }) {
@@ -2350,14 +2346,11 @@ extension ChatViewModel {
     /// recovery bug and no others.
     ///
     /// Straight from the event path, never through a view: `probeStateJSON`
-    /// reads `appliedEventSeq`, so a SwiftUI view rendering it re-renders on
-    /// every streamed token, and driving logging from that put a log write and
-    /// a root-view invalidation on the main thread per token. It was enough to
-    /// stall the app on a phone.
+    /// reads `appliedEventSeq`, so a view rendering it would re-render — and
+    /// log — on every streamed token.
     ///
-    /// Deltas and cursor advances are excluded for the same reason they are
-    /// noise in a trace: hundreds a turn, and none of them the reason a turn
-    /// was lost.
+    /// Deltas and cursor advances are excluded as noise: hundreds a turn, and
+    /// none of them the reason a turn was lost.
     func logProbeIfSignificant(_ event: SessionEvent) {
         switch event {
         case .assistantMessageDelta, .cursorAdvanced, .assistantMessageStart:

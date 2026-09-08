@@ -2,14 +2,12 @@ import SwiftUI
 
 /// The bar's menu, drawn open, for the guided tour.
 ///
-/// A SwiftUI `Menu` cannot be opened programmatically, so a tour step that says
-/// "the menu holds MyApps" used to either ring a closed button or teleport the
-/// user to the destination with no visible tap in between. This draws the menu
+/// A SwiftUI `Menu` cannot be opened programmatically, so this draws the menu
 /// as it looks when open, above the bar's trailing corner, with the rows the
 /// step is talking about lit up.
 ///
 /// Rows come from `BarMenuRow.rows` — the same list the real menu builds from —
-/// so the preview cannot describe a menu that no longer exists. It is
+/// so the preview cannot drift from it. It is
 /// presentation only: `.allowsHitTesting(false)`, no actions, nothing to tap.
 struct TourMenuPreview: View {
     /// Rows to draw, in the real menu's declaration order.

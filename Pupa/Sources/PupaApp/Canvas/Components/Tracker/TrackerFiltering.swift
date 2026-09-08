@@ -5,7 +5,7 @@ import Foundation
 /// bucketing that consumes the result.
 ///
 /// Pure and SwiftUI-free on purpose — both `TrackerView` and `KanbanView`
-/// must select rows identically (kanban used to bucket `data.items` raw and
+/// must select rows identically (kanban must not bucket `data.items` raw and
 /// silently ignore `filter`), and the "Untitled #n" numbering contract is
 /// easier to pin in a test that needs no store.
 enum TrackerFiltering {

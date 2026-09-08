@@ -50,8 +50,7 @@ struct TourStep: Identifiable, Equatable {
     /// describing). `nil` leaves no highlight. Resolved to live bounds by
     /// `TourHighlightOverlay` via the `.tourAnchor` tags, never pixel-pinned.
     var highlight: TourHighlight?
-    /// Present the MyApps sheet for this step. The list of workspaces is the
-    /// one surface the tour used to name without ever showing.
+    /// Present the MyApps sheet for this step.
     var opensMyApps: Bool
     /// Draw the bar's menu open, with these rows lit. `nil` draws no preview.
     /// A SwiftUI `Menu` cannot be opened programmatically, so steps that talk

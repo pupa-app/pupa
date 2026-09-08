@@ -263,8 +263,8 @@ public final class SettingsStore {
 
     // MARK: - Backend list
 
-    /// Edit the active backend's URL — preserves the old single-URL API for
-    /// callers that don't know about the multi-backend list.
+    /// Edit the active backend's URL. Single-URL convenience for callers that
+    /// don't know about the multi-backend list.
     public func setBackendURL(_ url: URL) {
         guard url != backendURL else { return }
         mutateActive { $0.url = url }

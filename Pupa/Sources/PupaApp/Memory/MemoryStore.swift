@@ -509,14 +509,9 @@ public final class MemoryStore {
         return MemoryNode(name: "", path: "", kind: .folder, children: children)
     }
 
-    /// One directory listing per folder, with the metadata prefetched.
-    ///
-    /// The previous shape cost three syscalls per entry — a `contentsOfDirectory`,
-    /// then a `fileExists` per child, then an `attributesOfItem` per file —
-    /// which showed up on the MyApp-switch path, where the Agents pane builds
-    /// a `MemoryStore` (and so a full recursive scan) inside a view body.
-    /// Asking for the resource values up front lets the listing populate them
-    /// in bulk, so `resourceValues` below reads what is already cached.
+    /// One directory listing per folder, with the metadata prefetched — asking
+    /// for the resource values up front lets the listing populate them in bulk,
+    /// so `resourceValues` below reads what is already cached.
     ///
     /// Hidden entries are filtered by name rather than `.skipsHiddenFiles`:
     /// that option also drops files carrying the hidden *flag*, which would

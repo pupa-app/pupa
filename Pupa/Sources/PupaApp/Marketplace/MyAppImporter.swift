@@ -378,11 +378,8 @@ public enum MyAppImporter {
     /// Whether a bundle path lands on the automation rules file.
     ///
     /// Canonicalised by `MemoryStore` — the same function that decides where
-    /// the file is written — so the two can't disagree. They did: this used to
-    /// strip one leading `./` and compare, while the store also strips leading
-    /// slashes, collapses empty components and folds `..`, so
-    /// `/pupa/automations.json` landed on the rules file while this said it
-    /// hadn't. Case-insensitive because the filesystem is.
+    /// the file is written — so the two can't disagree about paths like
+    /// `/pupa/automations.json`. Case-insensitive because the filesystem is.
     static func isAutomationsPath(_ path: String) -> Bool {
         MemoryStore.canonicalise(path)
             .caseInsensitiveCompare(MemoryStore.pupaAutomationsPath) == .orderedSame

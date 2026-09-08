@@ -7,13 +7,9 @@ import Observation
 /// busy / chain-depth policy lives on the shared
 /// `AgentInvocationGate` — call sites consult that directly with a
 /// `.slack(agentId:)` key, then bracket the run with `enter(_:…)` /
-/// `exit(_:)` here to set up and tear down `activeInvocations`.
-///
-/// `enter` / `exit` pair with the gate by calling
-/// `gate.enter(invocationId:target:caller:treeRoot:)` /
-/// `gate.exit(invocationId)` so the Slack lifecycle is a single
-/// bundled operation at the call site; the coordinator never touches
-/// the gate directly for a Slack key.
+/// `exit(_:)` here to set up and tear down `activeInvocations`. Those two
+/// call into the gate themselves, so the coordinator never touches it
+/// directly for a Slack key.
 @MainActor
 @Observable
 public final class SlackInvoker {

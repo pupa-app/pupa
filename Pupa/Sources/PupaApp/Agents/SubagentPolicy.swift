@@ -10,9 +10,7 @@ import Foundation
 /// pinned as a context entry and its tool surface narrowed by the
 /// frontmatter `tools` / `disabled_tools`.
 ///
-/// This is where the A2A tool-narrowing seam (previously stubbed on
-/// `MyAppPolicy` / `SlackPolicy`) is actually implemented. `runSubagent`
-/// uses `narrowedTools` to build the per-turn filter.
+/// `runSubagent` uses `narrowedTools` to build the per-turn tool filter.
 public struct SubagentPolicy: AgentPolicy {
 
     public let myAppId: UUID
