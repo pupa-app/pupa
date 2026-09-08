@@ -5,8 +5,7 @@ import PupaApp
 ///
 /// Off unless `PUPA_PERF_DRIVE=1`. With `PUPA_PERF_SEED=1` it first writes a
 /// fixed corpus under a temp `PupaStorage.overrideRoot`, so numbers compare
-/// across runs and machines — the reason the ad-hoc measurements in #154 and
-/// #183 can't be compared to each other today.
+/// across runs and machines.
 ///
 /// This benchmarks the *store-level* work a tap performs, not synthesized
 /// taps: gesture recognition was never the problem, the runloop turn the tap

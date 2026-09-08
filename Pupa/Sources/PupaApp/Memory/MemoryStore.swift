@@ -491,8 +491,8 @@ public final class MemoryStore {
 
     /// Rebuild the tree from disk. Called by the iCloud watcher when remote
     /// edits land so the sidebar refreshes live. The disk walk runs off the
-    /// main actor (pupa#110 — the watcher fires this repeatedly during an
-    /// initial iCloud download); only the tree republish touches main state.
+    /// main actor — the watcher fires this repeatedly during an initial iCloud
+    /// download; only the tree republish touches main state.
     public func reloadFromDisk() async {
         let root = self.root
         let rebuilt = await Task.detached(priority: .utility) { Self.scan(root: root) }.value
@@ -509,14 +509,9 @@ public final class MemoryStore {
         return MemoryNode(name: "", path: "", kind: .folder, children: children)
     }
 
-    /// One directory listing per folder, with the metadata prefetched.
-    ///
-    /// The previous shape cost three syscalls per entry — a `contentsOfDirectory`,
-    /// then a `fileExists` per child, then an `attributesOfItem` per file —
-    /// which showed up on the MyApp-switch path, where the Agents pane builds
-    /// a `MemoryStore` (and so a full recursive scan) inside a view body.
-    /// Asking for the resource values up front lets the listing populate them
-    /// in bulk, so `resourceValues` below reads what is already cached.
+    /// One directory listing per folder, with the metadata prefetched — asking
+    /// for the resource values up front lets the listing populate them in bulk,
+    /// so `resourceValues` below reads what is already cached.
     ///
     /// Hidden entries are filtered by name rather than `.skipsHiddenFiles`:
     /// that option also drops files carrying the hidden *flag*, which would

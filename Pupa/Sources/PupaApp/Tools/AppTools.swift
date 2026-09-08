@@ -566,7 +566,7 @@ public enum AppTools {
                             "error": .string("kind '\(kind)' not supported by this MyApp"),
                         ])
                     }
-                    // Each kind seeds its own icon via its module (issue #162);
+                    // Each kind seeds its own icon via its module;
                     // an unknown/module-less kind gets the generic placeholder.
                     let icon = explicitIcon
                         ?? ComponentRegistry.shared.module(forKind: kind)?.defaultIcon
@@ -1945,7 +1945,7 @@ public enum AppTools {
     /// Notifications are app-global — not bound to a MyApp — so the tool
     /// names live in `MyAppType.notificationToolNames`. The tool gate
     /// keeps the (heavy) descriptions out of the per-turn payload until the
-    /// agent first opts in via `get_tools_notifications` (issue #220).
+    /// agent first opts in via `get_tools_notifications`.
     ///
     /// **Cross-myApp isolation.** When registered inside a MyApp (or a
     /// sub-run acting on behalf of one), `ownerMyAppId` is that MyApp's id.
@@ -2191,8 +2191,8 @@ public enum AppTools {
 
     /// Bind a `sendNotification` request to the scope of the agent that called
     /// the tool — the caller never names a target myApp, so one myApp can't open
-    /// or message another (pupa-backend#72). The deep-link target is *injected*
-    /// here, not taken from the model:
+    /// or message another. The deep-link target is *injected* here, not taken
+    /// from the model:
     ///
     /// - **MyApp scope** (`ownerMyAppId != nil`): force the target to the owning
     ///   myApp, preserving any `componentId` the agent chose to focus. Every one

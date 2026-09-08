@@ -2,9 +2,8 @@ import SwiftUI
 import AGUIKit
 
 /// The tracker kind's `ComponentModule` — the single registration point for
-/// tracker. Reference implementation for issue #162: a contributor mirrors this
-/// per new shape (own folder + one module + one register line in
-/// `MyAppTypeRegistry.registerBuiltins`).
+/// tracker, and the reference implementation for a new kind: own folder, one
+/// module, one register line in `MyAppTypeRegistry.registerBuiltins`.
 ///
 /// Each accessor does its own single-case unwrap on `CanvasApp` instead of the
 /// central exhaustive switch, so this module owns only the `.tracker` arm.

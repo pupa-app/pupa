@@ -82,22 +82,17 @@ public final class ChatSessionCoordinator {
     /// `invocationsReceived` through one path.
     public let agentStats: AgentStatsStore
 
-    /// Cross-scope agent-invocation policy. Owns the busy set,
-    /// invocation stack, and chain-depth cap. Shared with
-    /// `slackInvoker` (which adds Slack-specific UI substrate on top)
-    /// so MyApp sub-runs and Slack sub-agents participate in a single
-    /// invocation graph — reentrancy is detected across the two
-    /// scopes. Reads by SwiftUI go through `slackInvoker` for the
-    /// Slack-shaped views; future agent scopes will gain their own
-    /// thin adapters around this same gate.
+    /// Cross-scope agent-invocation policy. Owns the busy set, invocation
+    /// stack, and chain-depth cap. Shared with `slackInvoker` (which adds
+    /// Slack-specific UI substrate on top) so MyApp sub-runs and Slack
+    /// sub-agents share one invocation graph and reentrancy is detected
+    /// across both.
     public let agentInvocationGate: AgentInvocationGate
 
-    /// Per-Slack-agent lock + invocation-stack state. Driven by
-    /// `invokeSlackAgent` and read by `SlackView` to show per-agent
-    /// "thinking…" indicators. Held here (not on `SlackView`) so the
-    /// state survives view rebinds and so a sub-agent invocation
-    /// chain shares the same lock state as the user-triggered run
-    /// that started it.
+    /// Per-Slack-agent lock + invocation state, driven by `invokeSlackAgent`
+    /// and read by `SlackView` for its "thinking…" indicators. Held here, not
+    /// on `SlackView`, so it survives view rebinds and a whole invocation
+    /// chain shares one lock state.
     public let slackInvoker: SlackInvoker
 
     public init(
@@ -162,7 +157,7 @@ public final class ChatSessionCoordinator {
             // Do NOT bake the type fragment here. It is applied dynamically
             // (base + catalog + per-kind) and layered under AGENTS.md by
             // MyAppPolicy.buildSystemPrompt; freezing it would drop per-kind
-            // guidance as the canvas changes (issue #164). AGENTS.md is now
+            // guidance as the canvas changes. AGENTS.md is now
             // purely the user's customization surface.
             let content = """
                 # \(myApp.name)
@@ -247,24 +242,23 @@ public final class ChatSessionCoordinator {
     /// Foreground recovery: ask every live session to re-attach to any run
     /// whose stream died while the app was backgrounded. Each VM no-ops
     /// unless its last turn was actually interrupted, so calling this on
-    /// every foreground transition is cheap. See pupa#103.
+    /// every foreground transition is cheap.
     public func reattachAllAfterForeground() {
         for vm in sessions.values { vm.reattachIfNeeded() }
     }
 
     /// Backgrounding hook: snapshot every in-flight session's transcript +
     /// replay cursor so an OS kill while backgrounded can catch up on next
-    /// launch (pupa#103). Idle sessions no-op. Called on scene-phase
+    /// launch. Idle sessions no-op. Called on scene-phase
     /// `.background` and again when the iOS background task expires (the
     /// cursor keeps advancing while the socket survives the grace window).
     public func persistAllForBackground() {
         for vm in sessions.values { vm.persistForBackground() }
     }
 
-    /// Scene-phase fan-out for the frontend-tool liveness heartbeat
-    /// (pupa-backend#82): every live session notifies the backend of the
-    /// background/foreground transition so parked tools switch between the
-    /// short liveness grace and the absolute wall.
+    /// Scene-phase fan-out for the frontend-tool liveness heartbeat: every live
+    /// session notifies the backend of the background/foreground transition so
+    /// parked tools switch between the short liveness grace and the absolute wall.
     public func setAllHostBackgrounded(_ flag: Bool) {
         for vm in sessions.values { vm.setHostBackgrounded(flag) }
     }
@@ -490,10 +484,9 @@ public final class ChatSessionCoordinator {
                 if !accumulated.isEmpty { accumulated.append("\n") }
                 accumulated.append(text)
             case .error(let message, _):
-                // An in-band RUN_ERROR from the delegated agent used to be
-                // dropped (default: break), returning "" to the orchestrator —
-                // the parent model then had no idea the sub-run failed. Fold it
-                // into the result so the parent can react / tell the user.
+                // Fold an in-band RUN_ERROR from the delegated agent into the
+                // result — dropping it returns "" and the parent model reads a
+                // failed sub-run as success.
                 if !accumulated.isEmpty { accumulated.append("\n") }
                 accumulated.append("[sub-agent error: \(message)]")
             case .completed(let outcome):
@@ -1105,18 +1098,16 @@ public final class ChatSessionCoordinator {
         return false
     }
 
+    /// Max channel messages included in a Slack agent's invocation prompt.
+    /// Channels grow without bound, and sending the full transcript every turn
+    /// would burn input tokens and eventually blow the context window. Older
+    /// messages stay reachable via `slackReadChannelHistory`'s `before` cursor.
+    static let slackInvocationHistoryLimit = 30
+
     /// Render the channel history as a chronological transcript and
     /// wrap it in a single user prompt for the invoked agent. The
     /// model receives this as the latest user message; persona +
     /// canvas state arrive separately via context entries.
-    /// Default cap on the number of channel messages stuffed into a
-    /// Slack agent's invocation prompt. Channels can grow without
-    /// bound; sending the full transcript on every turn would burn
-    /// input tokens and eventually blow the model's context window.
-    /// Older messages remain reachable via the `slackReadChannelHistory`
-    /// tool's `before` cursor.
-    static let slackInvocationHistoryLimit = 30
-
     static func slackInvocationPrompt(
         agentName: String,
         agentSlug: String,

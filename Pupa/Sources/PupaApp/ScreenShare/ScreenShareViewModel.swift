@@ -91,9 +91,8 @@ public final class ScreenShareViewModel {
         let signaling = ScreenShareSignalingClient()
         signaling.delegate = self
         self.signaling = signaling
-        // Extract the bearer value out of the resolved authHeaders — that's
-        // now sourced from the Keychain (paired-device token) rather than the
-        // pre-#163 static api-key field.
+        // Extract the bearer value out of the resolved authHeaders — sourced
+        // from the Keychain (paired-device token).
         let bearer = settings.authHeaders["Authorization"]?
             .split(separator: " ", maxSplits: 1)
             .last

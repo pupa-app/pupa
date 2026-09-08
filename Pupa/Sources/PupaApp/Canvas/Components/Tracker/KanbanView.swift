@@ -365,7 +365,7 @@ private struct Lane: View {
                 // is laid out against an unbounded height proposal — a lazy
                 // stack has no viewport to virtualize against there, builds
                 // every row anyway, and its placement/estimation pass is one
-                // half of the layout loop that froze the board (pupa#120).
+                // half of the layout loop that froze the board.
                 // Spacing follows the board, never a single peek.
                 VStack(spacing: shrink ? 4 : 8) {
                     ForEach(items) { entry in

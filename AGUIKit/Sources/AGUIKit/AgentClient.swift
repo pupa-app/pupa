@@ -29,7 +29,7 @@ public enum AgentClientError: Error, Sendable, CustomStringConvertible {
 /// backend predates the replay middleware or the frame carried no id.
 /// Consumers track the highest seen `seq` so a dropped socket can re-attach
 /// with `forwardedProps.command.reattach.after_seq` and replay only what was
-/// missed. See pupa#103 / pupa-backend#40.
+/// missed.
 public struct SequencedAgentEvent: Sendable {
     public let event: AgentEvent
     public let seq: Int?
@@ -99,13 +99,12 @@ public struct AgentClient: Sendable {
                     let encoder = JSONEncoder()
                     // Sorted keys keep the request byte-stable across turns.
                     // Swift `Dictionary` iteration order is randomised, so an
-                    // unchanged tool surface / state re-serialised in a new key
-                    // order is a different prompt to the model — and the tool
-                    // schemas sit at the very front of the provider's prompt
-                    // cache prefix, so a reshuffle re-charges the whole turn.
-                    // Costs nothing; the bytes are the same size either way.
-                    // (`AgentContextEntry.value` is an opaque string here — it
-                    // is sorted where it is built, see its `encoding:` init.)
+                    // unchanged tool surface re-serialised in a new key order is
+                    // a different prompt — and the tool schemas sit at the front
+                    // of the provider's cache prefix, so a reshuffle re-charges
+                    // the whole turn. (`AgentContextEntry.value` is an opaque
+                    // string here — sorted where it is built, see its
+                    // `encoding:` init.)
                     encoder.outputFormatting = [.sortedKeys]
                     req.httpBody = try encoder.encode(input)
                     // Path only outside DEBUG: the host is the user's own

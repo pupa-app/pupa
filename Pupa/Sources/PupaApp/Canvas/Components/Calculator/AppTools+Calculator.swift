@@ -2,8 +2,7 @@ import Foundation
 import AGUIKit
 
 extension AppTools {
-    // Calculator component frontend tools. Relocated from the AppTools
-    // monolith into the Calculator folder (issue #162). Zero logic change.
+    // Calculator component frontend tools.
     @MainActor
     static func registerCalculatorTools(
         on registry: ToolRegistry,
@@ -193,7 +192,7 @@ extension AppTools {
                         resolvedId = id
                     }
                     // Validate every entry before writing anything: a patch that
-                    // cannot take effect used to report ok:true, costing callers
+                    // cannot take effect must not report ok:true, costing callers
                     // blind round-trips. Rejected calls leave the rows untouched.
                     let existingKeys = calculator(store, myAppId: myAppId, componentId: resolvedId)?.rows.map(\.key) ?? []
                     var errors: [AnyJSON] = []

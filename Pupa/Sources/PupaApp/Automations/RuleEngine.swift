@@ -4,7 +4,7 @@ import Observation
 /// Matches `CanvasEvent`s against loaded `AutomationRule`s and, subject to the
 /// v1 guards, surfaces a confirm-bubble proposal (or auto-fires it).
 ///
-/// Guards (issue #209):
+/// Guards:
 /// 1. **In-flight lock** (required) — a `(ruleId, itemId)` key; a matching
 ///    event whose key is already in flight is dropped. Cleared on dismiss,
 ///    on `complete`, or by a timeout backstop so a hung reaction can't wedge

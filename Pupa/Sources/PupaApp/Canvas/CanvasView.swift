@@ -44,7 +44,7 @@ public struct CanvasView: View {
 
     @ViewBuilder
     private func componentContent(_ component: Component) -> some View {
-        // Every canvas kind renders through its `ComponentModule` (issue #162).
+        // Every canvas kind renders through its `ComponentModule`.
         // Only `.empty` (and any future kind before its module lands —
         // `ComponentRegistry.assertComplete` traps that at bootstrap) has no
         // module; it falls through to the empty-state placeholder.

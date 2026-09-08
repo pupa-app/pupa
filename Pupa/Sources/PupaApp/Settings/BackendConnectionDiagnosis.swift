@@ -72,8 +72,8 @@ enum BackendHostKind: Equatable {
 ///
 /// Built from the raw `URLError` **plus** the backend host, so the message can
 /// name the real failure and its likeliest fix rather than one generic
-/// "couldn't connect". A tailnet host that fails DNS is the common case on this
-/// project: the VPN is down, and nothing in the UI used to say so.
+/// "couldn't connect" — a tailnet host failing DNS because the VPN is down
+/// reads as a generic outage otherwise.
 ///
 /// The raw error is logged, never shown. Filter Console.app by subsystem
 /// `com.pupa-app.client`, category `backend`.

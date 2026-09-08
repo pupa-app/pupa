@@ -2,8 +2,7 @@ import Foundation
 import AGUIKit
 
 extension AppTools {
-    // Chart component frontend tools. Relocated from the AppTools
-    // monolith into the Chart folder (issue #162). Zero logic change.
+    // Chart component frontend tools.
     @MainActor
     static func registerChartTools(
         on registry: ToolRegistry,

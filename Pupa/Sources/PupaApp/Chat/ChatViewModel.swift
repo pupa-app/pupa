@@ -320,9 +320,8 @@ public final class ChatViewModel {
     ///
     /// Deliberately NOT derived from `connectionIssue`: how loudly the banner
     /// reports a drop and whether the turn is still recoverable are different
-    /// questions. They used to be one flag, and reading recoverability off the
-    /// banner variant meant that making the copy more honest silently disabled
-    /// the relaunch catch-up for every code except two.
+    /// questions — reading recoverability off the banner variant couples the
+    /// relaunch catch-up to user-facing copy.
     public private(set) var turnMayStillBeRunning = false
     /// A turn that ended cleanly but unsettled — the *notice* ending. Disjoint
     /// from `connectionIssue` (the *throw* ending) right up to the UI, where
@@ -352,13 +351,12 @@ public final class ChatViewModel {
     /// by `.cursorAdvanced` on the main actor, so it can never run ahead of
     /// the rendered state the way `AgentSession.lastEventSeq` can (the session
     /// stamps its cursor before the UI consumes the event). Persisted with the
-    /// transcript so a relaunch reattaches exactly where the cache ends
-    /// (pupa#103).
+    /// transcript so a relaunch reattaches exactly where the cache ends.
     private(set) var appliedEventSeq: Int?
     /// Replay cursor that re-delivers the `on_interrupt` frame this turn is
     /// parked on, while it is parked. Persisted with the transcript so a
     /// relaunch can rewind to it and answer the parked turn instead of
-    /// silently restarting it (pupa#258). Nil whenever nothing is parked.
+    /// silently restarting it. Nil whenever nothing is parked.
     private(set) var pendingDispatchAfterSeq: Int?
     /// Set while a relaunch is attempting to answer a parked turn, so the
     /// settle path can tell "resumed the turn" from "the park was already
@@ -1303,7 +1301,7 @@ public final class ChatViewModel {
     /// No-op when a stream is still live (short background survived) or the
     /// last turn settled cleanly. Launch-time catch-up after a full app kill
     /// is the separate `catchUpAfterRelaunch` path, driven by the persisted
-    /// snapshot in `loadHistoryIfNeeded` (pupa#103).
+    /// snapshot in `loadHistoryIfNeeded`.
     public func reattachIfNeeded() {
         guard streamTask == nil else { return }       // stream survived the background
         guard connectionIssue != nil else { return }   // nothing was interrupted
@@ -1313,7 +1311,7 @@ public final class ChatViewModel {
         stoppedNotice = nil
         setStreaming(true)
         // A turn parked on a frontend tool needs the same rewind as the relaunch
-        // path (pupa#258): the live cursor sits PAST the `on_interrupt` frame, so
+        // path: the live cursor sits PAST the `on_interrupt` frame, so
         // reattaching at it replays nothing and the parked run is never answered.
         let parked = pendingDispatchAfterSeq
         if parked != nil { isRecoveringParkedDispatch = true }
@@ -1330,7 +1328,7 @@ public final class ChatViewModel {
     /// The kind-gated tool surface, as a per-round closure. Shared by `send`
     /// and both reattach paths: the resume's `tools_after_round` drives what
     /// the backend exposes next, so a recovery that advertised the unfiltered
-    /// registry would read as a gate unlock (pupa#258).
+    /// registry would read as a gate unlock.
     private func currentToolFilter() -> @Sendable () async -> Set<String> {
         let scope = pinnedScope
         return { [store, toolGateState] in
@@ -1352,8 +1350,8 @@ public final class ChatViewModel {
         consume(stream: session.reattach(toolFilter: currentToolFilter()))
     }
 
-    /// Shared event-pump for both the initial `send` and the post-interrupt
-    /// `resume` streams. Mirrors what was previously inlined in `send`.
+    /// Shared event pump for the initial `send` and the post-interrupt
+    /// `resume` streams.
     private func consume(stream: AsyncThrowingStream<SessionEvent, Error>) {
         streamTask?.cancel()
         // Captured up front: the banner names the host it failed to reach, and
@@ -1413,7 +1411,7 @@ public final class ChatViewModel {
     }
 
     /// Close out a relaunch that tried to answer a turn parked on a frontend
-    /// tool (pupa#258). Reaching here with the pending cursor still set means
+    /// tool. Reaching here with the pending cursor still set means
     /// the resume never went out — the backend's park had already expired (its
     /// wall is 300s, or 30s past the last keepalive when the app died in the
     /// foreground), so the results can never be delivered. Say so instead of
@@ -1459,9 +1457,8 @@ public final class ChatViewModel {
     ///
     /// - **A parked frontend-tool dispatch, or a replay tail we already started
     ///   consuming** → re-attach. The backend has state for us — a rewind point
-    ///   (pupa#258) or buffered events (pupa#103) — and a fresh run would
-    ///   advance the cursor past that tail, stranding an answer it may already
-    ///   have produced.
+    ///   or buffered events — and a fresh run would advance the cursor past
+    ///   that tail, stranding an answer it may already have produced.
     /// - **Nothing streamed at all** → the run never started, so re-send the
     ///   message that was dropped. It must be *that* message, not a template:
     ///   `AgentSession` replaces a trailing user message that never settled, so
@@ -1474,7 +1471,7 @@ public final class ChatViewModel {
         // (a clean completion always leaves `appliedEventSeq` set), which would
         // read an empty tail and declare the turn settled all over again: the
         // user presses Continue and watches nothing happen. Say "continue" for
-        // them instead, which is what the old copy asked them to type.
+        // them instead.
         if connectionIssue == nil, stoppedNotice != nil {
             stoppedNotice = nil
             return send(Self.continueDroppedTurnText)
@@ -1539,7 +1536,7 @@ public final class ChatViewModel {
         clearQueue()
         // Stop means "halt everything" — including a parked dispatch. Left set,
         // the rewind point would keep `turnInFlight` true and the next launch
-        // would re-dispatch a batch the user explicitly stopped (pupa#258).
+        // would re-dispatch a batch the user explicitly stopped.
         pendingDispatchAfterSeq = nil
         isRecoveringParkedDispatch = false
         FrontendDispatchJournalStore.delete(threadId)
@@ -1588,7 +1585,7 @@ public final class ChatViewModel {
                     .map { AgentMessage.user($0.text, id: $0.id) }
                 await session.reset(messages: seed)
             }
-            // Launch-time catch-up (pupa#103): the cache says a turn was still
+            // Launch-time catch-up: the cache says a turn was still
             // in flight when the process last persisted — an app kill mid-turn.
             // Seed the session's replay cursor and reattach: the backend's
             // replay log serves everything missed (or 204 when the buffer is
@@ -1598,8 +1595,8 @@ public final class ChatViewModel {
             if let snapshot, snapshot.turnInFlight {
                 // A turn parked on a frontend tool rewinds to just before its
                 // `on_interrupt` frame so the backend re-delivers the calls and
-                // the parked run can be answered rather than restarted
-                // (pupa#258). Otherwise resume from where the cache ends.
+                // the parked run can be answered rather than restarted.
+                // Otherwise resume from where the cache ends.
                 let parked = snapshot.pendingDispatchAfterSeq
                 if let parked {
                     await session.rewindReplayCursor(to: parked)
@@ -1665,8 +1662,8 @@ public final class ChatViewModel {
     /// backgrounding, not per token. All snapshot fields are captured here on
     /// the main actor in one synchronous read, so bubbles and cursor are
     /// always mutually consistent. `CloudDocument.write` is synchronous file
-    /// IO — kept off main per pupa#120; writes chain off `persistTask` so
-    /// they apply in call (= capture) order.
+    /// IO — kept off main; writes chain off `persistTask` so they apply in
+    /// call (= capture) order.
     private func persistTranscript() {
         // A transport death counts as in flight: the socket died but the backend
         // run may still be going — a relaunch should catch up, not go quiet.
@@ -1700,10 +1697,10 @@ public final class ChatViewModel {
         persistTranscript()
     }
 
-    /// Forward the host scene phase to the session's keepalive pinger
-    /// (pupa-backend#82): backgrounding sends one `state: "background"` notice
-    /// so the backend parks on its absolute wall instead of the short liveness
-    /// grace; foregrounding re-arms the grace.
+    /// Forward the host scene phase to the session's keepalive pinger:
+    /// backgrounding sends one `state: "background"` notice so the backend
+    /// parks on its absolute wall instead of the short liveness grace;
+    /// foregrounding re-arms the grace.
     public func setHostBackgrounded(_ flag: Bool) {
         let session = self.session
         Task { await session.setHostBackgrounded(flag) }
@@ -1784,9 +1781,8 @@ public final class ChatViewModel {
             // A turn that ended before the agent settled would otherwise just
             // drop the spinner and look dead. Show an inline system note with
             // the reason so the user knows it stopped (and can nudge it) rather
-            // than wondering if it crashed. `.truncated` counts too — a turn
-            // that narrated first and *then* hit the round cap used to report
-            // clean and show nothing at all.
+            // than wondering if it crashed. `.truncated` counts too: a turn that
+            // narrated first and *then* hit the round cap is still incomplete.
             if let reason = outcome.noticeReason, !didUserStop {
                 var truncated = false
                 if case .truncated = outcome { truncated = true }
@@ -1806,7 +1802,7 @@ public final class ChatViewModel {
             // the *normal* expired-park ending, not a transport problem. Reap
             // the recovery state and name it; a generic banner would leave the
             // rewind point set, latching `turnInFlight` and re-erroring on every
-            // launch (pupa#258).
+            // launch.
             if isRecoveringParkedDispatch, pendingDispatchAfterSeq != nil {
                 abandonParkedDispatch()
             } else {
@@ -1817,7 +1813,7 @@ public final class ChatViewModel {
         case .frontendDispatchParked(let afterSeq):
             // The turn is now parked on an on-device tool with no open socket.
             // Persist the rewind point straight away — a kill can land at any
-            // moment from here until the resume POST goes out (pupa#258).
+            // moment from here until the resume POST goes out.
             pendingDispatchAfterSeq = afterSeq
             parkCount += 1
             persistTranscript()
@@ -1880,12 +1876,10 @@ public final class ChatViewModel {
         // open one). In the mixed frontend+backend case backend tools get one
         // `TOOL_CALL_START` in round 1 (model emission) and another in round
         // 2 when `ToolNode` actually executes them after the frontend
-        // interrupt resumes — same id both times. The shell-approval flow
-        // makes this worse: between the two starts an `.assistantMessageStart`
-        // can close round 1's bubble (resetting `openToolRoundId` to nil),
-        // so a per-open-bubble dedupe would miss and a fresh empty bubble B
-        // would open. `.toolCallFinished` then picks bubble A via its fallback
-        // scan and bubble B's `.pending` entry never resolves — stuck spinner.
+        // interrupt resumes — same id both times. An `.assistantMessageStart`
+        // between the two starts can close round 1's bubble, so a
+        // per-open-bubble dedupe would open a second bubble whose `.pending`
+        // entry never resolves.
         // Scanning every toolRound bubble keeps round 1's entry the single
         // source of truth.
         if bubbles.contains(where: { $0.role == .toolRound && $0.toolEntries.contains(where: { $0.id == id }) }) {
@@ -2249,10 +2243,9 @@ public final class ChatViewModel {
 // MARK: - HumanInTheLoopBridge
 
 extension ChatViewModel: HumanInTheLoopBridge {
-    /// Render a `humanQuestion` bubble for the given rows, suspend the
-    /// caller until the user taps Submit (or cancels), return the
-    /// collected answers. Driven by the `ask_user_questions` frontend
-    /// tool's handler in [AppTools.swift](../Tools/AppTools.swift).
+    /// Render a `shellApproval` bubble for `command` and suspend the caller
+    /// until the user approves or denies it. `remember` carries the "don't ask
+    /// again" choice. Cancellation resumes as a denial.
     public func requestShellApproval(command: String) async -> (approved: Bool, remember: Bool) {
         openToolRoundId = nil
         let bubble = ChatBubble(role: .shellApproval, text: command)
@@ -2272,6 +2265,10 @@ extension ChatViewModel: HumanInTheLoopBridge {
         }
     }
 
+    /// Render a `humanQuestion` bubble for the given rows, suspend the
+    /// caller until the user taps Submit (or cancels), return the
+    /// collected answers. Driven by the `ask_user_questions` frontend
+    /// tool's handler in [AppTools.swift](../Tools/AppTools.swift).
     public func askQuestions(_ questions: [HumanQuestionRow]) async -> [String] {
         // Close any open tool-round bubble — `ask_user_questions` is
         // typically the only call in its batch, so the spinner should
@@ -2349,14 +2346,11 @@ extension ChatViewModel {
     /// recovery bug and no others.
     ///
     /// Straight from the event path, never through a view: `probeStateJSON`
-    /// reads `appliedEventSeq`, so a SwiftUI view rendering it re-renders on
-    /// every streamed token, and driving logging from that put a log write and
-    /// a root-view invalidation on the main thread per token. It was enough to
-    /// stall the app on a phone.
+    /// reads `appliedEventSeq`, so a view rendering it would re-render — and
+    /// log — on every streamed token.
     ///
-    /// Deltas and cursor advances are excluded for the same reason they are
-    /// noise in a trace: hundreds a turn, and none of them the reason a turn
-    /// was lost.
+    /// Deltas and cursor advances are excluded as noise: hundreds a turn, and
+    /// none of them the reason a turn was lost.
     func logProbeIfSignificant(_ event: SessionEvent) {
         switch event {
         case .assistantMessageDelta, .cursorAdvanced, .assistantMessageStart:

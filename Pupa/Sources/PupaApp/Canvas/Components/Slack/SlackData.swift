@@ -1,6 +1,7 @@
 import Foundation
 
-// Slack component data model. Moved out of CanvasState (issue #162).
+// Slack component data model. The `CanvasApp.slack` arm and its Codable stay
+// in CanvasState.
 // The `CanvasApp.slack` enum arm + its Codable stay in CanvasState.
 
 // MARK: - Slack component

@@ -1,7 +1,7 @@
 import SwiftUI
 import AGUIKit
 
-/// The calculator kind's `ComponentModule` (issue #162). No `itemPolicy`
+/// The calculator kind's `ComponentModule`. No `itemPolicy`
 /// (calculator rows aren't universal link targets — cross-component refs are
 /// handled by the unified ref model on `CanvasApp`).
 @MainActor
@@ -11,7 +11,7 @@ public struct CalculatorModule: ComponentModule {
     public let kind = "calculator"
     public let defaultIcon = "function"
 
-    /// Owned here; `MyAppType.tracker.kinds` assembles from this at load.
+    /// Owned here; `MyAppType` assembles the kind list from every module at load.
     public nonisolated static let kindSpec = ComponentKindSpec(
         tools: [
             "renderCalculator",

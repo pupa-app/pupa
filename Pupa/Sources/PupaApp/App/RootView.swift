@@ -25,9 +25,6 @@ public struct RootView: View {
     ///   - `.transitioning`— the splash has been told to leave and is fading
     ///                       out; the next surface has not started fading in yet.
     ///   - `.content`      — the onboarding (first install) or bare app fades in.
-    /// Splitting `.transitioning` out from `.content` is what makes the handoff
-    /// a sequence rather than a cross-dissolve: the splash's fade-out and the
-    /// content's fade-in run back-to-back, never simultaneously.
     private enum Phase { case splash, transitioning, content }
 
     /// Launch arguments are applied here — the first thing that builds any

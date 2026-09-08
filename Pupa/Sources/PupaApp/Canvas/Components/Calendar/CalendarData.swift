@@ -1,8 +1,7 @@
 import Foundation
 
-// Calendar component data model. Moved out of the CanvasState monolith into
-// the Calendar component folder (issue #162). The `CanvasApp.calendar` enum arm
-// and its Codable stay in CanvasState — the persistence discriminator.
+// Calendar component data model. The `CanvasApp.calendar` enum arm and its
+// Codable stay in CanvasState — the persistence discriminator.
 
 /// One event on a calendar component. `start` is an ISO-8601 instant (the
 /// agent emits strings; the view formats locally). `end` and `notes` are

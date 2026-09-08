@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// Top-level store for the user's myapps. Replaces the old singleton
+/// Top-level store for the user's myapps. Supersedes the singleton
 /// `CanvasState` — every canvas mutation routes through here against the
 /// active myapp.
 ///
@@ -13,12 +13,8 @@ import Observation
 /// (no `state/`), `load()` seeds the pre-populated "Daily Briefing"
 /// workspace via `DailyBriefingExample.make()` — a working demo of the
 /// full canvas instead of an empty placeholder. Users can add any example
-/// any time from Settings → Examples. The spaces→myapps rename in project
-/// `0.0.26` is a clean break with no migration of older
-/// `pupa.spaces.v1` / `pupa.canvas.v1` data.
-/// The component refactor (project `0.0.31`) is backward-compatible at the
-/// `MyApp` Codable layer — old single-`canvas` blobs are migrated on first
-/// decode into a one-element `components` array.
+/// any time from Settings → Examples. `MyApp`'s Codable migrates an old
+/// single-`canvas` blob into a one-element `components` array on first decode.
 @MainActor
 @Observable
 public final class MyAppStore {
@@ -39,7 +35,7 @@ public final class MyAppStore {
     /// so this store stays decoupled from `SettingsStore`.
     @ObservationIgnored public var threadCapBytes: (() -> Int?)? = nil
     /// Typed canvas-domain event stream — the trigger side of bundle
-    /// automations (issue #209). Fed from the single mutation choke-point;
+    /// automations. Fed from the single mutation choke-point;
     /// wired to `RuleEngine` by `AppView`. A closure so the store stays
     /// decoupled from the automation layer. Only user-actor moves emit (the
     /// self-mutation guard: agent/reaction moves never re-trigger a rule).
@@ -80,8 +76,8 @@ public final class MyAppStore {
 
     /// True while this install is provisioning: the local store was empty at
     /// launch but iCloud is active, so we await the first pull instead of
-    /// seeding-and-pushing a default roster (which would clobber real apps on
-    /// other devices — the reported data-loss bug). Gates `persist()`. Stays
+    /// seeding-and-pushing a default roster, which would clobber real apps on
+    /// other devices. Gates `persist()`. Stays
     /// set for the whole wait, including the background retry: the placeholder
     /// must not reach disk while a real roster is still inbound.
     public private(set) var isProvisioning = false
@@ -196,8 +192,8 @@ public final class MyAppStore {
                 Self.gcTombstones()
             } else if PupaStorage.iCloudActive {
                 // Local store is empty but iCloud is active — it may just be
-                // awaiting the first sync. Do NOT seed-and-push a default (that
-                // clobbers real apps on every device — the reported wipe). Hold
+                // awaiting the first sync. Do NOT seed-and-push a default — that
+                // clobbers real apps on every device. Hold
                 // the in-memory placeholder; `AppView` drives
                 // `finishProvisioning()` to adopt the real roster, or seed once
                 // only if the cloud is genuinely empty.
@@ -1841,10 +1837,6 @@ public final class MyAppStore {
             .components.first(where: { $0.id == componentId })?.name
     }
 
-    /// Attach a tracker item to a calendar event. No-op if the ref is
-    /// already in the event's `linkedItems`, the event doesn't exist, or
-    /// the calendar component is missing. Returns the updated link count
-    /// on success.
     /// Replace a calendar event's `linkedItems` wholesale. Used by
     /// `patchCalendarEvent` when the agent supplies a `linkedItems`
     /// patch.
@@ -2029,10 +2021,9 @@ public final class MyAppStore {
     /// calendar event, or checklist item is removed so the inline pills
     /// rendered by other components don't dangle. Source items keep their
     /// own title / text / start / notes — only the matching pill
-    /// disappears. As of project `0.0.41`, every kind that can hold
-    /// `linkedItems` (tracker rows + calendar events + checklist rows)
-    /// is swept here, so a removed item drops both inbound refs from
-    /// other components AND inbound refs from rows in the same kind
+    /// disappears. Every kind that can hold `linkedItems` (tracker rows,
+    /// calendar events, checklist rows) is swept, so a removed item drops
+    /// inbound refs from other components AND from rows in the same kind
     /// (e.g. tracker row → tracker row in the same tracker).
     private func cascadeRemoveRefs(
         toComponentId componentId: String,
@@ -2249,8 +2240,8 @@ public final class MyAppStore {
     // Mirror the checklist mutators: kind-routed via `mutate(_:kind:"calculator")`
     // (or `byComponentId` for a targeted call), `@discardableResult`, persist
     // only on change. Calc-row edits emit an `ItemEvent` for the History
-    // sheet but carry no inverse — calculator rows aren't in the undo graph
-    // yet (Phase 1), so they show as non-reversible entries. The UI tuning
+    // sheet but carry no inverse — calculator rows aren't in the undo graph,
+    // so they show as non-reversible entries. The UI tuning
     // path (`setCalculatorVariable`) deliberately emits NO event: a slider
     // drag would otherwise flood the log, exactly as `setChecklistItemDone`
     // stays silent next to `toggleChecklistItem`.
@@ -3498,8 +3489,8 @@ public final class MyAppStore {
         /// Nil when the tombstone didn't decode (corrupt / half-written); the
         /// row omits the date rather than inventing one.
         public let deletedAt: Date?
-        /// False for a pre-0.0.240 delete, which captured nothing. The row says
-        /// so instead of offering a Restore that can't work.
+        /// False when nothing was captured to restore from; the row says so
+        /// instead of offering a Restore that can't work.
         public let isRestorable: Bool
         /// True when a sync removed it rather than the user — the row says so,
         /// since "Deleted" would be a lie about something nobody deleted.
@@ -3666,7 +3657,7 @@ public final class MyAppStore {
 
     /// Re-materialize memory files the app lost to a sync-driven local delete —
     /// the `pupa/agents/<slug>/AGENTS.md` and `pupa/skills/<name>/SKILL.md`
-    /// bodies that otherwise come back as empty folders (#251). `MyApp` carries
+    /// bodies that otherwise come back as empty folders. `MyApp` carries
     /// no memory files, so no snapshot can hold them.
     ///
     /// Quarantine can't tell a bad sync from a file deliberately deleted on
@@ -3825,9 +3816,8 @@ public final class MyAppStore {
     /// Write `index.json` only.
     ///
     /// `setActive` moves the active-app pointer, which lives in the index — no
-    /// app body changes. Going through `persist()` re-encoded **every** app to
-    /// discover exactly that, and it showed up as roughly half the synchronous
-    /// work of picking a MyApp from the sidebar once a roster gets real.
+    /// app body changes. Going through `persist()` would re-encode **every**
+    /// app to discover exactly that.
     private func persistIndex() {
         guard !isProvisioning else { return }
         writeIndex(Self.stateEncoder(), unadopted: unadoptedPlaceholderIds)
@@ -3992,8 +3982,8 @@ public final class MyAppStore {
             // Roster membership = the UNION of the index's `order` and every
             // decodable app body on disk. The index gives ORDER; the disk gives
             // EXISTENCE. A stale/shrunk index (a bad merge, a seed pushed over
-            // real data) can de-list an app but can no longer HIDE it — which
-            // then let the 7-day orphan sweep delete it (the reinstall wipe).
+            // real data) can de-list an app but must never HIDE it — a hidden
+            // app is one the 7-day orphan sweep would delete.
             // A genuine delete removes the body file too, so a deleted app is
             // absent from disk here and never resurrects.
             let tombstoned = diskTombstoneIds()
@@ -4034,11 +4024,10 @@ public final class MyAppStore {
             }
         }
 
-        // Fresh install: seed the first two examples from the registry, the
-        // first of them active. One app made the MyApps list look like a
-        // detail of the app rather than the thing you collect, and the tour
-        // opens on that list. Every other example is restorable from Settings.
-        // The caller writes this to disk via `persist()`.
+        // Fresh install: seed the first examples from the registry, the first
+        // of them active — the tour opens on the MyApps list, which should
+        // read as a collection rather than a single app. Every other example
+        // is restorable from Settings. The caller persists this.
         let seeded = ExampleRegistry.all.prefix(ExampleRegistry.freshInstallSeedCount).map { $0.make() }
         let myApps = seeded.isEmpty ? [DailyBriefingExample.make()] : seeded
         let myApp = myApps[0]
@@ -4055,15 +4044,14 @@ public final class MyAppStore {
     /// Before overwriting local state we (1) checkpoint any dirty in-memory
     /// MyApp that hasn't been persisted, and (2) capture + resolve any iCloud
     /// `NSFileVersion` conflicts — snapshotting every side so no offline edit
-    /// is ever silently lost (issue #82).
+    /// is ever silently lost.
     ///
     /// The heavy file IO — the whole-tree conflict scan and the coordinated
-    /// reads of `index.json` + every app file — runs **off the main actor**
-    /// (pupa#110): during an initial iCloud download the watcher fires this
-    /// repeatedly, and doing that IO on main stampeded the UI thread. Only the
-    /// in-memory dirty check (before) and the republish (after) touch main
-    /// state. The watcher keeps `NSMetadataQuery` updates suppressed until this
-    /// returns, so reloads can't overlap.
+    /// reads of `index.json` + every app file — runs **off the main actor**:
+    /// during an initial iCloud download the watcher fires this repeatedly.
+    /// Only the in-memory dirty check (before) and the republish (after) touch
+    /// main state. The watcher keeps `NSMetadataQuery` updates suppressed until
+    /// this returns, so reloads can't overlap.
     public func reloadFromDisk() async {
         let enc = Self.stateEncoder()
         // Not while provisioning: checkpointing the in-memory placeholder writes
@@ -4164,7 +4152,7 @@ public final class MyAppStore {
         } else {
             // The cloud has (or had) a roster we couldn't pull in the window, so
             // keep pulling rather than waiting for a CloudWatcher pass that may
-            // never come on a slow link (the "stuck on Daily Briefing" report).
+            // never come on a slow link.
             //
             // Deliberately STAYS provisioning: a roster is known to be up there,
             // so until it's adopted the placeholder must neither reach disk nor
@@ -4342,7 +4330,7 @@ public final class MyAppStore {
 
     /// Raise `pendingMemoryLoss` when a sync took memory files from apps that
     /// are still in the roster — the half `recoverMemoryFiles` can't reach,
-    /// since it only runs on an un-delete (#251 follow-up).
+    /// since it only runs on an un-delete.
     ///
     /// **Trigger is a lost *unit*, not a lost file.** A file deleted
     /// deliberately on another device arrives as the same `.deleteLocal` and is

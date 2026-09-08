@@ -5,8 +5,8 @@ import Charts
 /// (pie / bar / line) using Swift Charts. No store, no lookup — the colour
 /// per series is driven by series `name` so multi-series line/bar charts get
 /// a distinct colour + legend for free; `colorByName` overrides the auto
-/// palette where set. Reusable in chat later (Phase 3, #23). Empty series →
-/// caller renders a placeholder (this view assumes non-empty input).
+/// palette where set. Empty series → caller renders a placeholder (this view
+/// assumes non-empty input).
 ///
 /// `pie` is inherently single-series — it plots the FIRST series only.
 public struct ChartView: View {

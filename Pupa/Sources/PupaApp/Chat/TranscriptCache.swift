@@ -2,7 +2,7 @@ import Foundation
 
 /// One thread's persisted chat state: the rendered bubbles plus the SSE replay
 /// cursor captured at the same instant, so a relaunch after an app kill can
-/// reattach exactly where the cached transcript ends (pupa#103).
+/// reattach exactly where the cached transcript ends.
 struct TranscriptSnapshot: Equatable, Sendable {
     var bubbles: [ChatBubble]
     /// Highest replay seq applied to `bubbles` when saved; nil when the
@@ -15,7 +15,7 @@ struct TranscriptSnapshot: Equatable, Sendable {
     /// Replay cursor that re-delivers the `on_interrupt` frame the turn is
     /// parked on, or nil when it isn't parked on one. A relaunch seeds this
     /// instead of `lastEventSeq` so the backend re-sends the frontend calls and
-    /// the turn can be resumed rather than silently restarted (pupa#258).
+    /// the turn can be resumed rather than silently restarted.
     var pendingDispatchAfterSeq: Int?
 }
 

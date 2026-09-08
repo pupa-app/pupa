@@ -14,9 +14,8 @@ import os
 /// uncoordinated and relies on atomic writes + its baseline-aware 3-way merge
 /// for consistency. A coordinated write here only bought a synchronous XPC
 /// round-trip to `filecoordinationd`, which on device can stall the calling
-/// thread (here the main actor, via `MyAppStore.persist`) for hundreds of ms —
-/// the intermittent freeze in pupa#120. Atomic writes still guarantee no reader
-/// ever sees a torn file.
+/// thread (here the main actor, via `MyAppStore.persist`) for hundreds of ms.
+/// Atomic writes still guarantee no reader ever sees a torn file.
 public enum CloudDocument {
     /// Read. Returns `nil` if the file is absent or unreadable.
     public static func read(_ url: URL) -> Data? {
@@ -85,9 +84,7 @@ public enum CloudDocument {
 /// and each `onChange` here drives a store reload whose heavy file IO
 /// (re-encode every MyApp, per-file `NSFileVersion` conflict probes,
 /// coordinated reads of the whole tree — see `MyAppStore.reloadFromDisk`) is
-/// the leading suspect for the iPhone-only slowdown in pupa#110 (the iPad
-/// rarely does a big initial download, so it never sees the storm). Two
-/// defences stack:
+/// expensive. Two defences stack:
 ///   1. `disableUpdates()` the moment a change arrives, so the query batches
 ///      further changes instead of posting a notification per file, and
 ///   2. debounce the actual `onChange` so a burst collapses into one reload,
@@ -145,7 +142,7 @@ public final class CloudWatcher {
 
     /// Ask iCloud to download any mirrored file that isn't materialized yet, so
     /// the subsequent `StorageMirror` reconcile can actually pull it. Only
-    /// enqueues fetches — no coordinated IO, so no pupa#120 main-thread stall;
+    /// enqueues fetches — no coordinated IO, so no main-thread stall;
     /// idempotent for in-flight/`.current` items. Called with updates disabled,
     /// so `query.results` is a stable snapshot.
     private func kickPendingDownloads() {

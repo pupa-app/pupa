@@ -119,11 +119,8 @@ public final class NotificationLogStore {
     /// `pending` as an argument rather than reading the coordinator so it stays
     /// testable on hosts where `UNUserNotificationCenter` can't be touched.
     ///
-    /// Reading the queue is `async`, so both edges of the suspension matter.
-    /// `capturedAt` precedes it: a record written during the read is newer
-    /// than the snapshot and is left alone rather than judged absent from a
-    /// queue that predates it. `now` follows it: a notification that fired
-    /// during the read is past due, so it reads as delivered, not cancelled.
+    /// `capturedAt` must precede the queue read and `now` must follow it — see
+    /// `NotificationCenterCoordinator.reconcileLog`.
     public func reconcile(
         pending: [NotificationCenterCoordinator.PendingNotification],
         capturedAt: Date,

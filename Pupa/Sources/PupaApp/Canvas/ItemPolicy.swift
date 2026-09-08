@@ -6,9 +6,7 @@ import Foundation
 ///
 /// `onItemRemoved` is `@MainActor` because implementations will call store
 /// mutators (e.g. `cascadeRemoveRefs`) which require main-actor isolation.
-/// The default implementation is a no-op; Phase 2–4 policy types override it
-/// to route removal cascades through the registry instead of the kind-switch
-/// that currently lives in `MyAppStore.cascadeRemoveRefs`.
+/// The default implementation is a no-op.
 public protocol AnyItemPolicy: Sendable {
     var maxLinkedItems: Int { get }
     var maxDisplayNameLength: Int { get }

@@ -1,8 +1,7 @@
 import Foundation
 
-// Tracker component data model. Moved out of the CanvasState monolith into
-// the Tracker component folder (issue #162). The `CanvasApp.tracker` enum arm
-// and its Codable stay in CanvasState — the persistence discriminator.
+// Tracker component data model. The `CanvasApp.tracker` enum arm and its
+// Codable stay in CanvasState — the persistence discriminator.
 
 public enum FieldType: String, Codable, Sendable {
     case text

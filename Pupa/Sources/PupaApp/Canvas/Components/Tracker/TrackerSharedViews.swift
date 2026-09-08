@@ -765,14 +765,11 @@ struct CardLayout {
 /// Predicts whether a string needs more than `lineLimit` lines, from the
 /// string alone.
 ///
-/// Deliberately never measures geometry. `ExpandableText` used to compare a
-/// hidden unconstrained copy of the text against the line-limited one through
-/// two `GeometryReader`s and write both heights into `@State`. Inside a
-/// `LazyVStack` that never terminates: the measurement decides whether the
-/// "Show more" button exists, the button changes the height being measured,
+/// Deliberately never measures geometry. A `GeometryReader` height feedback
+/// loop inside a `LazyVStack` never terminates: the measurement decides whether
+/// the "Show more" button exists, the button changes the height being measured,
 /// the changed height re-places the lazy stack, and placement re-fires the
-/// measurement's `onAppear`. That is the pupa#120 hang — main thread pinned at
-/// 100%, force-quit to recover.
+/// measurement's `onAppear` — main thread pinned at 100%.
 enum TextOverflowEstimate {
     /// Characters that fit on one `.caption` line in a 260pt kanban lane.
     static let laneCharsPerLine = 34

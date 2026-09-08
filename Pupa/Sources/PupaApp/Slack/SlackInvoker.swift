@@ -7,13 +7,9 @@ import Observation
 /// busy / chain-depth policy lives on the shared
 /// `AgentInvocationGate` — call sites consult that directly with a
 /// `.slack(agentId:)` key, then bracket the run with `enter(_:…)` /
-/// `exit(_:)` here to set up and tear down `activeInvocations`.
-///
-/// `enter` / `exit` pair with the gate by calling
-/// `gate.enter(invocationId:target:caller:treeRoot:)` /
-/// `gate.exit(invocationId)` so the Slack lifecycle is a single
-/// bundled operation at the call site; the coordinator never touches
-/// the gate directly for a Slack key.
+/// `exit(_:)` here to set up and tear down `activeInvocations`. Those two
+/// call into the gate themselves, so the coordinator never touches it
+/// directly for a Slack key.
 @MainActor
 @Observable
 public final class SlackInvoker {
@@ -368,9 +364,6 @@ public struct SlackInvocationState: Equatable {
     }
 }
 
-/// The view of a parked `ask_user_questions` call inside a Slack
-/// sub-agent's invocation state. `rows` mirrors the request the model
-/// sent; `answers` carries the user's per-row input as they fill it in.
 /// The view of a parked `request_shell_approval` call inside a Slack
 /// sub-agent's invocation state. `SlackView` renders an inline approval card.
 public struct SlackPendingShellApproval: Equatable, Sendable {
@@ -378,6 +371,9 @@ public struct SlackPendingShellApproval: Equatable, Sendable {
     public init(command: String) { self.command = command }
 }
 
+/// The view of a parked `ask_user_questions` call inside a Slack
+/// sub-agent's invocation state. `rows` mirrors the request the model
+/// sent; `answers` carries the user's per-row input as they fill it in.
 public struct SlackPendingQuestion: Equatable, Sendable {
     public var rows: [HumanQuestionRow]
     public var answers: [PendingAnswer]

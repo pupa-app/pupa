@@ -1,7 +1,7 @@
 import SwiftUI
 import AGUIKit
 
-/// The chart kind's `ComponentModule` (issue #162). No `itemPolicy` (a chart's
+/// The chart kind's `ComponentModule`. No `itemPolicy` (a chart's
 /// series reference other components via specs, handled by the unified ref
 /// model on `CanvasApp`, not the universal item graph).
 @MainActor
@@ -11,7 +11,7 @@ public struct ChartModule: ComponentModule {
     public let kind = "chart"
     public let defaultIcon = "chart.pie"
 
-    /// Owned here; `MyAppType.tracker.kinds` assembles from this at load.
+    /// Owned here; `MyAppType` assembles the kind list from every module at load.
     public nonisolated static let kindSpec = ComponentKindSpec(
         tools: [
             "renderChart",

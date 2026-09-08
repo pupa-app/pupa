@@ -397,9 +397,7 @@ public struct ChatPanel: View {
 
     /// The turn stopped, and there is something to pick back up. Three ways in,
     /// one affordance: a reattachable drop, an outright failure, and a turn that
-    /// ended cleanly but unsettled. The last is the commonest of the three and
-    /// used to render nothing at all — just a transcript bubble telling the user
-    /// to type "continue" by hand.
+    /// ended cleanly but unsettled.
     @ViewBuilder
     private var turnEndedBanner: some View {
         switch viewModel.connectionIssue {
@@ -852,12 +850,9 @@ public struct ChatPanel: View {
         viewModel.isStreaming && !viewModel.isAwaitingHumanInput && !composerHasContent
     }
 
-    /// The TextField is disabled while a turn is in flight, so swap the
-    /// placeholder so the lock state is self-explanatory and the user
-    /// knows Stop is their only mid-turn action. When the agent is parked
-    /// on an `ask_user_questions` interrupt the composer is gated too —
-    /// answers travel through the bubble's Submit button, not the
-    /// composer, so the placeholder explains where to reply.
+    /// Placeholder says where the user can act. Typing stays enabled while
+    /// streaming (the message queues), but a human-in-the-loop interrupt gates
+    /// the field — answers travel through the bubble's Submit button.
     private var composerPlaceholder: String {
         // Interrupt copy wins over the streaming copy: while parked, the turn
         // is technically still in flight (`isStreaming == true`) but the user's
@@ -1020,19 +1015,14 @@ enum MarkdownCache {
 
     /// Parses on a miss.
     ///
-    /// Eviction is **random**, which looks odd and is deliberate. The list is
-    /// a `LazyVStack`, so steady-state scrolling touches only visible rows —
-    /// but `defaultScrollAnchor(.bottom)` forces the whole thread to be laid
-    /// out at **mount**, i.e. once per chat open (#184). For a thread longer
-    /// than the cap that sweep is a cyclic scan larger than the cache, which
-    /// is the pathological case for FIFO and LRU alike: each sweep evicts
-    /// precisely what the next one asks for first, pinning the hit rate at
-    /// zero and leaving the cache costing hashing on top of the original
-    /// parse — worse than no cache, for exactly the users with the longest
-    /// transcripts. Random eviction is scan-resistant: measured ~48% hits at
-    /// 1500 entries against a 1200 cap, falling to ~7% at 3000, where FIFO and
-    /// LRU both score exactly 0%. LRU would win in the scrolling regime; it
-    /// loses badly in the one that hurts.
+    /// Eviction is **random**, deliberately. `defaultScrollAnchor(.bottom)`
+    /// lays the whole thread out at mount, so a thread longer than the cap
+    /// drives a cyclic scan larger than the cache — the pathological case for
+    /// FIFO and LRU alike, where each sweep evicts exactly what the next asks
+    /// for first and the hit rate pins at zero. Random eviction is
+    /// scan-resistant: ~48% hits at 1500 entries against a 1200 cap and ~7% at
+    /// 3000, where FIFO and LRU both score 0%. LRU wins while scrolling and
+    /// loses badly in the regime that hurts.
     static func content(id: String, text: String) -> MarkdownContent {
         let hash = text.hashValue
         if let hit = entries[id], hit.hash == hash { return hit.content }
@@ -1347,15 +1337,14 @@ private struct ShellApprovalBubbleView: View {
 }
 
 /// A clarifying-question panel raised by the agent via the
-/// `ask_user_questions` backend tool. The backend is paused on an
+/// `ask_user_questions` frontend tool. The backend is paused on an
 /// interrupt; the user picks an option or types a custom reply per
 /// question and taps Submit; `ChatViewModel.submitInterruptAnswers()`
 /// routes the collected list into `AgentSession.resume(answers:)`.
 ///
-/// Visual contract: yellow tint + question-mark glyph so the user can tell
-/// at a glance the agent is waiting on them. When `isLive` is false the
-/// bubble renders the historical state read-only (a previously-submitted
-/// panel staying in the transcript for context).
+/// Yellow tint + question-mark glyph so the user can tell at a glance the
+/// agent is waiting on them. `isLive == false` renders a previously-submitted
+/// panel read-only, for transcript context.
 private struct HumanQuestionBubbleView: View {
     let bubble: ChatBubble
     let isLive: Bool

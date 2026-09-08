@@ -3,8 +3,8 @@ import Foundation
 /// Pure, store-free reduce over a tracker's items. Pulls one numeric field
 /// off every item that passes a case-insensitive AND equality filter, then
 /// folds the parsed values to a single scalar. No SwiftUI, no store, no
-/// MainActor — `CalculatorResolver` calls it for `aggregate` rows, and
-/// Phase 2 (#22) reuses it for chart series.
+/// MainActor — `CalculatorResolver` calls it for `aggregate` rows, and chart
+/// series reuse it.
 public enum TrackerAggregator {
 
     /// Outcome of a reduce. `value` is the scalar the caller surfaces;
@@ -69,7 +69,7 @@ public enum TrackerAggregator {
 
     /// Group `items` (after `filter`) by their `groupBy` value, reduce
     /// `valueField` within each group, and emit one `ChartPoint` per group.
-    /// Phase 2 (#22) calls this for `tracker`-sourced charts.
+    /// Used for `tracker`-sourced charts.
     ///
     /// - `label` is the group value; `y` the per-group reduced scalar.
     /// - When `xIsNumericOrDate` is true the group value is parsed to a

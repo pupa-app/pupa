@@ -36,8 +36,7 @@ public enum ChartResolver {
     ///
     /// This is the entry point for **rendering** — `resolveSeries` handles one
     /// spec and cannot express `calculatorLinkedSweep`, which fans one spec out
-    /// to a curve per linked item. Drawing through the single-series path meant
-    /// a `linkedSweep` chart silently rendered nothing at all.
+    /// to a curve per linked item.
     ///
     /// Two things happen here that the raw resolve doesn't do:
     ///

@@ -42,16 +42,14 @@ public struct AgentsListView: View {
     @Environment(\.paneIsActive) private var paneIsActive
 
     /// Loaded in `.task`, never in `body`: enumerating agents walks the app's
-    /// memory root off disk. Doing that inline put it inside the tap's runloop
-    /// turn, which is what made switching apps from the menu feel slow.
+    /// memory root off disk, and in `body` that lands inside the tap's runloop
+    /// turn.
     @State private var descriptors: [AgentDescriptor] = []
     @State private var descriptorsLoaded = false
 
     /// Everything a descriptor is derived from: the memory tree (subagent
     /// files) and the MyApp itself (model choice, disabled tools, components).
-    /// The old computed property re-derived on every body pass and so picked
-    /// these up for free — at the cost of a disk walk each time. Comparing the
-    /// inputs instead is strictly cheaper than reading them.
+    /// Comparing these inputs is strictly cheaper than re-reading them.
     private struct DescriptorKey: Hashable {
         let myAppId: UUID
         let memoryRevision: Int

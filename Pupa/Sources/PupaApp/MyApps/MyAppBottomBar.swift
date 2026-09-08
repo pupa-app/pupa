@@ -6,11 +6,10 @@ import SwiftUI
 ///
 ///   Home · Memories · Pupa(chat) · Menu
 ///
-/// The app's only bar: the sidebar has no footer, so the menu carries what used to
-/// be split between the two — Agents and History (the low-traffic per-subject
-/// pages) plus Settings. The orchestrator has no canvas change-log, so its menu
-/// omits History. Icons are tinted in the subject's color; the pupa keeps its
-/// own look.
+/// The app's only bar: the sidebar has no footer, so the menu carries Agents
+/// and History (the low-traffic per-subject pages) plus Settings. The
+/// orchestrator has no canvas change-log, so its menu omits History. Icons are
+/// tinted in the subject's color; the pupa keeps its own look.
 public struct MyAppBottomBar: View {
     /// Which page the bar should mark as active.
     public enum Page: Equatable {
@@ -38,11 +37,9 @@ public struct MyAppBottomBar: View {
     /// orchestrator hides the History item.
     let onShowHistory: (UUID) -> Void
     let onToggleChat: () -> Void
-    /// Present the Settings sheet. Owned by `AppView` — the bar is the only
-    /// surface that reaches Settings now that the sidebar footer is gone.
+    /// Present the Settings sheet. Owned by `AppView`.
     let onOpenSettings: () -> Void
-    /// Present the MyApps sheet. The bar is the only way there now that the
-    /// top-left hamburger is gone. `nil` on macOS, where the sidebar column is
+    /// Present the MyApps sheet. `nil` on macOS, where the sidebar column is
     /// always on screen and a row that opens it would be redundant.
     let onOpenMyApps: (() -> Void)?
 
@@ -210,9 +207,7 @@ public struct MyAppBottomBar: View {
 
     /// The app's menu, grouped one axis per section: this scope's pages
     /// (Agents, History), which scope you're in (MyApps, Orchestrator), then
-    /// app-wide (Settings). Mixing those in one flat list put History next to
-    /// Settings, two rows that don't even apply to the same thing; MyApps is a
-    /// single row onto its own surface instead.
+    /// app-wide (Settings).
     ///
     /// iOS flips a bottom-anchored menu, the whole item list rather than just
     /// the groups, so the first row declared lands nearest the thumb and within

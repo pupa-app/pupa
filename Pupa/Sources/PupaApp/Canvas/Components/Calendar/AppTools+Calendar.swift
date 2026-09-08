@@ -2,10 +2,8 @@ import Foundation
 import AGUIKit
 
 extension AppTools {
-    // Calendar component frontend tools. Relocated from the AppTools
-    // monolith into the Calendar component folder (issue #162);
-    // registerMyAppTools + CalendarModule.registerTools both call it.
-    // Zero logic change.
+    // Calendar component frontend tools. `registerMyAppTools` and
+    // `CalendarModule.registerTools` both call it.
     @MainActor
     static func registerCalendarTools(
         on registry: ToolRegistry,

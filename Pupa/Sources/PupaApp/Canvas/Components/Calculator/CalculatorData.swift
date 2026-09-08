@@ -1,6 +1,7 @@
 import Foundation
 
-// Calculator component data model. Moved out of CanvasState (issue #162).
+// Calculator component data model. The `CanvasApp.calculator` arm and its
+// Codable stay in CanvasState.
 // The `CanvasApp.calculator` enum arm + its Codable stay in CanvasState.
 
 // MARK: - Calculator component
@@ -363,18 +364,13 @@ public struct CalcRow: Codable, Hashable, Sendable, Identifiable {
 /// Body of a calculator canvas component — a titled, ordered list of
 /// `CalcRow`s. Results are NEVER persisted: `CalculatorResolver` recomputes
 /// every row's `{value, status}` live on each render so a tuned variable or
-/// an edited source tracker is reflected immediately. Phase 2 (#22) adds an
-/// `inlineChart: ChartData?` field here; the `decodeIfPresent` decoder means
-/// that field can land without a migration of Phase-1 blobs.
+/// an edited source tracker is reflected immediately.
 public struct CalculatorData: Codable, Hashable, Sendable {
     public var title: String
     public var rows: [CalcRow]
-    /// Optional chart embedded below the rows (Phase 2, #22). When set, the
-    /// calculator view renders a `ChartContainerView` after the row list —
-    /// the same store-free `ChartView` a standalone `chart` component uses,
-    /// so a chart can live inside the calculator or on its own. `nil` =
-    /// no embedded chart; `decodeIfPresent` means Phase-1 blobs decode
-    /// untouched.
+    /// Optional chart rendered below the rows — the same store-free `ChartView`
+    /// a standalone `chart` component uses, so a chart can live inside the
+    /// calculator or on its own. `nil` = no embedded chart.
     public var inlineChart: ChartData?
     /// Extra charts stacked below `inlineChart` (seed-declared; the
     /// `embedComponent` tool only ever touches `inlineChart`). Lets an

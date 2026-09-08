@@ -7,7 +7,7 @@ import os
 ///
 /// The local tree is always the store of record — the app reads and writes it
 /// directly and never blocks on iCloud — so turning iCloud off in iOS Settings
-/// can't hide MyApps or strand offline edits (pupa#110 follow-up). When iCloud
+/// can't hide MyApps or strand offline edits. When iCloud
 /// is available, `reconcile()` converges the two trees.
 ///
 /// **Merge is baseline-aware (3-way), not naive newest-wins.** A persisted
@@ -43,8 +43,7 @@ public actor StorageMirror {
     /// store, awaiting its first iCloud pull). While set, `converge` refuses to
     /// push the local `state/index.json` up or let it win a conflict — a
     /// not-yet-adopted device must never overwrite the real roster in iCloud.
-    /// Static + lock-protected because `converge` is `static` (also driven
-    /// directly by tests). Reset by `MyAppStore.clearStorage` for test isolation.
+    /// Static + lock-protected because `converge` is `static`.
     private static let provisioningLock = OSAllocatedUnfairLock<Bool>(initialState: false)
     public static var provisioning: Bool {
         get { provisioningLock.withLock { $0 } }
@@ -493,7 +492,7 @@ public actor StorageMirror {
 
     /// Single-pass scan of a **cloud** subtree: the `rel → Meta` map (as `tree`)
     /// *and* every not-yet-materialized item, from one enumeration. Collapses
-    /// what used to be two full walks (a placeholder scan + `tree`) so the cloud
+    /// what would otherwise be two full walks (a placeholder scan + `tree`) so the cloud
     /// subtree is traversed once per converge. Local subtrees never hold
     /// placeholders, so they keep using `tree()`.
     ///
@@ -526,7 +525,7 @@ public actor StorageMirror {
             guard vals?.isRegularFile == true else { continue }
             // macOS-style not-downloaded (present under its real name). `!= .current`
             // also re-fetches an item with a newer cloud version — desirable for
-            // convergence. Narrow to `== .notDownloaded` if this churns on device.
+            // convergence.
             if let status = vals?.ubiquitousItemDownloadingStatus, status != .current {
                 notDownloaded.append((url, url))
             }

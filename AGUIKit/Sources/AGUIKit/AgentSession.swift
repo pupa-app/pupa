@@ -34,13 +34,13 @@ public enum SessionEvent: Sendable {
     case error(message: String, code: String?)
     /// The replay cursor advanced: the frame stamped with this seq has been
     /// fully delivered (its session event, if any, was yielded first). Hosts
-    /// that persist the cursor per thread (pupa#103) track this instead of
+    /// that persist the cursor per thread track this instead of
     /// `AgentSession.lastEventSeq` so a persisted value never runs ahead of
     /// the UI state saved alongside it.
     case cursorAdvanced(Int)
     /// The turn just parked on a frontend-tool interrupt. `afterSeq` is the
     /// replay cursor value that re-delivers that interrupt frame — persist it
-    /// (pupa#258) and seed it via `seedReplayCursor` on relaunch so a turn
+    /// and seed it via `seedReplayCursor` on relaunch so a turn
     /// killed mid-dispatch can be resumed instead of silently restarted.
     /// Not emitted when the backend didn't stamp the frame with a seq.
     case frontendDispatchParked(afterSeq: Int)
@@ -63,10 +63,7 @@ public enum CompletionOutcome: Sendable, Equatable {
     /// it died" case. `reason` says why, for a user-facing notice.
     case silent(SilentReason)
     /// The turn DID emit assistant text but was cut short before the agent
-    /// settled — the reply is partial, not final. Distinct from `.produced`:
-    /// a turn that narrated in round 1 and then hit the round cap (or lost its
-    /// socket) used to be indistinguishable from a clean finish, so the UI
-    /// dropped the spinner with no explanation.
+    /// settled — the reply is partial, not final.
     case truncated(SilentReason)
 
     /// The reason to surface to the user, or `nil` for a clean settle. Hosts
@@ -123,12 +120,10 @@ public actor AgentSession {
     /// backend's own graph-step limit is the runaway guard, and this is an
     /// opt-in client-side breaker on top of it.
     ///
-    /// When the cap is hit mid-interrupt the loop enters *draining*: it keeps
-    /// POSTing staged resumes (up to `maxDrainRounds` more) before stopping
-    /// with a `.maxRounds` notice. A backend that answers every resume with
-    /// another tool call outlives the drain budget, so the final round's
-    /// resume goes unsent and that run stays parked — unavoidable for any
-    /// bounded loop, but bounded, not eliminated. See `runLoop`.
+    /// At the cap the loop *drains*: up to `maxDrainRounds` more POSTs to flush
+    /// staged resumes before stopping with `.maxRounds`. A backend that answers
+    /// every resume with another tool call outlives the drain budget, leaving
+    /// that run parked. See `runLoop`.
     public private(set) var maxRounds: Int?
 
     /// Change the cap for subsequent rounds. The host calls this when the user
@@ -154,13 +149,10 @@ public actor AgentSession {
     /// builds its bubbles from `SessionEvent`s rather than from this list.
     public private(set) var messages: [AgentMessage] = []
 
-    /// True once the most recent `send(_:)` reached `.completed` cleanly
-    /// (no HTTP error, no empty round, no cancellation). The next send
-    /// checks this to decide whether to APPEND its user message (previous
-    /// send settled) or REPLACE the trailing one (previous send orphaned
-    /// the user — HTTP 500, agent emitted nothing, etc.). Without this
-    /// signal we'd POST two consecutive user messages, which the backend
-    /// checkpoints and which triggers the duplicate-tool-call spiral.
+    /// True once the most recent `send(_:)` settled cleanly (no HTTP error, no
+    /// empty round, no cancellation). False means the trailing user message is
+    /// an orphan and the next send REPLACES it — two consecutive user messages
+    /// malform the checkpoint and trigger the duplicate-tool-call spiral.
     private var lastSendSettledCleanly: Bool = true
 
     /// Highest replay sequence number observed on this thread — the SSE `id:`
@@ -171,7 +163,7 @@ public actor AgentSession {
     /// case re-attach replays the whole buffered turn — events the UI has
     /// already applied may repeat; acceptable degraded mode). Readable so the
     /// host can persist it per thread and seed a relaunched session via
-    /// `seedReplayCursor` — the launch-time catch-up half of pupa#103.
+    /// `seedReplayCursor` — the launch-time catch-up path.
     public private(set) var lastEventSeq: Int?
 
     /// Adopt a persisted replay cursor (relaunch catch-up after an app kill).
@@ -184,12 +176,11 @@ public actor AgentSession {
     }
 
     /// Move the cursor BACK to a `.frontendDispatchParked` rewind point so the
-    /// backend re-delivers the interrupt frame a dispatch never answered
-    /// (pupa#258). Unlike `seedReplayCursor` this is not monotonic — rewinding
-    /// is the whole point — so it is only for that recovery: a live cursor is
-    /// otherwise the newest truth. Events between the rewind point and the old
-    /// cursor are replayed; the host has already applied them, so it must be
-    /// able to tolerate the repeat (the journal makes the tool calls idempotent).
+    /// backend re-delivers the interrupt frame a dispatch never answered.
+    /// Not monotonic, unlike `seedReplayCursor` — recovery only. Events between
+    /// the rewind point and the old cursor are replayed; the host has already
+    /// applied them, so it must tolerate the repeat (the journal makes the tool
+    /// calls idempotent).
     public func rewindReplayCursor(to seq: Int) {
         guard lastEventSeq != seq else { return }
         lastEventSeq = seq
@@ -198,12 +189,11 @@ public actor AgentSession {
 
     /// Transport drops mid-round are retried this many times (exponential
     /// backoff, base 0.5s) before the error is surfaced to the caller.
-    /// Injected rather than fixed so a test can collapse the 7.5s of backoff
-    /// an exhaustion case would otherwise pay.
+    /// Injected so a test can collapse the backoff.
     private let maxReattachAttempts: Int
     private let reattachBaseDelayNanos: UInt64
 
-    /// Liveness heartbeat (pupa-backend#82): while a frontend-tool dispatch is
+    /// Liveness heartbeat: while a frontend-tool dispatch is
     /// in flight the backend's handler is parked with no open socket, so the
     /// session POSTs `command.keepalive` every `keepaliveInterval` seconds.
     /// The backend fails a silent (dead) app one grace period after the last
@@ -219,7 +209,7 @@ public actor AgentSession {
 
     /// Host-supplied record of frontend-tool progress, so a turn killed
     /// mid-dispatch can be answered on relaunch without re-running side
-    /// effects (pupa#258). `nil` disables the feature.
+    /// effects. `nil` disables the feature.
     private let journal: FrontendDispatchJournal?
 
     public init(
@@ -249,7 +239,6 @@ public actor AgentSession {
         )
     }
 
-    /// Human-readable cap for logs: the number, or "unlimited" for `nil`.
     private static func capDescription(_ cap: Int?) -> String {
         cap.map(String.init) ?? "unlimited"
     }
@@ -267,7 +256,7 @@ public actor AgentSession {
             // Moving to a different thread abandons whatever the journal
             // described. NOT cleared on a plain history re-seed: hosts call
             // that on every open, including the relaunch that is about to
-            // replay the journal to answer a parked turn (pupa#258).
+            // replay the journal to answer a parked turn.
             // Fire-and-forget — `reset` is sync for its callers.
             if let journal { Task { await journal.clear() } }
             AGUIKitLog.session("AgentSession reset threadId=\(threadId)")
@@ -295,9 +284,7 @@ public actor AgentSession {
     ///   turn (including resume rounds after a frontend interrupt). The
     ///   loop merges the resume-only `command` key on top of these base
     ///   keys, so per-turn config like `llm = {provider, model}` survives
-    ///   across rounds — picking a per-agent model in iOS would otherwise
-    ///   only apply to the first round, with subsequent resume rounds
-    ///   silently falling back to the backend's env default.
+    ///   across rounds rather than applying only to the first.
     public nonisolated func send(
         _ text: String,
         images: [(data: Data, mimeType: String)] = [],
@@ -348,10 +335,10 @@ public actor AgentSession {
     /// - Parameter toolFilter: Same contract as `send`'s, and it matters just as
     ///   much here: the resume's `tools_after_round` tells the backend which
     ///   frontend tools to expose next. Advertising the unfiltered registry from
-    ///   a recovery would look like a gate unlock to the backend, which answers
-    ///   one by rebuilding its client with a widened surface — breaking the
-    ///   prompt cache and injecting a synthetic "the tools you activated are now
-    ///   available" turn for a gate the user never touched (pupa#258).
+    ///   a recovery reads as a gate unlock — the backend rebuilds its client
+    ///   with a widened surface, breaking the prompt cache and injecting a
+    ///   synthetic "the tools you activated are now available" turn for a gate
+    ///   the user never touched.
     public nonisolated func reattach(
         toolFilter: (@Sendable () async -> Set<String>)? = nil
     ) -> AsyncThrowingStream<SessionEvent, Error> {
@@ -377,11 +364,10 @@ public actor AgentSession {
         toolFilter: (@Sendable () async -> Set<String>)? = nil,
         yield: @Sendable (SessionEvent) -> Void
     ) async throws {
-        // No replay cursor → either the backend never stamped a seq (predates
-        // the replay layer) or this session never streamed. Reattaching would
-        // hit a real agent loop with an empty message list — do nothing.
+        // No replay cursor → nothing to catch up on. Reattaching would hit a
+        // real agent loop with an empty message list, so do nothing.
         // (Launch-time catch-up after an app kill seeds the persisted cursor
-        // via `seedReplayCursor` before calling this — pupa#103.)
+        // via `seedReplayCursor` before calling this.)
         guard lastEventSeq != nil else {
             AGUIKitLog.session("reattach() skipped — no replay cursor for thread=\(threadId)")
             // Nothing to catch up on — not a silent stop, so no notice.
@@ -495,20 +481,15 @@ public actor AgentSession {
         yield: @Sendable (SessionEvent) -> Void
     ) async throws {
         let userMessage = AgentMessage.user(text: userText, images: images)
-        // If the previous send was cancelled, errored, or settled with no
-        // assistant output, the prior user message is sitting at the tail
-        // of `messages` with no follow-up on the backend either. Stacking
-        // another user on top of it produces malformed history (two
-        // consecutive user messages) which the backend would checkpoint,
-        // triggering the duplicate-tool-call spiral. Replace the orphan.
+        // Previous send never settled → the trailing user message is an orphan
+        // (see `lastSendSettledCleanly`). Replace it rather than stack on it.
         if !lastSendSettledCleanly, let last = messages.last, last.role == .user {
             AGUIKitLog.session("send() replacing orphan user message (previous send didn't settle cleanly)")
             messages[messages.count - 1] = userMessage
         } else {
             messages.append(userMessage)
         }
-        // Reset the flag for this send; we'll flip it back true if we
-        // reach `.completed`.
+        // Flipped back true if we reach `.completed`.
         lastSendSettledCleanly = false
         let imageNote = images.isEmpty ? "" :
             " images=\(images.count)/\(images.reduce(0) { $0 + $1.data.count })B"
@@ -605,17 +586,13 @@ public actor AgentSession {
             // tracks whether the round produced anything (empty round →
             // next send replaces the orphaned user message).
             guard let dispatch = outcome.pendingDispatch else {
-                // Self-heal the dropped-interrupt bug: a
-                // frontend tool was called this round but no `on_interrupt`
-                // arrived to drive it (the emit path reads `state.tasks[0]`
-                // only, so an interrupt parked on a non-first task is dropped
-                // in-run). The run looks finished but the backend is parked. A
-                // resume-less re-POST hits the backend's recovery path, which
-                // collects interrupts from ALL tasks and re-emits the dropped
-                // one — the next round then decodes it and dispatches normally.
-                // Bounded so a genuine no-interrupt settle can't loop.
-                // While draining, the cap has already tripped — a recovery
-                // re-POST would extend a turn we've decided to end.
+                // Self-heal the dropped-interrupt bug (see
+                // `SilentReason.droppedInterrupt`): a resume-less re-POST hits
+                // the backend's recovery path, which collects interrupts from
+                // ALL tasks and re-emits the dropped one. Bounded so a genuine
+                // no-interrupt settle can't loop, and skipped while draining —
+                // the cap has tripped, so a re-POST would extend a turn we've
+                // decided to end.
                 let dropped = droppedFrontendCalls(in: outcome)
                 if !dropped.isEmpty, !outcome.interruptDecodeFailed, !draining,
                    recoveryAttempts < maxRecoveryAttempts {
@@ -659,12 +636,10 @@ public actor AgentSession {
             )
             nextForwardedProps = await resumeProps(for: dispatch)
 
-            // Runaway guard. The resume for this dispatch is now staged and the
-            // next iteration POSTs it — including when the dispatch was produced
-            // by a drain round, which the old "one final round then return"
-            // shape silently dropped. Only the round that spends the last drain
-            // budget returns with its resume unsent, leaving that run parked.
-            // A `nil` cap removes the breaker: run until the backend settles.
+            // Runaway guard. The resume for this dispatch is staged and the next
+            // iteration POSTs it, drain rounds included. Only the round that
+            // spends the last drain budget returns with its resume unsent,
+            // leaving that run parked. A `nil` cap removes the breaker.
             if let cap = maxRounds, round >= cap {
                 if !draining {
                     draining = true
@@ -694,8 +669,7 @@ public actor AgentSession {
 
     /// Classify a settled round for the UI. Cut-short reasons are checked
     /// BEFORE `producedText`: a turn that narrated and then lost its socket is
-    /// still an incomplete turn, and reporting it as `.produced` is what made
-    /// those stops invisible. Only a round that reached `RUN_FINISHED` with
+    /// still an incomplete turn. Only a round that reached `RUN_FINISHED` with
     /// text is a clean `.produced`.
     private func settleOutcome(producedText: Bool, outcome: RoundOutcome) -> CompletionOutcome {
         if outcome.interruptDecodeFailed {
@@ -706,13 +680,10 @@ public actor AgentSession {
         return .silent(.emptyTurn)
     }
 
-    /// Frontend tool calls the model emitted this round that the client has
-    /// registered locally, but which arrived WITHOUT an `on_interrupt` to drive
-    /// them (no pending dispatch) and WITHOUT a backend-produced result. This is
-    /// the fingerprint of the dropped-interrupt bug: the backend parked an
-    /// interrupt on a non-first task and its emit path never sent the
-    /// `on_interrupt`. Backend-executed tools (e.g.
-    /// `tavily_search`) don't resolve in the registry, so they're excluded.
+    /// Locally-registered frontend tool calls that arrived with no
+    /// `on_interrupt` and no backend result — the `droppedInterrupt`
+    /// fingerprint. Backend-executed tools (e.g. `tavily_search`) don't resolve
+    /// in the registry, so they're excluded.
     private func droppedFrontendCalls(in outcome: RoundOutcome) -> [(id: String, name: String)] {
         outcome.observedOrder.compactMap { id in
             guard let meta = outcome.observedToolCalls[id] else { return nil }
@@ -725,7 +696,7 @@ public actor AgentSession {
     /// Tell the session the host app's scene phase changed. While a dispatch
     /// is in flight, a transition posts one immediate keepalive carrying the
     /// new state — backgrounding tells the backend to fall back to its
-    /// absolute wall (pupa-backend#82); foregrounding re-arms the short
+    /// absolute wall; foregrounding re-arms the short
     /// liveness grace. The periodic pinger pauses while backgrounded.
     public func setHostBackgrounded(_ flag: Bool) async {
         guard flag != hostBackgrounded else { return }
@@ -764,7 +735,7 @@ public actor AgentSession {
     /// Run every frontend tool the backend asked us to dispatch, pinging
     /// `command.keepalive` every `keepaliveInterval` while the dispatch is in
     /// flight so the backend's parked handler can tell a slow tool from a
-    /// dead app (pupa-backend#82).
+    /// dead app.
     private func dispatchFrontendTools(
         calls: [FrontendToolCall],
         yield: @Sendable (SessionEvent) -> Void
@@ -795,13 +766,11 @@ public actor AgentSession {
     /// order so the resume payload mirrors the call order the model emitted,
     /// and the caller's `.toolCallFinished` events fire deterministically.
     ///
-    /// Journal-aware (pupa#258). An entry keyed by `toolCallId` means a
-    /// previous process already got this far, so the call is answered from the
-    /// record instead of re-run: a stored result is replayed verbatim, and a
-    /// started-but-unfinished call is reported incomplete rather than
-    /// re-applying a side effect that may already have landed. Only calls with
-    /// no entry run. `restore()` is read ONCE for the whole batch, before the
-    /// parallel pre-launch — a second read could race this batch's own
+    /// Journal-aware: a recorded call is answered from the record instead of
+    /// re-run — a stored result replayed verbatim, a started-but-unfinished one
+    /// reported incomplete rather than re-applying a side effect that may
+    /// already have landed. Only calls with no entry run. `restore()` is read
+    /// ONCE per batch — a second read could race this batch's own
     /// `noteFinished` and re-run a call.
     private func runFrontendDispatch(
         calls: [FrontendToolCall],
@@ -1057,8 +1026,8 @@ public actor AgentSession {
     /// An empty tail is the signal to re-POST: a parked backend emits nothing
     /// until it has the results, so nothing-past-the-cursor means they never
     /// arrived. Re-attaching forever would read as a clean finish while the run
-    /// stays parked — losing the very turn the journal exists to save
-    /// (pupa#258). With no cursor at all there is nothing to probe, so a resume
+    /// stays parked — losing the very turn the journal exists to save.
+    /// With no cursor at all there is nothing to probe, so a resume
     /// is re-POSTed directly; a bare re-attach carrying `after_seq: -1` and an
     /// empty message list is never sent, because the replay middleware wouldn't
     /// short-circuit it and it would land on a real agent loop.
@@ -1129,9 +1098,7 @@ public actor AgentSession {
             // point while the round is still empty, so an app killed in that
             // window has neither handle left: the relaunch seeds from the last
             // applied seq instead of rewinding, the backend has nothing
-            // buffered there, and the turn settles with the work gone. Seen on
-            // a device — park at 256, RUN_STARTED at 259, killed 0.4s later,
-            // relaunch reattached at 259 to "nothing buffered".
+            // buffered there, and the turn settles with the work gone.
             //
             // Waiting one frame is safe: the resolve still yields before any
             // new park announced later in the same round, since it is emitted
@@ -1148,7 +1115,7 @@ public actor AgentSession {
             }
             state.outcome.sawAnyFrame = true
             // Set by the `on_interrupt` branch so the rewind point can be
-            // yielded once the frame's own seq is known (pupa#258).
+            // yielded once the frame's own seq is known.
             var parkedThisFrame = false
             switch sequenced.event {
             case .runStarted:
@@ -1218,7 +1185,7 @@ public actor AgentSession {
                 yield(.cursorAdvanced(seq))
                 // Hand the host the cursor value that re-delivers THIS frame,
                 // so a kill during the dispatch that follows can be recovered
-                // by rewinding to it (pupa#258). An unstamped frame (backend
+                // by rewinding to it. An unstamped frame (backend
                 // predating the replay layer) can't be rewound to — the turn
                 // then degrades to the old restart-on-wake behaviour.
                 if parkedThisFrame {

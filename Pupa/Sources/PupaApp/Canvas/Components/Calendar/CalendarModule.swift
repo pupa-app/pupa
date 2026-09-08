@@ -1,7 +1,7 @@
 import SwiftUI
 import AGUIKit
 
-/// The calendar kind's `ComponentModule` (issue #162). Mirrors `TrackerModule`:
+/// The calendar kind's `ComponentModule`. Mirrors `TrackerModule`:
 /// one folder, one self-registering module, own single-case unwrap on
 /// `CanvasApp` instead of the central exhaustive switch.
 @MainActor
@@ -11,7 +11,7 @@ public struct CalendarModule: ComponentModule {
     public let kind = "calendar"
     public let defaultIcon = "calendar"
 
-    /// Owned here; `MyAppType.tracker.kinds` assembles from this at load.
+    /// Owned here; `MyAppType` assembles the kind list from every module at load.
     public nonisolated static let kindSpec = ComponentKindSpec(
         tools: [
             "renderCalendar",

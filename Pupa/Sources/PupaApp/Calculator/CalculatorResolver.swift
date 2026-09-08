@@ -11,17 +11,9 @@ import Foundation
 /// Results are computed on demand — never persisted — so a tuned variable
 /// or an edited source tracker reflects immediately on the next render.
 ///
-/// **Shape of a resolve.** The work splits into three reusable stages so a
-/// `list` row (which re-reads the model tens of times) never repeats work
-/// that cannot have changed:
-///
-/// 1. `Program` — parse every formula and topo-sort them. Depends only on the
-///    row *specs*, so it is built once per resolve and shared by every sweep
-///    step and every compared ref.
-/// 2. `Base` — the pass-1 leaves (variables, aggregates, linked fields).
-///    Depends on the components and the linked refs, but **not** on any
-///    swept variable, so a sweep computes it once and reuses it per step.
-/// 3. `evaluateFormulas` — the only stage a sweep step actually re-runs.
+/// A resolve splits into three reusable stages — `Program`, `Base`,
+/// `evaluateFormulas` — so a `list` row never repeats work that cannot have
+/// changed. Each stage documents its own reuse rule.
 ///
 /// Sweeps and linked comparisons substitute values through override
 /// parameters rather than copying and mutating the row array.
@@ -429,11 +421,9 @@ public enum CalculatorResolver {
     /// Whether `variableKey` names a `variable` row and `targetKey` a known
     /// row — the two spec preconditions every sweep shares.
     ///
-    /// Keys are matched **first-wins**, not any-wins: if a duplicate key puts
-    /// a formula row ahead of the variable, the formula pass would overwrite
-    /// the swept value on every step and the curve would come out flat. That
-    /// is a mis-keyed model, so it must surface as `brokenRef` rather than as
-    /// a plausible-looking flat line.
+    /// Keys are matched **first-wins**, not any-wins: a duplicate that puts a
+    /// formula ahead of the variable is a mis-keyed model and must surface as
+    /// `brokenRef`, not as a plausible-looking flat curve.
     private static func isSweepable(
         rows: [CalcRow], program: Program, variableKey: String, targetKey: String
     ) -> Bool {
@@ -478,9 +468,7 @@ public enum CalculatorResolver {
     /// side of a compare swap. `nil` when `linkedRowKey` doesn't name a
     /// `linkedField` row.
     ///
-    /// First-wins on the key, like `isSweepable`: a duplicate key that puts a
-    /// non-linked row first is a mis-keyed model, not an invitation to hunt
-    /// further down the list for something swappable.
+    /// First-wins on the key, like `isSweepable`.
     ///
     /// Double-optional on purpose — the outer `nil` is "no anchor row", the
     /// inner is "anchor row bound to nothing", and the latter still matches

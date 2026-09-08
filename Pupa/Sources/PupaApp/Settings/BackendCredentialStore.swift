@@ -2,9 +2,8 @@ import Foundation
 import Security
 
 /// Per-backend secret storage. Today the only secret is the paired-device
-/// token from [#163](https://github.com/*/issues/163)
-/// Phase 3 — but Sign in with Apple's refresh token, future per-backend OAuth
-/// state, etc. all fit the same `(backendID, kind) -> secret` shape.
+/// token, but Sign in with Apple's refresh token, per-backend OAuth state and
+/// the like all fit the same `(backendID, kind) -> secret` shape.
 public protocol BackendCredentialStore: Sendable {
     func setToken(_ token: String, for backendID: UUID) throws
     func token(for backendID: UUID) -> String?

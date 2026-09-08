@@ -7,8 +7,6 @@ import SwiftUI
 ///
 /// Roster and Threads need the app stores; Tools and Limits need only
 /// `SettingsStore`, so they render even when the stores are absent (previews).
-/// That matters — Tools used to be a top-level Settings row and must stay
-/// reachable regardless.
 public struct AgentsSettingsView: View {
     let settings: SettingsStore
     var store: MyAppStore?

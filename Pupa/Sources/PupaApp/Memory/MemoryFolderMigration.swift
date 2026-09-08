@@ -2,10 +2,10 @@ import Foundation
 
 /// One-shot adoption of pre-0.0.249 memory folders.
 ///
-/// Before #257 a myApp's memories lived under its **name slug**; since then
-/// they live under its immutable **id**. Nothing moved the existing trees, so
-/// upgrading left every app pointing at an empty seeded scaffold while its real
-/// notes, subagents, and skills sat orphaned one folder over.
+/// A myApp's memories moved from its **name slug** to its immutable **id**.
+/// Nothing moved the existing trees, so upgrading left every app pointing at an
+/// empty seeded scaffold while its real notes, subagents, and skills sat
+/// orphaned one folder over.
 ///
 /// Not a shim — nothing consults the slug at read time. This runs at launch,
 /// moves the bytes once, and is self-disabling: the source folder is gone

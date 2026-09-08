@@ -1,7 +1,7 @@
 import SwiftUI
 import AGUIKit
 
-/// The checklist kind's `ComponentModule` (issue #162). Mirrors `TrackerModule`.
+/// The checklist kind's `ComponentModule`. Mirrors `TrackerModule`.
 @MainActor
 public struct ChecklistModule: ComponentModule {
     public init() {}
@@ -9,7 +9,7 @@ public struct ChecklistModule: ComponentModule {
     public let kind = "checklist"
     public let defaultIcon = "checklist"
 
-    /// Owned here; `MyAppType.tracker.kinds` assembles from this at load.
+    /// Owned here; `MyAppType` assembles the kind list from every module at load.
     public nonisolated static let kindSpec = ComponentKindSpec(
         tools: [
             "renderChecklist",

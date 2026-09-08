@@ -1,6 +1,7 @@
 import Foundation
 
-// Chart component data model. Moved out of CanvasState (issue #162).
+// Chart component data model. The `CanvasApp.chart` arm and its Codable stay
+// in CanvasState.
 // The `CanvasApp.chart` enum arm + its Codable stay in CanvasState; the
 // unified cross-component ref extensions also stay there.
 
@@ -18,8 +19,8 @@ public enum ChartKind: String, Codable, Hashable, Sendable, CaseIterable {
 /// One plotted point. `label` is the categorical key (sector name, x-axis
 /// tick); `x` is the numeric/date position for `bar` / `line` over a
 /// continuous axis (nil = categorical, plotted by `label`); `y` is the
-/// value. Store-decoupled (no store, no MainActor) so Phase 3 (#23) can
-/// snapshot a point list straight into a chat attachment.
+/// value. Store-decoupled (no store, no MainActor) so a point list can be
+/// snapshotted straight into a chat attachment.
 public struct ChartPoint: Codable, Hashable, Sendable, Identifiable {
     public let id: UUID
     public var label: String
@@ -71,7 +72,7 @@ public struct ChartSeries: Codable, Hashable, Sendable, Identifiable {
 ///   resolved scalar becomes one point).
 /// - `calculatorList` plots a single calculator `.list` row (a sweep /
 ///   tracker column) — the row's resolved point array becomes the series.
-/// - `inline` carries literal points (the seam for Phase 3 chat embedding).
+/// - `inline` carries literal points.
 public enum ChartSeriesSource: Codable, Hashable, Sendable {
     case tracker(componentId: String, groupBy: String, valueField: String, reduce: CalcReduce, filter: [String: String], xIsNumericOrDate: Bool)
     case calculatorRows(componentId: String, keys: [String])
