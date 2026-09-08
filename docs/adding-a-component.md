@@ -70,6 +70,39 @@ case .widget(let data):
     WidgetView(store: store, data: data, myAppId: resolvedMyAppId, componentId: component.id)
 ```
 
+### Per-component `@State` must be keyed — read this before adding any
+
+`CanvasView` renders one component into a single structural slot with **no
+`.id(...)`**, so your view's `@State` outlives the component it belongs to: when
+the canvas swaps in another component of the same kind, it inherits the previous
+one's state. Four bugs have come from this — a search query that followed the
+user into the next MyApp, a Slack scroll position restored into a different
+channel, a calendar showing the previous calendar's month.
+
+Declare the identity once and key every per-component `@State` on it:
+
+```swift
+/// Identity every piece of this view's per-component `@State` keys on.
+private var componentKey: CanvasComponentKey {
+    CanvasComponentKey(myAppId: myAppId, componentId: componentId)
+}
+
+@State private var draftByComponentKey: [CanvasComponentKey: String] = [:]
+```
+
+**Never key on `componentId` alone.** `MyAppStore.addComponent` uniques ids
+against one MyApp's own components, so every MyApp's first tracker is
+`"tracker-1"`. The same trap applies to ids minted per-component
+(`nextSlackId` → `"channel-1"`, `dedupeSlug` → `CalcRow.key`) and to any
+`.id(...)` modifier you write on a subview.
+
+State that should *reset* on a swap rather than be remembered — a sheet target,
+an editor buffer seeded in `init` — gets `.id(componentKey)` on that subview
+instead. `CalendarMonthBody` is the worked example.
+
+`CanvasComponentSwapTests` drives a real `CanvasView` through a swap and will
+catch a regression; add a case there for state you are not sure about.
+
 ## 5. Per-kind tool / prompt gating
 
 [Pupa/Sources/PupaApp/MyApps/MyAppType.swift](../Pupa/Sources/PupaApp/MyApps/MyAppType.swift)

@@ -16,6 +16,27 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only 
   the first channel of every workspace. Both the anchor and the message list's
   identity now key on the whole channel.
 
+## [0.0.285] — 2026-09-08
+
+### Fixed
+
+- **Canvas components stop inheriting each other's view state.** A calendar
+  opened after another showed the previous calendar's month — an empty grid,
+  the exact failure its month-anchoring exists to prevent. A half-typed Slack
+  message followed the canvas into the next workspace, where the send button
+  would post it there. A half-typed checklist item did the same. All of it came
+  from one cause: the canvas renders components into a single slot, so a view's
+  state outlives the component it belongs to.
+
+### Changed
+
+- **One identity for per-component view state.** `CanvasComponentKey` (myApp id
+  + component id) replaces the per-feature key types, and Slack's channel key
+  composes from it. Component ids repeat across MyApps, so keying on one alone
+  aliases two different components — the cause of four bugs now. The rule is
+  written down in `docs/adding-a-component.md`, and `CanvasComponentSwapTests`
+  drives a real canvas through a component swap to catch the next one.
+
 ## [0.0.284] — 2026-09-08
 
 ### Fixed

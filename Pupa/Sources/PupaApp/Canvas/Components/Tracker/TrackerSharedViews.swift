@@ -5,24 +5,6 @@ import SwiftUI
 // `TrackerData` — only the layout around items differs — so the card body,
 // add/edit sheet, and section card live here to avoid drift.
 
-// MARK: - Board identity
-
-/// Identifies one tracker board. The component id alone does not:
-/// `MyAppStore.addComponent` uniques ids against one MyApp's own components,
-/// so every MyApp's first tracker is `"tracker-1"`. `CanvasView` builds
-/// component views without `.id(component.id)`, so view `@State` outlives the
-/// component it belongs to — keyed on the component id it leaks across a
-/// sidebar MyApp switch, and makes a swap look like a shrink press.
-struct TrackerBoardKey: Hashable {
-    let myAppId: UUID
-    let componentId: String
-
-    init(myAppId: UUID, componentId: String?) {
-        self.myAppId = myAppId
-        self.componentId = componentId ?? ""
-    }
-}
-
 // MARK: - Canvas title bar
 
 /// Title + shrink toggle + view-mode toggle. The view-mode toggle flips
@@ -630,15 +612,15 @@ private struct TextDetailEditor: View {
 /// so both tracker views share one copy of the rules and the rules are testable
 /// without building a view.
 ///
-/// Keyed rather than a bare `Set` for the reason `TrackerBoardKey` documents:
+/// Keyed rather than a bare `Set` for the reason `CanvasComponentKey` documents:
 /// the `@State` holding this survives the canvas swapping one tracker for
 /// another in the same structural slot.
 struct TrackerPeekState: Equatable {
-    private var idsByBoard: [TrackerBoardKey: Set<UUID>] = [:]
+    private var idsByBoard: [CanvasComponentKey: Set<UUID>] = [:]
 
-    func ids(for board: TrackerBoardKey) -> Set<UUID> { idsByBoard[board] ?? [] }
+    func ids(for board: CanvasComponentKey) -> Set<UUID> { idsByBoard[board] ?? [] }
 
-    mutating func toggle(_ itemId: UUID, for board: TrackerBoardKey) {
+    mutating func toggle(_ itemId: UUID, for board: CanvasComponentKey) {
         var ids = ids(for: board)
         if ids.remove(itemId) == nil { ids.insert(itemId) }
         // Drop the bucket rather than store an empty set, so "nothing peeked"
@@ -646,7 +628,7 @@ struct TrackerPeekState: Equatable {
         if ids.isEmpty { idsByBoard.removeValue(forKey: board) } else { idsByBoard[board] = ids }
     }
 
-    mutating func clear(for board: TrackerBoardKey) { idsByBoard.removeValue(forKey: board) }
+    mutating func clear(for board: CanvasComponentKey) { idsByBoard.removeValue(forKey: board) }
 }
 
 /// `onChange` token for the global shrink button. Carries the board alongside
@@ -654,12 +636,12 @@ struct TrackerPeekState: Equatable {
 /// a different tracker — the flag alone changes value on both, which would
 /// clear the incoming board's peeks nobody asked to close.
 struct TrackerShrinkKey: Equatable {
-    let board: TrackerBoardKey
+    let component: CanvasComponentKey
     let shrink: Bool
 
     /// True when the move is one board's shrink flag actually flipping.
     static func isShrinkToggle(from old: Self, to new: Self) -> Bool {
-        old.board == new.board
+        old.component == new.component
     }
 }
 

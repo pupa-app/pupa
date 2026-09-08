@@ -18,6 +18,12 @@ public struct CalendarView: View {
     /// component is on screen).
     let componentId: String?
 
+    /// Identity every piece of this view's per-component `@State` keys on.
+    /// See `CanvasComponentKey` — never key on `componentId` alone.
+    private var componentKey: CanvasComponentKey {
+        CanvasComponentKey(myAppId: myAppId, componentId: componentId)
+    }
+
     @State private var editorTarget: EditorTarget?
 
     public init(store: MyAppStore, data: CalendarData, myAppId: UUID, componentId: String? = nil) {
@@ -49,8 +55,14 @@ public struct CalendarView: View {
                     store: store,
                     data: data,
                     myAppId: myAppId,
+                    componentKey: componentKey,
                     onPickEvent: { event in editorTarget = .edit(event) }
                 )
+                // `init` anchors the month on the calendar's first event, but
+                // only on first construction. Without this the next calendar
+                // in the same slot keeps the previous one's month and renders
+                // an empty grid — the very failure the anchor exists to avoid.
+                .id(componentKey)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -174,6 +186,7 @@ private struct CalendarMonthBody: View {
     @Bindable var store: MyAppStore
     let data: CalendarData
     let myAppId: UUID
+    let componentKey: CanvasComponentKey
     let onPickEvent: (CalendarEvent) -> Void
 
     @State private var displayedMonth: Date
@@ -187,11 +200,13 @@ private struct CalendarMonthBody: View {
         store: MyAppStore,
         data: CalendarData,
         myAppId: UUID,
+        componentKey: CanvasComponentKey,
         onPickEvent: @escaping (CalendarEvent) -> Void
     ) {
         self.store = store
         self.data = data
         self.myAppId = myAppId
+        self.componentKey = componentKey
         self.onPickEvent = onPickEvent
         let anchor: Date = {
             let starts = data.events.compactMap { parseEventStart($0.start) }.sorted()
@@ -202,7 +217,10 @@ private struct CalendarMonthBody: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        #if DEBUG
+        CanvasStateProbe.record(key: componentKey, month: displayedMonth)
+        #endif
+        return VStack(alignment: .leading, spacing: 16) {
             monthHeader
             weekdayRow
             monthGrid

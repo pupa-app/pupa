@@ -21,7 +21,13 @@ public struct SlackView: View {
     /// Bumped after the create-agent sheet writes a new AGENTS.md so the
     /// disk-read `agentRoster` recomputes and the sidebar shows it.
     @State private var rosterRefresh: Int = 0
+    /// Composer text for the channel on screen. Saved into `composerDrafts`
+    /// and swapped when the active channel changes — a bare `String` followed
+    /// the canvas into the next workspace, where `send()` would post it.
     @State private var composerText: String = ""
+    /// Parked drafts for every other channel, so switching away and back keeps
+    /// what you typed.
+    @State private var composerDrafts: [SlackChannelKey: String] = [:]
     @State private var lastInvocationNote: String?
     /// Drives the channels+agents drawer on compact horizontal
     /// size classes (iPhone portrait). On regular widths the
@@ -81,6 +87,12 @@ public struct SlackView: View {
     private var agentRoster: [Subagent] {
         _ = rosterRefresh
         return AgentStore(memory: MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myAppId))).agents
+    }
+
+    /// Identity every piece of this view's per-component `@State` keys on.
+    /// See `CanvasComponentKey` — never key on `componentId` alone.
+    private var componentKey: CanvasComponentKey {
+        CanvasComponentKey(myAppId: myAppId, componentId: componentId)
     }
 
     public var body: some View {
@@ -156,6 +168,15 @@ public struct SlackView: View {
             if sidebarPresented { sidebarPresented = false }
         }
         #endif
+        // Park the draft with the channel it was typed in and pick up that
+        // channel's own. Keyed on the whole channel, so a canvas swap counts
+        // as a switch too.
+        .onChange(of: activeChannelKey) { old, new in
+            if let old { composerDrafts[old] = composerText }
+            composerText = new.flatMap { composerDrafts[$0] } ?? ""
+            // A note names an agent in the channel it came from.
+            lastInvocationNote = nil
+        }
         .sheet(isPresented: $newChannelSheet) {
             SlackChannelEditorSheet(
                 agents: roster,
@@ -349,6 +370,11 @@ public struct SlackView: View {
         }
     }
 
+    /// The channel the composer is editing, as a whole-app identity.
+    private var activeChannelKey: SlackChannelKey? {
+        activeChannel.map { SlackChannelKey(component: componentKey, channelId: $0.id) }
+    }
+
     private var activeChannel: SlackChannel? {
         guard let id = data.activeChannelId else { return data.channels.first }
         return data.channels.first(where: { $0.id == id }) ?? data.channels.first
@@ -407,8 +433,7 @@ public struct SlackView: View {
         // to ThinkingBubbles appearing/disappearing as agents start
         // and finish — they live above this marker too.
         let bottomAnchor = "slack-bottom"
-        let channelKey = SlackChannelKey(
-            myAppId: myAppId, componentId: componentId, channelId: channel.id)
+        let channelKey = SlackChannelKey(component: componentKey, channelId: channel.id)
 
         // Two-way binding into `channelScrollAnchor`. Default value is
         // `bottomAnchor` so first-time visits open at the most recent

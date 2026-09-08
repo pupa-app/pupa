@@ -34,8 +34,8 @@ struct TrackerCardDensityTests {
 
     private static let appA = UUID()
     private static let appB = UUID()
-    private static func board(_ app: UUID, _ cid: String?) -> TrackerBoardKey {
-        TrackerBoardKey(myAppId: app, componentId: cid)
+    private static func board(_ app: UUID, _ cid: String?) -> CanvasComponentKey {
+        CanvasComponentKey(myAppId: app, componentId: cid)
     }
 
     /// The premise the board key exists for. Asserted against the real
@@ -57,8 +57,8 @@ struct TrackerCardDensityTests {
 
         #expect(idInA == "tracker-1")
         #expect(idInB == "tracker-1", "ids are uniqued per MyApp, so they collide across apps")
-        #expect(TrackerBoardKey(myAppId: a.id, componentId: idInA)
-                != TrackerBoardKey(myAppId: b.id, componentId: idInB),
+        #expect(CanvasComponentKey(myAppId: a.id, componentId: idInA)
+                != CanvasComponentKey(myAppId: b.id, componentId: idInB),
                 "the board key must still tell these two apart")
     }
 
@@ -122,11 +122,11 @@ struct TrackerCardDensityTests {
 
     @Test("Only a same-board flag flip is the shrink button")
     func shrinkKeyDistinguishesButtonFromBoardSwap() {
-        let shrunkA = TrackerShrinkKey(board: Self.board(Self.appA, "tracker-1"), shrink: true)
-        let openA = TrackerShrinkKey(board: Self.board(Self.appA, "tracker-1"), shrink: false)
-        let openA2 = TrackerShrinkKey(board: Self.board(Self.appA, "tracker-2"), shrink: false)
+        let shrunkA = TrackerShrinkKey(component: Self.board(Self.appA, "tracker-1"), shrink: true)
+        let openA = TrackerShrinkKey(component: Self.board(Self.appA, "tracker-1"), shrink: false)
+        let openA2 = TrackerShrinkKey(component: Self.board(Self.appA, "tracker-2"), shrink: false)
         // The board the old componentId-only key could not tell from `shrunkA`.
-        let openB = TrackerShrinkKey(board: Self.board(Self.appB, "tracker-1"), shrink: false)
+        let openB = TrackerShrinkKey(component: Self.board(Self.appB, "tracker-1"), shrink: false)
 
         // The button: one board, flag moved.
         #expect(TrackerShrinkKey.isShrinkToggle(from: shrunkA, to: openA))

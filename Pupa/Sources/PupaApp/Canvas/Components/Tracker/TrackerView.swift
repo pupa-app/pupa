@@ -18,14 +18,14 @@ public struct TrackerView: View {
     /// position — a bare `String` here would leak one tracker's query onto the
     /// next. The key must be the board, not the component id: ids repeat
     /// across MyApps (`MyAppStore.addComponent`).
-    @State private var queryByBoard: [TrackerBoardKey: String] = [:]
+    @State private var queryByComponentKey: [CanvasComponentKey: String] = [:]
     /// Filter-panel disclosure, collapsed by default. Board-keyed for the
     /// same reason as the query.
-    @State private var filtersShownByBoard: [TrackerBoardKey: Bool] = [:]
+    @State private var filtersShownByComponentKey: [CanvasComponentKey: Bool] = [:]
     /// Cards peeked open despite `data.shrinkCards`. Ephemeral on purpose: a
     /// peek is chrome, and `persist()` is a whole-app encode + iCloud write —
     /// the same reason the search query above is not persisted. Keyed by board
-    /// like the rest — see `TrackerBoardKey`.
+    /// like the rest — see `CanvasComponentKey`.
     @State private var peeks = TrackerPeekState()
 
     public init(store: MyAppStore, data: TrackerData, myAppId: UUID, componentId: String? = nil) {
@@ -35,9 +35,10 @@ public struct TrackerView: View {
         self.componentId = componentId
     }
 
-    /// Scopes view `@State` to this board. See `TrackerBoardKey`.
-    private var board: TrackerBoardKey {
-        TrackerBoardKey(myAppId: myAppId, componentId: componentId)
+    /// Identity every piece of this view's per-component `@State` keys on.
+    /// See `CanvasComponentKey` — never key on `componentId` alone.
+    private var componentKey: CanvasComponentKey {
+        CanvasComponentKey(myAppId: myAppId, componentId: componentId)
     }
 
     public var body: some View {
@@ -52,7 +53,7 @@ public struct TrackerView: View {
 
             if !data.items.isEmpty {
                 TrackerSearchField(initialText: query, onQueryChange: setQuery)
-                    .id(board)
+                    .id(componentKey)
             }
 
             if hasAnyFilters, filtersShown {
@@ -84,9 +85,9 @@ public struct TrackerView: View {
         // tracker whose flag differs reads as a button press and closes cards
         // nobody touched. A flag flipped while the user is on a different board
         // is not cleared here; that board reads its own bucket when it returns.
-        .onChange(of: TrackerShrinkKey(board: board, shrink: data.shrinkCards)) { old, new in
+        .onChange(of: TrackerShrinkKey(component: componentKey, shrink: data.shrinkCards)) { old, new in
             guard TrackerShrinkKey.isShrinkToggle(from: old, to: new) else { return }
-            peeks.clear(for: board)
+            peeks.clear(for: componentKey)
         }
         .sheet(item: $sheet) { target in
             ItemSheet(
@@ -116,12 +117,12 @@ public struct TrackerView: View {
         data.visibleFields.contains { $0.type == .select && !($0.options ?? []).isEmpty }
     }
 
-    private var filtersShown: Bool { filtersShownByBoard[board] ?? false }
+    private var filtersShown: Bool { filtersShownByComponentKey[componentKey] ?? false }
 
     private var filtersShownBinding: Binding<Bool> {
         Binding(
             get: { filtersShown },
-            set: { filtersShownByBoard[board] = $0 }
+            set: { filtersShownByComponentKey[componentKey] = $0 }
         )
     }
 
@@ -129,15 +130,15 @@ public struct TrackerView: View {
         data.filter.reduce(into: 0) { n, entry in if !entry.value.isEmpty { n += 1 } }
     }
 
-    private var query: String { queryByBoard[board] ?? "" }
+    private var query: String { queryByComponentKey[componentKey] ?? "" }
 
-    private var expandedIds: Set<UUID> { peeks.ids(for: board) }
+    private var expandedIds: Set<UUID> { peeks.ids(for: componentKey) }
 
-    private func toggleExpanded(_ itemId: UUID) { peeks.toggle(itemId, for: board) }
+    private func toggleExpanded(_ itemId: UUID) { peeks.toggle(itemId, for: componentKey) }
 
     private func setQuery(_ new: String) {
         guard new != query else { return }
-        queryByBoard[board] = new
+        queryByComponentKey[componentKey] = new
     }
 
     private var filtered: [TrackerFiltering.Entry] {

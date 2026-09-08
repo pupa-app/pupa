@@ -17,7 +17,21 @@ public struct ChecklistView: View {
     /// component is on screen).
     let componentId: String?
 
-    @State private var draft: String = ""
+    /// Identity every piece of this view's per-component `@State` keys on.
+    /// See `CanvasComponentKey` — never key on `componentId` alone.
+    private var componentKey: CanvasComponentKey {
+        CanvasComponentKey(myAppId: myAppId, componentId: componentId)
+    }
+
+    private var draft: String { draftByComponentKey[componentKey] ?? "" }
+
+    private var draftBinding: Binding<String> {
+        Binding(get: { draft }, set: { draftByComponentKey[componentKey] = $0 })
+    }
+
+    /// Add-item composer text, per component. A bare `String` followed the
+    /// canvas into the next checklist and `commitDraft` added it there.
+    @State private var draftByComponentKey: [CanvasComponentKey: String] = [:]
     @State private var editorTarget: ChecklistItem?
 
     public init(store: MyAppStore, data: ChecklistData, myAppId: UUID, componentId: String? = nil) {
@@ -71,7 +85,7 @@ public struct ChecklistView: View {
             Image(systemName: "plus.circle")
                 .font(.body)
                 .foregroundStyle(.secondary)
-            TextField("Add item", text: $draft)
+            TextField("Add item", text: draftBinding)
                 .textFieldStyle(.plain)
                 .onSubmit(commitDraft)
             Button("Add", action: commitDraft)
@@ -88,7 +102,7 @@ public struct ChecklistView: View {
         let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         _ = store.addChecklistItem(text: trimmed, myAppId: myAppId, componentId: componentId)
-        draft = ""
+        draftByComponentKey[componentKey] = ""
     }
 }
 

@@ -1042,7 +1042,7 @@ a filter is never applied invisibly, and it can be cleared from either view.
   which hands the parent a 150ms-debounced query. A parent-owned `@State`
   would rebuild every card on each character regardless of debounce. The
   applied query — and the filter-panel disclosure — is keyed by
-  `TrackerBoardKey` (myApp id + component id), because `CanvasView` builds
+  `CanvasComponentKey` (myApp id + component id), because `CanvasView` builds
   component views without `.id(component.id)` and bare `@State` would leak
   across two trackers of the same kind. The component id alone is not a board
   identity: `MyAppStore.addComponent` uniques ids within one MyApp, so every
@@ -1058,7 +1058,7 @@ a filter is never applied invisibly, and it can be cleared from either view.
 - **Per-card peek.** While a board is shrunk, each card carries a chevron that
   lifts that one card back to its view mode's density
   (`CardDensity.resolve(viewMode:shrink:expanded:)`). The peek set is
-  ephemeral `TrackerPeekState` keyed by `TrackerBoardKey`, in `TrackerView` /
+  ephemeral `TrackerPeekState` keyed by `CanvasComponentKey`, in `TrackerView` /
   `KanbanView` — never persisted, for the same `persist()` cost reason as the
   search query, and dropped on a grid⇄kanban switch. The global shrink button
   overwrites that board's peeks: both views clear on a `shrinkCards` change
@@ -1362,8 +1362,8 @@ Per-channel scroll restoration lives in `SlackView` `@State`, keyed by
 uniques component ids within one MyApp, so `channel-1` of `slack-1` names a
 different channel in every MyApp, and in every Slack component of the same
 MyApp. `CanvasView` builds component views without `.id(component.id)`, so this
-`@State` outlives the component it belongs to. Same shape as tracker's
-`TrackerBoardKey`, one level further down.
+`@State` outlives the component it belongs to. Composed from
+`CanvasComponentKey`, one level further down.
 
 Full reference: [skills.md](skills.md).
 
