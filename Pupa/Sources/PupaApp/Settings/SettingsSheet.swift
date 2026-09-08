@@ -682,9 +682,8 @@ private struct ArchivedAppsView: View {
 /// section per myApp, then the orchestrator, then the user — and **Past**
 /// (fired or cancelled), newest first.
 ///
-/// Reads the log rather than the OS queue directly: the queue holds only
-/// pending requests, so a fired one-shot has already vanished from it.
-/// Opening the screen reconciles the two.
+/// Reads `NotificationLogStore`, not the OS queue. Opening the screen
+/// reconciles the two.
 private struct NotificationsList: View {
     var store: MyAppStore?
 

@@ -53,12 +53,8 @@ public enum NotificationOrigin: Codable, Sendable, Hashable {
 }
 
 /// One notification's durable Pupa-side row: who scheduled it, what it said,
-/// and what became of it.
-///
-/// `UNUserNotificationCenter` holds only *pending* requests, so a fired
-/// one-shot disappears from it entirely. A record outlives delivery, which is
-/// what makes the Past list — and telling "fired" apart from "cancelled" —
-/// possible at all.
+/// and what became of it. See `NotificationLogStore` for why the row outlives
+/// delivery.
 ///
 /// `id` is stable for the life of the row; `unId` is the OS identifier and
 /// churns on every edit, because UN cannot mutate a scheduled request (edit is

@@ -8,25 +8,14 @@ extension Notification.Name {
     public static let pupaNotificationTap = Notification.Name("pupa.notificationTap")
 }
 
-/// Singleton wrapper around `UNUserNotificationCenter`. Owns:
+/// Singleton wrapper around `UNUserNotificationCenter`. Owns the lazy
+/// permission request (driven by the agent's first `sendNotification`, never at
+/// launch), schedule / cancel / reschedule, the durable `NotificationLogStore`,
+/// and the `UNUserNotificationCenterDelegate`.
 ///
-/// - Lazy permission request (`requestAuthorizationIfNeeded`) — the agent's
-///   first `sendNotification` call drives it; the user is never prompted at
-///   app launch.
-/// - `schedule(_:origin:)` — converts a `NotificationRequest` into a
-///   `UNNotificationRequest` and adds it; returns the assigned identifier and
-///   resolved delivery instant.
-/// - `cancel(id:)` — idempotent; reports whether the id was actually pending.
-/// - `reschedule(...)` — an edit, i.e. schedule the replacement then drop the
-///   original, since UN can't mutate a request.
-/// - `log` (`NotificationLogStore`) — the durable record of all of the above.
-///   The OS queue holds only pending requests, so `reconcileLog()` folds it
-///   back in to notice what fired.
-/// - `UNUserNotificationCenterDelegate` — presents banners while the app is
-///   foregrounded (otherwise the OS swallows them silently). On tap it routes
-///   the notification's deep-link target and/or `tapAction` (populate the
-///   chat composer / run an agent turn) by buffering into `pendingTap` and
-///   posting `.pupaNotificationTap` for `AppView` to consume.
+/// The delegate presents banners while foregrounded — the OS otherwise swallows
+/// them silently — and on tap routes the deep-link target and/or `tapAction` by
+/// buffering into `pendingTap` and posting `.pupaNotificationTap` for `AppView`.
 ///
 /// Bootstrapped once at app startup via `bootstrap()`. After that, all
 /// callers go through `shared`.
