@@ -2,10 +2,10 @@ import Foundation
 import Testing
 @testable import PupaApp
 
-/// On-disk `index.json` shape, mirroring the private `MyAppStore.IndexFile`
+/// On-disk `index.json` shape, mirroring the private `MiniAppStore.IndexFile`
 /// (only the fields `load()` re-points). Encoded with a plain `JSONEncoder` —
 /// the exact inverse of `load()`'s plain `JSONDecoder` — so a fresh
-/// `MyAppStore()` decodes it as a real index. Optional index fields are omitted.
+/// `MiniAppStore()` decodes it as a real index. Optional index fields are omitted.
 private struct IndexBlob: Encodable {
     var order: [UUID]
     var activeId: UUID
@@ -13,35 +13,35 @@ private struct IndexBlob: Encodable {
     var memoryCurrentThreadId: String
 }
 
-/// Tests for the per-MyApp chat-storage cap: `MyAppStore.enforceThreadCap` /
+/// Tests for the per-MiniApp chat-storage cap: `MiniAppStore.enforceThreadCap` /
 /// `pruneAllThreads`, driven by the `threadCapBytes` closure. Eviction drops
 /// the OLDEST threads (front of the array) when a scope exceeds the byte cap,
 /// while always protecting the newest and the current thread and never
 /// emptying a scope.
 ///
-/// Fully in-memory (`MyAppStore(initial:)`); `TestStorage.activate()` only so
+/// Fully in-memory (`MiniAppStore(initial:)`); `TestStorage.activate()` only so
 /// the `persist()` inside prune writes to a temp root, never real app data.
 @MainActor
-@Suite("MyAppStore thread storage cap", .serialized)
+@Suite("MiniAppStore thread storage cap", .serialized)
 struct ThreadCapTests {
 
     init() { TestStorage.activate() }
 
-    /// A MyApp seeded with `n` threads `t0…t(n-1)` (oldest → newest by array
+    /// A MiniApp seeded with `n` threads `t0…t(n-1)` (oldest → newest by array
     /// order and by `createdAt`), with `currentIndex` marked current.
-    private func appWithThreads(_ n: Int, currentIndex: Int) -> MyApp {
-        MyAppTypeRegistry.shared.registerBuiltins()
+    private func appWithThreads(_ n: Int, currentIndex: Int) -> MiniApp {
+        MiniAppTypeRegistry.shared.registerBuiltins()
         let base = Date(timeIntervalSince1970: 1_000_000)
         let threads = (0..<n).map { i in
             ChatThread(id: "t\(i)", title: "Thread number \(i)",
                        createdAt: base.addingTimeInterval(Double(i)))
         }
-        return MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id,
+        return MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id,
                      threads: threads, currentThreadId: threads[currentIndex].id)
     }
 
-    private func store(_ app: MyApp) -> MyAppStore {
-        MyAppStore(initial: ([app], app.id))
+    private func store(_ app: MiniApp) -> MiniAppStore {
+        MiniAppStore(initial: ([app], app.id))
     }
 
     // MARK: - No cap
@@ -50,7 +50,7 @@ struct ThreadCapTests {
     func noCap_neverEvicts() {
         let app = appWithThreads(4, currentIndex: 3)
         let s = store(app)
-        let scope = ChatScope.myApp(app.id)
+        let scope = ChatScope.miniApp(app.id)
         #expect(s.threadCapBytes == nil)
         s.addThread(for: scope)
         s.addThread(for: scope)
@@ -63,10 +63,10 @@ struct ThreadCapTests {
     func addThread_evictsOldestOverCap() {
         let app = appWithThreads(5, currentIndex: 4)
         let s = store(app)
-        let scope = ChatScope.myApp(app.id)
+        let scope = ChatScope.miniApp(app.id)
         let existing = s.threads(for: scope)
         // Cap = room for ~3 threads worth of metadata.
-        let cap = existing.suffix(3).reduce(0) { $0 + MyAppStore.threadEncodedSize($1) }
+        let cap = existing.suffix(3).reduce(0) { $0 + MiniAppStore.threadEncodedSize($1) }
         s.threadCapBytes = { cap }
 
         let newId = s.addThread(for: scope)
@@ -86,7 +86,7 @@ struct ThreadCapTests {
     func tinyCap_keepsFloorOfOne() {
         let app = appWithThreads(6, currentIndex: 5) // current = newest
         let s = store(app)
-        let scope = ChatScope.myApp(app.id)
+        let scope = ChatScope.miniApp(app.id)
         s.threadCapBytes = { 1 } // one byte — impossibly small
 
         s.pruneAllThreads()
@@ -103,7 +103,7 @@ struct ThreadCapTests {
     func oldCurrent_protected_orderPreserved() {
         let app = appWithThreads(6, currentIndex: 0) // current = OLDEST
         let s = store(app)
-        let scope = ChatScope.myApp(app.id)
+        let scope = ChatScope.miniApp(app.id)
         s.threadCapBytes = { 1 } // force maximum eviction
 
         s.pruneAllThreads()
@@ -123,10 +123,10 @@ struct ThreadCapTests {
     func exactFit_keepsExactlyKNewest() {
         let app = appWithThreads(6, currentIndex: 5) // current = newest, not old
         let s = store(app)
-        let scope = ChatScope.myApp(app.id)
+        let scope = ChatScope.miniApp(app.id)
         let threads = s.threads(for: scope) // t0…t5
         let newestFour = threads.suffix(4)
-        let cap = newestFour.reduce(0) { $0 + MyAppStore.threadEncodedSize($1) }
+        let cap = newestFour.reduce(0) { $0 + MiniAppStore.threadEncodedSize($1) }
         s.threadCapBytes = { cap }
 
         s.pruneAllThreads()
@@ -159,11 +159,11 @@ struct ThreadCapTests {
     // thread that no longer exists). `load()` must re-point it to the newest
     // survivor so the UI never opens a dead conversation. These drive the real
     // on-disk `load()` path — the seed writes raw `index.json` + app files, then
-    // a fresh `MyAppStore()` decodes and re-points them.
+    // a fresh `MiniAppStore()` decodes and re-points them.
 
     /// Write one app file + `index.json` straight to the on-disk state root,
-    /// bypassing the store, so the next `MyAppStore()` runs its `load()` on them.
-    private func seedDisk(app: MyApp, memoryThreads: [ChatThread], memoryCurrent: String) throws {
+    /// bypassing the store, so the next `MiniAppStore()` runs its `load()` on them.
+    private func seedDisk(app: MiniApp, memoryThreads: [ChatThread], memoryCurrent: String) throws {
         let enc = JSONEncoder() // plain — inverse of load()'s JSONDecoder()
         let stateRoot = PupaStorage.stateRoot
         try CloudDocument.write(
@@ -174,29 +174,29 @@ struct ThreadCapTests {
         try CloudDocument.write(enc.encode(index), to: stateRoot.appendingPathComponent("index.json"))
     }
 
-    @Test("load() re-points a dangling myApp currentThreadId to the newest thread")
-    func load_repointsDanglingMyAppCurrent() async throws {
-        await MyAppStore.clearStorage()
+    @Test("load() re-points a dangling miniApp currentThreadId to the newest thread")
+    func load_repointsDanglingMiniAppCurrent() async throws {
+        await MiniAppStore.clearStorage()
         var app = appWithThreads(4, currentIndex: 3) // threads t0…t3
         app.currentThreadId = "ghost-pruned-by-peer" // names no surviving thread
         try seedDisk(app: app, memoryThreads: [ChatThread(id: "m0")], memoryCurrent: "m0")
 
-        let store = MyAppStore() // default init → load() → repoint
+        let store = MiniAppStore() // default init → load() → repoint
 
-        #expect(store.currentThreadId(for: .myApp(app.id)) == "t3", "re-points to the newest surviving thread")
-        #expect(store.threads(for: .myApp(app.id)).count == 4, "only current is re-pointed — no thread is dropped")
+        #expect(store.currentThreadId(for: .miniApp(app.id)) == "t3", "re-points to the newest surviving thread")
+        #expect(store.threads(for: .miniApp(app.id)).count == 4, "only current is re-pointed — no thread is dropped")
     }
 
     @Test("load() re-points a dangling memoryCurrentThreadId to the newest memory thread")
     func load_repointsDanglingMemoryCurrent() async throws {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         let app = appWithThreads(1, currentIndex: 0)
         let base = Date(timeIntervalSince1970: 3_000_000)
         let mem = (0..<3).map { ChatThread(id: "m\($0)", title: "m\($0)",
                                            createdAt: base.addingTimeInterval(Double($0))) }
         try seedDisk(app: app, memoryThreads: mem, memoryCurrent: "ghost")
 
-        let store = MyAppStore()
+        let store = MiniAppStore()
 
         #expect(store.memoryCurrentThreadId == "m2", "re-points memory current to the newest survivor")
         #expect(store.memoryThreads.count == 3)
@@ -204,36 +204,36 @@ struct ThreadCapTests {
 
     @Test("load() leaves a still-valid current untouched")
     func load_keepsValidCurrent() async throws {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         let app = appWithThreads(3, currentIndex: 1) // current = t1, a real thread
         try seedDisk(app: app, memoryThreads: [ChatThread(id: "m0")], memoryCurrent: "m0")
 
-        let store = MyAppStore()
+        let store = MiniAppStore()
 
-        #expect(store.currentThreadId(for: .myApp(app.id)) == "t1", "a valid current is not moved")
+        #expect(store.currentThreadId(for: .miniApp(app.id)) == "t1", "a valid current is not moved")
         #expect(store.memoryCurrentThreadId == "m0")
     }
 
     // MARK: - Per-app independence
 
-    @Test("pruneAllThreads caps each MyApp independently")
+    @Test("pruneAllThreads caps each MiniApp independently")
     func pruneAllThreads_perApp() {
-        MyAppTypeRegistry.shared.registerBuiltins()
+        MiniAppTypeRegistry.shared.registerBuiltins()
         let base = Date(timeIntervalSince1970: 2_000_000)
-        func mk(_ name: String, _ n: Int) -> MyApp {
+        func mk(_ name: String, _ n: Int) -> MiniApp {
             let ts = (0..<n).map { ChatThread(id: "\(name)\($0)", title: "t \($0)",
                                               createdAt: base.addingTimeInterval(Double($0))) }
-            return MyApp(name: name, iconSystemName: "circle", typeId: MyAppType.tracker.id,
+            return MiniApp(name: name, iconSystemName: "circle", typeId: MiniAppType.tracker.id,
                          threads: ts, currentThreadId: ts.last!.id)
         }
         let a = mk("A", 6)
         let b = mk("B", 3)
-        let s = MyAppStore(initial: ([a, b], a.id))
+        let s = MiniAppStore(initial: ([a, b], a.id))
         s.threadCapBytes = { 1 }
 
         s.pruneAllThreads()
 
-        #expect(s.threads(for: .myApp(a.id)).count == 1)
-        #expect(s.threads(for: .myApp(b.id)).count == 1)
+        #expect(s.threads(for: .miniApp(a.id)).count == 1)
+        #expect(s.threads(for: .miniApp(b.id)).count == 1)
     }
 }

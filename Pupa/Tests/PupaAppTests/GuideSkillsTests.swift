@@ -133,7 +133,7 @@ struct GuideSkillsTests {
         #expect(GuideSkills.seed(into: mem))
         let body = try #require(SkillStore(memory: mem).skill(named: "pupa-components")).body
 
-        let type = MyAppType.tracker
+        let type = MiniAppType.tracker
         for kind in type.supportedComponentKinds {
             #expect(body.contains("**\(kind)**"), "kind \(kind) missing from guide")
             let blurb = try #require(type.kinds[kind]?.catalogBlurb)

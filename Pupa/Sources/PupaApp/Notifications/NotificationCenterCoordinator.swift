@@ -173,7 +173,7 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
         // delegate can route the tap (and the Settings list can label it).
         var info: [String: String] = ["pupa.origin": origin.userInfoValue]
         if let target = request.target {
-            if let mid = target.myAppId { info["pupa.myAppId"] = mid.uuidString }
+            if let mid = target.miniAppId { info["pupa.miniAppId"] = mid.uuidString }
             if let cid = target.componentId { info["pupa.componentId"] = cid }
         }
         switch request.tapAction {
@@ -350,14 +350,14 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
         // actor once to build + buffer + broadcast the tap. Capturing only
         // strings keeps the hop Sendable-clean.
         let userInfo = response.notification.request.content.userInfo
-        let myAppIdString = userInfo["pupa.myAppId"] as? String
+        let miniAppIdString = (userInfo["pupa.miniAppId"] ?? userInfo["pupa.myAppId"]) as? String
         let componentId = userInfo["pupa.componentId"] as? String
         let tapAction = userInfo["pupa.tapAction"] as? String
         let tapPrompt = userInfo["pupa.tapPrompt"] as? String
         completionHandler()
         Task { @MainActor in
             self.deliverTap(
-                myAppIdString: myAppIdString,
+                miniAppIdString: miniAppIdString,
                 componentId: componentId,
                 tapAction: tapAction,
                 tapPrompt: tapPrompt
@@ -372,15 +372,15 @@ public final class NotificationCenterCoordinator: NSObject, UNUserNotificationCe
     /// clears it, so the action fires exactly once.
     @MainActor
     private func deliverTap(
-        myAppIdString: String?,
+        miniAppIdString: String?,
         componentId: String?,
         tapAction: String?,
         tapPrompt: String?
     ) {
         var payload: [String: Any] = [:]
-        if let s = myAppIdString, let id = UUID(uuidString: s) {
-            payload["selection"] = componentId.map { SidebarSelection.myAppComponent(id, $0) }
-                ?? .myApp(id)
+        if let s = miniAppIdString, let id = UUID(uuidString: s) {
+            payload["selection"] = componentId.map { SidebarSelection.miniAppComponent(id, $0) }
+                ?? .miniApp(id)
         }
         if let tapAction {
             payload["tapAction"] = tapAction

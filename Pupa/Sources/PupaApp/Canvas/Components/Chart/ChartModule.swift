@@ -11,7 +11,7 @@ public struct ChartModule: ComponentModule {
     public let kind = "chart"
     public let defaultIcon = "chart.pie"
 
-    /// Owned here; `MyAppType.tracker.kinds` assembles from this at load.
+    /// Owned here; `MiniAppType.tracker.kinds` assembles from this at load.
     public nonisolated static let kindSpec = ComponentKindSpec(
         tools: [
             "renderChart",
@@ -54,16 +54,16 @@ public struct ChartModule: ComponentModule {
 
     public func makeView(
         component: Component,
-        store: MyAppStore,
-        myAppId: UUID,
+        store: MiniAppStore,
+        miniAppId: UUID,
         coordinator: ChatSessionCoordinator?
     ) -> AnyView {
         guard case .chart(let data) = component.body else { return AnyView(EmptyView()) }
-        return AnyView(ChartContainerView(store: store, data: data, myAppId: myAppId))
+        return AnyView(ChartContainerView(store: store, data: data, miniAppId: miniAppId))
     }
 
     public func registerTools(on registry: ToolRegistry, context: ComponentToolContext) {
         AppTools.registerChartTools(
-            on: registry, store: context.store, myAppId: context.myAppId)
+            on: registry, store: context.store, miniAppId: context.miniAppId)
     }
 }

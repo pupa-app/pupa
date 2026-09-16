@@ -1,7 +1,7 @@
 import Foundation
 import AGUIKit
 
-/// Stable, cache-friendly summary of a MyApp's canvas. Replaces the full
+/// Stable, cache-friendly summary of a MiniApp's canvas. Replaces the full
 /// `CanvasSnapshot` JSON that ChatViewModel used to ship in the
 /// "Live canvas state" context entry every turn.
 ///
@@ -35,16 +35,16 @@ public struct CanvasSummary: Encodable, Sendable {
         self.components = components
     }
 
-    /// Build a summary of `myApp`. The `previewTracker` argument is
+    /// Build a summary of `miniApp`. The `previewTracker` argument is
     /// retained for now to keep the call-site signatures stable; the
     /// summary itself no longer carries a per-component item preview.
     @MainActor
     public static func build(
-        myApp: MyApp,
+        miniApp: MiniApp,
         previewTracker: CanvasPreviewTracker = CanvasPreviewTracker()
     ) -> CanvasSummary {
         _ = previewTracker
-        let comps = myApp.components.map { ComponentSummary.build(component: $0) }
+        let comps = miniApp.components.map { ComponentSummary.build(component: $0) }
         return CanvasSummary(components: comps)
     }
 

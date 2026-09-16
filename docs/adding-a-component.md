@@ -13,7 +13,7 @@ This guide assumes a new shape called `widget` with a body type `WidgetData`. Su
 > `ComponentRegistry` lookups (with the legacy switch as fallback until every
 > kind ships a module). New shapes should follow the tracker layout: put the
 > view, data model, `<Kind>Module`, tools extension, and policies in the folder,
-> register the module in `MyAppTypeRegistry.registerBuiltins()`, and still make
+> register the module in `MiniAppTypeRegistry.registerBuiltins()`, and still make
 > the ~4 `CanvasApp` enum edits below (the enum stays the persistence
 > discriminator).
 
@@ -44,37 +44,37 @@ Adding a `CanvasApp` case turns any non-default-having switch elsewhere in the c
 - [Canvas/CanvasSummary.swift](../Pupa/Sources/PupaApp/Canvas/CanvasSummary.swift) — `itemCount(of:)`
 - [Canvas/ComponentItemPickerSheet.swift](../Pupa/Sources/PupaApp/Canvas/ComponentItemPickerSheet.swift) — four switches for the cross-component link picker
 - [Canvas/CanvasState.swift](../Pupa/Sources/PupaApp/Canvas/CanvasState.swift) — the **unified reference model**: `mapLinkedItems`, `componentReferences()`, and `remapReferences(keepComponent:keepItem:)`. If your shape holds cross-component refs (item `linkedItems` or spec componentIds), declare them in `componentReferences()` and prune them in `remapReferences` — this one place feeds **both** the delete cascade and marketplace export.
-- [MyApps/MyAppStore.swift](../Pupa/Sources/PupaApp/MyApps/MyAppStore.swift) — switches in `linkItems`, `unlinkItems`, `itemExists`, `displayNameForRefTarget` (`cascadeRemoveRefs` now routes through `CanvasApp.remapReferences`, so it needs no per-kind edit)
+- [MiniApps/MiniAppStore.swift](../Pupa/Sources/PupaApp/MiniApps/MiniAppStore.swift) — switches in `linkItems`, `unlinkItems`, `itemExists`, `displayNameForRefTarget` (`cascadeRemoveRefs` now routes through `CanvasApp.remapReferences`, so it needs no per-kind edit)
 
 For a non-linkable shape (Slack messages aren't link targets), fold the new case in with `.empty`: `case .widget, .empty: return false`. For a linkable shape, mirror the tracker / calendar / checklist branches that handle `linkedItems`.
 
 ## 3. Store mutators
 
-Add a `// MARK: - Widget mutators` section to [MyAppStore.swift](../Pupa/Sources/PupaApp/MyApps/MyAppStore.swift) and write the per-shape mutators (e.g. `addWidgetItem`, `setWidget`, …). Use the existing `mutate(_:kind:_:)` for kind-routed calls and `mutate(myAppId:byComponentId:_:)` when the call site explicitly targets one component (multi-component MyApps).
+Add a `// MARK: - Widget mutators` section to [MiniAppStore.swift](../Pupa/Sources/PupaApp/MiniApps/MiniAppStore.swift) and write the per-shape mutators (e.g. `addWidgetItem`, `setWidget`, …). Use the existing `mutate(_:kind:_:)` for kind-routed calls and `mutate(miniAppId:byComponentId:_:)` when the call site explicitly targets one component (multi-component MiniApps).
 
 Every mutator must:
-- Take an optional `myAppId: UUID? = nil` (defaults to `activeMyAppId`)
-- Take an optional `componentId: String? = nil` for multi-component MyApps
+- Take an optional `miniAppId: UUID? = nil` (defaults to `activeMiniAppId`)
+- Take an optional `componentId: String? = nil` for multi-component MiniApps
 - Return either `Void`, a `@discardableResult` Bool changed-flag, or an id for "create" mutators
 - Call `persist()` only when state actually changed (the `mutate` helper handles this for you)
 
-Also add `widgetComponentId(myAppId:)` mirroring `trackerComponentId` / `calendarComponentId` / `checklistComponentId`, so the (forthcoming) tools have a resolver when no explicit `componentId` is passed.
+Also add `widgetComponentId(miniAppId:)` mirroring `trackerComponentId` / `calendarComponentId` / `checklistComponentId`, so the (forthcoming) tools have a resolver when no explicit `componentId` is passed.
 
 ## 4. SwiftUI view + canvas dispatcher
 
-- New file: `Pupa/Sources/PupaApp/Canvas/WidgetView.swift` next to [ChecklistView.swift](../Pupa/Sources/PupaApp/Canvas/ChecklistView.swift). Takes `(store: MyAppStore, data: WidgetData, myAppId: UUID, componentId: String)`.
+- New file: `Pupa/Sources/PupaApp/Canvas/WidgetView.swift` next to [ChecklistView.swift](../Pupa/Sources/PupaApp/Canvas/ChecklistView.swift). Takes `(store: MiniAppStore, data: WidgetData, miniAppId: UUID, componentId: String)`.
 - Dispatch from [CanvasView.swift](../Pupa/Sources/PupaApp/Canvas/CanvasView.swift)'s switch:
 
 ```swift
 case .widget(let data):
-    WidgetView(store: store, data: data, myAppId: resolvedMyAppId, componentId: component.id)
+    WidgetView(store: store, data: data, miniAppId: resolvedMiniAppId, componentId: component.id)
 ```
 
 ## 5. Per-kind tool / prompt gating
 
-[Pupa/Sources/PupaApp/MyApps/MyAppType.swift](../Pupa/Sources/PupaApp/MyApps/MyAppType.swift)
+[Pupa/Sources/PupaApp/MiniApps/MiniAppType.swift](../Pupa/Sources/PupaApp/MiniApps/MiniAppType.swift)
 
-In `MyAppType.tracker` (the default `MyAppType` every MyApp currently uses), add **one** `ComponentKindSpec` entry to the `kinds` dictionary, keyed `"widget"`. That single entry is the whole per-kind surface — `supportedComponentKinds`, `toolNamesByKind`, and `promptFragmentsByKind` all derive from it, so there are no parallel maps to keep in sync. Its three fields:
+In `MiniAppType.tracker` (the default `MiniAppType` every MiniApp currently uses), add **one** `ComponentKindSpec` entry to the `kinds` dictionary, keyed `"widget"`. That single entry is the whole per-kind surface — `supportedComponentKinds`, `toolNamesByKind`, and `promptFragmentsByKind` all derive from it, so there are no parallel maps to keep in sync. Its three fields:
 
 - `tools:` — every Widget tool name. Advertised only on rounds where at least one `.widget` component exists. (Being absent from this set is also what makes `addComponent` reject the kind — the tool's JSON Schema `enum` derives from `kinds.keys`.)
 - `promptFragment:` — a paragraph on the mental model: when to choose this shape, what its `summary` slot is for, how state surfaces. Rides context only while a `.widget` component is present. Don't enumerate tool names; they're forwarded as proper tool definitions.
@@ -82,11 +82,11 @@ In `MyAppType.tracker` (the default `MyAppType` every MyApp currently uses), add
 
 ## 5b. Marketplace export policy
 
-Register a `ComponentExportPolicy` for `"widget"` in `MyAppTypeRegistry.registerBuiltins()`, beside the item-policy registrations ([ComponentExportPolicies.swift](../Pupa/Sources/PupaApp/Marketplace/ComponentExportPolicies.swift)). `strippingUserData` drops user records but keeps reusable structure; set `exportDataWarning` if records can't be fully stripped. **`ComponentExportRegistry.assertComplete` traps at bootstrap (and CI fails) if a supported kind has no policy**, so this isn't optional. See [marketplace.md](marketplace.md).
+Register a `ComponentExportPolicy` for `"widget"` in `MiniAppTypeRegistry.registerBuiltins()`, beside the item-policy registrations ([ComponentExportPolicies.swift](../Pupa/Sources/PupaApp/Marketplace/ComponentExportPolicies.swift)). `strippingUserData` drops user records but keeps reusable structure; set `exportDataWarning` if records can't be fully stripped. **`ComponentExportRegistry.assertComplete` traps at bootstrap (and CI fails) if a supported kind has no policy**, so this isn't optional. See [marketplace.md](marketplace.md).
 
 ## 6. Frontend tools
 
-Register in [AppTools.swift](../Pupa/Sources/PupaApp/Tools/AppTools.swift). Either inline in `registerMyAppTools` or extracted into a private `registerWidgetTools(on:store:myAppId:)` called from `registerMyAppTools` near the end.
+Register in [AppTools.swift](../Pupa/Sources/PupaApp/Tools/AppTools.swift). Either inline in `registerMiniAppTools` or extracted into a private `registerWidgetTools(on:store:miniAppId:)` called from `registerMiniAppTools` near the end.
 
 Tool patterns to follow:
 - **`renderWidget(title, ..., summary)`** — destructive full render OR `summary`-only update. Echoes `{ok, fields?, totalItems?, summarySet?}`.
@@ -101,7 +101,7 @@ Mirror the patterns in [ChecklistTests.swift](../Pupa/Tests/PupaAppTests/Checkli
 
 - **Codec round-trip**: encode/decode `WidgetData`; legacy `CanvasApp` JSON without the new case still decodes.
 - **Mutators**: every mutator's happy path + at least one edge (empty input, unknown id).
-- **Tool gating** (in [ToolGatingTests.swift](../Pupa/Tests/PupaAppTests/ToolGatingTests.swift)): a fresh MyApp with no Widget component does NOT advertise Widget tools; adding the component advertises them. Watch out for the `addComponent` schema-enum drift test there — it pins the contract you're modifying in step 5.
+- **Tool gating** (in [ToolGatingTests.swift](../Pupa/Tests/PupaAppTests/ToolGatingTests.swift)): a fresh MiniApp with no Widget component does NOT advertise Widget tools; adding the component advertises them. Watch out for the `addComponent` schema-enum drift test there — it pins the contract you're modifying in step 5.
 
 Write tests first when feasible (failing test → impl). For UI-only changes pure to `WidgetView.swift`, manual smoke via `make mac-demo` is fine.
 
@@ -124,7 +124,7 @@ Patch-only bumps unless the user asks otherwise (`0.0.X` → `0.0.X+1`).
 
 These tripped me on the Slack PR; flag them on your own.
 
-- **`addComponent` schema drift** ([AppTools.swift:1041-1080](../Pupa/Sources/PupaApp/Tools/AppTools.swift)). The tool's `kind` enum + description are derived from `MyAppType.supportedComponentKinds` at registration time. If you ship a new kind but forget to add it to `supportedComponentKinds`, the JSON Schema enum will reject the model's call silently. The regression test `addComponent schema enum + description derive from supportedComponentKinds (no hardcoded drift)` in [ToolGatingTests.swift](../Pupa/Tests/PupaAppTests/ToolGatingTests.swift) catches this.
+- **`addComponent` schema drift** ([AppTools.swift:1041-1080](../Pupa/Sources/PupaApp/Tools/AppTools.swift)). The tool's `kind` enum + description are derived from `MiniAppType.supportedComponentKinds` at registration time. If you ship a new kind but forget to add it to `supportedComponentKinds`, the JSON Schema enum will reject the model's call silently. The regression test `addComponent schema enum + description derive from supportedComponentKinds (no hardcoded drift)` in [ToolGatingTests.swift](../Pupa/Tests/PupaAppTests/ToolGatingTests.swift) catches this.
 - **Backward-compat decoding**. Every Codable struct should use `decodeIfPresent` with defaults so on-disk blobs from earlier project versions decode cleanly. The legacy-JSON test in [SlackDataCodecTests.swift](../Pupa/Tests/PupaAppTests/SlackDataCodecTests.swift) (and the matching one in [ChecklistTests.swift](../Pupa/Tests/PupaAppTests/ChecklistTests.swift)) is the contract you're upholding.
 - **MainActor + `@Sendable` closures**. `ToolRegistry` handlers are `@Sendable async`. Any MainActor-isolated state inside the handler needs `await MainActor.run { ... }`. Pure helpers (regex parsing, transforms) should be `nonisolated static` so they're callable from anywhere — see `SlackView.parseMentions` in [SlackView.swift](../Pupa/Sources/PupaApp/Canvas/SlackView.swift).
 - **Switch exhaustiveness via `_ = `**. Resist adding `default: break` to switches over `CanvasApp.body` — that defeats the compiler's "did you handle the new case" guarantee. Explicitly list every case (group with comma for shared no-op behaviour: `case .widget, .empty: return false`).

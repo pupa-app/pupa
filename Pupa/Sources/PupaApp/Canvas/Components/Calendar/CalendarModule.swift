@@ -11,7 +11,7 @@ public struct CalendarModule: ComponentModule {
     public let kind = "calendar"
     public let defaultIcon = "calendar"
 
-    /// Owned here; `MyAppType.tracker.kinds` assembles from this at load.
+    /// Owned here; `MiniAppType.tracker.kinds` assembles from this at load.
     public nonisolated static let kindSpec = ComponentKindSpec(
         tools: [
             "renderCalendar",
@@ -38,8 +38,8 @@ public struct CalendarModule: ComponentModule {
     public var linkPickerEmptyHint: String { "No events on this calendar yet" }
     public func linkableItems(
         in component: Component,
-        store: MyAppStore,
-        myAppId: UUID
+        store: MiniAppStore,
+        miniAppId: UUID
     ) -> [(id: UUID, displayName: String)] {
         guard case .calendar(let c) = component.body else { return [] }
         return c.sortedEvents.map { event in
@@ -65,17 +65,17 @@ public struct CalendarModule: ComponentModule {
 
     public func makeView(
         component: Component,
-        store: MyAppStore,
-        myAppId: UUID,
+        store: MiniAppStore,
+        miniAppId: UUID,
         coordinator: ChatSessionCoordinator?
     ) -> AnyView {
         guard case .calendar(let data) = component.body else { return AnyView(EmptyView()) }
         return AnyView(CalendarView(
-            store: store, data: data, myAppId: myAppId, componentId: component.id))
+            store: store, data: data, miniAppId: miniAppId, componentId: component.id))
     }
 
     public func registerTools(on registry: ToolRegistry, context: ComponentToolContext) {
         AppTools.registerCalendarTools(
-            on: registry, store: context.store, myAppId: context.myAppId)
+            on: registry, store: context.store, miniAppId: context.miniAppId)
     }
 }

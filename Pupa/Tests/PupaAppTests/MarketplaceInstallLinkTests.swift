@@ -225,7 +225,7 @@ struct MarketplaceInstallLinkTests {
     @Test("A declared Content-Length over the cap is rejected before the body is read")
     func fetchTooLargeByHeader() async {
         let session = Self.stub(status: 200, body: Self.payload,
-                                headers: ["Content-Length": "\(MyAppImporter.maxBundleBytes + 1)"])
+                                headers: ["Content-Length": "\(MiniAppImporter.maxBundleBytes + 1)"])
         await #expect(throws: MarketplaceInstallLink.LinkError.tooLarge) {
             try await MarketplaceInstallLink.fetchBundle(Self.request(), using: session)
         }

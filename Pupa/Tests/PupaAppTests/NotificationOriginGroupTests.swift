@@ -22,7 +22,7 @@ struct NotificationOriginGroupTests {
         }
     }
 
-    @Test("myApps come first alphabetically, then orchestrator, user, unattributed")
+    @Test("miniApps come first alphabetically, then orchestrator, user, unattributed")
     func sectionOrder() {
         let zebra = UUID()
         let apple = UUID()
@@ -30,9 +30,9 @@ struct NotificationOriginGroupTests {
             [
                 record(.unknown, "1"),
                 record(.user, "2"),
-                record(.myApp(zebra), "3"),
+                record(.miniApp(zebra), "3"),
                 record(.orchestrator, "4"),
-                record(.myApp(apple), "5"),
+                record(.miniApp(apple), "5"),
             ],
             names: [zebra: "Zebra", apple: "Apple"]
         )
@@ -46,10 +46,10 @@ struct NotificationOriginGroupTests {
         #expect(groups.map(\.title) == ["You"])
     }
 
-    @Test("a myApp deleted since scheduling keeps its own section")
-    func deletedMyAppKeepsSection() {
+    @Test("a miniApp deleted since scheduling keeps its own section")
+    func deletedMiniAppKeepsSection() {
         let gone = UUID()
-        let groups = grouped([record(.myApp(gone), "1")])
+        let groups = grouped([record(.miniApp(gone), "1")])
 
         #expect(groups.count == 1)
         #expect(groups[0].title == "Deleted app")
@@ -57,11 +57,11 @@ struct NotificationOriginGroupTests {
         #expect(groups[0].tint == nil)
     }
 
-    @Test("several notifications from one myApp share a section")
-    func oneSectionPerMyApp() {
+    @Test("several notifications from one miniApp share a section")
+    func oneSectionPerMiniApp() {
         let id = UUID()
         let groups = grouped(
-            [record(.myApp(id), "1"), record(.myApp(id), "2")], names: [id: "Tracker"]
+            [record(.miniApp(id), "1"), record(.miniApp(id), "2")], names: [id: "Tracker"]
         )
 
         #expect(groups.count == 1)

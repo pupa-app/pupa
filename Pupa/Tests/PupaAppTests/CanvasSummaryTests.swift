@@ -12,16 +12,16 @@ import AGUIKit
 @Suite("Canvas summary")
 struct CanvasSummaryTests {
 
-    private func makeMyApp() -> MyApp {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        return MyApp(name: "T", iconSystemName: "list.bullet.rectangle", typeId: MyAppType.tracker.id)
+    private func makeMiniApp() -> MiniApp {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        return MiniApp(name: "T", iconSystemName: "list.bullet.rectangle", typeId: MiniAppType.tracker.id)
     }
 
     @Test("Tracker summary exposes id / name / kind / size only — no schema, no preview")
     func trackerSummaryShape() {
-        var myApp = makeMyApp()
+        var miniApp = makeMiniApp()
         let items = (1...5).map { i in TrackerItem(values: ["title": "Row \(i)"]) }
-        myApp.components = [
+        miniApp.components = [
             Component(
                 id: "tracker-1",
                 name: "Things",
@@ -30,9 +30,9 @@ struct CanvasSummaryTests {
                 summary: "Stuff to do"
             )
         ]
-        myApp.activeComponentId = "tracker-1"
+        miniApp.activeComponentId = "tracker-1"
 
-        let summary = CanvasSummary.build(myApp: myApp)
+        let summary = CanvasSummary.build(miniApp: miniApp)
         // The summary deliberately omits the active/view pointer (fetched on
         // demand via getActiveComponent) so browsing never busts the cache.
         #expect(summary.components.count == 1)
@@ -46,8 +46,8 @@ struct CanvasSummaryTests {
 
     @Test("summary is always present in the JSON output — even when nil, encoded as null so the slot is visible")
     func summaryAlwaysEmitted() throws {
-        var myApp = makeMyApp()
-        myApp.components = [
+        var miniApp = makeMiniApp()
+        miniApp.components = [
             Component(
                 id: "tracker-1",
                 name: "Empty",
@@ -55,7 +55,7 @@ struct CanvasSummaryTests {
                 body: .tracker(TrackerData(title: "Empty", fields: [], items: []))
             )
         ]
-        let json = CanvasSummary.build(myApp: myApp).toJSONString()
+        let json = CanvasSummary.build(miniApp: miniApp).toJSONString()
         // Sorted-keys output, so the summary key sits in alphabetical position.
         #expect(json.contains("\"summary\":null"))
         let parsed = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
@@ -65,8 +65,8 @@ struct CanvasSummaryTests {
 
     @Test("size bucket tracks the right collection per kind")
     func itemCountPerKind() {
-        var myApp = makeMyApp()
-        myApp.components = [
+        var miniApp = makeMiniApp()
+        miniApp.components = [
             Component(
                 id: "tracker-1", name: "T", iconSystemName: "list.bullet",
                 body: .tracker(TrackerData(title: "T", fields: [], items: (1...3).map { _ in TrackerItem(values: [:]) }))
@@ -96,7 +96,7 @@ struct CanvasSummaryTests {
                 body: .chart(ChartData(title: "CH2", kind: .pie, source: .tracker(componentId: "tracker-1", groupBy: "x", valueField: "y", reduce: .sum, filter: [:], xIsNumericOrDate: false)))
             ),
         ]
-        let summary = CanvasSummary.build(myApp: myApp)
+        let summary = CanvasSummary.build(miniApp: miniApp)
         let byId = Dictionary(uniqueKeysWithValues: summary.components.map { ($0.id, $0) })
         #expect(byId["tracker-1"]?.size == "1-9")   // 3 items
         #expect(byId["calendar-1"]?.size == "1-9")  // 2 events
@@ -128,18 +128,18 @@ struct CanvasSummaryTests {
 
     @Test("setComponentSummary mutator round-trips through the canvas summary")
     func setComponentSummaryRoundTrip() {
-        let myApp = makeMyApp()
-        let store = MyAppStore(initial: ([myApp], myApp.id))
-        store.setTracker(title: "T", fields: [FieldDef(name: "x", type: .text)], myAppId: myApp.id)
-        let changed = store.setComponentSummary(forKind: "tracker", summary: "rows are TODOs", myAppId: myApp.id)
+        let miniApp = makeMiniApp()
+        let store = MiniAppStore(initial: ([miniApp], miniApp.id))
+        store.setTracker(title: "T", fields: [FieldDef(name: "x", type: .text)], miniAppId: miniApp.id)
+        let changed = store.setComponentSummary(forKind: "tracker", summary: "rows are TODOs", miniAppId: miniApp.id)
         #expect(changed == true)
-        let summary = CanvasSummary.build(myApp: store.myApps[0])
+        let summary = CanvasSummary.build(miniApp: store.miniApps[0])
         #expect(summary.components.first?.summary == "rows are TODOs")
 
         // Clearing works too — pass nil or whitespace.
-        let cleared = store.setComponentSummary(forKind: "tracker", summary: "   ", myAppId: myApp.id)
+        let cleared = store.setComponentSummary(forKind: "tracker", summary: "   ", miniAppId: miniApp.id)
         #expect(cleared == true)
-        let after = CanvasSummary.build(myApp: store.myApps[0])
+        let after = CanvasSummary.build(miniApp: store.miniApps[0])
         #expect(after.components.first?.summary == nil)
     }
 

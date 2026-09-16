@@ -3,7 +3,7 @@
 The native client package. Two products:
 
 - **`PupaApp`** — a Swift Package library with all the SwiftUI views, the
-  `@Observable` state stores (`MyAppStore`, `MemoryStore`,
+  `@Observable` state stores (`MiniAppStore`, `MemoryStore`,
   `SettingsStore`, …), and the frontend tool registrations. Drop into an
   iOS App target in Xcode, `import PupaApp`, and mount `AppView`.
 - **`PupaDemo`** — a runnable macOS executable using the same library.
@@ -63,7 +63,7 @@ instance with pair-once auth in front — see the backend repo.
 ```
 Sources/PupaApp/
 ├── App/        # AppView (split canvas + chat), PupaApp scene, app icon
-├── MyApps/     # MyApp model + MyAppStore (the single mutation surface)
+├── MiniApps/     # MiniApp model + MiniAppStore (the single mutation surface)
 ├── Canvas/     # CanvasState + per-shape views (Tracker/Calendar/Checklist/Kanban/Slack)
 ├── Chat/       # ChatViewModel, ChatSessionCoordinator (drives AGUIKit)
 ├── Tools/      # AppTools.swift — registers all frontend tools

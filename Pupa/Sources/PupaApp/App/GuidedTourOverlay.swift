@@ -64,7 +64,7 @@ struct GuidedTourView: View {
     /// too. Lifts every bottom card off the very edge; zero for top cards.
     private func bottomLift(for step: TourStep) -> CGFloat {
         guard step.placement == .bottom else { return 0 }
-        return MyAppBottomBar.rowHeight + MyAppBottomBar.verticalPadding * 2 + 28
+        return MiniAppBottomBar.rowHeight + MiniAppBottomBar.verticalPadding * 2 + 28
     }
 
     private func card(_ step: TourStep) -> some View {

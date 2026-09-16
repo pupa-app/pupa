@@ -11,19 +11,19 @@ import Testing
 ///   component); literal self-ref (`source == target`) rejected.
 /// - Idempotent on duplicate add / missing remove.
 /// - Cross-cascade: removing any referenced item drops the matching
-///   pill from every link-bearing kind in the MyApp.
+///   pill from every link-bearing kind in the MiniApp.
 /// - Structured `LinkMutationError` for missing source / target.
 @MainActor
 @Suite("Universal item-to-item linking")
 struct UniversalLinkingTests {
 
-    /// Builds a MyApp pre-populated with one tracker (with two rows),
+    /// Builds a MiniApp pre-populated with one tracker (with two rows),
     /// one calendar (with two events), and one checklist (with two
-    /// rows). Returns the store, MyApp id, and the component ids so
+    /// rows). Returns the store, MiniApp id, and the component ids so
     /// tests can build refs without re-querying.
     private struct Fixture {
-        let store: MyAppStore
-        let myAppId: UUID
+        let store: MiniAppStore
+        let miniAppId: UUID
         let trackerCompId: String
         let calendarCompId: String
         let checklistCompId: String
@@ -36,42 +36,42 @@ struct UniversalLinkingTests {
     }
 
     private func freshFixture() -> Fixture {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApp = MyApp(
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApp = MiniApp(
             name: "T",
             iconSystemName: "list.bullet.rectangle",
-            typeId: MyAppType.tracker.id
+            typeId: MiniAppType.tracker.id
         )
-        let store = MyAppStore(initial: ([myApp], myApp.id))
+        let store = MiniAppStore(initial: ([miniApp], miniApp.id))
 
-        store.addComponent(kind: "tracker", name: "Books", iconSystemName: "book", myAppId: myApp.id)
+        store.addComponent(kind: "tracker", name: "Books", iconSystemName: "book", miniAppId: miniApp.id)
         store.setTracker(
             title: "Books",
             fields: [FieldDef(name: "title", type: .text)],
-            myAppId: myApp.id
+            miniAppId: miniApp.id
         )
-        let trackerRowA = store.addItem(["title": "Hail Mary"], myAppId: myApp.id)!
-        let trackerRowB = store.addItem(["title": "Project Sleep"], myAppId: myApp.id)!
+        let trackerRowA = store.addItem(["title": "Hail Mary"], miniAppId: miniApp.id)!
+        let trackerRowB = store.addItem(["title": "Project Sleep"], miniAppId: miniApp.id)!
 
-        store.addComponent(kind: "calendar", name: "Cal", iconSystemName: "calendar", myAppId: myApp.id)
-        store.setCalendar(title: "Cal", myAppId: myApp.id)
+        store.addComponent(kind: "calendar", name: "Cal", iconSystemName: "calendar", miniAppId: miniApp.id)
+        store.setCalendar(title: "Cal", miniAppId: miniApp.id)
         let eventA = store.addCalendarEvent(
             CalendarEvent(title: "Read time", start: "2026-06-01T10:00:00Z"),
-            myAppId: myApp.id
+            miniAppId: miniApp.id
         )!
         let eventB = store.addCalendarEvent(
             CalendarEvent(title: "Coffee", start: "2026-06-02T15:00:00Z"),
-            myAppId: myApp.id
+            miniAppId: miniApp.id
         )!
 
-        store.addComponent(kind: "checklist", name: "Errands", iconSystemName: "checklist", myAppId: myApp.id)
-        let checklistRowA = store.addChecklistItem(text: "shopping", myAppId: myApp.id)!
-        let checklistRowB = store.addChecklistItem(text: "pack", myAppId: myApp.id)!
+        store.addComponent(kind: "checklist", name: "Errands", iconSystemName: "checklist", miniAppId: miniApp.id)
+        let checklistRowA = store.addChecklistItem(text: "shopping", miniAppId: miniApp.id)!
+        let checklistRowB = store.addChecklistItem(text: "pack", miniAppId: miniApp.id)!
 
-        let comps = store.myApps[0].components
+        let comps = store.miniApps[0].components
         return Fixture(
             store: store,
-            myAppId: myApp.id,
+            miniAppId: miniApp.id,
             trackerCompId: comps.first(where: { $0.kindString == "tracker" })!.id,
             calendarCompId: comps.first(where: { $0.kindString == "calendar" })!.id,
             checklistCompId: comps.first(where: { $0.kindString == "checklist" })!.id,
@@ -84,23 +84,23 @@ struct UniversalLinkingTests {
         )
     }
 
-    private func trackerItem(_ store: MyAppStore, myAppId: UUID, componentId: String, itemId: UUID) -> TrackerItem? {
-        guard let myApp = store.myApps.first(where: { $0.id == myAppId }),
-              let comp = myApp.components.first(where: { $0.id == componentId }),
+    private func trackerItem(_ store: MiniAppStore, miniAppId: UUID, componentId: String, itemId: UUID) -> TrackerItem? {
+        guard let miniApp = store.miniApps.first(where: { $0.id == miniAppId }),
+              let comp = miniApp.components.first(where: { $0.id == componentId }),
               case .tracker(let t) = comp.body else { return nil }
         return t.items.first(where: { $0.id == itemId })
     }
 
-    private func calendarEvent(_ store: MyAppStore, myAppId: UUID, componentId: String, itemId: UUID) -> CalendarEvent? {
-        guard let myApp = store.myApps.first(where: { $0.id == myAppId }),
-              let comp = myApp.components.first(where: { $0.id == componentId }),
+    private func calendarEvent(_ store: MiniAppStore, miniAppId: UUID, componentId: String, itemId: UUID) -> CalendarEvent? {
+        guard let miniApp = store.miniApps.first(where: { $0.id == miniAppId }),
+              let comp = miniApp.components.first(where: { $0.id == componentId }),
               case .calendar(let cal) = comp.body else { return nil }
         return cal.events.first(where: { $0.id == itemId })
     }
 
-    private func checklistItem(_ store: MyAppStore, myAppId: UUID, componentId: String, itemId: UUID) -> ChecklistItem? {
-        guard let myApp = store.myApps.first(where: { $0.id == myAppId }),
-              let comp = myApp.components.first(where: { $0.id == componentId }),
+    private func checklistItem(_ store: MiniAppStore, miniAppId: UUID, componentId: String, itemId: UUID) -> ChecklistItem? {
+        guard let miniApp = store.miniApps.first(where: { $0.id == miniAppId }),
+              let comp = miniApp.components.first(where: { $0.id == componentId }),
               case .checklist(let cl) = comp.body else { return nil }
         return cl.items.first(where: { $0.id == itemId })
     }
@@ -115,14 +115,14 @@ struct UniversalLinkingTests {
             sourceItemId: f.trackerRowA,
             targetComponentId: f.calendarCompId,
             targetItemId: f.eventA,
-            myAppId: f.myAppId
+            miniAppId: f.miniAppId
         )
         guard case .success(let count) = outcome else {
             Issue.record("expected success, got \(outcome)")
             return
         }
         #expect(count == 1)
-        let row = trackerItem(f.store, myAppId: f.myAppId, componentId: f.trackerCompId, itemId: f.trackerRowA)
+        let row = trackerItem(f.store, miniAppId: f.miniAppId, componentId: f.trackerCompId, itemId: f.trackerRowA)
         #expect(row?.linkedItems.first?.componentId == f.calendarCompId)
         #expect(row?.linkedItems.first?.itemId == f.eventA)
     }
@@ -135,14 +135,14 @@ struct UniversalLinkingTests {
             sourceItemId: f.eventA,
             targetComponentId: f.checklistCompId,
             targetItemId: f.checklistRowA,
-            myAppId: f.myAppId
+            miniAppId: f.miniAppId
         )
         guard case .success(let count) = outcome else {
             Issue.record("expected success, got \(outcome)")
             return
         }
         #expect(count == 1)
-        let event = calendarEvent(f.store, myAppId: f.myAppId, componentId: f.calendarCompId, itemId: f.eventA)
+        let event = calendarEvent(f.store, miniAppId: f.miniAppId, componentId: f.calendarCompId, itemId: f.eventA)
         #expect(event?.linkedItems.first?.componentId == f.checklistCompId)
         #expect(event?.linkedItems.first?.itemId == f.checklistRowA)
     }
@@ -155,14 +155,14 @@ struct UniversalLinkingTests {
             sourceItemId: f.checklistRowA,
             targetComponentId: f.trackerCompId,
             targetItemId: f.trackerRowA,
-            myAppId: f.myAppId
+            miniAppId: f.miniAppId
         )
         guard case .success(let count) = outcome else {
             Issue.record("expected success, got \(outcome)")
             return
         }
         #expect(count == 1)
-        let row = checklistItem(f.store, myAppId: f.myAppId, componentId: f.checklistCompId, itemId: f.checklistRowA)
+        let row = checklistItem(f.store, miniAppId: f.miniAppId, componentId: f.checklistCompId, itemId: f.checklistRowA)
         #expect(row?.linkedItems.first?.componentId == f.trackerCompId)
         #expect(row?.linkedItems.first?.itemId == f.trackerRowA)
     }
@@ -177,14 +177,14 @@ struct UniversalLinkingTests {
             sourceItemId: f.checklistRowA,
             targetComponentId: f.checklistCompId,
             targetItemId: f.checklistRowB,
-            myAppId: f.myAppId
+            miniAppId: f.miniAppId
         )
         guard case .success(let count) = outcome else {
             Issue.record("expected success, got \(outcome)")
             return
         }
         #expect(count == 1)
-        let row = checklistItem(f.store, myAppId: f.myAppId, componentId: f.checklistCompId, itemId: f.checklistRowA)
+        let row = checklistItem(f.store, miniAppId: f.miniAppId, componentId: f.checklistCompId, itemId: f.checklistRowA)
         #expect(row?.linkedItems.first?.itemId == f.checklistRowB)
     }
 
@@ -196,13 +196,13 @@ struct UniversalLinkingTests {
             sourceItemId: f.trackerRowA,
             targetComponentId: f.trackerCompId,
             targetItemId: f.trackerRowB,
-            myAppId: f.myAppId
+            miniAppId: f.miniAppId
         )
         guard case .success = outcome else {
             Issue.record("expected success, got \(outcome)")
             return
         }
-        let row = trackerItem(f.store, myAppId: f.myAppId, componentId: f.trackerCompId, itemId: f.trackerRowA)
+        let row = trackerItem(f.store, miniAppId: f.miniAppId, componentId: f.trackerCompId, itemId: f.trackerRowA)
         #expect(row?.linkedItems.first?.itemId == f.trackerRowB)
     }
 
@@ -214,14 +214,14 @@ struct UniversalLinkingTests {
             sourceItemId: f.checklistRowA,
             targetComponentId: f.checklistCompId,
             targetItemId: f.checklistRowA,
-            myAppId: f.myAppId
+            miniAppId: f.miniAppId
         )
         if case .failure(let err) = outcome {
             #expect(err == .selfReference)
         } else {
             Issue.record("expected .failure(.selfReference), got \(outcome)")
         }
-        let row = checklistItem(f.store, myAppId: f.myAppId, componentId: f.checklistCompId, itemId: f.checklistRowA)
+        let row = checklistItem(f.store, miniAppId: f.miniAppId, componentId: f.checklistCompId, itemId: f.checklistRowA)
         #expect(row?.linkedItems.isEmpty == true, "no ref must be added on rejection")
     }
 
@@ -235,14 +235,14 @@ struct UniversalLinkingTests {
             sourceItemId: f.checklistRowA,
             targetComponentId: f.trackerCompId,
             targetItemId: f.trackerRowA,
-            myAppId: f.myAppId
+            miniAppId: f.miniAppId
         )
         let second = f.store.linkItems(
             sourceComponentId: f.checklistCompId,
             sourceItemId: f.checklistRowA,
             targetComponentId: f.trackerCompId,
             targetItemId: f.trackerRowA,
-            myAppId: f.myAppId
+            miniAppId: f.miniAppId
         )
         guard case .success(let count) = second else {
             Issue.record("expected success on duplicate, got \(second)")
@@ -259,7 +259,7 @@ struct UniversalLinkingTests {
             sourceItemId: UUID(),
             targetComponentId: f.trackerCompId,
             targetItemId: f.trackerRowA,
-            myAppId: f.myAppId
+            miniAppId: f.miniAppId
         )
         if case .failure(let err) = unknownSrc { #expect(err == .unknownSource) }
 
@@ -268,7 +268,7 @@ struct UniversalLinkingTests {
             sourceItemId: UUID(),
             targetComponentId: f.trackerCompId,
             targetItemId: f.trackerRowB,
-            myAppId: f.myAppId
+            miniAppId: f.miniAppId
         )
         if case .failure(let err) = unknownSrcItem { #expect(err == .unknownSourceItem) }
 
@@ -277,7 +277,7 @@ struct UniversalLinkingTests {
             sourceItemId: f.checklistRowA,
             targetComponentId: "tracker-999",
             targetItemId: UUID(),
-            myAppId: f.myAppId
+            miniAppId: f.miniAppId
         )
         if case .failure(let err) = unknownTarget { #expect(err == .unknownTarget) }
 
@@ -286,7 +286,7 @@ struct UniversalLinkingTests {
             sourceItemId: f.checklistRowA,
             targetComponentId: f.trackerCompId,
             targetItemId: UUID(),
-            myAppId: f.myAppId
+            miniAppId: f.miniAppId
         )
         if case .failure(let err) = unknownTargetItem { #expect(err == .unknownTargetItem) }
     }
@@ -300,7 +300,7 @@ struct UniversalLinkingTests {
             sourceItemId: f.checklistRowA,
             targetComponentId: f.trackerCompId,
             targetItemId: f.trackerRowA,
-            myAppId: f.myAppId
+            miniAppId: f.miniAppId
         )
         guard case .success(let count) = outcome else {
             Issue.record("expected success, got \(outcome)")
@@ -320,28 +320,28 @@ struct UniversalLinkingTests {
             sourceItemId: f.trackerRowB,
             targetComponentId: f.trackerCompId,
             targetItemId: f.trackerRowA,
-            myAppId: f.myAppId
+            miniAppId: f.miniAppId
         )
         _ = f.store.linkItems(
             sourceComponentId: f.calendarCompId,
             sourceItemId: f.eventA,
             targetComponentId: f.trackerCompId,
             targetItemId: f.trackerRowA,
-            myAppId: f.myAppId
+            miniAppId: f.miniAppId
         )
         _ = f.store.linkItems(
             sourceComponentId: f.checklistCompId,
             sourceItemId: f.checklistRowA,
             targetComponentId: f.trackerCompId,
             targetItemId: f.trackerRowA,
-            myAppId: f.myAppId
+            miniAppId: f.miniAppId
         )
 
-        _ = f.store.removeItem(id: f.trackerRowA, myAppId: f.myAppId)
+        _ = f.store.removeItem(id: f.trackerRowA, miniAppId: f.miniAppId)
 
-        #expect(trackerItem(f.store, myAppId: f.myAppId, componentId: f.trackerCompId, itemId: f.trackerRowB)?.linkedItems.isEmpty == true)
-        #expect(calendarEvent(f.store, myAppId: f.myAppId, componentId: f.calendarCompId, itemId: f.eventA)?.linkedItems.isEmpty == true)
-        #expect(checklistItem(f.store, myAppId: f.myAppId, componentId: f.checklistCompId, itemId: f.checklistRowA)?.linkedItems.isEmpty == true)
+        #expect(trackerItem(f.store, miniAppId: f.miniAppId, componentId: f.trackerCompId, itemId: f.trackerRowB)?.linkedItems.isEmpty == true)
+        #expect(calendarEvent(f.store, miniAppId: f.miniAppId, componentId: f.calendarCompId, itemId: f.eventA)?.linkedItems.isEmpty == true)
+        #expect(checklistItem(f.store, miniAppId: f.miniAppId, componentId: f.checklistCompId, itemId: f.checklistRowA)?.linkedItems.isEmpty == true)
     }
 
     @Test("Removing a checklist row drops the ref from a tracker source (PR 1 only swept calendars / checklists)")
@@ -352,13 +352,13 @@ struct UniversalLinkingTests {
             sourceItemId: f.trackerRowA,
             targetComponentId: f.checklistCompId,
             targetItemId: f.checklistRowA,
-            myAppId: f.myAppId
+            miniAppId: f.miniAppId
         )
-        #expect(trackerItem(f.store, myAppId: f.myAppId, componentId: f.trackerCompId, itemId: f.trackerRowA)?.linkedItems.count == 1)
+        #expect(trackerItem(f.store, miniAppId: f.miniAppId, componentId: f.trackerCompId, itemId: f.trackerRowA)?.linkedItems.count == 1)
 
-        _ = f.store.removeChecklistItem(id: f.checklistRowA, myAppId: f.myAppId)
+        _ = f.store.removeChecklistItem(id: f.checklistRowA, miniAppId: f.miniAppId)
 
-        #expect(trackerItem(f.store, myAppId: f.myAppId, componentId: f.trackerCompId, itemId: f.trackerRowA)?.linkedItems.isEmpty == true,
+        #expect(trackerItem(f.store, miniAppId: f.miniAppId, componentId: f.trackerCompId, itemId: f.trackerRowA)?.linkedItems.isEmpty == true,
                 "tracker source must lose the pill pointing at the deleted checklist row")
     }
 

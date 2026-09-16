@@ -14,7 +14,7 @@ import Observation
 /// overview only shows stats for agents a live descriptor resolves.
 ///
 /// Persistence is a single JSON blob under `pupa.agentstats.v1`,
-/// mirroring `MyAppStore` / `SettingsStore`.
+/// mirroring `MiniAppStore` / `SettingsStore`.
 @MainActor
 @Observable
 public final class AgentStatsStore {

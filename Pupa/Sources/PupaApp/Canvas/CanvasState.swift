@@ -4,7 +4,7 @@ import Foundation
 /// same component for a self-link). Stored on every link-bearing item
 /// kind — tracker rows, calendar events, and checklist rows — and
 /// rendered as an inline chain-link pill with the target's live display
-/// name (resolved by `MyAppStore.displayNameForRefTarget`). The
+/// name (resolved by `MiniAppStore.displayNameForRefTarget`). The
 /// underlying on-disk JSON shape (`{componentId, itemId}`) is identical
 /// to the pre-`0.0.41` `TrackerItemRef`, so persisted blobs decode
 /// untouched.
@@ -119,9 +119,9 @@ public enum CanvasApp: Codable, Hashable, Sendable {
     }
 
     /// Empty typed body for a component of the given kind. Used by
-    /// `MyAppStore.addComponent` so a freshly created component carries the
+    /// `MiniAppStore.addComponent` so a freshly created component carries the
     /// right `kindString` before any render tool runs — that's what lets the
-    /// kind-gated tool filter (see `MyAppType.resolvedToolNames`) advertise the
+    /// kind-gated tool filter (see `MiniAppType.resolvedToolNames`) advertise the
     /// per-kind tools on the next agent round. Unknown kinds fall back to
     /// `.empty`.
     ///
@@ -297,9 +297,9 @@ extension CanvasApp {
     }
 }
 
-/// One slot in a MyApp's component list. A MyApp can contain multiple
+/// One slot in a MiniApp's component list. A MiniApp can contain multiple
 /// components of different kinds (a tracker plus a calendar, say); the
-/// sidebar expands the MyApp into a child row per component. `id` is a
+/// sidebar expands the MiniApp into a child row per component. `id` is a
 /// stable, agent-addressable string like `"tracker-1"` or `"calendar-1"`.
 public struct Component: Codable, Hashable, Identifiable, Sendable {
     public let id: String
@@ -320,7 +320,7 @@ public struct Component: Codable, Hashable, Identifiable, Sendable {
     public var summary: String?
 
     /// User lock. When true, all non-read (mutating) operations on this
-    /// component are refused — via the `mutate` backstop in `MyAppStore` and
+    /// component are refused — via the `mutate` backstop in `MiniAppStore` and
     /// a "locked" result surfaced to the agent (see `ClientTool.readOnly`).
     /// Defaults false; older persisted/imported components decode as unlocked.
     public var isLocked: Bool

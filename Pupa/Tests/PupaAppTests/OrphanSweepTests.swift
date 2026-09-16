@@ -30,9 +30,9 @@ struct OrphanSweepTests {
 
     @Test("deletes stale orphans; keeps live, fresh, and non-app files")
     func sweepDeletesOnlyStaleOrphans() async throws {
-        await MyAppStore.clearStorage()
-        let store = MyAppStore()  // fresh install → seeds one app + index
-        let live = Set(store.myApps.map(\.id))
+        await MiniAppStore.clearStorage()
+        let store = MiniAppStore()  // fresh install → seeds one app + index
+        let live = Set(store.miniApps.map(\.id))
         let fm = FileManager.default
 
         let week: TimeInterval = 7 * 24 * 3600
@@ -42,7 +42,7 @@ struct OrphanSweepTests {
         let fresh = try writeOrphan("\(UUID().uuidString).json")
         let foreign = try writeOrphan("notes.txt", age: week + 3600)
 
-        let deleted = MyAppStore.sweepOrphanAppFiles(keeping: live)
+        let deleted = MiniAppStore.sweepOrphanAppFiles(keeping: live)
 
         #expect(deleted == 1)
         #expect(!fm.fileExists(atPath: stale.path))
@@ -56,36 +56,36 @@ struct OrphanSweepTests {
 
     @Test("store init runs the sweep")
     func initSweeps() async throws {
-        await MyAppStore.clearStorage()
-        _ = MyAppStore()  // seed state + index
+        await MiniAppStore.clearStorage()
+        _ = MiniAppStore()  // seed state + index
 
         let week: TimeInterval = 7 * 24 * 3600
         let stale = try writeOrphan("\(UUID().uuidString).json", age: week + 3600)
 
-        _ = MyAppStore()  // relaunch → sweep
+        _ = MiniAppStore()  // relaunch → sweep
         #expect(!FileManager.default.fileExists(atPath: stale.path))
     }
 
     @Test("no readable index (fresh-install fallback) → sweep must not run")
     func noSweepWithoutIndex() async throws {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         // App files exist but index.json is gone (corruption / partial sync).
         // load() falls back to the fresh-install seed; sweeping here would
         // delete files a hand-repaired index could still recover.
         let week: TimeInterval = 7 * 24 * 3600
         let unreferenced = try writeOrphan("\(UUID().uuidString).json", age: week + 3600)
 
-        _ = MyAppStore()  // seeds fresh — index was unreadable
+        _ = MiniAppStore()  // seeds fresh — index was unreadable
         #expect(FileManager.default.fileExists(atPath: unreferenced.path))
     }
 
     /// Defense-in-depth for A2 (issue #200): a file that still decodes as a real
-    /// MyApp body is recovery material (union-load restores it), never an orphan
+    /// MiniApp body is recovery material (union-load restores it), never an orphan
     /// — so the sweep must keep it even when it's aged and absent from `live`.
     /// Only genuine junk ages out.
-    @Test("a decodable MyApp body is never swept, even when aged and not in the live set")
+    @Test("a decodable MiniApp body is never swept, even when aged and not in the live set")
     func keepsDecodableAppBodyNotLive() async throws {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         let ghost = DailyBriefingExample.make()
         try FileManager.default.createDirectory(at: appsDir, withIntermediateDirectories: true)
         let url = appsDir.appendingPathComponent("\(ghost.id.uuidString).json")
@@ -94,7 +94,7 @@ struct OrphanSweepTests {
             [.modificationDate: Date(timeIntervalSinceNow: -(8 * 24 * 3600))],
             ofItemAtPath: url.path)
 
-        let deleted = MyAppStore.sweepOrphanAppFiles(keeping: [])  // ghost aged + not live
+        let deleted = MiniAppStore.sweepOrphanAppFiles(keeping: [])  // ghost aged + not live
         #expect(deleted == 0)                                      // real app body preserved
         #expect(FileManager.default.fileExists(atPath: url.path))
     }

@@ -44,7 +44,7 @@ public struct MemoryFileView: View {
     var initialError: String?
 
     /// False inside an imported app until the user opts in. See
-    /// `MyApp.allowsRemoteImages`.
+    /// `MiniApp.allowsRemoteImages`.
     @Environment(\.remoteImagesAllowed) private var remoteImagesAllowed
     var onDeleted: () -> Void
 

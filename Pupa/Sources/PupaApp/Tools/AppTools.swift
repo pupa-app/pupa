@@ -3,27 +3,27 @@ import AGUIKit
 
 /// Registers every frontend tool the agent can call.
 ///
-/// **Tool-name ↔ MyAppType coupling.** Each `MyAppType` declares its agent
+/// **Tool-name ↔ MiniAppType coupling.** Each `MiniAppType` declares its agent
 /// surface as `baseToolNames` (always-on for the type) plus
 /// `toolNamesByKind[kind]` (advertised only when a component of `kind`
-/// exists on the MyApp's canvas) — see `MyAppType.tracker`. Those strings
+/// exists on the MiniApp's canvas) — see `MiniAppType.tracker`. Those strings
 /// must match the `ToolDescriptor.name` values registered here. There is no
 /// compile-time check — keep them in sync by convention. When you add a tool
-/// for a tracker myApp, drop its name into the appropriate kind bucket on
-/// `MyAppType.tracker.toolNamesByKind` (or `baseToolNames` if it should
-/// always be available). When you add a new myApp type, add its tool
+/// for a tracker miniApp, drop its name into the appropriate kind bucket on
+/// `MiniAppType.tracker.toolNamesByKind` (or `baseToolNames` if it should
+/// always be available). When you add a new miniApp type, add its tool
 /// registration as a sibling and reference its names from the new
-/// `MyAppType`.
+/// `MiniAppType`.
 public enum AppTools {
-    /// Register every tool a myApp-bound session needs: the tracker tools
-    /// (pinned to `myAppId` — no `activeMyAppId` reads) plus the
-    /// myApp-agnostic memory tools. Called once per `ChatViewModel` at
-    /// construction so concurrent streams in different myApps never race on
+    /// Register every tool a miniApp-bound session needs: the tracker tools
+    /// (pinned to `miniAppId` — no `activeMiniAppId` reads) plus the
+    /// miniApp-agnostic memory tools. Called once per `ChatViewModel` at
+    /// construction so concurrent streams in different miniApps never race on
     /// the active selection.
     /// Context handed to `registerSlackTools` so the runtime
     /// gating + agent fan-out can wire into the live coordinator.
     /// Passing `nil` for the `slack` parameter on
-    /// `registerMyAppTools` disables Slack-tool registration —
+    /// `registerMiniAppTools` disables Slack-tool registration —
     /// used by call sites that don't host a Slack-capable session
     /// (e.g. CLI-style harnesses or future read-only previews).
     public struct SlackToolContext: Sendable {
@@ -68,14 +68,14 @@ public enum AppTools {
     }
 
     @MainActor
-    public static func registerMyAppTools(
+    public static func registerMiniAppTools(
         on registry: ToolRegistry,
-        store: MyAppStore,
-        myAppId: UUID,
+        store: MiniAppStore,
+        miniAppId: UUID,
         memory: MemoryStore? = nil,
         slack: SlackToolContext? = nil
     ) {
-        registerTrackerTools(on: registry, store: store, myAppId: myAppId)
+        registerTrackerTools(on: registry, store: store, miniAppId: miniAppId)
 
         registry.register(ClientTool(
             descriptor: ToolDescriptor(
@@ -85,7 +85,7 @@ public enum AppTools {
             ),
             handler: { _ in
                 return await MainActor.run {
-                    store.reset(myAppId: myAppId)
+                    store.reset(miniAppId: miniAppId)
                     return .object(["ok": .bool(true), "kind": .string("empty")])
                 }
             }
@@ -109,23 +109,23 @@ public enum AppTools {
                 return await MainActor.run {
                     .object([
                         "ok": .bool(true),
-                        "canvas": canvasAsAnyJSON(store, myAppId: myAppId),
+                        "canvas": canvasAsAnyJSON(store, miniAppId: miniAppId),
                     ])
                 }
             }
         ))
 
-        registerTrackerDiscoveryTools(on: registry, store: store, myAppId: myAppId)
-        registerComponentLifecycleTools(on: registry, store: store, myAppId: myAppId)
-        registerCalendarTools(on: registry, store: store, myAppId: myAppId)
-        registerChecklistTools(on: registry, store: store, myAppId: myAppId)
-        registerCalculatorTools(on: registry, store: store, myAppId: myAppId)
-        registerChartTools(on: registry, store: store, myAppId: myAppId)
-        registerEmbedTools(on: registry, store: store, myAppId: myAppId)
-        registerLinkTools(on: registry, store: store, myAppId: myAppId)
-        registerHistoryTools(on: registry, store: store, myAppId: myAppId)
+        registerTrackerDiscoveryTools(on: registry, store: store, miniAppId: miniAppId)
+        registerComponentLifecycleTools(on: registry, store: store, miniAppId: miniAppId)
+        registerCalendarTools(on: registry, store: store, miniAppId: miniAppId)
+        registerChecklistTools(on: registry, store: store, miniAppId: miniAppId)
+        registerCalculatorTools(on: registry, store: store, miniAppId: miniAppId)
+        registerChartTools(on: registry, store: store, miniAppId: miniAppId)
+        registerEmbedTools(on: registry, store: store, miniAppId: miniAppId)
+        registerLinkTools(on: registry, store: store, miniAppId: miniAppId)
+        registerHistoryTools(on: registry, store: store, miniAppId: miniAppId)
         if let slack {
-            registerSlackTools(on: registry, store: store, myAppId: myAppId, memory: memory, context: slack)
+            registerSlackTools(on: registry, store: store, miniAppId: miniAppId, memory: memory, context: slack)
         }
 
         registry.register(ClientTool(
@@ -154,7 +154,7 @@ public enum AppTools {
                     guard let cid = args["componentId"]?.stringValue, !cid.isEmpty else {
                         return .object(["ok": .bool(false), "error": .string("missing 'componentId' — name the component to lock/unlock")])
                     }
-                    store.setComponentLocked(componentId: cid, locked: locked, myAppId: myAppId)
+                    store.setComponentLocked(componentId: cid, locked: locked, miniAppId: miniAppId)
                     return .object([
                         "ok": .bool(true),
                         "componentId": .string(cid),
@@ -193,14 +193,14 @@ public enum AppTools {
     @MainActor
     private static func registerHistoryTools(
         on registry: ToolRegistry,
-        store: MyAppStore,
-        myAppId: UUID
+        store: MiniAppStore,
+        miniAppId: UUID
     ) {
         registry.register(ClientTool(
             descriptor: ToolDescriptor(
                 name: "listChanges",
                 description: """
-                List recent item and component mutations for this MyApp, newest-first. \
+                List recent item and component mutations for this MiniApp, newest-first. \
                 Each entry: id, kind (added/patched/removed/linked/unlinked/restored), \
                 actor ({kind: user|agent, toolName?}), summary (human-readable one-liner), \
                 timestamp (ISO-8601). Supports pagination via offset + limit (default 20, \
@@ -220,7 +220,7 @@ public enum AppTools {
                 let offset = max(0, args["offset"]?.intValue ?? 0)
                 let limit = min(100, max(1, args["limit"]?.intValue ?? 20))
                 let result: AnyJSON = await MainActor.run {
-                    let all = store.itemEventLog.events(forMyApp: myAppId)
+                    let all = store.itemEventLog.events(forMiniApp: miniAppId)
                     let reversed = Array(all.reversed())
                     let total = reversed.count
                     let slice = Array(reversed.dropFirst(offset).prefix(limit))
@@ -258,8 +258,8 @@ public enum AppTools {
     @MainActor
     static func registerTrackerDiscoveryTools(
         on registry: ToolRegistry,
-        store: MyAppStore,
-        myAppId: UUID
+        store: MiniAppStore,
+        miniAppId: UUID
     ) {
         registry.register(ClientTool(
             descriptor: ToolDescriptor(
@@ -296,10 +296,10 @@ public enum AppTools {
                 let limit = min(100, max(1, args["limit"]?.intValue ?? 20))
                 let fieldNames = args["fields"]?.arrayValue?.compactMap { $0.stringValue }
                 return await MainActor.run {
-                    guard let resolved = resolveTracker(store: store, myAppId: myAppId, componentId: componentId) else {
+                    guard let resolved = resolveTracker(store: store, miniAppId: miniAppId, componentId: componentId) else {
                         return .object([
                             "ok": .bool(false),
-                            "error": "no tracker component matches that componentId (or this myApp has no tracker).",
+                            "error": "no tracker component matches that componentId (or this miniApp has no tracker).",
                         ])
                     }
                     let (t, resolvedId) = resolved
@@ -360,10 +360,10 @@ public enum AppTools {
                 let limit = min(100, max(1, args["limit"]?.intValue ?? 20))
                 let needle = query.lowercased()
                 return await MainActor.run {
-                    guard let resolved = resolveTracker(store: store, myAppId: myAppId, componentId: componentId) else {
+                    guard let resolved = resolveTracker(store: store, miniAppId: miniAppId, componentId: componentId) else {
                         return .object([
                             "ok": .bool(false),
-                            "error": "no tracker component matches that componentId (or this myApp has no tracker).",
+                            "error": "no tracker component matches that componentId (or this miniApp has no tracker).",
                         ])
                     }
                     let (t, resolvedId) = resolved
@@ -429,10 +429,10 @@ public enum AppTools {
                     ])
                 }
                 return await MainActor.run {
-                    guard let resolved = resolveTracker(store: store, myAppId: myAppId, componentId: componentId) else {
+                    guard let resolved = resolveTracker(store: store, miniAppId: miniAppId, componentId: componentId) else {
                         return .object([
                             "ok": .bool(false),
-                            "error": "no tracker component matches that componentId (or this myApp has no tracker).",
+                            "error": "no tracker component matches that componentId (or this miniApp has no tracker).",
                         ])
                     }
                     let (t, resolvedId) = resolved
@@ -461,7 +461,7 @@ public enum AppTools {
     }
 
     // The read resolvers below resolve their target the same way writes do
-    // (`MyAppStore.resolveWriteTarget`): an explicit id is honoured or
+    // (`MiniAppStore.resolveWriteTarget`): an explicit id is honoured or
     // rejected; an omitted id resolves only when exactly one component of
     // that kind exists. The active/view component is never consulted — the
     // agent doesn't reliably know it (it's no longer in the prompt), so a
@@ -470,39 +470,39 @@ public enum AppTools {
 
     @MainActor
     private static func resolveTracker(
-        store: MyAppStore,
-        myAppId: UUID,
+        store: MiniAppStore,
+        miniAppId: UUID,
         componentId: String?
     ) -> (TrackerData, String)? {
-        guard case .resolved(let id) = store.resolveWriteTarget(kind: "tracker", componentId: componentId, myAppId: myAppId),
-              let myApp = store.myApps.first(where: { $0.id == myAppId }),
-              let comp = myApp.components.first(where: { $0.id == id }),
+        guard case .resolved(let id) = store.resolveWriteTarget(kind: "tracker", componentId: componentId, miniAppId: miniAppId),
+              let miniApp = store.miniApps.first(where: { $0.id == miniAppId }),
+              let comp = miniApp.components.first(where: { $0.id == id }),
               case .tracker(let t) = comp.body else { return nil }
         return (t, id)
     }
 
     @MainActor
     static func resolveCalendar(
-        store: MyAppStore,
-        myAppId: UUID,
+        store: MiniAppStore,
+        miniAppId: UUID,
         componentId: String?
     ) -> (CalendarData, String)? {
-        guard case .resolved(let id) = store.resolveWriteTarget(kind: "calendar", componentId: componentId, myAppId: myAppId),
-              let myApp = store.myApps.first(where: { $0.id == myAppId }),
-              let comp = myApp.components.first(where: { $0.id == id }),
+        guard case .resolved(let id) = store.resolveWriteTarget(kind: "calendar", componentId: componentId, miniAppId: miniAppId),
+              let miniApp = store.miniApps.first(where: { $0.id == miniAppId }),
+              let comp = miniApp.components.first(where: { $0.id == id }),
               case .calendar(let c) = comp.body else { return nil }
         return (c, id)
     }
 
     @MainActor
     static func resolveChecklist(
-        store: MyAppStore,
-        myAppId: UUID,
+        store: MiniAppStore,
+        miniAppId: UUID,
         componentId: String?
     ) -> (ChecklistData, String)? {
-        guard case .resolved(let id) = store.resolveWriteTarget(kind: "checklist", componentId: componentId, myAppId: myAppId),
-              let myApp = store.myApps.first(where: { $0.id == myAppId }),
-              let comp = myApp.components.first(where: { $0.id == id }),
+        guard case .resolved(let id) = store.resolveWriteTarget(kind: "checklist", componentId: componentId, miniAppId: miniAppId),
+              let miniApp = store.miniApps.first(where: { $0.id == miniAppId }),
+              let comp = miniApp.components.first(where: { $0.id == id }),
               case .checklist(let cl) = comp.body else { return nil }
         return (cl, id)
     }
@@ -512,16 +512,16 @@ public enum AppTools {
     @MainActor
     private static func registerComponentLifecycleTools(
         on registry: ToolRegistry,
-        store: MyAppStore,
-        myAppId: UUID
+        store: MiniAppStore,
+        miniAppId: UUID
     ) {
-        // Resolve the MyApp's actual supported kinds at registration time
+        // Resolve the MiniApp's actual supported kinds at registration time
         // so the schema enum + description never drift from
-        // `MyAppType.supportedComponentKinds`. Stable alphabetical order
+        // `MiniAppType.supportedComponentKinds`. Stable alphabetical order
         // for a deterministic agent-facing surface.
         let supportedKinds: [String] = {
-            guard let myApp = store.myApps.first(where: { $0.id == myAppId }),
-                  let type = MyAppTypeRegistry.shared.resolve(id: myApp.typeId)
+            guard let miniApp = store.miniApps.first(where: { $0.id == miniAppId }),
+                  let type = MiniAppTypeRegistry.shared.resolve(id: miniApp.typeId)
             else { return [] }
             return type.supportedComponentKinds.sorted()
         }()
@@ -530,8 +530,8 @@ public enum AppTools {
             descriptor: ToolDescriptor(
                 name: "addComponent",
                 description: """
-                Append a new component to this MyApp. `kind` must be one of \
-                the MyApp's supported kinds: \(kindsListing). `name` is the \
+                Append a new component to this MiniApp. `kind` must be one of \
+                the MiniApp's supported kinds: \(kindsListing). `name` is the \
                 sidebar label (e.g. "Books", "Appointments", "Packing list", \
                 "Team chat"). Optional `iconSystemName` is an SF Symbol; \
                 defaults to a kind-appropriate icon. The component starts \
@@ -556,14 +556,14 @@ public enum AppTools {
                 let name = args["name"]?.stringValue ?? ""
                 let explicitIcon = args["iconSystemName"]?.stringValue
                 return await MainActor.run {
-                    guard let myApp = store.myApps.first(where: { $0.id == myAppId }) else {
-                        return .object(["ok": .bool(false), "error": "no myApp"])
+                    guard let miniApp = store.miniApps.first(where: { $0.id == miniAppId }) else {
+                        return .object(["ok": .bool(false), "error": "no miniApp"])
                     }
-                    let type = MyAppTypeRegistry.shared.resolve(id: myApp.typeId)
+                    let type = MiniAppTypeRegistry.shared.resolve(id: miniApp.typeId)
                     guard type?.supportedComponentKinds.contains(kind) ?? false else {
                         return .object([
                             "ok": .bool(false),
-                            "error": .string("kind '\(kind)' not supported by this MyApp"),
+                            "error": .string("kind '\(kind)' not supported by this MiniApp"),
                         ])
                     }
                     // Each kind seeds its own icon via its module (issue #162);
@@ -572,11 +572,11 @@ public enum AppTools {
                         ?? ComponentRegistry.shared.module(forKind: kind)?.defaultIcon
                         ?? "square.dashed"
                     guard let id = store.addComponent(
-                        kind: kind, name: name, iconSystemName: icon, myAppId: myAppId
+                        kind: kind, name: name, iconSystemName: icon, miniAppId: miniAppId
                     ) else {
                         return .object(["ok": .bool(false), "error": "could not add component"])
                     }
-                    let total = store.myApps.first(where: { $0.id == myAppId })?.components.count ?? 0
+                    let total = store.miniApps.first(where: { $0.id == miniAppId })?.components.count ?? 0
                     return .object([
                         "ok": .bool(true),
                         "componentId": .string(id),
@@ -592,8 +592,8 @@ public enum AppTools {
             descriptor: ToolDescriptor(
                 name: "removeComponent",
                 description: """
-                Remove a component from this MyApp. Refuses if it would leave \
-                the MyApp with zero components — every MyApp must keep at \
+                Remove a component from this MiniApp. Refuses if it would leave \
+                the MiniApp with zero components — every MiniApp must keep at \
                 least one. Result echoes {componentId, totalComponents}.
                 """,
                 parameters: [
@@ -605,8 +605,8 @@ public enum AppTools {
             handler: { args in
                 let id = args["componentId"]?.stringValue ?? ""
                 return await MainActor.run {
-                    let ok = store.removeComponent(componentId: id, myAppId: myAppId)
-                    let total = store.myApps.first(where: { $0.id == myAppId })?.components.count ?? 0
+                    let ok = store.removeComponent(componentId: id, miniAppId: miniAppId)
+                    let total = store.miniApps.first(where: { $0.id == miniAppId })?.components.count ?? 0
                     return .object([
                         "ok": .bool(ok),
                         "componentId": .string(id),
@@ -636,8 +636,8 @@ public enum AppTools {
             handler: { args in
                 let id = args["componentId"]?.stringValue ?? ""
                 return await MainActor.run {
-                    let ok = store.setActiveComponent(componentId: id, myAppId: myAppId)
-                    let active = store.myApps.first(where: { $0.id == myAppId })?.activeComponentId
+                    let ok = store.setActiveComponent(componentId: id, miniAppId: miniAppId)
+                    let active = store.miniApps.first(where: { $0.id == miniAppId })?.activeComponentId
                     return .object([
                         "ok": .bool(ok),
                         "componentId": .string(id),
@@ -664,9 +664,9 @@ public enum AppTools {
             readOnly: true,
             handler: { _ in
                 await MainActor.run {
-                    guard let myApp = store.myApps.first(where: { $0.id == myAppId }),
-                          let id = myApp.activeComponentId,
-                          let comp = myApp.components.first(where: { $0.id == id }) else {
+                    guard let miniApp = store.miniApps.first(where: { $0.id == miniAppId }),
+                          let id = miniApp.activeComponentId,
+                          let comp = miniApp.components.first(where: { $0.id == id }) else {
                         return .object([
                             "ok": .bool(true),
                             "activeComponentId": .null,
@@ -717,7 +717,7 @@ public enum AppTools {
                         name: name,
                         iconSystemName: icon,
                         summary: summary,
-                        myAppId: myAppId
+                        miniAppId: miniAppId
                     )
                     return .object([
                         "ok": .bool(true),
@@ -733,13 +733,13 @@ public enum AppTools {
 
     /// Register `embedComponent` / `clearEmbeddedComponent`. Gated by the
     /// host component kind (calculator for now); future hosts add their own
-    /// kind entry in `MyAppType.toolNamesByKind` and handle their guest in
+    /// kind entry in `MiniAppType.toolNamesByKind` and handle their guest in
     /// the switch below.
     @MainActor
     private static func registerEmbedTools(
         on registry: ToolRegistry,
-        store: MyAppStore,
-        myAppId: UUID
+        store: MiniAppStore,
+        miniAppId: UUID
     ) {
         registry.register(ClientTool(
             descriptor: ToolDescriptor(
@@ -790,7 +790,7 @@ public enum AppTools {
                         // frozen into the transcript, so two same-named series
                         // would collapse into one style group permanently.
                         let series = ChartResolver.disambiguated(
-                            ChartResolver.resolve(chart, components: siblingComponents(store: store, myAppId: myAppId))
+                            ChartResolver.resolve(chart, components: siblingComponents(store: store, miniAppId: miniAppId))
                         )
                         guard !series.isEmpty else {
                             return .object(["ok": .bool(false), "error": "chart resolved to no points — check the series sources before embedding in chat."])
@@ -805,13 +805,13 @@ public enum AppTools {
                         ])
                     case ("calculator", "chart"):
                         let chart = parseChartData(from: args["chart"])
-                        guard let id = store.calculatorComponentId(myAppId: myAppId) else {
+                        guard let id = store.calculatorComponentId(miniAppId: miniAppId) else {
                             return .object([
                                 "ok": .bool(false),
                                 "error": "no calculator component — call addComponent(kind:\"calculator\", …) or renderCalculator first",
                             ])
                         }
-                        store.setCalculatorInlineChart(chart, myAppId: myAppId)
+                        store.setCalculatorInlineChart(chart, miniAppId: miniAppId)
                         return .object([
                             "ok": .bool(true),
                             "hostComponentId": .string(id),
@@ -832,8 +832,8 @@ public enum AppTools {
     // MARK: - Universal linking tools
 
     /// Register the generic `linkItem` / `unlinkItem` tool pair. Always
-    /// advertised on a myApp scope (added to `MyAppType.baseToolNames`)
-    /// since any two items in the MyApp may want to reference each
+    /// advertised on a miniApp scope (added to `MiniAppType.baseToolNames`)
+    /// since any two items in the MiniApp may want to reference each
     /// other regardless of which kinds happen to be present. Source and
     /// target can be any link-bearing kind (tracker row, calendar event,
     /// checklist row), in any direction, including the same component
@@ -845,8 +845,8 @@ public enum AppTools {
     @MainActor
     public static func registerLinkTools(
         on registry: ToolRegistry,
-        store: MyAppStore,
-        myAppId: UUID
+        store: MiniAppStore,
+        miniAppId: UUID
     ) {
         registry.register(ClientTool(
             descriptor: ToolDescriptor(
@@ -889,7 +889,7 @@ public enum AppTools {
                         sourceItemId: sourceUUID,
                         targetComponentId: targetCompId,
                         targetItemId: targetUUID,
-                        myAppId: myAppId
+                        miniAppId: miniAppId
                     )
                     switch outcome {
                     case .success(let count):
@@ -956,7 +956,7 @@ public enum AppTools {
                         sourceItemId: sourceUUID,
                         targetComponentId: targetCompId,
                         targetItemId: targetUUID,
-                        myAppId: myAppId
+                        miniAppId: miniAppId
                     )
                     switch outcome {
                     case .success(let count):
@@ -985,40 +985,40 @@ public enum AppTools {
 
     /// Register the orchestrator tool surface — only installed on the
     /// memory-mode session (`ChatScope.memory`). Lets the memory-mode agent
-    /// list and create myApps and delegate a one-shot prompt to any existing
-    /// myApp's agent.
+    /// list and create miniApps and delegate a one-shot prompt to any existing
+    /// miniApp's agent.
     ///
-    /// `invokeMyAppAgent` is the heavy one. The handler asks the caller-
+    /// `invokeMiniAppAgent` is the heavy one. The handler asks the caller-
     /// supplied `runOneShot` closure to spin up a transient sub-session
-    /// against the target `myAppId` with a fresh `threadId` and the target
-    /// myApp's normal tool surface (canvas mutators + memories). The
+    /// against the target `miniAppId` with a fresh `threadId` and the target
+    /// miniApp's normal tool surface (canvas mutators + memories). The
     /// sub-session runs to completion (its own multi-round loop, including
     /// any frontend-tool dispatch it needs to mutate the canvas) and the
     /// final assistant text is returned to the orchestrator as the tool
-    /// result. Sub-runs do *not* land on the target myApp's persistent
-    /// thread — they're ephemeral so the user opening that myApp afterwards
+    /// result. Sub-runs do *not* land on the target miniApp's persistent
+    /// thread — they're ephemeral so the user opening that miniApp afterwards
     /// still sees their own conversation history.
     ///
     /// The descriptor is marked `parallelSafe: true` so the orchestrator can
-    /// fan out to multiple myApps in one assistant turn and AGUIKit
+    /// fan out to multiple miniApps in one assistant turn and AGUIKit
     /// dispatches the handlers concurrently. Each sub-session has its own
     /// `AgentSession` and `threadId`; concurrent mutations against
-    /// `MyAppStore` serialise on its `@MainActor` isolation.
+    /// `MiniAppStore` serialise on its `@MainActor` isolation.
     @MainActor
     public static func registerOrchestratorTools(
         on registry: ToolRegistry,
-        store: MyAppStore,
+        store: MiniAppStore,
         runOneShot: @escaping @Sendable (UUID, String) async throws -> String,
-        onMyAppCreated: (@Sendable (MyApp) -> Void)? = nil
+        onMiniAppCreated: (@Sendable (MiniApp) -> Void)? = nil
     ) {
         registry.register(ClientTool(
             descriptor: ToolDescriptor(
-                name: "listMyApps",
+                name: "listMiniApps",
                 description: """
-                List every myApp in the sidebar. Returns \
-                {myApps: [{id, typeId, name, iconSystemName}]}. Use this to \
-                resolve a user-mentioned name (e.g. "Garden") to a `myAppId` \
-                before calling invokeMyAppAgent.
+                List every miniApp in the sidebar. Returns \
+                {miniApps: [{id, typeId, name, iconSystemName}]}. Use this to \
+                resolve a user-mentioned name (e.g. "Garden") to a `miniAppId` \
+                before calling invokeMiniAppAgent.
                 """,
                 parameters: ["type": "object", "properties": [:]]
             ),
@@ -1027,17 +1027,17 @@ public enum AppTools {
                 return await MainActor.run {
                     // Archived apps are agent-off — excluded from the list the
                     // orchestrator resolves names against.
-                    let entries: [AnyJSON] = store.visibleMyApps.map { myApp in
+                    let entries: [AnyJSON] = store.visibleMiniApps.map { miniApp in
                         .object([
-                            "id": .string(myApp.id.uuidString),
-                            "typeId": .string(myApp.typeId),
-                            "name": .string(myApp.name),
-                            "iconSystemName": .string(myApp.iconSystemName),
+                            "id": .string(miniApp.id.uuidString),
+                            "typeId": .string(miniApp.typeId),
+                            "name": .string(miniApp.name),
+                            "iconSystemName": .string(miniApp.iconSystemName),
                         ])
                     }
                     return .object([
                         "ok": .bool(true),
-                        "myApps": .array(entries),
+                        "miniApps": .array(entries),
                     ])
                 }
             }
@@ -1045,9 +1045,9 @@ public enum AppTools {
 
         registry.register(ClientTool(
             descriptor: ToolDescriptor(
-                name: "createMyApp",
+                name: "createMiniApp",
                 description: """
-                Create a new myApp in the sidebar and return its id. \
+                Create a new miniApp in the sidebar and return its id. \
                 `typeId` selects the kind of canvas (today only "tracker"). \
                 `iconSystemName` is an SF Symbol name (e.g. \
                 "list.bullet.rectangle", "leaf", "book"). Result echoes \
@@ -1068,16 +1068,16 @@ public enum AppTools {
                 let name = args["name"]?.stringValue ?? ""
                 let explicitIcon = args["iconSystemName"]?.stringValue
                 return await MainActor.run {
-                    guard let type = MyAppTypeRegistry.shared.resolve(id: typeId) else {
+                    guard let type = MiniAppTypeRegistry.shared.resolve(id: typeId) else {
                         return .object([
                             "ok": .bool(false),
                             "error": .string("unknown typeId '\(typeId)'"),
                         ])
                     }
                     let icon = explicitIcon ?? type.iconSystemName
-                    let id = store.addMyApp(typeId: typeId, name: name, iconSystemName: icon)
-                    if let created = store.myApps.first(where: { $0.id == id }) {
-                        onMyAppCreated?(created)
+                    let id = store.addMiniApp(typeId: typeId, name: name, iconSystemName: icon)
+                    if let created = store.miniApps.first(where: { $0.id == id }) {
+                        onMiniAppCreated?(created)
                     }
                     return .object([
                         "ok": .bool(true),
@@ -1092,32 +1092,32 @@ public enum AppTools {
 
         registry.register(ClientTool(
             descriptor: ToolDescriptor(
-                name: "renameMyApp",
+                name: "renameMiniApp",
                 description: """
-                Rename an existing myApp in the sidebar. Resolve `myAppId` via \
-                listMyApps first. `name` is trimmed and must be non-empty. \
+                Rename an existing miniApp in the sidebar. Resolve `miniAppId` via \
+                listMiniApps first. `name` is trimmed and must be non-empty. \
                 Updates the same name shown to the user in the sidebar (the \
                 user-facing Rename sheet calls the same mutator). Returns \
                 {ok, id, name, previousName} on success, or \
-                {ok:false, error} if `myAppId` is malformed/unknown, the \
+                {ok:false, error} if `miniAppId` is malformed/unknown, the \
                 trimmed name is empty, or the new name equals the current one.
                 """,
                 parameters: [
                     "type": "object",
                     "properties": [
-                        "myAppId": ["type": "string"],
+                        "miniAppId": ["type": "string"],
                         "name": ["type": "string"],
                     ],
-                    "required": ["myAppId", "name"],
+                    "required": ["miniAppId", "name"],
                 ]
             ),
             handler: { args in
-                let myAppIdString = args["myAppId"]?.stringValue ?? ""
+                let miniAppIdString = args["miniAppId"]?.stringValue ?? ""
                 let rawName = args["name"]?.stringValue ?? ""
-                guard let myAppId = UUID(uuidString: myAppIdString) else {
+                guard let miniAppId = UUID(uuidString: miniAppIdString) else {
                     return .object([
                         "ok": .bool(false),
-                        "error": .string("invalid myAppId '\(myAppIdString)' (expected a UUID)"),
+                        "error": .string("invalid miniAppId '\(miniAppIdString)' (expected a UUID)"),
                     ])
                 }
                 let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1128,10 +1128,10 @@ public enum AppTools {
                     ])
                 }
                 return await MainActor.run {
-                    guard let oldName = store.myApps.first(where: { $0.id == myAppId })?.name else {
+                    guard let oldName = store.miniApps.first(where: { $0.id == miniAppId })?.name else {
                         return .object([
                             "ok": .bool(false),
-                            "error": .string("no myApp with id \(myAppIdString)"),
+                            "error": .string("no miniApp with id \(miniAppIdString)"),
                         ])
                     }
                     guard oldName != trimmed else {
@@ -1140,10 +1140,10 @@ public enum AppTools {
                             "error": .string("name unchanged ('\(trimmed)')"),
                         ])
                     }
-                    store.renameMyApp(myAppId, to: trimmed)
+                    store.renameMiniApp(miniAppId, to: trimmed)
                     return .object([
                         "ok": .bool(true),
-                        "id": .string(myAppIdString),
+                        "id": .string(miniAppIdString),
                         "name": .string(trimmed),
                         "previousName": .string(oldName),
                     ])
@@ -1153,33 +1153,33 @@ public enum AppTools {
 
         registry.register(ClientTool(
             descriptor: ToolDescriptor(
-                name: "setMyAppIcon",
+                name: "setMiniAppIcon",
                 description: """
-                Change an existing myApp's sidebar icon. Resolve `myAppId` via \
-                listMyApps first. `iconSystemName` is any SF Symbol name (e.g. \
+                Change an existing miniApp's sidebar icon. Resolve `miniAppId` via \
+                listMiniApps first. `iconSystemName` is any SF Symbol name (e.g. \
                 "book", "chart.pie", "leaf"); it is trimmed and must be \
                 non-empty. Calls the same mutator as the user-facing Edit \
                 sheet. Returns {ok, id, iconSystemName, previousIconSystemName} \
-                on success, or {ok:false, error} if `myAppId` is \
+                on success, or {ok:false, error} if `miniAppId` is \
                 malformed/unknown, the trimmed icon is empty, or it equals the \
                 current icon.
                 """,
                 parameters: [
                     "type": "object",
                     "properties": [
-                        "myAppId": ["type": "string"],
+                        "miniAppId": ["type": "string"],
                         "iconSystemName": ["type": "string"],
                     ],
-                    "required": ["myAppId", "iconSystemName"],
+                    "required": ["miniAppId", "iconSystemName"],
                 ]
             ),
             handler: { args in
-                let myAppIdString = args["myAppId"]?.stringValue ?? ""
+                let miniAppIdString = args["miniAppId"]?.stringValue ?? ""
                 let rawIcon = args["iconSystemName"]?.stringValue ?? ""
-                guard let myAppId = UUID(uuidString: myAppIdString) else {
+                guard let miniAppId = UUID(uuidString: miniAppIdString) else {
                     return .object([
                         "ok": .bool(false),
-                        "error": .string("invalid myAppId '\(myAppIdString)' (expected a UUID)"),
+                        "error": .string("invalid miniAppId '\(miniAppIdString)' (expected a UUID)"),
                     ])
                 }
                 let trimmed = rawIcon.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1190,10 +1190,10 @@ public enum AppTools {
                     ])
                 }
                 return await MainActor.run {
-                    guard let oldIcon = store.myApps.first(where: { $0.id == myAppId })?.iconSystemName else {
+                    guard let oldIcon = store.miniApps.first(where: { $0.id == miniAppId })?.iconSystemName else {
                         return .object([
                             "ok": .bool(false),
-                            "error": .string("no myApp with id \(myAppIdString)"),
+                            "error": .string("no miniApp with id \(miniAppIdString)"),
                         ])
                     }
                     guard oldIcon != trimmed else {
@@ -1202,10 +1202,10 @@ public enum AppTools {
                             "error": .string("icon unchanged ('\(trimmed)')"),
                         ])
                     }
-                    store.setIconSystemName(trimmed, for: myAppId)
+                    store.setIconSystemName(trimmed, for: miniAppId)
                     return .object([
                         "ok": .bool(true),
-                        "id": .string(myAppIdString),
+                        "id": .string(miniAppIdString),
                         "iconSystemName": .string(trimmed),
                         "previousIconSystemName": .string(oldIcon),
                     ])
@@ -1215,31 +1215,31 @@ public enum AppTools {
 
         registry.register(ClientTool(
             descriptor: ToolDescriptor(
-                name: "setMyAppColor",
+                name: "setMiniAppColor",
                 description: """
-                Change an existing myApp's accent color. Resolve `myAppId` via \
-                listMyApps first. `colorIndex` is a slot into the fixed accent \
+                Change an existing miniApp's accent color. Resolve `miniAppId` via \
+                listMiniApps first. `colorIndex` is a slot into the fixed accent \
                 palette (0-based; it wraps, so 7 == 0). Calls the same mutator \
                 as the user-facing Edit sheet. Returns \
                 {ok, id, colorIndex, previousColorIndex} on success, or \
-                {ok:false, error} if `myAppId` is malformed/unknown or \
+                {ok:false, error} if `miniAppId` is malformed/unknown or \
                 `colorIndex` is missing/negative.
                 """,
                 parameters: [
                     "type": "object",
                     "properties": [
-                        "myAppId": ["type": "string"],
+                        "miniAppId": ["type": "string"],
                         "colorIndex": ["type": "integer"],
                     ],
-                    "required": ["myAppId", "colorIndex"],
+                    "required": ["miniAppId", "colorIndex"],
                 ]
             ),
             handler: { args in
-                let myAppIdString = args["myAppId"]?.stringValue ?? ""
-                guard let myAppId = UUID(uuidString: myAppIdString) else {
+                let miniAppIdString = args["miniAppId"]?.stringValue ?? ""
+                guard let miniAppId = UUID(uuidString: miniAppIdString) else {
                     return .object([
                         "ok": .bool(false),
-                        "error": .string("invalid myAppId '\(myAppIdString)' (expected a UUID)"),
+                        "error": .string("invalid miniAppId '\(miniAppIdString)' (expected a UUID)"),
                     ])
                 }
                 guard let colorIndex = args["colorIndex"]?.intValue, colorIndex >= 0 else {
@@ -1249,17 +1249,17 @@ public enum AppTools {
                     ])
                 }
                 return await MainActor.run {
-                    guard store.myApps.contains(where: { $0.id == myAppId }) else {
+                    guard store.miniApps.contains(where: { $0.id == miniAppId }) else {
                         return .object([
                             "ok": .bool(false),
-                            "error": .string("no myApp with id \(myAppIdString)"),
+                            "error": .string("no miniApp with id \(miniAppIdString)"),
                         ])
                     }
-                    let previous = store.colorIndex(for: myAppId)
-                    store.setColorIndex(colorIndex, for: myAppId)
+                    let previous = store.colorIndex(for: miniAppId)
+                    store.setColorIndex(colorIndex, for: miniAppId)
                     return .object([
                         "ok": .bool(true),
-                        "id": .string(myAppIdString),
+                        "id": .string(miniAppIdString),
                         "colorIndex": .int(colorIndex),
                         "previousColorIndex": .int(previous),
                     ])
@@ -1269,51 +1269,51 @@ public enum AppTools {
 
         registry.register(ClientTool(
             descriptor: ToolDescriptor(
-                name: "invokeMyAppAgent",
+                name: "invokeMiniAppAgent",
                 description: """
-                Delegate a single-round prompt to an existing myApp's agent. \
-                The sub-run runs on a fresh thread (NOT the target myApp's \
-                persistent thread) with that myApp's normal tool surface — \
+                Delegate a single-round prompt to an existing miniApp's agent. \
+                The sub-run runs on a fresh thread (NOT the target miniApp's \
+                persistent thread) with that miniApp's normal tool surface — \
                 canvas mutators + memories — so it CAN mutate the target \
                 canvas the same way the user's own chat would. Returns \
-                {ok, myAppId, text} where `text` is the sub-agent's final \
-                assistant message. Resolve `myAppId` via listMyApps first. \
-                Emit multiple `invokeMyAppAgent` tool_calls in one turn to \
-                fan out to several myApps in parallel.
+                {ok, miniAppId, text} where `text` is the sub-agent's final \
+                assistant message. Resolve `miniAppId` via listMiniApps first. \
+                Emit multiple `invokeMiniAppAgent` tool_calls in one turn to \
+                fan out to several miniApps in parallel.
                 """,
                 parameters: [
                     "type": "object",
                     "properties": [
-                        "myAppId": ["type": "string"],
+                        "miniAppId": ["type": "string"],
                         "prompt": ["type": "string"],
                     ],
-                    "required": ["myAppId", "prompt"],
+                    "required": ["miniAppId", "prompt"],
                 ]
             ),
             parallelSafe: true,
             handler: { args in
-                let myAppIdString = args["myAppId"]?.stringValue ?? ""
+                let miniAppIdString = args["miniAppId"]?.stringValue ?? ""
                 let prompt = args["prompt"]?.stringValue ?? ""
-                guard let myAppId = UUID(uuidString: myAppIdString) else {
+                guard let miniAppId = UUID(uuidString: miniAppIdString) else {
                     return .object([
                         "ok": .bool(false),
-                        "error": .string("invalid myAppId '\(myAppIdString)' (expected a UUID)"),
+                        "error": .string("invalid miniAppId '\(miniAppIdString)' (expected a UUID)"),
                     ])
                 }
                 let exists = await MainActor.run {
-                    store.myApps.contains(where: { $0.id == myAppId })
+                    store.miniApps.contains(where: { $0.id == miniAppId })
                 }
                 guard exists else {
                     return .object([
                         "ok": .bool(false),
-                        "error": .string("no myApp with id \(myAppIdString)"),
+                        "error": .string("no miniApp with id \(miniAppIdString)"),
                     ])
                 }
                 do {
-                    let text = try await runOneShot(myAppId, prompt)
+                    let text = try await runOneShot(miniAppId, prompt)
                     return .object([
                         "ok": .bool(true),
-                        "myAppId": .string(myAppIdString),
+                        "miniAppId": .string(miniAppIdString),
                         "text": .string(text),
                     ])
                 } catch let rejection as AgentInvocationRejection {
@@ -1333,28 +1333,70 @@ public enum AppTools {
                     }
                     return .object([
                         "ok": .bool(false),
-                        "myAppId": .string(myAppIdString),
+                        "miniAppId": .string(miniAppIdString),
                         "agent_unavailable": .object(payload),
                     ])
                 } catch {
                     return .object([
                         "ok": .bool(false),
-                        "myAppId": .string(myAppIdString),
+                        "miniAppId": .string(miniAppIdString),
                         "error": .string(String(describing: error)),
                     ])
                 }
             }
         ))
+        registerLegacyOrchestratorAliases(on: registry)
+    }
+
+    private static func registerLegacyOrchestratorAliases(on registry: ToolRegistry) {
+        for (legacyName, currentName) in MiniAppType.legacyOrchestratorToolAliases {
+            guard let current = registry.resolve(currentName) else { continue }
+            var schema = current.descriptor.parameters.objectValue ?? [:]
+            if var properties = schema["properties"]?.objectValue,
+               let appId = properties.removeValue(forKey: "miniAppId") {
+                properties["myAppId"] = appId
+                schema["properties"] = .object(properties)
+            }
+            if let required = schema["required"]?.arrayValue {
+                schema["required"] = .array(required.map {
+                    $0.stringValue == "miniAppId" ? .string("myAppId") : $0
+                })
+            }
+            registry.register(ClientTool(
+                descriptor: ToolDescriptor(
+                    name: legacyName,
+                    description: "Legacy alias for \(currentName). " + current.descriptor.description,
+                    parameters: .object(schema)
+                ),
+                parallelSafe: current.parallelSafe,
+                readOnly: current.readOnly,
+                handler: { args in
+                    var translated = args.objectValue ?? [:]
+                    if let id = translated.removeValue(forKey: "myAppId") {
+                        translated["miniAppId"] = id
+                    }
+                    let response = try await current.handler(.object(translated))
+                    guard var result = response.objectValue else { return response }
+                    if let apps = result.removeValue(forKey: "miniApps") {
+                        result["myApps"] = apps
+                    }
+                    if let id = result.removeValue(forKey: "miniAppId") {
+                        result["myAppId"] = id
+                    }
+                    return .object(result)
+                }
+            ))
+        }
     }
 
     // MARK: - Subagent tools
 
     /// Generic subagent invocation. `invoke_agent(name, prompt)` spins a
     /// transient sub-session against a `pupa/agents/<slug>/AGENTS.md` subagent
-    /// scoped to the current MyApp and returns its final assistant text.
+    /// scoped to the current MiniApp and returns its final assistant text.
     /// Advertised to the main agent AND to subagents (A2A); the invocation
     /// gate bounds chain depth and rejects reentrancy with a structured
-    /// `agent_unavailable` echo (same shape as `invokeMyAppAgent`).
+    /// `agent_unavailable` echo (same shape as `invokeMiniAppAgent`).
     @MainActor
     public static func registerSubagentTools(
         on registry: ToolRegistry,
@@ -1366,7 +1408,7 @@ public enum AppTools {
                 description: """
                 Delegate a task to a subagent defined at \
                 `pupa/agents/<name>/AGENTS.md`. Runs it in a transient \
-                sub-session scoped to this myApp (its own canvas + memory \
+                sub-session scoped to this miniApp (its own canvas + memory \
                 surface, narrowed to the subagent's frontmatter `tools`) and \
                 returns {ok, name, text} with the subagent's final reply. \
                 `name` is the subagent's folder slug — see the `agents` list in \
@@ -1942,25 +1984,25 @@ public enum AppTools {
 
     /// Register the local-notification tools (`sendNotification` +
     /// `cancelNotification`) plus the `get_tools_notifications` gate.
-    /// Notifications are app-global — not bound to a MyApp — so the tool
-    /// names live in `MyAppType.notificationToolNames`. The tool gate
+    /// Notifications are app-global — not bound to a MiniApp — so the tool
+    /// names live in `MiniAppType.notificationToolNames`. The tool gate
     /// keeps the (heavy) descriptions out of the per-turn payload until the
     /// agent first opts in via `get_tools_notifications` (issue #220).
     ///
-    /// **Cross-myApp isolation.** When registered inside a MyApp (or a
-    /// sub-run acting on behalf of one), `ownerMyAppId` is that MyApp's id.
-    /// Any `target.myAppId` in the args is ignored and the owner's id injected
-    /// (`scopeNotificationRequest`) — otherwise MyApp-A could schedule a banner
-    /// that, on tap, opens MyApp-B and injects a `runAgent`/`populateChat`
+    /// **Cross-miniApp isolation.** When registered inside a MiniApp (or a
+    /// sub-run acting on behalf of one), `ownerMiniAppId` is that MiniApp's id.
+    /// Any `target.miniAppId` in the args is ignored and the owner's id injected
+    /// (`scopeNotificationRequest`) — otherwise MiniApp-A could schedule a banner
+    /// that, on tap, opens MiniApp-B and injects a `runAgent`/`populateChat`
     /// prompt into it, breaking app isolation. `nil` (the orchestrator / memory
-    /// scope) is unrestricted: that surface legitimately opens any myApp it
+    /// scope) is unrestricted: that surface legitimately opens any miniApp it
     /// manages.
     @MainActor
     public static func registerNotificationTools(
         on registry: ToolRegistry,
         coordinator: NotificationCenterCoordinator,
         toolGateState: ToolGateState,
-        ownerMyAppId: UUID? = nil
+        ownerMiniAppId: UUID? = nil
     ) {
         registry.register(ClientTool(
             descriptor: ToolDescriptor(
@@ -1977,7 +2019,7 @@ public enum AppTools {
                 return .object([
                     "ok": .bool(true),
                     "activated": .string("notifications"),
-                    "toolsUnlocked": .int(MyAppType.notificationToolNames.count),
+                    "toolsUnlocked": .int(MiniAppType.notificationToolNames.count),
                 ])
             }
         ))
@@ -2106,11 +2148,11 @@ public enum AppTools {
                     ])
                 }
                 // Bind the notification to the calling agent's scope: the target
-                // myApp is injected here, never taken from the model, so one
-                // myApp can't route a banner into another (see
+                // miniApp is injected here, never taken from the model, so one
+                // miniApp can't route a banner into another (see
                 // `scopeNotificationRequest`).
-                let request = AppTools.scopeNotificationRequest(parsed, ownerMyAppId: ownerMyAppId)
-                let origin = AppTools.notificationOrigin(ownerMyAppId: ownerMyAppId)
+                let request = AppTools.scopeNotificationRequest(parsed, ownerMiniAppId: ownerMiniAppId)
+                let origin = AppTools.notificationOrigin(ownerMiniAppId: ownerMiniAppId)
                 do {
                     let scheduled = try await coordinator.schedule(request, origin: origin)
                     return .object([
@@ -2185,35 +2227,35 @@ public enum AppTools {
     /// Who the notification log should credit for a `sendNotification` call.
     /// Same scope signal as `scopeNotificationRequest`, different question:
     /// that one decides where a tap *lands*, this one who *created* it.
-    static func notificationOrigin(ownerMyAppId: UUID?) -> NotificationOrigin {
-        ownerMyAppId.map { .myApp($0) } ?? .orchestrator
+    static func notificationOrigin(ownerMiniAppId: UUID?) -> NotificationOrigin {
+        ownerMiniAppId.map { .miniApp($0) } ?? .orchestrator
     }
 
     /// Bind a `sendNotification` request to the scope of the agent that called
-    /// the tool — the caller never names a target myApp, so one myApp can't open
+    /// the tool — the caller never names a target miniApp, so one miniApp can't open
     /// or message another (pupa-backend#72). The deep-link target is *injected*
     /// here, not taken from the model:
     ///
-    /// - **MyApp scope** (`ownerMyAppId != nil`): force the target to the owning
-    ///   myApp, preserving any `componentId` the agent chose to focus. Every one
-    ///   of that myApp's notifications routes back into itself and nowhere else —
-    ///   foreground taps open the myApp, injecting taps (`populateChat` /
+    /// - **MiniApp scope** (`ownerMiniAppId != nil`): force the target to the owning
+    ///   miniApp, preserving any `componentId` the agent chose to focus. Every one
+    ///   of that miniApp's notifications routes back into itself and nowhere else —
+    ///   foreground taps open the miniApp, injecting taps (`populateChat` /
     ///   `runAgent`) run their prompt in *its* chat. There is nothing to reject:
     ///   a target can only ever be the owner.
-    /// - **Orchestrator scope** (`ownerMyAppId == nil`): the orchestrator has no
-    ///   myApp id; return the request unchanged. Its injecting taps are routed to
+    /// - **Orchestrator scope** (`ownerMiniAppId == nil`): the orchestrator has no
+    ///   miniApp id; return the request unchanged. Its injecting taps are routed to
     ///   the orchestrator's own chat at delivery time
-    ///   (`AppView.handleNotificationTap`), symmetric with the myApp case.
+    ///   (`AppView.handleNotificationTap`), symmetric with the miniApp case.
     static func scopeNotificationRequest(
         _ request: NotificationRequest,
-        ownerMyAppId: UUID?
+        ownerMiniAppId: UUID?
     ) -> NotificationRequest {
-        guard let owner = ownerMyAppId else { return request }
+        guard let owner = ownerMiniAppId else { return request }
         return NotificationRequest(
             title: request.title,
             body: request.body,
             trigger: request.trigger,
-            target: NotificationRequest.Target(myAppId: owner, componentId: request.target?.componentId),
+            target: NotificationRequest.Target(miniAppId: owner, componentId: request.target?.componentId),
             tapAction: request.tapAction
         )
     }
@@ -2235,12 +2277,12 @@ public enum AppTools {
 
     /// Shared `componentId` parameter schema for a kind's write tools. The
     /// target is resolved deterministically and never from the active/view
-    /// component: required only when the myApp holds more than one component
+    /// component: required only when the miniApp holds more than one component
     /// of `kind`.
     static func componentIdSchema(kind: String = "tracker") -> AnyJSON {
         [
             "type": "string",
-            "description": .string("Which \(kind) to write to (e.g. \"\(kind)-1\"). Optional when the myApp has exactly one \(kind); REQUIRED when it has several — otherwise the call errors and lists the candidates. Writes never fall back to the active/viewed component."),
+            "description": .string("Which \(kind) to write to (e.g. \"\(kind)-1\"). Optional when the miniApp has exactly one \(kind); REQUIRED when it has several — otherwise the call errors and lists the candidates. Writes never fall back to the active/viewed component."),
         ]
     }
 
@@ -2431,61 +2473,61 @@ public enum AppTools {
         }
     }
 
-    /// Find the tracker component in `myAppId`. Prefers the active
-    /// the MyApp's tracker when it holds exactly one — else nil. The
+    /// Find the tracker component in `miniAppId`. Prefers the active
+    /// the MiniApp's tracker when it holds exactly one — else nil. The
     /// active/view component is never consulted (it's no longer agent-facing
     /// and a read must not silently depend on it). Callers that know the id
     /// should use the `componentId:` overload.
     @MainActor
-    static func tracker(_ store: MyAppStore, myAppId: UUID) -> TrackerData? {
-        guard case .resolved(let id) = store.resolveWriteTarget(kind: "tracker", componentId: nil, myAppId: myAppId) else { return nil }
-        return tracker(store, myAppId: myAppId, componentId: id)
+    static func tracker(_ store: MiniAppStore, miniAppId: UUID) -> TrackerData? {
+        guard case .resolved(let id) = store.resolveWriteTarget(kind: "tracker", componentId: nil, miniAppId: miniAppId) else { return nil }
+        return tracker(store, miniAppId: miniAppId, componentId: id)
     }
 
     /// Read a specific tracker by id (used to echo the correct component's
     /// state after a write that named its target). Falls back to the
     /// view-independent lookup when `componentId` is nil.
     @MainActor
-    static func tracker(_ store: MyAppStore, myAppId: UUID, componentId: String?) -> TrackerData? {
-        guard let componentId else { return tracker(store, myAppId: myAppId) }
-        guard let myApp = store.myApps.first(where: { $0.id == myAppId }),
-              let comp = myApp.components.first(where: { $0.id == componentId }),
+    static func tracker(_ store: MiniAppStore, miniAppId: UUID, componentId: String?) -> TrackerData? {
+        guard let componentId else { return tracker(store, miniAppId: miniAppId) }
+        guard let miniApp = store.miniApps.first(where: { $0.id == miniAppId }),
+              let comp = miniApp.components.first(where: { $0.id == componentId }),
               case .tracker(let t) = comp.body else { return nil }
         return t
     }
 
     @MainActor
-    static func calendar(_ store: MyAppStore, myAppId: UUID) -> CalendarData? {
-        guard case .resolved(let id) = store.resolveWriteTarget(kind: "calendar", componentId: nil, myAppId: myAppId) else { return nil }
-        return calendar(store, myAppId: myAppId, componentId: id)
+    static func calendar(_ store: MiniAppStore, miniAppId: UUID) -> CalendarData? {
+        guard case .resolved(let id) = store.resolveWriteTarget(kind: "calendar", componentId: nil, miniAppId: miniAppId) else { return nil }
+        return calendar(store, miniAppId: miniAppId, componentId: id)
     }
 
     /// Read a specific calendar by id (to echo the correct component's
     /// state after a targeted write). Falls back to the view-independent
     /// lookup when `componentId` is nil.
     @MainActor
-    static func calendar(_ store: MyAppStore, myAppId: UUID, componentId: String?) -> CalendarData? {
-        guard let componentId else { return calendar(store, myAppId: myAppId) }
-        guard let myApp = store.myApps.first(where: { $0.id == myAppId }),
-              let comp = myApp.components.first(where: { $0.id == componentId }),
+    static func calendar(_ store: MiniAppStore, miniAppId: UUID, componentId: String?) -> CalendarData? {
+        guard let componentId else { return calendar(store, miniAppId: miniAppId) }
+        guard let miniApp = store.miniApps.first(where: { $0.id == miniAppId }),
+              let comp = miniApp.components.first(where: { $0.id == componentId }),
               case .calendar(let c) = comp.body else { return nil }
         return c
     }
 
     @MainActor
-    static func checklist(_ store: MyAppStore, myAppId: UUID) -> ChecklistData? {
-        guard case .resolved(let id) = store.resolveWriteTarget(kind: "checklist", componentId: nil, myAppId: myAppId) else { return nil }
-        return checklist(store, myAppId: myAppId, componentId: id)
+    static func checklist(_ store: MiniAppStore, miniAppId: UUID) -> ChecklistData? {
+        guard case .resolved(let id) = store.resolveWriteTarget(kind: "checklist", componentId: nil, miniAppId: miniAppId) else { return nil }
+        return checklist(store, miniAppId: miniAppId, componentId: id)
     }
 
     /// Read a specific checklist by id (to echo the correct component's
     /// state after a targeted write). Falls back to the view-independent
     /// lookup when `componentId` is nil.
     @MainActor
-    static func checklist(_ store: MyAppStore, myAppId: UUID, componentId: String?) -> ChecklistData? {
-        guard let componentId else { return checklist(store, myAppId: myAppId) }
-        guard let myApp = store.myApps.first(where: { $0.id == myAppId }),
-              let comp = myApp.components.first(where: { $0.id == componentId }),
+    static func checklist(_ store: MiniAppStore, miniAppId: UUID, componentId: String?) -> ChecklistData? {
+        guard let componentId else { return checklist(store, miniAppId: miniAppId) }
+        guard let miniApp = store.miniApps.first(where: { $0.id == miniAppId }),
+              let comp = miniApp.components.first(where: { $0.id == componentId }),
               case .checklist(let cl) = comp.body else { return nil }
         return cl
     }
@@ -2493,48 +2535,48 @@ public enum AppTools {
     // MARK: - Calculator helpers
 
     @MainActor
-    static func calculator(_ store: MyAppStore, myAppId: UUID) -> CalculatorData? {
-        guard case .resolved(let id) = store.resolveWriteTarget(kind: "calculator", componentId: nil, myAppId: myAppId) else { return nil }
-        return calculator(store, myAppId: myAppId, componentId: id)
+    static func calculator(_ store: MiniAppStore, miniAppId: UUID) -> CalculatorData? {
+        guard case .resolved(let id) = store.resolveWriteTarget(kind: "calculator", componentId: nil, miniAppId: miniAppId) else { return nil }
+        return calculator(store, miniAppId: miniAppId, componentId: id)
     }
 
     /// Read a specific calculator by id (to echo the correct component's
     /// state after a targeted write). Falls back to the view-independent
     /// lookup when `componentId` is nil.
     @MainActor
-    static func calculator(_ store: MyAppStore, myAppId: UUID, componentId: String?) -> CalculatorData? {
-        guard let componentId else { return calculator(store, myAppId: myAppId) }
-        guard let myApp = store.myApps.first(where: { $0.id == myAppId }),
-              let comp = myApp.components.first(where: { $0.id == componentId }),
+    static func calculator(_ store: MiniAppStore, miniAppId: UUID, componentId: String?) -> CalculatorData? {
+        guard let componentId else { return calculator(store, miniAppId: miniAppId) }
+        guard let miniApp = store.miniApps.first(where: { $0.id == miniAppId }),
+              let comp = miniApp.components.first(where: { $0.id == componentId }),
               case .calculator(let c) = comp.body else { return nil }
         return c
     }
 
     @MainActor
     static func resolveCalculator(
-        store: MyAppStore,
-        myAppId: UUID,
+        store: MiniAppStore,
+        miniAppId: UUID,
         componentId: String?
     ) -> (CalculatorData, String)? {
-        guard case .resolved(let id) = store.resolveWriteTarget(kind: "calculator", componentId: componentId, myAppId: myAppId),
-              let myApp = store.myApps.first(where: { $0.id == myAppId }),
-              let comp = myApp.components.first(where: { $0.id == id }),
+        guard case .resolved(let id) = store.resolveWriteTarget(kind: "calculator", componentId: componentId, miniAppId: miniAppId),
+              let miniApp = store.miniApps.first(where: { $0.id == miniAppId }),
+              let comp = miniApp.components.first(where: { $0.id == id }),
               case .calculator(let c) = comp.body else { return nil }
         return (c, id)
     }
 
-    /// Sibling components of `myAppId` — the pool calculator aggregate rows
+    /// Sibling components of `miniAppId` — the pool calculator aggregate rows
     /// resolve their source trackers from.
     @MainActor
-    static func siblingComponents(store: MyAppStore, myAppId: UUID) -> [Component] {
-        store.myApps.first(where: { $0.id == myAppId })?.components ?? []
+    static func siblingComponents(store: MiniAppStore, miniAppId: UUID) -> [Component] {
+        store.miniApps.first(where: { $0.id == miniAppId })?.components ?? []
     }
 
     /// `[{key, value?, status}]` for every row, resolved live. Echoed by the
     /// mutating calculator tools so the agent sees computed values mid-turn.
     @MainActor
-    static func calcResults(store: MyAppStore, myAppId: UUID, data: CalculatorData) -> AnyJSON {
-        let resolved = CalculatorResolver.resolve(data, components: siblingComponents(store: store, myAppId: myAppId))
+    static func calcResults(store: MiniAppStore, miniAppId: UUID, data: CalculatorData) -> AnyJSON {
+        let resolved = CalculatorResolver.resolve(data, components: siblingComponents(store: store, miniAppId: miniAppId))
         return .array(data.rows.map { row in
             let r = resolved.result(forKey: row.key)
             var obj: [String: AnyJSON] = [
@@ -2777,8 +2819,8 @@ public enum AppTools {
         var keys = Set<String>()
         for entry in arr {
             guard let parts = parseCalcRowParts(from: entry) else { continue }
-            let base = MyAppStore.slugify(parts.key?.nonEmpty ?? parts.name)
-            let unique = MyAppStore.dedupeSlug(base, existing: keys)
+            let base = MiniAppStore.slugify(parts.key?.nonEmpty ?? parts.name)
+            let unique = MiniAppStore.dedupeSlug(base, existing: keys)
             keys.insert(unique)
             rows.append(CalcRow(
                 key: unique,
@@ -2791,8 +2833,8 @@ public enum AppTools {
         return rows
     }
 
-    static func parseCalcRowPatch(from json: AnyJSON?) -> MyAppStore.CalcRowPatch {
-        var patch = MyAppStore.CalcRowPatch()
+    static func parseCalcRowPatch(from json: AnyJSON?) -> MiniAppStore.CalcRowPatch {
+        var patch = MiniAppStore.CalcRowPatch()
         guard let obj = json?.objectValue, let json else { return patch }
         if let v = obj["name"]?.stringValue { patch.name = v }
         // Double-optional: key present (even null) = set/clear; absent = unchanged.
@@ -2926,19 +2968,19 @@ public enum AppTools {
     // MARK: - Chart helpers
 
     @MainActor
-    private static func chartData(_ store: MyAppStore, myAppId: UUID) -> (ChartData, String)? {
-        guard case .resolved(let id) = store.resolveWriteTarget(kind: "chart", componentId: nil, myAppId: myAppId) else { return nil }
-        return chartData(store, myAppId: myAppId, componentId: id)
+    private static func chartData(_ store: MiniAppStore, miniAppId: UUID) -> (ChartData, String)? {
+        guard case .resolved(let id) = store.resolveWriteTarget(kind: "chart", componentId: nil, miniAppId: miniAppId) else { return nil }
+        return chartData(store, miniAppId: miniAppId, componentId: id)
     }
 
     /// Read a specific chart by id (to echo the correct component's state
     /// after a targeted write). Falls back to the view-independent lookup
     /// when `componentId` is nil.
     @MainActor
-    private static func chartData(_ store: MyAppStore, myAppId: UUID, componentId: String?) -> (ChartData, String)? {
-        guard let componentId else { return chartData(store, myAppId: myAppId) }
-        guard let myApp = store.myApps.first(where: { $0.id == myAppId }),
-              let comp = myApp.components.first(where: { $0.id == componentId }),
+    private static func chartData(_ store: MiniAppStore, miniAppId: UUID, componentId: String?) -> (ChartData, String)? {
+        guard let componentId else { return chartData(store, miniAppId: miniAppId) }
+        guard let miniApp = store.miniApps.first(where: { $0.id == miniAppId }),
+              let comp = miniApp.components.first(where: { $0.id == componentId }),
               case .chart(let cd) = comp.body else { return nil }
         return (cd, componentId)
     }
@@ -2946,11 +2988,11 @@ public enum AppTools {
     /// `{ok, componentId, title, kind, seriesCount, pointCount}` for the
     /// resolved chart. Shared by every chart mutating tool.
     @MainActor
-    static func chartEcho(store: MyAppStore, myAppId: UUID, componentId: String? = nil) -> AnyJSON {
-        guard let (data, id) = chartData(store, myAppId: myAppId, componentId: componentId) else {
+    static func chartEcho(store: MiniAppStore, miniAppId: UUID, componentId: String? = nil) -> AnyJSON {
+        guard let (data, id) = chartData(store, miniAppId: miniAppId, componentId: componentId) else {
             return .object(["ok": .bool(false), "error": "no chart component"])
         }
-        let count = ChartResolver.pointCount(data, components: siblingComponents(store: store, myAppId: myAppId))
+        let count = ChartResolver.pointCount(data, components: siblingComponents(store: store, miniAppId: miniAppId))
         return .object([
             "ok": .bool(true),
             "componentId": .string(id),
@@ -3091,11 +3133,11 @@ public enum AppTools {
     /// Serialise the multi-component canvas the agent sees. Shape is
     /// `{components: [{id, name, iconSystemName, body: {kind, data}}],
     /// activeComponentId}`. Round-tripped through Codable so the structure
-    /// is identical to what `MyApp` persists and what `ChatViewModel`
+    /// is identical to what `MiniApp` persists and what `ChatViewModel`
     /// injects into "Live canvas state".
     @MainActor
-    private static func canvasAsAnyJSON(_ store: MyAppStore, myAppId: UUID) -> AnyJSON {
-        guard let myApp = store.myApps.first(where: { $0.id == myAppId }) else {
+    private static func canvasAsAnyJSON(_ store: MiniAppStore, miniAppId: UUID) -> AnyJSON {
+        guard let miniApp = store.miniApps.first(where: { $0.id == miniAppId }) else {
             return .object(["components": .array([]), "activeComponentId": .null])
         }
         struct CanvasSnapshot: Encodable {
@@ -3103,8 +3145,8 @@ public enum AppTools {
             var activeComponentId: String?
         }
         let snap = CanvasSnapshot(
-            components: myApp.components,
-            activeComponentId: myApp.activeComponentId
+            components: miniApp.components,
+            activeComponentId: miniApp.activeComponentId
         )
         guard let data = try? JSONEncoder().encode(snap),
               let json = try? JSONDecoder().decode(AnyJSON.self, from: data) else {
@@ -3124,8 +3166,8 @@ public enum AppTools {
     // MARK: - Tool gate tools
 
     /// Register one `get_tools_<kind>` gateway tool per component kind declared
-    /// by `myAppType`, plus a `get_tools_memories` gate for the memory
-    /// filesystem. Called only for `.myApp` sessions.
+    /// by `miniAppType`, plus a `get_tools_memories` gate for the memory
+    /// filesystem. Called only for `.miniApp` sessions.
     ///
     /// Before the agent activates a tool group, only the gate tool is advertised
     /// (via `ChatViewModel.allowedToolNames`). Calling the gate marks the tool group
@@ -3134,12 +3176,12 @@ public enum AppTools {
     @MainActor
     public static func registerToolGates(
         on registry: ToolRegistry,
-        myAppType: MyAppType,
+        miniAppType: MiniAppType,
         toolGateState: ToolGateState
     ) {
-        for kind in myAppType.toolNamesByKind.keys.sorted() {
-            let toolCount = myAppType.toolNamesByKind[kind]?.count ?? 0
-            let toolList = myAppType.toolNamesByKind[kind]?.sorted().joined(separator: ", ") ?? ""
+        for kind in miniAppType.toolNamesByKind.keys.sorted() {
+            let toolCount = miniAppType.toolNamesByKind[kind]?.count ?? 0
+            let toolList = miniAppType.toolNamesByKind[kind]?.sorted().joined(separator: ", ") ?? ""
             let toolName = "get_tools_\(kind)"
             registry.register(ClientTool(
                 descriptor: ToolDescriptor(
@@ -3161,7 +3203,7 @@ public enum AppTools {
             ))
         }
 
-        let memCount = MyAppType.memoryToolNames.count
+        let memCount = MiniAppType.memoryToolNames.count
         registry.register(ClientTool(
             descriptor: ToolDescriptor(
                 name: "get_tools_memories",

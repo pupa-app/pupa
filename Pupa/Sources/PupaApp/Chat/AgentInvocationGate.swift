@@ -4,7 +4,7 @@ import Observation
 /// Scope-agnostic key identifying one agent invocation slot. Used by
 /// `AgentInvocationGate` to label `InvocationNode`s in the active
 /// forest. The same key can appear on multiple nodes (e.g. two
-/// independent invocation trees both ending at `.myApp(X)`) — the
+/// independent invocation trees both ending at `.miniApp(X)`) — the
 /// forest stores `(invocationId, parent)` pairs, so identity is per
 /// node, not per key.
 ///
@@ -12,22 +12,22 @@ import Observation
 /// ancestor chain for reentry detection.
 public enum AgentInvocationKey: Hashable, Sendable {
     case orchestrator
-    case myApp(UUID)
-    /// A `pupa/agents/<slug>/AGENTS.md` subagent, scoped to its MyApp.
-    /// Slugs are unique only within a MyApp, so the key carries both.
+    case miniApp(UUID)
+    /// A `pupa/agents/<slug>/AGENTS.md` subagent, scoped to its MiniApp.
+    /// Slugs are unique only within a MiniApp, so the key carries both.
     /// Slack agents are a UI presentation of these subagents.
-    case subagent(myAppId: UUID, slug: String)
+    case subagent(miniAppId: UUID, slug: String)
 
     /// Opaque, stable id used to key `AgentStatsStore`. Subagents carry
-    /// `"subagent:<myAppId>:<slug>"`; the agents overview derives the same
-    /// from a descriptor id. MyApp uses the raw UUID string (the per-MyApp
+    /// `"subagent:<miniAppId>:<slug>"`; the agents overview derives the same
+    /// from a descriptor id. MiniApp uses the raw UUID string (the per-MiniApp
     /// main-agent descriptor id is a shared constant, so the overview keys
-    /// main agents off `myAppId`, not id).
+    /// main agents off `miniAppId`, not id).
     public var statKey: String {
         switch self {
         case .orchestrator: return "orchestrator"
-        case .myApp(let id): return id.uuidString
-        case .subagent(let myAppId, let slug): return "subagent:\(myAppId.uuidString):\(slug)"
+        case .miniApp(let id): return id.uuidString
+        case .subagent(let miniAppId, let slug): return "subagent:\(miniAppId.uuidString):\(slug)"
         }
     }
 }
@@ -125,7 +125,7 @@ public enum AgentInvocationDecision: Equatable, Sendable {
 ///
 /// **Concurrent same-key.** Multiple roots — or unrelated branches —
 /// may share an `AgentInvocationKey` (e.g. two top-level runs against
-/// `.myApp(X)`). They do not collide. The `.busy` case is retained
+/// `.miniApp(X)`). They do not collide. The `.busy` case is retained
 /// for a future strict-mode setting; Phase 1b never produces it.
 ///
 /// **Chain depth.** Counted along the *caller's ancestor chain*
@@ -312,7 +312,7 @@ public final class AgentInvocationGate {
 /// Error thrown by callers that consult the gate before doing real
 /// work (e.g. `runOneShot`) when the gate rejects the invocation.
 /// Carries enough information for the tool-message echo path
-/// (`AppTools.invokeMyAppAgent`) to emit a structured
+/// (`AppTools.invokeMiniAppAgent`) to emit a structured
 /// `agent_unavailable` payload back to the calling agent.
 public struct AgentInvocationRejection: Error, Equatable, Sendable {
     public enum Reason: String, Sendable, Equatable {
@@ -388,13 +388,13 @@ public struct AgentInvocationRejection: Error, Equatable, Sendable {
 
 extension AgentInvocationKey {
     /// Stable string form for cross-language transport (tool-message
-    /// echoes). `myApp` keys use the UUID string; `slack` uses the
+    /// echoes). `miniApp` keys use the UUID string; `slack` uses the
     /// agentId verbatim.
     public var wireValue: String {
         switch self {
         case .orchestrator: return "orchestrator"
-        case .myApp(let id): return "myApp:\(id.uuidString)"
-        case .subagent(let myAppId, let slug): return "subagent:\(myAppId.uuidString):\(slug)"
+        case .miniApp(let id): return "miniApp:\(id.uuidString)"
+        case .subagent(let miniAppId, let slug): return "subagent:\(miniAppId.uuidString):\(slug)"
         }
     }
 }

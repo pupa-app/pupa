@@ -1,12 +1,12 @@
 import SwiftUI
 
 public struct TrackerView: View {
-    @Bindable var store: MyAppStore
+    @Bindable var store: MiniAppStore
     let data: TrackerData
-    /// MyApp the tracker lives in. Threaded down so link-pill rendering
+    /// MiniApp the tracker lives in. Threaded down so link-pill rendering
     /// can resolve cross-component targets and the editor sheet can
     /// scope its mutations.
-    let myAppId: UUID
+    let miniAppId: UUID
     /// Stable id of the tracker component currently being rendered.
     /// Used by the link picker to hide self-refs and by the link-pill
     /// resolver to namespace ref scoping. Optional only for legacy
@@ -17,7 +17,7 @@ public struct TrackerView: View {
     /// views without `.id(component.id)`, so `@State` is keyed by structural
     /// position — a bare `String` here would leak one tracker's query onto the
     /// next. The key must be the board, not the component id: ids repeat
-    /// across MyApps (`MyAppStore.addComponent`).
+    /// across MiniApps (`MiniAppStore.addComponent`).
     @State private var queryByBoard: [TrackerBoardKey: String] = [:]
     /// Filter-panel disclosure, collapsed by default. Board-keyed for the
     /// same reason as the query.
@@ -28,16 +28,16 @@ public struct TrackerView: View {
     /// like the rest — see `TrackerBoardKey`.
     @State private var peeks = TrackerPeekState()
 
-    public init(store: MyAppStore, data: TrackerData, myAppId: UUID, componentId: String? = nil) {
+    public init(store: MiniAppStore, data: TrackerData, miniAppId: UUID, componentId: String? = nil) {
         self.store = store
         self.data = data
-        self.myAppId = myAppId
+        self.miniAppId = miniAppId
         self.componentId = componentId
     }
 
     /// Scopes view `@State` to this board. See `TrackerBoardKey`.
     private var board: TrackerBoardKey {
-        TrackerBoardKey(myAppId: myAppId, componentId: componentId)
+        TrackerBoardKey(miniAppId: miniAppId, componentId: componentId)
     }
 
     public var body: some View {
@@ -66,7 +66,7 @@ public struct TrackerView: View {
                     store.displayNameForRefTarget(
                         componentId: ref.componentId,
                         itemId: ref.itemId,
-                        myAppId: myAppId
+                        miniAppId: miniAppId
                     )
                 },
                 filtered: filtered,
@@ -94,7 +94,7 @@ public struct TrackerView: View {
                 store: store,
                 fields: data.visibleFields,
                 initialItem: initialItem(for: target),
-                myAppId: myAppId,
+                miniAppId: miniAppId,
                 componentId: componentId,
                 initialLinkedItems: initialLinkedItems(for: target),
                 onClose: { sheet = nil }
@@ -166,7 +166,7 @@ private struct CardsSection: View {
     let query: String
     /// Resolver passed to each `TrackerItemCard` so it can render
     /// chain-link pills for its `linkedItems`. Closes over the store +
-    /// myAppId from `TrackerView`.
+    /// miniAppId from `TrackerView`.
     let resolveLinkName: (ComponentItemRef) -> String?
     let filtered: [TrackerFiltering.Entry]
     /// Cards peeked open on a shrunk board. Non-empty only while this board is

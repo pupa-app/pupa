@@ -4,14 +4,14 @@ import AGUIKit
 extension AppTools {
     /// Register the tracker component's frontend tools (render / add / patch /
     /// remove items, field-schema mutators, filter + view mode). Extracted from
-    /// the `registerMyAppTools` monolith into the Tracker component folder
+    /// the `registerMiniAppTools` monolith into the Tracker component folder
     /// (issue #162); `TrackerModule.registerTools` forwards here. Discovery tools
     /// (list/search/get) still register separately. Zero logic change.
     @MainActor
     static func registerTrackerTools(
         on registry: ToolRegistry,
-        store: MyAppStore,
-        myAppId: UUID
+        store: MiniAppStore,
+        miniAppId: UUID
     ) {
         registry.register(ClientTool(
             descriptor: ToolDescriptor(
@@ -45,7 +45,7 @@ extension AppTools {
                     // Resolve the target deterministically (never via the
                     // active/view component). Surface ambiguity to the agent.
                     let resolvedId: String
-                    switch store.resolveTrackerRenderTarget(componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveTrackerRenderTarget(componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
@@ -59,18 +59,18 @@ extension AppTools {
                             ])
                         }
                         let fields = parseFields(from: fieldsArg)
-                        store.setTracker(title: title, fields: fields, myAppId: myAppId, componentId: resolvedId)
+                        store.setTracker(title: title, fields: fields, miniAppId: miniAppId, componentId: resolvedId)
                     }
                     var summarySet = false
                     if hasSummary {
                         summarySet = store.setComponentSummary(
                             forKind: "tracker",
                             summary: summaryArg?.stringValue,
-                            myAppId: myAppId,
+                            miniAppId: miniAppId,
                             componentId: resolvedId
                         )
                     }
-                    let t = tracker(store, myAppId: myAppId, componentId: resolvedId)
+                    let t = tracker(store, miniAppId: miniAppId, componentId: resolvedId)
                     var result: [String: AnyJSON] = ["ok": .bool(true), "componentId": .string(resolvedId)]
                     if let t {
                         result["fields"] = .array(t.fields.map { .string($0.name) })
@@ -89,7 +89,7 @@ extension AppTools {
                 name: "addTrackerItems",
                 description: """
                 Append one or more items to a tracker. Pass `componentId` to \
-                choose which tracker (required only when the myApp has more \
+                choose which tracker (required only when the miniApp has more \
                 than one; otherwise the single tracker is used — the active/ \
                 viewed component is never assumed). Always pass an `items` \
                 array — wrap a single item as `[{ ... }]`. Keys in each item \
@@ -117,7 +117,7 @@ extension AppTools {
                 let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveTrackerWriteTarget(componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveTrackerWriteTarget(componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
@@ -127,7 +127,7 @@ extension AppTools {
                     var added: [AnyJSON] = []
                     for entry in itemsArray {
                         let values = (entry.objectValue ?? [:]).mapValues { stringify($0) }
-                        let id = store.addItem(values, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "addTrackerItems"))
+                        let id = store.addItem(values, miniAppId: miniAppId, componentId: resolvedId, actor: .agent(toolName: "addTrackerItems"))
                         ids.append(id.map { .string($0.uuidString) } ?? .null)
                         added.append(valuesAsAnyJSON(values))
                     }
@@ -136,7 +136,7 @@ extension AppTools {
                         "componentId": .string(resolvedId),
                         "ids": .array(ids),
                         "added": .array(added),
-                        "totalItems": .int(tracker(store, myAppId: myAppId, componentId: resolvedId)?.items.count ?? 0),
+                        "totalItems": .int(tracker(store, miniAppId: miniAppId, componentId: resolvedId)?.items.count ?? 0),
                     ])
                 }
             }
@@ -183,7 +183,7 @@ extension AppTools {
                 let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveTrackerWriteTarget(componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveTrackerWriteTarget(componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
@@ -204,7 +204,7 @@ extension AppTools {
                         let patch = patchObj.mapValues { stringify($0) }
                         let idString = obj["id"]?.stringValue
                         let idx = obj["index"]?.intValue
-                        guard let t = tracker(store, myAppId: myAppId, componentId: resolvedId) else {
+                        guard let t = tracker(store, miniAppId: miniAppId, componentId: resolvedId) else {
                             results.append(.object([
                                 "ok": .bool(false),
                                 "error": .string("canvas is not a tracker"),
@@ -232,8 +232,8 @@ extension AppTools {
                             allOk = false
                             continue
                         }
-                        _ = store.patchItem(id: uuid, with: patch, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "patchTrackerItems"))
-                        let after = tracker(store, myAppId: myAppId, componentId: resolvedId)?
+                        _ = store.patchItem(id: uuid, with: patch, miniAppId: miniAppId, componentId: resolvedId, actor: .agent(toolName: "patchTrackerItems"))
+                        let after = tracker(store, miniAppId: miniAppId, componentId: resolvedId)?
                             .items.first(where: { $0.id == uuid })?.values ?? [:]
                         results.append(.object([
                             "ok": .bool(true),
@@ -245,7 +245,7 @@ extension AppTools {
                         "ok": .bool(allOk),
                         "componentId": .string(resolvedId),
                         "results": .array(results),
-                        "totalItems": .int(tracker(store, myAppId: myAppId, componentId: resolvedId)?.items.count ?? 0),
+                        "totalItems": .int(tracker(store, miniAppId: miniAppId, componentId: resolvedId)?.items.count ?? 0),
                     ])
                 }
             }
@@ -290,13 +290,13 @@ extension AppTools {
                 let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveTrackerWriteTarget(componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveTrackerWriteTarget(componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
                         resolvedId = id
                     }
-                    guard let t = tracker(store, myAppId: myAppId, componentId: resolvedId) else {
+                    guard let t = tracker(store, miniAppId: miniAppId, componentId: resolvedId) else {
                         return .object(["ok": .bool(false), "error": "canvas is not a tracker"])
                     }
                     // Resolve every target to a UUID + cached values BEFORE
@@ -323,7 +323,7 @@ extension AppTools {
                     for r in resolved {
                         switch r {
                         case .ok(let uuid, let values):
-                            let ok = store.removeItem(id: uuid, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "removeTrackerItems"))
+                            let ok = store.removeItem(id: uuid, miniAppId: miniAppId, componentId: resolvedId, actor: .agent(toolName: "removeTrackerItems"))
                             if ok {
                                 results.append(.object([
                                     "ok": .bool(true),
@@ -350,7 +350,7 @@ extension AppTools {
                         "ok": .bool(allOk),
                         "componentId": .string(resolvedId),
                         "results": .array(results),
-                        "totalItems": .int(tracker(store, myAppId: myAppId, componentId: resolvedId)?.items.count ?? 0),
+                        "totalItems": .int(tracker(store, miniAppId: miniAppId, componentId: resolvedId)?.items.count ?? 0),
                     ])
                 }
             }
@@ -379,14 +379,14 @@ extension AppTools {
                 let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
                         resolvedId = id
                     }
-                    store.setFilter(field: field, value: value, myAppId: myAppId, componentId: resolvedId)
-                    let t = tracker(store, myAppId: myAppId, componentId: resolvedId)
+                    store.setFilter(field: field, value: value, miniAppId: miniAppId, componentId: resolvedId)
+                    let t = tracker(store, miniAppId: miniAppId, componentId: resolvedId)
                     return .object([
                         "ok": .bool(true),
                         "componentId": .string(resolvedId),
@@ -437,7 +437,7 @@ extension AppTools {
                 }
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
@@ -446,7 +446,7 @@ extension AppTools {
                     guard let resolved = store.setTrackerViewMode(
                         mode,
                         columnField: requestedColumn,
-                        myAppId: myAppId,
+                        miniAppId: miniAppId,
                         componentId: resolvedId
                     ) else {
                         return .object([
@@ -454,7 +454,7 @@ extension AppTools {
                             "error": .string("canvas is not a tracker"),
                         ])
                     }
-                    let t = tracker(store, myAppId: myAppId, componentId: resolvedId)
+                    let t = tracker(store, miniAppId: miniAppId, componentId: resolvedId)
                     return .object([
                         "ok": .bool(true),
                         "componentId": .string(resolvedId),
@@ -489,14 +489,14 @@ extension AppTools {
                 let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
                         resolvedId = id
                     }
-                    let ok = store.addFieldOption(fieldName: field, option: opt, myAppId: myAppId, componentId: resolvedId)
-                    let t = tracker(store, myAppId: myAppId, componentId: resolvedId)
+                    let ok = store.addFieldOption(fieldName: field, option: opt, miniAppId: miniAppId, componentId: resolvedId)
+                    let t = tracker(store, miniAppId: miniAppId, componentId: resolvedId)
                     let opts = t?.fields.first(where: { $0.name == field })?.options ?? []
                     return .object([
                         "ok": .bool(ok),
@@ -531,14 +531,14 @@ extension AppTools {
                 let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
                         resolvedId = id
                     }
-                    let ok = store.removeFieldOption(fieldName: field, option: opt, myAppId: myAppId, componentId: resolvedId)
-                    let t = tracker(store, myAppId: myAppId, componentId: resolvedId)
+                    let ok = store.removeFieldOption(fieldName: field, option: opt, miniAppId: miniAppId, componentId: resolvedId)
+                    let t = tracker(store, miniAppId: miniAppId, componentId: resolvedId)
                     let opts = t?.fields.first(where: { $0.name == field })?.options ?? []
                     return .object([
                         "ok": .bool(ok),
@@ -589,19 +589,19 @@ extension AppTools {
                 )
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
                         resolvedId = id
                     }
-                    if let err = store.addField(field, myAppId: myAppId, componentId: resolvedId) {
+                    if let err = store.addField(field, miniAppId: miniAppId, componentId: resolvedId) {
                         return .object([
                             "ok": .bool(false),
                             "error": .string(err.rawValue),
                         ])
                     }
-                    let t = tracker(store, myAppId: myAppId, componentId: resolvedId)
+                    let t = tracker(store, miniAppId: miniAppId, componentId: resolvedId)
                     return .object([
                         "ok": .bool(true),
                         "componentId": .string(resolvedId),
@@ -640,20 +640,20 @@ extension AppTools {
                 let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
                         resolvedId = id
                     }
-                    switch store.renameField(from: from, to: to, myAppId: myAppId, componentId: resolvedId) {
+                    switch store.renameField(from: from, to: to, miniAppId: miniAppId, componentId: resolvedId) {
                     case .failure(let err):
                         return .object([
                             "ok": .bool(false),
                             "error": .string(err.rawValue),
                         ])
                     case .success(let result):
-                        let t = tracker(store, myAppId: myAppId, componentId: resolvedId)
+                        let t = tracker(store, miniAppId: miniAppId, componentId: resolvedId)
                         return .object([
                             "ok": .bool(true),
                             "componentId": .string(resolvedId),
@@ -691,19 +691,19 @@ extension AppTools {
                 let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
                         resolvedId = id
                     }
-                    if let err = store.reorderFields(order, myAppId: myAppId, componentId: resolvedId) {
+                    if let err = store.reorderFields(order, miniAppId: miniAppId, componentId: resolvedId) {
                         return .object([
                             "ok": .bool(false),
                             "error": .string(err.rawValue),
                         ])
                     }
-                    let t = tracker(store, myAppId: myAppId, componentId: resolvedId)
+                    let t = tracker(store, miniAppId: miniAppId, componentId: resolvedId)
                     return .object([
                         "ok": .bool(true),
                         "componentId": .string(resolvedId),
@@ -740,13 +740,13 @@ extension AppTools {
                 let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
                         resolvedId = id
                     }
-                    switch store.setFieldHidden(name: name, hidden: true, myAppId: myAppId, componentId: resolvedId) {
+                    switch store.setFieldHidden(name: name, hidden: true, miniAppId: miniAppId, componentId: resolvedId) {
                     case .failure(let err):
                         return .object([
                             "ok": .bool(false),
@@ -790,13 +790,13 @@ extension AppTools {
                 let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "tracker", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
                         resolvedId = id
                     }
-                    switch store.setFieldHidden(name: name, hidden: false, myAppId: myAppId, componentId: resolvedId) {
+                    switch store.setFieldHidden(name: name, hidden: false, miniAppId: miniAppId, componentId: resolvedId) {
                     case .failure(let err):
                         return .object([
                             "ok": .bool(false),

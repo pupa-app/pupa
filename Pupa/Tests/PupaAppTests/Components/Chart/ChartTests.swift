@@ -11,16 +11,16 @@ import Testing
 @Suite("Chart component")
 struct ChartTests {
 
-    private func freshStore() -> (MyAppStore, UUID) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApp = MyApp(name: "T", iconSystemName: "chart.pie", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([myApp], myApp.id))
-        store.addComponent(kind: "chart", name: "Chart", iconSystemName: "chart.pie", myAppId: myApp.id)
-        return (store, myApp.id)
+    private func freshStore() -> (MiniAppStore, UUID) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApp = MiniApp(name: "T", iconSystemName: "chart.pie", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([miniApp], miniApp.id))
+        store.addComponent(kind: "chart", name: "Chart", iconSystemName: "chart.pie", miniAppId: miniApp.id)
+        return (store, miniApp.id)
     }
 
-    private func components(_ store: MyAppStore, _ id: UUID) -> [Component] {
-        store.myApps.first(where: { $0.id == id })?.components ?? []
+    private func components(_ store: MiniAppStore, _ id: UUID) -> [Component] {
+        store.miniApps.first(where: { $0.id == id })?.components ?? []
     }
 
     // MARK: - Codec
@@ -108,13 +108,13 @@ struct ChartTests {
     @Test("tracker source groups + reduces into one point per bucket")
     func resolveTracker() {
         let (store, id) = freshStore()
-        store.addComponent(kind: "tracker", name: "Expenses", iconSystemName: "list.bullet", myAppId: id)
+        store.addComponent(kind: "tracker", name: "Expenses", iconSystemName: "list.bullet", miniAppId: id)
         store.setTracker(title: "Expenses",
                          fields: [FieldDef(name: "amount", type: .number), FieldDef(name: "cuisine", type: .text)],
-                         myAppId: id)
-        store.addItem(["amount": "20", "cuisine": "African"], myAppId: id)
-        store.addItem(["amount": "30", "cuisine": "African"], myAppId: id)
-        store.addItem(["amount": "50", "cuisine": "Italian"], myAppId: id)
+                         miniAppId: id)
+        store.addItem(["amount": "20", "cuisine": "African"], miniAppId: id)
+        store.addItem(["amount": "30", "cuisine": "African"], miniAppId: id)
+        store.addItem(["amount": "50", "cuisine": "Italian"], miniAppId: id)
         let trackerId = components(store, id).first(where: {
             if case .tracker = $0.body { return true }; return false
         })!.id
@@ -130,12 +130,12 @@ struct ChartTests {
     @Test("two tracker series overlay; default names come from the value fields")
     func resolveMultiSeries() {
         let (store, id) = freshStore()
-        store.addComponent(kind: "tracker", name: "Sales", iconSystemName: "list.bullet", myAppId: id)
+        store.addComponent(kind: "tracker", name: "Sales", iconSystemName: "list.bullet", miniAppId: id)
         store.setTracker(title: "Sales",
                          fields: [FieldDef(name: "revenue", type: .number), FieldDef(name: "cost", type: .number), FieldDef(name: "month", type: .text)],
-                         myAppId: id)
-        store.addItem(["revenue": "100", "cost": "60", "month": "2026-01"], myAppId: id)
-        store.addItem(["revenue": "120", "cost": "70", "month": "2026-02"], myAppId: id)
+                         miniAppId: id)
+        store.addItem(["revenue": "100", "cost": "60", "month": "2026-01"], miniAppId: id)
+        store.addItem(["revenue": "120", "cost": "70", "month": "2026-02"], miniAppId: id)
         let trackerId = components(store, id).first(where: {
             if case .tracker = $0.body { return true }; return false
         })!.id
@@ -154,11 +154,11 @@ struct ChartTests {
     @Test("calculatorList source plots a sweep row's array")
     func resolveCalculatorList() {
         let (store, id) = freshStore()
-        store.addComponent(kind: "calculator", name: "Calc", iconSystemName: "function", myAppId: id)
-        store.addCalcRow(key: "rate", name: "Rate", kind: .variable(value: 1, control: .plain), myAppId: id)
-        store.addCalcRow(key: "out", name: "Out", kind: .formula(expression: "rate * 10"), myAppId: id)
+        store.addComponent(kind: "calculator", name: "Calc", iconSystemName: "function", miniAppId: id)
+        store.addCalcRow(key: "rate", name: "Rate", kind: .variable(value: 1, control: .plain), miniAppId: id)
+        store.addCalcRow(key: "out", name: "Out", kind: .formula(expression: "rate * 10"), miniAppId: id)
         store.addCalcRow(key: "curve", name: "Curve",
-                         kind: .list(.sweep(variableKey: "rate", from: 1, to: 3, step: 1, targetKey: "out")), myAppId: id)
+                         kind: .list(.sweep(variableKey: "rate", from: 1, to: 3, step: 1, targetKey: "out")), miniAppId: id)
         let calcId = components(store, id).first(where: {
             if case .calculator = $0.body { return true }; return false
         })!.id
@@ -181,13 +181,13 @@ struct ChartTests {
     @Test("line over a date field orders points ascending by x")
     func lineXOrdering() {
         let (store, id) = freshStore()
-        store.addComponent(kind: "tracker", name: "Sales", iconSystemName: "list.bullet", myAppId: id)
+        store.addComponent(kind: "tracker", name: "Sales", iconSystemName: "list.bullet", miniAppId: id)
         store.setTracker(title: "Sales",
                          fields: [FieldDef(name: "amount", type: .number), FieldDef(name: "date", type: .text)],
-                         myAppId: id)
-        store.addItem(["amount": "30", "date": "2026-03-01"], myAppId: id)
-        store.addItem(["amount": "10", "date": "2026-01-01"], myAppId: id)
-        store.addItem(["amount": "20", "date": "2026-02-01"], myAppId: id)
+                         miniAppId: id)
+        store.addItem(["amount": "30", "date": "2026-03-01"], miniAppId: id)
+        store.addItem(["amount": "10", "date": "2026-01-01"], miniAppId: id)
+        store.addItem(["amount": "20", "date": "2026-02-01"], miniAppId: id)
         let trackerId = components(store, id).first(where: {
             if case .tracker = $0.body { return true }; return false
         })!.id
@@ -203,13 +203,13 @@ struct ChartTests {
     func mutators() {
         let (store, id) = freshStore()
         store.setChart(title: "Plot", kind: .bar,
-                       series: [ChartSeriesSpec(source: .inline(points: [ChartPoint(label: "a", y: 1)]))], myAppId: id)
-        store.setChartKind(.line, myAppId: id)
-        #expect(store.addChartSeries([ChartSeriesSpec(source: .inline(points: [ChartPoint(label: "b", y: 2)]))], myAppId: id) == 2)
-        var patch = MyAppStore.ChartPatch()
+                       series: [ChartSeriesSpec(source: .inline(points: [ChartPoint(label: "a", y: 1)]))], miniAppId: id)
+        store.setChartKind(.line, miniAppId: id)
+        #expect(store.addChartSeries([ChartSeriesSpec(source: .inline(points: [ChartPoint(label: "b", y: 2)]))], miniAppId: id) == 2)
+        var patch = MiniAppStore.ChartPatch()
         patch.title = "Renamed"
-        #expect(store.patchChart(patch: patch, myAppId: id))
-        #expect(store.removeChartSeries(index: 0, myAppId: id))
+        #expect(store.patchChart(patch: patch, miniAppId: id))
+        #expect(store.removeChartSeries(index: 0, miniAppId: id))
 
         guard case .chart(let c)? = components(store, id).first(where: {
             if case .chart = $0.body { return true }; return false

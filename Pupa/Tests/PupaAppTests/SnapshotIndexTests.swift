@@ -15,11 +15,11 @@ struct SnapshotIndexTests {
     /// A fresh app id with `count` recorded snapshots, `pins` of them pinned.
     /// Timestamps are strictly increasing so ordering is tie-free.
     private func seed(count: Int, pins: Int = 0) -> UUID {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApp = MyApp(name: "S", iconSystemName: "list.bullet", typeId: MyAppType.tracker.id)
-        SnapshotStore.deleteAll(myApp.id)
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApp = MiniApp(name: "S", iconSystemName: "list.bullet", typeId: MiniAppType.tracker.id)
+        SnapshotStore.deleteAll(miniApp.id)
         for i in 0..<count {
-            var edited = myApp
+            var edited = miniApp
             edited.name = "S rev \(i)"
             SnapshotStore.record(
                 edited,
@@ -27,7 +27,7 @@ struct SnapshotIndexTests {
                 label: i < pins ? "pin\(i)" : nil,
                 now: Date(timeIntervalSince1970: 1_000_000 + Double(i)))
         }
-        return myApp.id
+        return miniApp.id
     }
 
     @Test("metas reads the index, not the history")
@@ -114,8 +114,8 @@ struct SnapshotIndexTests {
         func readsForOneEdit(historyLength: Int) -> Int {
             let id = seed(count: historyLength)
             _ = SnapshotStore.metas(id)
-            var app = MyApp(id: id, name: "next", iconSystemName: "list.bullet",
-                            typeId: MyAppType.tracker.id)
+            var app = MiniApp(id: id, name: "next", iconSystemName: "list.bullet",
+                            typeId: MiniAppType.tracker.id)
             app.name = "next edit"
             DiskIO.reset()
             SnapshotStore.record(app, reason: .edit,

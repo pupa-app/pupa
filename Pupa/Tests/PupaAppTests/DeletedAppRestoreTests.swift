@@ -2,34 +2,34 @@ import Foundation
 import Testing
 @testable import PupaApp
 
-/// Deleting a MyApp must leave a restore point and a labelled tombstone, so
+/// Deleting a MiniApp must leave a restore point and a labelled tombstone, so
 /// Settings ▸ Recently deleted can list it and bring it back. A delete used to
 /// drop the body with nothing capturing it: silent and final on every device.
 @MainActor
-@Suite("Deleted MyApp restore", .serialized)
+@Suite("Deleted MiniApp restore", .serialized)
 struct DeletedAppRestoreTests {
 
     init() { TestStorage.activate() }
 
     /// Shared temp root across suites, so start from a clean state tree —
     /// stale tombstones from a neighbouring suite would show up in
-    /// `deletedMyApps()`.
-    private func twoAppStore() async -> (MyAppStore, UUID, UUID) {
-        await MyAppStore.clearStorage()
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "Dating help", iconSystemName: "list.bullet.rectangle", typeId: MyAppType.tracker.id)
-        let b = MyApp(name: "Flight search", iconSystemName: "list.bullet.rectangle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a, b], a.id))
-        store.setTracker(title: "T", fields: [FieldDef(name: "title", type: .text)], myAppId: a.id)
+    /// `deletedMiniApps()`.
+    private func twoAppStore() async -> (MiniAppStore, UUID, UUID) {
+        await MiniAppStore.clearStorage()
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "Dating help", iconSystemName: "list.bullet.rectangle", typeId: MiniAppType.tracker.id)
+        let b = MiniApp(name: "Flight search", iconSystemName: "list.bullet.rectangle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a, b], a.id))
+        store.setTracker(title: "T", fields: [FieldDef(name: "title", type: .text)], miniAppId: a.id)
         return (store, a.id, b.id)
     }
 
     @Test("a deleted app is listed with its name and is restorable")
     func deleteListsRestorableApp() async {
         let (store, a, _) = await twoAppStore()
-        store.removeMyApp(a)
+        store.removeMiniApp(a)
 
-        let deleted = MyAppStore.deletedMyApps()
+        let deleted = MiniAppStore.deletedMiniApps()
         #expect(deleted.map(\.id) == [a])
         #expect(deleted.first?.name == "Dating help")
         #expect(deleted.first?.isRestorable == true)
@@ -38,54 +38,54 @@ struct DeletedAppRestoreTests {
     @Test("restore brings the app back into the roster")
     func restoreReturnsApp() async {
         let (store, a, b) = await twoAppStore()
-        store.removeMyApp(a)
-        #expect(store.myApps.map(\.id) == [b])
+        store.removeMiniApp(a)
+        #expect(store.miniApps.map(\.id) == [b])
 
-        #expect(store.restoreDeletedMyApp(a))
+        #expect(store.restoreDeletedMiniApp(a))
 
-        let ids: Set<UUID> = Set(store.myApps.map(\.id))
+        let ids: Set<UUID> = Set(store.miniApps.map(\.id))
         #expect(ids == Set([a, b]))
-        #expect(store.myApp(withId: a)?.name == "Dating help")
+        #expect(store.miniApp(withId: a)?.name == "Dating help")
     }
 
     @Test("restore clears the tombstone so a reload can't re-suppress the app")
     func restoreClearsTombstone() async {
         let (store, a, _) = await twoAppStore()
-        store.removeMyApp(a)
-        #expect(store.restoreDeletedMyApp(a))
+        store.removeMiniApp(a)
+        #expect(store.restoreDeletedMiniApp(a))
 
-        #expect(MyAppStore.deletedMyApps().isEmpty)
+        #expect(MiniAppStore.deletedMiniApps().isEmpty)
         // The union-load path is what re-suppressed restored apps before: prove
         // a fresh store built from the same disk still sees it.
-        let reloaded = MyAppStore()
-        #expect(reloaded.myApps.contains { $0.id == a })
+        let reloaded = MiniAppStore()
+        #expect(reloaded.miniApps.contains { $0.id == a })
     }
 
     @Test("restoring an app that is already in the roster is a no-op")
     func restoreIsIdempotent() async {
         let (store, a, _) = await twoAppStore()
-        store.removeMyApp(a)
-        #expect(store.restoreDeletedMyApp(a))
-        #expect(store.restoreDeletedMyApp(a) == false)
-        #expect(store.myApps.filter { $0.id == a }.count == 1)
+        store.removeMiniApp(a)
+        #expect(store.restoreDeletedMiniApp(a))
+        #expect(store.restoreDeletedMiniApp(a) == false)
+        #expect(store.miniApps.filter { $0.id == a }.count == 1)
     }
 
     @Test("an unknown id has no restore point")
     func unknownIdNotRestorable() async {
         let (store, _, _) = await twoAppStore()
-        #expect(store.restoreDeletedMyApp(UUID()) == false)
+        #expect(store.restoreDeletedMiniApp(UUID()) == false)
     }
 
     @Test("restore clears the local-delete marker so a later sync removal still advises")
     func restoreClearsUserInitiatedMarker() async {
         let (store, a, _) = await twoAppStore()
-        store.removeMyApp(a)
-        #expect(store.restoreDeletedMyApp(a))
+        store.removeMiniApp(a)
+        #expect(store.restoreDeletedMiniApp(a))
 
         // Another device deletes it for real. Because the id was restored, this
         // is NOT the delete the user made here — it must raise the notice.
-        let other = MyAppStore()
-        other.removeMyApp(a)
+        let other = MiniAppStore()
+        other.removeMiniApp(a)
         await store.reloadFromDisk()
 
         #expect(store.pendingSyncRemoval?.ids == [a])
@@ -99,11 +99,11 @@ struct DeletedAppRestoreTests {
     @Test("a tombstoned app is restorable from its on-disk body with no snapshot")
     func bodyOnDiskIsARestoreSource() async {
         let (store, a, _) = await twoAppStore()
-        MyAppStore.writeTombstone(a, name: "Dating help")   // remote delete lands
+        MiniAppStore.writeTombstone(a, name: "Dating help")   // remote delete lands
         SnapshotStore.deleteAll(a)                          // its snapshot hasn't synced
         _ = store
 
-        let listed = MyAppStore.deletedMyApps().first { $0.id == a }
+        let listed = MiniAppStore.deletedMiniApps().first { $0.id == a }
         #expect(listed?.isRestorable == true)
         #expect(listed?.name == "Dating help")
     }
@@ -114,54 +114,54 @@ struct DeletedAppRestoreTests {
     @Test("the orphan sweep captures a restore point before reaping a tombstoned body")
     func sweepCapturesRestorePointBeforeReaping() async {
         let (store, a, _) = await twoAppStore()
-        MyAppStore.writeTombstone(a, name: "Dating help")
+        MiniAppStore.writeTombstone(a, name: "Dating help")
         SnapshotStore.deleteAll(a)
         _ = store
 
-        MyAppStore.sweepOrphanAppFiles(keeping: [])
+        MiniAppStore.sweepOrphanAppFiles(keeping: [])
         #expect(SnapshotStore.head(a) != nil, "body must be captured, not just deleted")
 
-        let fresh = MyAppStore()
-        #expect(!fresh.myApps.contains { $0.id == a })      // still suppressed
-        #expect(fresh.restoreDeletedMyApp(a))
-        #expect(fresh.myApp(withId: a)?.name == "Dating help")
+        let fresh = MiniAppStore()
+        #expect(!fresh.miniApps.contains { $0.id == a })      // still suppressed
+        #expect(fresh.restoreDeletedMiniApp(a))
+        #expect(fresh.miniApp(withId: a)?.name == "Dating help")
     }
 
     @Test("restore falls back to an older snapshot when the newest is corrupt")
     func restoreFallsBackPastCorruptHead() async {
         let (store, a, _) = await twoAppStore()
-        guard let app = store.myApp(withId: a) else { Issue.record("missing app"); return }
+        guard let app = store.miniApp(withId: a) else { Issue.record("missing app"); return }
         SnapshotStore.record(app, reason: .pinned, label: "keep")
-        store.removeMyApp(a)
+        store.removeMiniApp(a)
 
         // Corrupt the newest record (the `.deleted` one written on the way out).
         guard let head = SnapshotStore.head(a) else { Issue.record("no head"); return }
         try? Data("{ not json".utf8).write(to: SnapshotStore.url(a, head.id))
 
-        #expect(store.restoreDeletedMyApp(a))
-        #expect(store.myApp(withId: a)?.name == "Dating help")
+        #expect(store.restoreDeletedMiniApp(a))
+        #expect(store.miniApp(withId: a)?.name == "Dating help")
     }
 
     @Test("gcTombstones drops the restore point it was holding once the tombstone ages out")
     func gcReapsOrphanedRestorePoint() async {
         let (store, a, _) = await twoAppStore()
-        store.removeMyApp(a)
+        store.removeMiniApp(a)
         #expect(SnapshotStore.head(a) != nil)
 
-        _ = MyAppStore.gcTombstones(ttl: -1)                // force every tombstone to age out
+        _ = MiniAppStore.gcTombstones(ttl: -1)                // force every tombstone to age out
 
-        #expect(MyAppStore.deletedMyApps().isEmpty)
+        #expect(MiniAppStore.deletedMiniApps().isEmpty)
         #expect(SnapshotStore.head(a) == nil, "orphan restore point must go with the tombstone")
     }
 
     @Test("gcTombstones keeps a user pin when it reaps the restore point")
     func gcKeepsPins() async {
         let (store, a, _) = await twoAppStore()
-        guard let app = store.myApp(withId: a) else { Issue.record("missing app"); return }
+        guard let app = store.miniApp(withId: a) else { Issue.record("missing app"); return }
         SnapshotStore.record(app, reason: .pinned, label: "keep")
-        store.removeMyApp(a)
+        store.removeMiniApp(a)
 
-        _ = MyAppStore.gcTombstones(ttl: -1)
+        _ = MiniAppStore.gcTombstones(ttl: -1)
 
         #expect(SnapshotStore.metas(a).map(\.reason) == [.pinned])
     }
@@ -169,14 +169,14 @@ struct DeletedAppRestoreTests {
     @Test("restoring an app that was archived brings it back visible")
     func restoreUnarchives() async {
         let (store, a, _) = await twoAppStore()
-        store.setMyAppArchived(a, true)
-        store.removeMyApp(a)
+        store.setMiniAppArchived(a, true)
+        store.removeMiniApp(a)
 
-        #expect(store.restoreDeletedMyApp(a))
+        #expect(store.restoreDeletedMiniApp(a))
         // Otherwise the restore lands in Settings ▸ Archive: the row leaves
         // this list and the app shows up nowhere the user was looking.
-        #expect(store.myApp(withId: a)?.isArchived == false)
-        #expect(store.visibleMyApps.contains { $0.id == a })
+        #expect(store.miniApp(withId: a)?.isArchived == false)
+        #expect(store.visibleMiniApps.contains { $0.id == a })
     }
 
     /// `persist()` is a no-op while provisioning, but `clearTombstone` isn't —
@@ -185,8 +185,8 @@ struct DeletedAppRestoreTests {
     @Test("restore is refused while provisioning, so the tombstone survives")
     func restoreRefusedWhileProvisioning() async throws {
         let (store, a, _) = await twoAppStore()
-        store.removeMyApp(a)
-        #expect(MyAppStore.deletedMyApps().contains { $0.id == a })
+        store.removeMiniApp(a)
+        #expect(MiniAppStore.deletedMiniApps().contains { $0.id == a })
 
         // Relaunch into a provisioning store: an empty local roster (index and
         // bodies gone) with the tombstone tree intact and iCloud active.
@@ -197,10 +197,10 @@ struct DeletedAppRestoreTests {
         try fm.createDirectory(at: cloud, withIntermediateDirectories: true)
 
         try await TestStorage.withCloudMirror(cloud) {
-            let provisioning = MyAppStore()
+            let provisioning = MiniAppStore()
             #expect(provisioning.isProvisioning)
-            #expect(provisioning.restoreDeletedMyApp(a) == false)
-            #expect(MyAppStore.deletedMyApps().contains { $0.id == a })
+            #expect(provisioning.restoreDeletedMiniApp(a) == false)
+            #expect(MiniAppStore.deletedMiniApps().contains { $0.id == a })
         }
     }
 
@@ -209,30 +209,30 @@ struct DeletedAppRestoreTests {
     @Test("purge drops every restore source, pins included")
     func purgeDropsEverything() async {
         let (store, a, _) = await twoAppStore()
-        guard let app = store.myApp(withId: a) else { Issue.record("missing app"); return }
+        guard let app = store.miniApp(withId: a) else { Issue.record("missing app"); return }
         SnapshotStore.record(app, reason: .pinned, label: "keep")
-        store.removeMyApp(a)
+        store.removeMiniApp(a)
 
-        MyAppStore.purgeDeletedMyApp(a)
+        MiniAppStore.purgeDeletedMiniApp(a)
 
         #expect(SnapshotStore.metas(a).isEmpty, "a permanent delete keeps nothing")
-        #expect(MyAppStore.hasRestoreSource(a) == false)
-        #expect(store.restoreDeletedMyApp(a) == false)
+        #expect(MiniAppStore.hasRestoreSource(a) == false)
+        #expect(store.restoreDeletedMiniApp(a) == false)
     }
 
     @Test("a purged app leaves the listing and the Settings row with it")
     func purgeUnlistsApp() async {
         let (store, a, b) = await twoAppStore()
-        store.removeMyApp(a)
-        MyAppStore.writeTombstone(b, name: "Flight search")   // the roster keeps one app
+        store.removeMiniApp(a)
+        MiniAppStore.writeTombstone(b, name: "Flight search")   // the roster keeps one app
 
-        MyAppStore.purgeDeletedMyApp(a)
-        #expect(MyAppStore.deletedMyApps().map(\.id) == [b])
-        #expect(MyAppStore.hasTombstones(), "b is still listable")
+        MiniAppStore.purgeDeletedMiniApp(a)
+        #expect(MiniAppStore.deletedMiniApps().map(\.id) == [b])
+        #expect(MiniAppStore.hasTombstones(), "b is still listable")
 
-        MyAppStore.purgeDeletedMyApp(b)
-        #expect(MyAppStore.deletedMyApps().isEmpty)
-        #expect(MyAppStore.hasTombstones() == false, "nothing listable → no Settings row")
+        MiniAppStore.purgeDeletedMiniApp(b)
+        #expect(MiniAppStore.deletedMiniApps().isEmpty)
+        #expect(MiniAppStore.hasTombstones() == false, "nothing listable → no Settings row")
     }
 
     /// The marker outlives the purge on purpose: a device that still holds the
@@ -242,42 +242,42 @@ struct DeletedAppRestoreTests {
         let (store, a, _) = await twoAppStore()
         let body = try Data(contentsOf: PupaStorage.stateRoot
             .appendingPathComponent("apps/\(a.uuidString).json"))
-        store.removeMyApp(a)
-        MyAppStore.purgeDeletedMyApp(a)
+        store.removeMiniApp(a)
+        MiniAppStore.purgeDeletedMiniApp(a)
 
         try body.write(to: PupaStorage.stateRoot
             .appendingPathComponent("apps/\(a.uuidString).json"))   // another device re-pushes
 
-        let reloaded = MyAppStore()
-        #expect(!reloaded.myApps.contains { $0.id == a })
+        let reloaded = MiniAppStore()
+        #expect(!reloaded.miniApps.contains { $0.id == a })
 
         // …and the sweep reaps it without re-capturing a restore point the user
         // asked to be rid of.
-        MyAppStore.sweepOrphanAppFiles(keeping: [])
+        MiniAppStore.sweepOrphanAppFiles(keeping: [])
         #expect(SnapshotStore.head(a) == nil)
-        #expect(MyAppStore.deletedMyApps().isEmpty)
+        #expect(MiniAppStore.deletedMiniApps().isEmpty)
     }
 
     @Test("a purged tombstone still ages out at the TTL")
     func purgedTombstoneStillGCs() async {
         let (store, a, _) = await twoAppStore()
-        store.removeMyApp(a)
-        MyAppStore.purgeDeletedMyApp(a)
+        store.removeMiniApp(a)
+        MiniAppStore.purgeDeletedMiniApp(a)
 
-        #expect(MyAppStore.gcTombstones(ttl: -1) == 1)
-        #expect(MyAppStore.hasTombstones() == false)
+        #expect(MiniAppStore.gcTombstones(ttl: -1) == 1)
+        #expect(MiniAppStore.hasTombstones() == false)
     }
 
     @Test("hasTombstones tracks the listing without resolving restore sources")
     func hasTombstonesTracksListing() async {
         let (store, a, _) = await twoAppStore()
-        #expect(MyAppStore.hasTombstones() == false)
+        #expect(MiniAppStore.hasTombstones() == false)
 
-        store.removeMyApp(a)
-        #expect(MyAppStore.hasTombstones())
+        store.removeMiniApp(a)
+        #expect(MiniAppStore.hasTombstones())
 
-        #expect(store.restoreDeletedMyApp(a))
-        #expect(MyAppStore.hasTombstones() == false)
+        #expect(store.restoreDeletedMiniApp(a))
+        #expect(MiniAppStore.hasTombstones() == false)
     }
 
     @Test("the cloud-roster retry clears the waiting flag when it gives up")
@@ -285,7 +285,7 @@ struct DeletedAppRestoreTests {
         let (store, _, _) = await twoAppStore()
         // Empty the disk so `load()` keeps reporting "no roster" and the retry
         // runs to its deadline instead of adopting on the first pass.
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         store.beginAwaitingCloudRoster(timeout: .milliseconds(120), interval: .milliseconds(10))
         #expect(store.awaitingCloudRoster)
 
@@ -304,8 +304,8 @@ struct DeletedAppRestoreTests {
         let (store, a, _) = await twoAppStore()
 
         for _ in 0..<4 {
-            store.removeMyApp(a)
-            #expect(store.restoreDeletedMyApp(a))
+            store.removeMiniApp(a)
+            #expect(store.restoreDeletedMiniApp(a))
         }
 
         let reasons = SnapshotStore.metas(a).map(\.reason)
@@ -318,9 +318,9 @@ struct DeletedAppRestoreTests {
     func historyResolvesAfterDroppingRestorePoints() async {
         let (store, a, _) = await twoAppStore()
         for i in 0..<3 {
-            store.removeMyApp(a)
-            #expect(store.restoreDeletedMyApp(a))
-            store.renameMyApp(a, to: "Cycle \(i)")
+            store.removeMiniApp(a)
+            #expect(store.restoreDeletedMiniApp(a))
+            store.renameMiniApp(a, to: "Cycle \(i)")
         }
 
         let metas = SnapshotStore.metas(a)
@@ -336,27 +336,27 @@ struct DeletedAppRestoreTests {
     @Test("restoring keeps the user's pins")
     func restoreKeepsPins() async {
         let (store, a, _) = await twoAppStore()
-        guard let app = store.myApp(withId: a) else { Issue.record("missing app"); return }
+        guard let app = store.miniApp(withId: a) else { Issue.record("missing app"); return }
         SnapshotStore.record(app, reason: .pinned, label: "keep")
-        store.removeMyApp(a)
-        #expect(store.restoreDeletedMyApp(a))
+        store.removeMiniApp(a)
+        #expect(store.restoreDeletedMiniApp(a))
 
         let pins = SnapshotStore.metas(a).filter { $0.reason == .pinned }
         #expect(pins.map(\.label) == ["keep"])
         #expect(SnapshotStore.restoredApp(a, id: pins[0].id) != nil)
     }
 
-    /// `restoreDeletedMyApp` is not the only un-delete. Clearing a tombstone
+    /// `restoreDeletedMiniApp` is not the only un-delete. Clearing a tombstone
     /// retires the one thing that can ever collect that app's `.deleted`
     /// record, so every path must drop it in the same breath.
     @Test("reviving a deleted app from a pin drops its stranded restore point")
     func revivingFromPinDropsRestorePoint() async {
         let (store, a, _) = await twoAppStore()
-        guard let app = store.myApp(withId: a) else { Issue.record("missing app"); return }
+        guard let app = store.miniApp(withId: a) else { Issue.record("missing app"); return }
         guard let pin = SnapshotStore.record(app, reason: .pinned, label: "keep") else {
             Issue.record("no pin"); return
         }
-        store.removeMyApp(a)
+        store.removeMiniApp(a)
         #expect(SnapshotStore.metas(a).contains { $0.reason == .deleted })
 
         #expect(store.restorePinnedSnapshot(appId: a, snapshotId: pin) == a)
@@ -373,15 +373,15 @@ struct DeletedAppRestoreTests {
     func syncRemovalRestoreDropsRestorePoint() async {
         let (store, a, _) = await twoAppStore()
         // Another device deletes it; this one only receives the tombstone.
-        let other = MyAppStore()
-        other.removeMyApp(a)
+        let other = MiniAppStore()
+        other.removeMiniApp(a)
         await store.reloadFromDisk()
         #expect(store.pendingSyncRemoval?.ids == [a])
         #expect(SnapshotStore.metas(a).contains { $0.reason == .deleted })
 
         store.restoreSyncRemovedApps()
 
-        #expect(store.myApps.contains { $0.id == a })
+        #expect(store.miniApps.contains { $0.id == a })
         let reasons = SnapshotStore.metas(a).map(\.reason)
         #expect(!reasons.contains(.deleted), "\(reasons)")
         for m in SnapshotStore.metas(a) {
@@ -392,11 +392,11 @@ struct DeletedAppRestoreTests {
     @Test("re-importing a deleted id drops its stranded restore point")
     func importDropsRestorePoint() async {
         let (store, a, _) = await twoAppStore()
-        guard let app = store.myApp(withId: a) else { Issue.record("missing app"); return }
-        store.removeMyApp(a)
+        guard let app = store.miniApp(withId: a) else { Issue.record("missing app"); return }
+        store.removeMiniApp(a)
         #expect(SnapshotStore.metas(a).contains { $0.reason == .deleted })
 
-        store.importMyApp(app)
+        store.importMiniApp(app)
 
         #expect(!SnapshotStore.metas(a).map(\.reason).contains(.deleted))
     }
@@ -404,15 +404,15 @@ struct DeletedAppRestoreTests {
     @Test("hasRestoreSource agrees with a real restore for both sources")
     func restoreSourceProbeMatchesReality() async {
         let (store, a, b) = await twoAppStore()
-        #expect(MyAppStore.hasRestoreSource(UUID()) == false)
+        #expect(MiniAppStore.hasRestoreSource(UUID()) == false)
 
         // Snapshot source: the `.deleted` record written on the way out.
-        store.removeMyApp(a)
-        #expect(MyAppStore.hasRestoreSource(a))
+        store.removeMiniApp(a)
+        #expect(MiniAppStore.hasRestoreSource(a))
 
         // Body source: a tombstone from another device, its snapshot unsynced.
-        MyAppStore.writeTombstone(b, name: "Flight search")
+        MiniAppStore.writeTombstone(b, name: "Flight search")
         SnapshotStore.deleteAll(b)
-        #expect(MyAppStore.hasRestoreSource(b), "the on-disk body is a source too")
+        #expect(MiniAppStore.hasRestoreSource(b), "the on-disk body is a source too")
     }
 }

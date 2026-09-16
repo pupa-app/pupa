@@ -8,7 +8,7 @@ import Testing
 /// on a canvas event, with nothing shown first. `docs/marketplace.md` named
 /// this as the residual vector of the import threat model.
 ///
-/// The feature stays usable: a shared MyApp can still ship automations, they
+/// The feature stays usable: a shared MiniApp can still ship automations, they
 /// just always propose. Authorship, not capability, is what's constrained —
 /// rules the user writes locally are untouched.
 @MainActor
@@ -34,7 +34,7 @@ struct ImportedAutomationTests {
 
     @Test("confirm:false in an imported rule is forced back to true")
     func autoFireForcedToConfirm() throws {
-        let cleaned = try #require(MyAppImporter.sanitizeAutomations(rulesJSON(confirm: "false")))
+        let cleaned = try #require(MiniAppImporter.sanitizeAutomations(rulesJSON(confirm: "false")))
         let rules = AutomationConfig.parse(cleaned)
         #expect(rules.count == 1)
         #expect(rules[0].confirm, "an imported rule can auto-fire a model turn")
@@ -44,7 +44,7 @@ struct ImportedAutomationTests {
 
     @Test("confirm:true is left as it is")
     func confirmTruePreserved() throws {
-        let cleaned = try #require(MyAppImporter.sanitizeAutomations(rulesJSON(confirm: "true")))
+        let cleaned = try #require(MiniAppImporter.sanitizeAutomations(rulesJSON(confirm: "true")))
         #expect(AutomationConfig.parse(cleaned).first?.confirm == true)
     }
 
@@ -56,7 +56,7 @@ struct ImportedAutomationTests {
         {"automations":{"item.moved":[{"id":"r1",
         "action":{"startThread":{"prompt":"hi"}}}]}}
         """
-        let cleaned = try #require(MyAppImporter.sanitizeAutomations(json))
+        let cleaned = try #require(MiniAppImporter.sanitizeAutomations(json))
         #expect(cleaned.contains("\"confirm\":true"), "the flag wasn't written")
         #expect(AutomationConfig.parse(cleaned).first?.action.startThreadPrompt == "hi")
     }
@@ -69,7 +69,7 @@ struct ImportedAutomationTests {
           {"id":"b","confirm":false,"action":{"startThread":{"prompt":"two"}}}
         ]}}
         """
-        let rules = AutomationConfig.parse(MyAppImporter.sanitizeAutomations(json) ?? "")
+        let rules = AutomationConfig.parse(MiniAppImporter.sanitizeAutomations(json) ?? "")
         let allConfirm = rules.allSatisfy { $0.confirm }
         #expect(rules.count == 2)
         #expect(allConfirm)
@@ -80,8 +80,8 @@ struct ImportedAutomationTests {
         // A bundle shipping an empty or forward-compatible config isn't
         // broken; dropping it and telling the user it couldn't be read is a
         // lie about their data.
-        #expect(MyAppImporter.sanitizeAutomations("{}") == "{}")
-        #expect(MyAppImporter.sanitizeAutomations(#"{"version":2}"#) == #"{"version":2}"#)
+        #expect(MiniAppImporter.sanitizeAutomations("{}") == "{}")
+        #expect(MiniAppImporter.sanitizeAutomations(#"{"version":2}"#) == #"{"version":2}"#)
     }
 
     @Test("Unparseable rule text is dropped, not passed through")
@@ -89,16 +89,16 @@ struct ImportedAutomationTests {
         // If it can't be understood it can't be vouched for. `AutomationConfig`
         // already returns [] for junk, but the file shouldn't land on disk
         // either — a future parser might read it differently than this one.
-        #expect(MyAppImporter.sanitizeAutomations("{not json") == nil)
-        #expect(MyAppImporter.sanitizeAutomations("") == nil)
+        #expect(MiniAppImporter.sanitizeAutomations("{not json") == nil)
+        #expect(MiniAppImporter.sanitizeAutomations("") == nil)
     }
 
     // MARK: End to end through the importer
 
     private func bundleCarrying(_ file: MemoryFile) throws -> Data {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let app = MyApp(name: "Imported", iconSystemName: "square", typeId: "tracker", components: [])
-        let bundle = MyAppBundle(
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let app = MiniApp(name: "Imported", iconSystemName: "square", typeId: "tracker", components: [])
+        let bundle = MiniAppBundle(
             header: .init(appVersion: PupaAppVersion, includedRecords: false, includedMemories: true),
             app: app,
             memories: [file])
@@ -108,12 +108,12 @@ struct ImportedAutomationTests {
     @Test("A bundle cannot install a rule that auto-fires a chat turn")
     func importedBundleCannotAutoFire() throws {
         let mem = tempMemory()
-        let store = MyAppStore(initial: ([], UUID()))
+        let store = MiniAppStore(initial: ([], UUID()))
         let data = try bundleCarrying(
             MemoryFile(path: MemoryStore.pupaAutomationsPath, content: rulesJSON(confirm: "false")))
 
-        let result = try MyAppImporter.importBundle(data, into: store, memory: mem)
-        let scoped = mem.appScopedStore(forAppId: result.myAppId)
+        let result = try MiniAppImporter.importBundle(data, into: store, memory: mem)
+        let scoped = mem.appScopedStore(forAppId: result.miniAppId)
         let onDisk = try scoped.readFile(path: MemoryStore.pupaAutomationsPath).content
 
         let rules = AutomationConfig.parse(onDisk)
@@ -144,11 +144,11 @@ struct ImportedAutomationTests {
         // canonical path — the one `AutomationStore` reads — while the guard
         // says "not the automations file", and the rewrite is skipped.
         let mem = tempMemory()
-        let store = MyAppStore(initial: ([], UUID()))
+        let store = MiniAppStore(initial: ([], UUID()))
         let data = try bundleCarrying(MemoryFile(path: path, content: rulesJSON(confirm: "false")))
 
-        let result = try MyAppImporter.importBundle(data, into: store, memory: mem)
-        let scoped = mem.appScopedStore(forAppId: result.myAppId)
+        let result = try MiniAppImporter.importBundle(data, into: store, memory: mem)
+        let scoped = mem.appScopedStore(forAppId: result.miniAppId)
         let landed = scoped.snapshotPaths().first {
             $0.caseInsensitiveCompare(MemoryStore.pupaAutomationsPath) == .orderedSame
         }
@@ -206,10 +206,10 @@ struct ImportedRemoteImageTests {
     }
 
     private func bundle(settings: [String: SettingValue]) throws -> Data {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let app = MyApp(name: "Imported", iconSystemName: "square",
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let app = MiniApp(name: "Imported", iconSystemName: "square",
                         typeId: "tracker", components: [], settings: settings)
-        return try MyAppBundle(
+        return try MiniAppBundle(
             header: .init(appVersion: PupaAppVersion, includedRecords: false, includedMemories: false),
             app: app,
             memories: []).encoded()
@@ -219,19 +219,19 @@ struct ImportedRemoteImageTests {
     func locallyAuthoredAppUnchanged() throws {
         // Through the store, not a struct literal — the point is that ordinary
         // app creation doesn't pick up the imported stamp.
-        let store = MyAppStore(initial: ([], UUID()))
-        let id = store.importMyApp(
-            MyApp(name: "Mine", iconSystemName: "square", typeId: "tracker"))
-        let app = try #require(store.myApps.first { $0.id == id })
+        let store = MiniAppStore(initial: ([], UUID()))
+        let id = store.importMiniApp(
+            MiniApp(name: "Mine", iconSystemName: "square", typeId: "tracker"))
+        let app = try #require(store.miniApps.first { $0.id == id })
         #expect(app.allowsRemoteImages, "existing apps changed behaviour")
     }
 
     @Test("An imported app does not")
     func importedAppIsGated() throws {
-        let store = MyAppStore(initial: ([], UUID()))
-        let result = try MyAppImporter.importBundle(
+        let store = MiniAppStore(initial: ([], UUID()))
+        let result = try MiniAppImporter.importBundle(
             try bundle(settings: [:]), into: store, memory: tempMemory())
-        let imported = try #require(store.myApps.first { $0.id == result.myAppId })
+        let imported = try #require(store.miniApps.first { $0.id == result.miniAppId })
         #expect(!imported.allowsRemoteImages, "imported content can fetch on render")
     }
 
@@ -239,11 +239,11 @@ struct ImportedRemoteImageTests {
     func bundleCannotSelfGrant() throws {
         // The settings allow-list drops the key, and the importer stamps false
         // afterwards — so neither ordering nor a crafted value helps.
-        let store = MyAppStore(initial: ([], UUID()))
-        let result = try MyAppImporter.importBundle(
-            try bundle(settings: [MyAppStore.remoteImagesSettingsKey: .bool(true)]),
+        let store = MiniAppStore(initial: ([], UUID()))
+        let result = try MiniAppImporter.importBundle(
+            try bundle(settings: [MiniAppStore.remoteImagesSettingsKey: .bool(true)]),
             into: store, memory: tempMemory())
-        let imported = try #require(store.myApps.first { $0.id == result.myAppId })
+        let imported = try #require(store.miniApps.first { $0.id == result.miniAppId })
         #expect(!imported.allowsRemoteImages, "a bundle granted itself network access")
     }
 
@@ -251,13 +251,13 @@ struct ImportedRemoteImageTests {
     func userCanOptIn() throws {
         // Through the setter the placeholder's button calls, so the affordance
         // and the flag are pinned together rather than each half separately.
-        let store = MyAppStore(initial: ([], UUID()))
-        let result = try MyAppImporter.importBundle(
+        let store = MiniAppStore(initial: ([], UUID()))
+        let result = try MiniAppImporter.importBundle(
             try bundle(settings: [:]), into: store, memory: tempMemory())
-        #expect(store.myApps.first { $0.id == result.myAppId }?.allowsRemoteImages == false)
+        #expect(store.miniApps.first { $0.id == result.miniAppId }?.allowsRemoteImages == false)
 
-        store.setRemoteImages(true, for: result.myAppId)
-        #expect(store.myApps.first { $0.id == result.myAppId }?.allowsRemoteImages == true)
+        store.setRemoteImages(true, for: result.miniAppId)
+        #expect(store.miniApps.first { $0.id == result.miniAppId }?.allowsRemoteImages == true)
     }
 
 }
@@ -267,11 +267,11 @@ extension ImportedAutomationTests {
     func unreadableRulesWarn() throws {
         // Dropping them without a word looks like the feature is broken.
         let mem = tempMemory()
-        let store = MyAppStore(initial: ([], UUID()))
+        let store = MiniAppStore(initial: ([], UUID()))
         let data = try bundleCarrying(
             MemoryFile(path: MemoryStore.pupaAutomationsPath, content: "{not json"))
 
-        let result = try MyAppImporter.importBundle(data, into: store, memory: mem)
+        let result = try MiniAppImporter.importBundle(data, into: store, memory: mem)
         let mentionsRules = result.warnings.contains { $0.lowercased().contains("automation") }
         #expect(mentionsRules, "rules vanished with no warning: \(result.warnings)")
     }
@@ -282,12 +282,12 @@ extension ImportedRemoteImageTests {
     func unknownAppIdFailsClosed() throws {
         // A stale route, or a link naming an app that isn't installed, means
         // we can't tell whose content this is — which is not a reason to fetch.
-        let store = MyAppStore(initial: ([], UUID()))
-        let known = try MyAppImporter.importBundle(
-            try bundle(settings: [:]), into: store, memory: tempMemory()).myAppId
+        let store = MiniAppStore(initial: ([], UUID()))
+        let known = try MiniAppImporter.importBundle(
+            try bundle(settings: [:]), into: store, memory: tempMemory()).miniAppId
 
-        #expect(store.myApps.first { $0.id == known }?.allowsRemoteImages == false)
-        #expect(store.myApps.first { $0.id == UUID() } == nil,
+        #expect(store.miniApps.first { $0.id == known }?.allowsRemoteImages == false)
+        #expect(store.miniApps.first { $0.id == UUID() } == nil,
                 "fixture assumption: a random id resolves to no app")
     }
 }

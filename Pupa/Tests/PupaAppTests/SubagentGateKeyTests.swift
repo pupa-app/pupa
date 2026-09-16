@@ -2,9 +2,9 @@ import Foundation
 import Testing
 @testable import PupaApp
 
-/// The generic `.subagent(myAppId:slug:)` invocation key participates in the
-/// shared gate exactly like `.myApp` — reentrancy, sibling allowance, and
-/// depth all resolve per (myAppId, slug).
+/// The generic `.subagent(miniAppId:slug:)` invocation key participates in the
+/// shared gate exactly like `.miniApp` — reentrancy, sibling allowance, and
+/// depth all resolve per (miniAppId, slug).
 @MainActor
 @Suite("Subagent gate key")
 struct SubagentGateKeyTests {
@@ -25,8 +25,8 @@ struct SubagentGateKeyTests {
     func reentrantSubagent() {
         let gate = AgentInvocationGate()
         let app = UUID()
-        let a: AgentInvocationKey = .subagent(myAppId: app, slug: "coach")
-        let b: AgentInvocationKey = .subagent(myAppId: app, slug: "scout")
+        let a: AgentInvocationKey = .subagent(miniAppId: app, slug: "coach")
+        let b: AgentInvocationKey = .subagent(miniAppId: app, slug: "scout")
         let rootId = enter(gate, caller: nil, target: a)          // coach (root)
         let bId = enter(gate, caller: rootId, target: b)          // coach → scout
         // scout invoking coach again re-enters an ancestor → rejected.
@@ -35,23 +35,23 @@ struct SubagentGateKeyTests {
         }
     }
 
-    @Test("Same slug in two different MyApps does not collide")
-    func slugDisambiguatedByMyApp() {
+    @Test("Same slug in two different MiniApps does not collide")
+    func slugDisambiguatedByMiniApp() {
         let gate = AgentInvocationGate()
         let app1 = UUID(), app2 = UUID()
-        let a1: AgentInvocationKey = .subagent(myAppId: app1, slug: "coach")
-        let a2: AgentInvocationKey = .subagent(myAppId: app2, slug: "coach")
+        let a1: AgentInvocationKey = .subagent(miniAppId: app1, slug: "coach")
+        let a2: AgentInvocationKey = .subagent(miniAppId: app2, slug: "coach")
         let rootId = enter(gate, caller: nil, target: a1)
-        // Same slug, different myApp → not an ancestor, must proceed.
+        // Same slug, different miniApp → not an ancestor, must proceed.
         guard case .proceed = gate.decide(caller: rootId, target: a2) else {
-            Issue.record("Expected .proceed for same slug in a different myApp"); return
+            Issue.record("Expected .proceed for same slug in a different miniApp"); return
         }
     }
 
-    @Test("statKey / wireValue encode both myAppId and slug")
+    @Test("statKey / wireValue encode both miniAppId and slug")
     func keyEncoding() {
         let app = UUID()
-        let key: AgentInvocationKey = .subagent(myAppId: app, slug: "coach")
+        let key: AgentInvocationKey = .subagent(miniAppId: app, slug: "coach")
         #expect(key.statKey == "subagent:\(app.uuidString):coach")
         #expect(key.wireValue == "subagent:\(app.uuidString):coach")
     }

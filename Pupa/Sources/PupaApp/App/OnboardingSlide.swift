@@ -5,7 +5,7 @@ import SwiftUI
 /// the carousel demos the actual product rather than stock illustration.
 enum OnboardingArt {
     case logo
-    case myApps
+    case miniApps
     case chat
     case memory
 }
@@ -29,7 +29,7 @@ enum OnboardingContent {
             subtitle: "Apps that build themselves around you. Describe what you need. Pupa assembles it."
         ),
         OnboardingSlideContent(
-            art: .myApps,
+            art: .miniApps,
             title: "Living workspaces",
             subtitle: "Trackers, calendars, checklists and chat rooms. All bundled into apps that reshape on demand."
         ),
@@ -79,7 +79,7 @@ struct OnboardingArtView: View {
     var body: some View {
         switch art {
         case .logo: logoArt
-        case .myApps: myAppsArt
+        case .miniApps: miniAppsArt
         case .chat: chatArt
         case .memory: memoryArt
         }
@@ -110,9 +110,9 @@ struct OnboardingArtView: View {
         }
     }
 
-    // MARK: - MyApps
+    // MARK: - MiniApps
 
-    private var myAppsArt: some View {
+    private var miniAppsArt: some View {
         // One domain each, deliberately: three of the four onboarding
         // illustrations used to be job hunting, which read as the app's
         // subject rather than one example of it. Job tracking keeps a card

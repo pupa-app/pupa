@@ -7,12 +7,12 @@ import AGUIKit
 @Suite("TrackerItem — Phase 2 migration")
 struct TrackerItemPolicyTests {
 
-    private func makeStore(fields: [FieldDef] = [FieldDef(name: "title", type: .text)]) -> (store: MyAppStore, id: UUID) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApp = MyApp(name: "T", iconSystemName: "list.bullet.rectangle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([myApp], myApp.id))
-        store.setTracker(title: "Test", fields: fields, myAppId: myApp.id)
-        return (store, myApp.id)
+    private func makeStore(fields: [FieldDef] = [FieldDef(name: "title", type: .text)]) -> (store: MiniAppStore, id: UUID) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApp = MiniApp(name: "T", iconSystemName: "list.bullet.rectangle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([miniApp], miniApp.id))
+        store.setTracker(title: "Test", fields: fields, miniAppId: miniApp.id)
+        return (store, miniApp.id)
     }
 
     // MARK: - TrackerItem: Item conformance
@@ -82,7 +82,7 @@ struct TrackerItemPolicyTests {
 
     @Test("TrackerItemPolicy is registered after registerBuiltins")
     func policyRegistered() {
-        MyAppTypeRegistry.shared.registerBuiltins()
+        MiniAppTypeRegistry.shared.registerBuiltins()
         #expect(ItemPolicyRegistry.shared.isRegistered(forKind: "tracker"))
     }
 
@@ -114,10 +114,10 @@ struct TrackerItemPolicyTests {
     @Test("setTrackerItemLinkedItems deduplicates via Item protocol method")
     func setLinkedItemsDeduplicates() {
         let (store, id) = makeStore()
-        let itemId = store.addItem(["title": "row"], myAppId: id)!
+        let itemId = store.addItem(["title": "row"], miniAppId: id)!
         let ref = ComponentItemRef(componentId: "calendar-1", itemId: UUID())
-        let ok = store.setTrackerItemLinkedItems(id: itemId, refs: [ref, ref, ref], myAppId: id)
-        let t = store.myApps.first(where: { $0.id == id })?.canvas.trackerData
+        let ok = store.setTrackerItemLinkedItems(id: itemId, refs: [ref, ref, ref], miniAppId: id)
+        let t = store.miniApps.first(where: { $0.id == id })?.canvas.trackerData
         #expect(ok == true)
         #expect(t?.items.first(where: { $0.id == itemId })?.linkedItems.count == 1)
     }
@@ -127,8 +127,8 @@ struct TrackerItemPolicyTests {
     @Test("addItem emits .added event with .user actor by default")
     func addItemEmitsUserEvent() {
         let (store, id) = makeStore()
-        _ = store.addItem(["title": "task"], myAppId: id)
-        let events = store.itemEventLog.events(forMyApp: id)
+        _ = store.addItem(["title": "task"], miniAppId: id)
+        let events = store.itemEventLog.events(forMiniApp: id)
         #expect(events.count == 1)
         #expect(events[0].kind == .added)
         #expect(events[0].actor == .user)
@@ -137,8 +137,8 @@ struct TrackerItemPolicyTests {
     @Test("addItem emits .added event with .agent actor when passed")
     func addItemEmitsAgentEvent() {
         let (store, id) = makeStore()
-        _ = store.addItem(["title": "task"], myAppId: id, actor: .agent(toolName: "addTrackerItems"))
-        let events = store.itemEventLog.events(forMyApp: id)
+        _ = store.addItem(["title": "task"], miniAppId: id, actor: .agent(toolName: "addTrackerItems"))
+        let events = store.itemEventLog.events(forMiniApp: id)
         #expect(events.count == 1)
         #expect(events[0].kind == .added)
         #expect(events[0].actor == .agent(toolName: "addTrackerItems"))
@@ -147,9 +147,9 @@ struct TrackerItemPolicyTests {
     @Test("removeItem emits .removed event")
     func removeItemEmitsEvent() {
         let (store, id) = makeStore()
-        let itemId = store.addItem(["title": "task"], myAppId: id, actor: .agent(toolName: "addTrackerItems"))!
-        _ = store.removeItem(id: itemId, myAppId: id, actor: .agent(toolName: "removeTrackerItems"))
-        let events = store.itemEventLog.events(forMyApp: id)
+        let itemId = store.addItem(["title": "task"], miniAppId: id, actor: .agent(toolName: "addTrackerItems"))!
+        _ = store.removeItem(id: itemId, miniAppId: id, actor: .agent(toolName: "removeTrackerItems"))
+        let events = store.itemEventLog.events(forMiniApp: id)
         let kinds = events.map(\.kind)
         #expect(kinds.contains(.added))
         #expect(kinds.contains(.removed))
@@ -159,26 +159,26 @@ struct TrackerItemPolicyTests {
     @Test("patchItem(id:) emits .patched event")
     func patchItemEmitsEvent() {
         let (store, id) = makeStore()
-        let itemId = store.addItem(["title": "task"], myAppId: id, actor: .agent(toolName: "addTrackerItems"))!
-        _ = store.patchItem(id: itemId, with: ["title": "edited"], myAppId: id, actor: .agent(toolName: "patchTrackerItems"))
-        let events = store.itemEventLog.events(forMyApp: id)
+        let itemId = store.addItem(["title": "task"], miniAppId: id, actor: .agent(toolName: "addTrackerItems"))!
+        _ = store.patchItem(id: itemId, with: ["title": "edited"], miniAppId: id, actor: .agent(toolName: "patchTrackerItems"))
+        let events = store.itemEventLog.events(forMiniApp: id)
         #expect(events.last?.kind == .patched)
         #expect(events.last?.actor == .agent(toolName: "patchTrackerItems"))
     }
 
-    @Test("events are scoped per myApp — two myApps don't mix")
-    func eventsPerMyApp() {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "list.bullet.rectangle", typeId: MyAppType.tracker.id)
-        let b = MyApp(name: "B", iconSystemName: "list.bullet.rectangle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a, b], a.id))
-        store.setTracker(title: "A", fields: [FieldDef(name: "title", type: .text)], myAppId: a.id)
-        store.setTracker(title: "B", fields: [FieldDef(name: "title", type: .text)], myAppId: b.id)
-        _ = store.addItem(["title": "from A"], myAppId: a.id)
-        _ = store.addItem(["title": "from B"], myAppId: b.id)
-        _ = store.addItem(["title": "from A again"], myAppId: a.id)
-        #expect(store.itemEventLog.events(forMyApp: a.id).count == 2)
-        #expect(store.itemEventLog.events(forMyApp: b.id).count == 1)
+    @Test("events are scoped per miniApp — two miniApps don't mix")
+    func eventsPerMiniApp() {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "list.bullet.rectangle", typeId: MiniAppType.tracker.id)
+        let b = MiniApp(name: "B", iconSystemName: "list.bullet.rectangle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a, b], a.id))
+        store.setTracker(title: "A", fields: [FieldDef(name: "title", type: .text)], miniAppId: a.id)
+        store.setTracker(title: "B", fields: [FieldDef(name: "title", type: .text)], miniAppId: b.id)
+        _ = store.addItem(["title": "from A"], miniAppId: a.id)
+        _ = store.addItem(["title": "from B"], miniAppId: b.id)
+        _ = store.addItem(["title": "from A again"], miniAppId: a.id)
+        #expect(store.itemEventLog.events(forMiniApp: a.id).count == 2)
+        #expect(store.itemEventLog.events(forMiniApp: b.id).count == 1)
     }
 }
 

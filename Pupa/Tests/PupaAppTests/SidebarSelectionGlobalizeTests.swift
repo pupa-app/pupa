@@ -11,13 +11,13 @@ struct SidebarSelectionGlobalizeTests {
 
     private let appId = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
     /// The app's memory folder — its lowercased uuid.
-    private var folder: String { MemoryStore.myAppFolder(myAppId: appId) }
+    private var folder: String { MemoryStore.miniAppFolder(miniAppId: appId) }
 
-    @Test("myApp memory link is prefixed with the app id")
-    func myAppMemoryGlobalized() {
-        let sel = SidebarSelection.myAppMemoryFile(appId, "notes/reading.md")
+    @Test("miniApp memory link is prefixed with the app id")
+    func miniAppMemoryGlobalized() {
+        let sel = SidebarSelection.miniAppMemoryFile(appId, "notes/reading.md")
             .globalizedMemoryPath()
-        #expect(sel == .myAppMemoryFile(appId, "\(folder)/notes/reading.md"))
+        #expect(sel == .miniAppMemoryFile(appId, "\(folder)/notes/reading.md"))
     }
 
     @Test("orchestrator memory link is prefixed with orchestrator/")
@@ -34,16 +34,16 @@ struct SidebarSelectionGlobalizeTests {
     @Test("An id with no live app still globalizes")
     func unknownAppIdStillGlobalized() {
         let ghost = UUID()
-        let sel = SidebarSelection.myAppMemoryFile(ghost, "notes/x.md")
+        let sel = SidebarSelection.miniAppMemoryFile(ghost, "notes/x.md")
             .globalizedMemoryPath()
-        #expect(sel == .myAppMemoryFile(ghost, "\(MemoryStore.myAppFolder(myAppId: ghost))/notes/x.md"))
+        #expect(sel == .miniAppMemoryFile(ghost, "\(MemoryStore.miniAppFolder(miniAppId: ghost))/notes/x.md"))
     }
 
     @Test("Non-memory selections pass through untouched")
     func nonMemoryPassesThrough() {
-        let sel = SidebarSelection.myAppComponent(appId, "tracker-1")
+        let sel = SidebarSelection.miniAppComponent(appId, "tracker-1")
             .globalizedMemoryPath()
-        #expect(sel == .myAppComponent(appId, "tracker-1"))
+        #expect(sel == .miniAppComponent(appId, "tracker-1"))
     }
 
     /// End-to-end: parse the link the agent emits, globalize it, and confirm the
@@ -58,10 +58,10 @@ struct SidebarSelectionGlobalizeTests {
         try store.writeFile(path: "\(folder)/notes/reading.md", content: "hi")
 
         let parsed = ChatLink.sidebarSelection(
-            from: URL(string: "pupa://memory/notes/reading.md")!, currentMyAppId: appId)
+            from: URL(string: "pupa://memory/notes/reading.md")!, currentMiniAppId: appId)
         let global = parsed?.globalizedMemoryPath()
-        guard case .myAppMemoryFile(_, let path)? = global else {
-            Issue.record("expected a myApp memory selection, got \(String(describing: global))")
+        guard case .miniAppMemoryFile(_, let path)? = global else {
+            Issue.record("expected a miniApp memory selection, got \(String(describing: global))")
             return
         }
         #expect(try store.readFile(path: path).content == "hi")

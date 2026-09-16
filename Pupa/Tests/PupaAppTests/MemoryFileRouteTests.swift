@@ -10,11 +10,11 @@ struct MemoryFileRouteTests {
 
     // MARK: Which selections become a sheet
 
-    @Test("A myApp memory file routes to a sheet, carrying its app id")
-    func myAppFileBecomesARoute() {
+    @Test("A miniApp memory file routes to a sheet, carrying its app id")
+    func miniAppFileBecomesARoute() {
         let id = UUID()
-        let route = MemoryFileRoute(.myAppMemoryFile(id, "notes/a.md"))
-        #expect(route?.myAppId == id)
+        let route = MemoryFileRoute(.miniAppMemoryFile(id, "notes/a.md"))
+        #expect(route?.miniAppId == id)
         #expect(route?.path == "notes/a.md")
         #expect(route?.restoredBuffer == nil)
     }
@@ -23,7 +23,7 @@ struct MemoryFileRouteTests {
     func orchestratorFileBecomesARoute() {
         let route = MemoryFileRoute(.memoryFile("orchestrator/journal.md"))
         #expect(route != nil)
-        #expect(route?.myAppId == nil)
+        #expect(route?.miniAppId == nil)
         #expect(route?.path == "orchestrator/journal.md")
     }
 
@@ -32,13 +32,13 @@ struct MemoryFileRouteTests {
         let id = UUID()
         let pushed: [SidebarSelection] = [
             .orchestrator,
-            .myAppHome(id),
-            .myApp(id),
-            .myAppComponent(id, "tracker-1"),
-            .myAppAgents(id),
-            .myAppAgentDetail(id, agentId: "myapp-main"),
-            .myAppMemories(id),
-            .myAppHistory(id),
+            .miniAppHome(id),
+            .miniApp(id),
+            .miniAppComponent(id, "tracker-1"),
+            .miniAppAgents(id),
+            .miniAppAgentDetail(id, agentId: "miniapp-main"),
+            .miniAppMemories(id),
+            .miniAppHistory(id),
             .orchestratorMemories,
             .orchestratorAgentDetail,
             .screenShare,
@@ -51,17 +51,17 @@ struct MemoryFileRouteTests {
     @Test("A route round-trips back to the selection the chat scope keys off")
     func routeRoundTripsToSelection() {
         let id = UUID()
-        #expect(MemoryFileRoute(myAppId: id, path: "a.md").selection
-                == .myAppMemoryFile(id, "a.md"))
-        #expect(MemoryFileRoute(myAppId: nil, path: "a.md").selection
+        #expect(MemoryFileRoute(miniAppId: id, path: "a.md").selection
+                == .miniAppMemoryFile(id, "a.md"))
+        #expect(MemoryFileRoute(miniAppId: nil, path: "a.md").selection
                 == .memoryFile("a.md"))
     }
 
     @Test("Identity separates the same filename in different scopes")
     func idIsScoped() {
-        let a = MemoryFileRoute(myAppId: UUID(), path: "notes.md")
-        let b = MemoryFileRoute(myAppId: UUID(), path: "notes.md")
-        let orchestrator = MemoryFileRoute(myAppId: nil, path: "notes.md")
+        let a = MemoryFileRoute(miniAppId: UUID(), path: "notes.md")
+        let b = MemoryFileRoute(miniAppId: UUID(), path: "notes.md")
+        let orchestrator = MemoryFileRoute(miniAppId: nil, path: "notes.md")
         #expect(a.id != b.id)
         #expect(a.id != orchestrator.id)
     }
@@ -69,8 +69,8 @@ struct MemoryFileRouteTests {
     @Test("A rescued buffer does not change which file the route is")
     func restoredBufferKeepsIdentity() {
         let id = UUID()
-        let fresh = MemoryFileRoute(myAppId: id, path: "a.md")
-        let retry = MemoryFileRoute(myAppId: id, path: "a.md", restoredBuffer: "half typed")
+        let fresh = MemoryFileRoute(miniAppId: id, path: "a.md")
+        let retry = MemoryFileRoute(miniAppId: id, path: "a.md", restoredBuffer: "half typed")
         #expect(fresh.id == retry.id)
         #expect(retry.restoredBuffer == "half typed")
     }

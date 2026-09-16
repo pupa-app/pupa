@@ -1,42 +1,42 @@
 import SwiftUI
 
-/// Per-MyApp overview of every agent that runs on its behalf — the
-/// MyApp's main agent plus any Slack personas living inside Slack
-/// components. Reached by tapping the "Agents" panel on the MyApp
+/// Per-MiniApp overview of every agent that runs on its behalf — the
+/// MiniApp's main agent plus any Slack personas living inside Slack
+/// components. Reached by tapping the "Agents" panel on the MiniApp
 /// landing page; the row tap pushes the per-agent details page.
 public struct AgentsListView: View {
-    let store: MyAppStore
+    let store: MiniAppStore
     let memory: MemoryStore
     let settings: SettingsStore
     let modelCatalog: ModelCatalogStore
-    let myAppId: UUID
+    let miniAppId: UUID
     var onNavigate: (SidebarSelection) -> Void
 
     public init(
-        store: MyAppStore,
+        store: MiniAppStore,
         memory: MemoryStore,
         settings: SettingsStore,
         modelCatalog: ModelCatalogStore,
-        myAppId: UUID,
+        miniAppId: UUID,
         onNavigate: @escaping (SidebarSelection) -> Void
     ) {
         self.store = store
         self.memory = memory
         self.settings = settings
         self.modelCatalog = modelCatalog
-        self.myAppId = myAppId
+        self.miniAppId = miniAppId
         self.onNavigate = onNavigate
     }
 
-    private var myApp: MyApp? {
-        store.myApps.first(where: { $0.id == myAppId })
+    private var miniApp: MiniApp? {
+        store.miniApps.first(where: { $0.id == miniAppId })
     }
 
     private var appColor: Color {
-        Color.color(atIndex: store.colorIndex(for: myAppId))
+        Color.color(atIndex: store.colorIndex(for: miniAppId))
     }
 
-    /// This pane is keep-alive: it stays mounted across a MyApp switch, so
+    /// This pane is keep-alive: it stays mounted across a MiniApp switch, so
     /// without this gate the enumeration below ran for a page nobody was
     /// looking at.
     @Environment(\.paneIsActive) private var paneIsActive
@@ -48,18 +48,18 @@ public struct AgentsListView: View {
     @State private var descriptorsLoaded = false
 
     /// Everything a descriptor is derived from: the memory tree (subagent
-    /// files) and the MyApp itself (model choice, disabled tools, components).
+    /// files) and the MiniApp itself (model choice, disabled tools, components).
     /// The old computed property re-derived on every body pass and so picked
     /// these up for free — at the cost of a disk walk each time. Comparing the
     /// inputs instead is strictly cheaper than reading them.
     private struct DescriptorKey: Hashable {
-        let myAppId: UUID
+        let miniAppId: UUID
         let memoryRevision: Int
-        let app: MyApp?
+        let app: MiniApp?
     }
 
     private var descriptorKey: DescriptorKey {
-        DescriptorKey(myAppId: myAppId, memoryRevision: memory.revision, app: myApp)
+        DescriptorKey(miniAppId: miniAppId, memoryRevision: memory.revision, app: miniApp)
     }
 
     /// `paneIsActive` belongs in the task *id* — becoming visible has to
@@ -77,20 +77,20 @@ public struct AgentsListView: View {
 
     private func loadDescriptors() {
         loadedKey = descriptorKey
-        guard let app = myApp else {
+        guard let app = miniApp else {
             descriptors = []
             descriptorsLoaded = true
             return
         }
         descriptors = AgentRegistry.enumerateAgents(
-            myApp: app, store: store, settings: settings, catalog: modelCatalog)
+            miniApp: app, store: store, settings: settings, catalog: modelCatalog)
         descriptorsLoaded = true
     }
 
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                if let app = myApp {
+                if let app = miniApp {
                     header(app)
                     Divider()
                     agentsPanel
@@ -110,8 +110,8 @@ public struct AgentsListView: View {
         }
     }
 
-    private func header(_ app: MyApp) -> some View {
-        MyAppPageHeader(page: "Agents", name: app.name, icon: "person.2.fill", color: appColor)
+    private func header(_ app: MiniApp) -> some View {
+        MiniAppPageHeader(page: "Agents", name: app.name, icon: "person.2.fill", color: appColor)
     }
 
     private var agentsPanel: some View {
@@ -174,7 +174,7 @@ public struct AgentsListView: View {
 
     private func agentRow(_ descriptor: AgentDescriptor) -> some View {
         Button {
-            onNavigate(.myAppAgentDetail(myAppId, agentId: descriptor.id))
+            onNavigate(.miniAppAgentDetail(miniAppId, agentId: descriptor.id))
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: descriptor.iconSystemName)

@@ -12,18 +12,18 @@ struct ResearchTrackerExampleTests {
 
     @Test("make() returns the five-component competitive-intel workspace")
     func makeSeedHasAllComponents() {
-        let myApp = ResearchTrackerExample.make()
-        #expect(myApp.name == ResearchTrackerExample.name)
-        #expect(myApp.typeId == "tracker")
-        #expect(myApp.iconSystemName == "chart.line.uptrend.xyaxis.circle")
-        #expect(myApp.activeComponentId == "tracker-1")
-        #expect(myApp.components.map(\.id) == ["tracker-1", "tracker-2", "chart-1", "calculator-1", "slack-1"])
+        let miniApp = ResearchTrackerExample.make()
+        #expect(miniApp.name == ResearchTrackerExample.name)
+        #expect(miniApp.typeId == "tracker")
+        #expect(miniApp.iconSystemName == "chart.line.uptrend.xyaxis.circle")
+        #expect(miniApp.activeComponentId == "tracker-1")
+        #expect(miniApp.components.map(\.id) == ["tracker-1", "tracker-2", "chart-1", "calculator-1", "slack-1"])
     }
 
     @Test("Watchlist is a threat-kanban with the seeded landscape rows")
     func watchlistIsKanban() {
-        let myApp = ResearchTrackerExample.make()
-        guard case .tracker(let data) = body(myApp, id: "tracker-1") else {
+        let miniApp = ResearchTrackerExample.make()
+        guard case .tracker(let data) = body(miniApp, id: "tracker-1") else {
             Issue.record("tracker-1 missing or wrong kind"); return
         }
         #expect(data.viewMode == .kanban)
@@ -37,9 +37,9 @@ struct ResearchTrackerExampleTests {
 
     @Test("Every Findings Log row links its subject back to a Watchlist row")
     func findingsLinkToWatchlist() {
-        let myApp = ResearchTrackerExample.make()
-        let watchlistIds = trackerItemIds(myApp, id: "tracker-1")
-        guard case .tracker(let data) = body(myApp, id: "tracker-2") else {
+        let miniApp = ResearchTrackerExample.make()
+        let watchlistIds = trackerItemIds(miniApp, id: "tracker-1")
+        guard case .tracker(let data) = body(miniApp, id: "tracker-2") else {
             Issue.record("tracker-2 missing or wrong kind"); return
         }
         #expect(data.items.count >= 6)
@@ -56,8 +56,8 @@ struct ResearchTrackerExampleTests {
 
     @Test("Signal Trend chart resolves live from the Findings Log")
     func chartSourcesFindings() {
-        let myApp = ResearchTrackerExample.make()
-        guard case .chart(let chart) = body(myApp, id: "chart-1") else {
+        let miniApp = ResearchTrackerExample.make()
+        guard case .chart(let chart) = body(miniApp, id: "chart-1") else {
             Issue.record("chart-1 missing or wrong kind"); return
         }
         #expect(chart.series.count == 2)
@@ -73,8 +73,8 @@ struct ResearchTrackerExampleTests {
 
     @Test("Deltas calculator counts findings and computes the week-over-week change")
     func deltasComputeWeekOverWeek() {
-        let myApp = ResearchTrackerExample.make()
-        guard case .calculator(let calc) = body(myApp, id: "calculator-1") else {
+        let miniApp = ResearchTrackerExample.make()
+        guard case .calculator(let calc) = body(miniApp, id: "calculator-1") else {
             Issue.record("calculator-1 missing or wrong kind"); return
         }
         let keys = Set(calc.rows.map(\.key))
@@ -96,8 +96,8 @@ struct ResearchTrackerExampleTests {
 
     @Test("Research Room's #research channel references the three subagents by slug")
     func researchRoomAgents() {
-        let myApp = ResearchTrackerExample.make()
-        guard case .slack(let data) = body(myApp, id: "slack-1") else {
+        let miniApp = ResearchTrackerExample.make()
+        guard case .slack(let data) = body(miniApp, id: "slack-1") else {
             Issue.record("slack-1 missing or wrong kind"); return
         }
         // Agents are filesystem subagents (seeded AGENTS.md, checked below);
@@ -132,29 +132,29 @@ struct ResearchTrackerExampleTests {
 
     @Test("Exports + re-imports cleanly with fresh identity")
     func bundleRoundTrips() throws {
-        MyAppTypeRegistry.shared.registerBuiltins()
+        MiniAppTypeRegistry.shared.registerBuiltins()
         let mem = MemoryStore(rootOverride: FileManager.default.temporaryDirectory
             .appendingPathComponent("pupa-research-rt-\(UUID().uuidString)", isDirectory: true))
         let app = ResearchTrackerExample.make()
-        let store = MyAppStore(initial: ([], UUID()))
-        let opts = MyAppExporter.Options(
+        let store = MiniAppStore(initial: ([], UUID()))
+        let opts = MiniAppExporter.Options(
             selectedComponentIds: Set(app.components.map(\.id)), includeRecords: true, includeMemories: true)
-        let data = try MyAppExporter.makeBundle(app: app, options: opts, memory: mem).encoded()
-        let result = try MyAppImporter.importBundle(data, into: store, memory: mem)
+        let data = try MiniAppExporter.makeBundle(app: app, options: opts, memory: mem).encoded()
+        let result = try MiniAppImporter.importBundle(data, into: store, memory: mem)
 
-        let imported = try #require(store.myApps.first { $0.id == result.myAppId })
+        let imported = try #require(store.miniApps.first { $0.id == result.miniAppId })
         #expect(imported.components.map(\.id) == ["tracker-1", "tracker-2", "chart-1", "calculator-1", "slack-1"])
         #expect(imported.id != app.id)
     }
 
     // MARK: - Helpers
 
-    private func body(_ myApp: MyApp, id: String) -> CanvasApp? {
-        myApp.components.first(where: { $0.id == id })?.body
+    private func body(_ miniApp: MiniApp, id: String) -> CanvasApp? {
+        miniApp.components.first(where: { $0.id == id })?.body
     }
 
-    private func trackerItemIds(_ myApp: MyApp, id: String) -> Set<UUID> {
-        guard case .tracker(let data) = body(myApp, id: id) else { return [] }
+    private func trackerItemIds(_ miniApp: MiniApp, id: String) -> Set<UUID> {
+        guard case .tracker(let data) = body(miniApp, id: id) else { return [] }
         return Set(data.items.map(\.id))
     }
 }

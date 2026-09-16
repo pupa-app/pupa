@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import PupaApp
 
-/// 0.0.249 re-keyed a myApp's memory folder from its name slug to its
+/// 0.0.249 re-keyed a miniApp's memory folder from its name slug to its
 /// immutable id (#257) without moving what was already on disk, so every
 /// pre-upgrade app came back to an empty seeded scaffold. These pin the
 /// one-shot adoption that moves the slug folder into place.
@@ -34,7 +34,7 @@ struct MemoryFolderMigrationTests {
 
     @Test("a slug folder is adopted into the app's id folder")
     func adoptsSlugFolder() async throws {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         let id = UUID()
         try write("content-studio/notes/reels.md", "RECIPE")
         try write("content-studio/pupa/agents/editor/AGENTS.md", "editor")
@@ -50,7 +50,7 @@ struct MemoryFolderMigrationTests {
 
     @Test("an id folder that already exists absorbs only the files it lacks")
     func mergesWithoutClobbering() async throws {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         let id = UUID()
         let dst = id.uuidString.lowercased()
         // Post-upgrade state: re-seeded scaffold + a note written since.
@@ -73,7 +73,7 @@ struct MemoryFolderMigrationTests {
 
     @Test("running twice is a no-op — the second pass finds nothing to move")
     func idempotent() async throws {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         let id = UUID()
         try write("job-search/notes/leads.md", "leads")
         let apps = [(id: id, name: "Job Search")]
@@ -85,7 +85,7 @@ struct MemoryFolderMigrationTests {
 
     @Test("an app named Orchestrator never swallows the orchestrator's own folder")
     func refusesOrchestratorFolder() async throws {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         let id = UUID()
         try write("orchestrator/journal.md", "the orchestrator's own notes")
 
@@ -96,13 +96,13 @@ struct MemoryFolderMigrationTests {
 
     @Test("an app with no slug folder on disk is left alone")
     func noSlugFolderIsNoop() async throws {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         #expect(MemoryFolderMigration.run(apps: [(id: UUID(), name: "Brand New App")]) == 0)
     }
 
     @Test("two apps sharing a name — the first claims the folder, the second is untouched")
     func duplicateNamesDoNotDoubleClaim() async throws {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         let first = UUID(), second = UUID()
         try write("daily-briefing/notes/a.md", "a")
 

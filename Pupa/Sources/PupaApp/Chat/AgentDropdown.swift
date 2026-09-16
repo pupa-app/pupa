@@ -50,7 +50,7 @@ struct AgentDropdown: View {
     @ViewBuilder
     private var popover: some View {
         // Wrap the roster in a ScrollView so a long agent list (Orchestrator +
-        // one entry per MyApp) stays fully reachable — without it the popover
+        // one entry per MiniApp) stays fully reachable — without it the popover
         // grows past the screen and the bottom apps become inaccessible. The
         // max height caps the popover so it scrolls instead of overflowing;
         // `.basedOnSize` bounce keeps a short list feeling static.

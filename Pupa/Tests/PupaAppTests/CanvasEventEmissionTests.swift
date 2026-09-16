@@ -11,25 +11,25 @@ struct CanvasEventEmissionTests {
 
     init() { TestStorage.activate() }
 
-    /// A tracker MyApp with two select fields (`Status`, `Priority`) and one
+    /// A tracker MiniApp with two select fields (`Status`, `Priority`) and one
     /// item parked in "Doing" / "Low". `groupBy` picks the kanban column field
     /// (nil ⇒ stay in grid) so a test can prove emission is view-independent.
     /// Returns store, appId, and the item id.
-    private func freshKanban(groupBy: String? = "Status") -> (MyAppStore, UUID, UUID) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApp = MyApp(name: "T", iconSystemName: "list.bullet.rectangle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([myApp], myApp.id))
+    private func freshKanban(groupBy: String? = "Status") -> (MiniAppStore, UUID, UUID) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApp = MiniApp(name: "T", iconSystemName: "list.bullet.rectangle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([miniApp], miniApp.id))
         store.setTracker(title: "Board", fields: [
             FieldDef(name: "title", type: .text),
             FieldDef(name: "Status", type: .select, options: ["Doing", "Review", "Done"]),
             FieldDef(name: "Priority", type: .select, options: ["Low", "High"])
-        ], myAppId: myApp.id)
+        ], miniAppId: miniApp.id)
         if let groupBy {
-            _ = store.setTrackerViewMode(.kanban, columnField: groupBy, myAppId: myApp.id)
+            _ = store.setTrackerViewMode(.kanban, columnField: groupBy, miniAppId: miniApp.id)
         }
         let item = store.addItem(
-            ["title": "Ship v2", "Status": "Doing", "Priority": "Low"], myAppId: myApp.id)!
-        return (store, myApp.id, item)
+            ["title": "Ship v2", "Status": "Doing", "Priority": "Low"], miniAppId: miniApp.id)!
+        return (store, miniApp.id, item)
     }
 
     @Test("moving across the column field publishes one item.moved event")
@@ -38,7 +38,7 @@ struct CanvasEventEmissionTests {
         var events: [CanvasEvent] = []
         store.onCanvasEvent = { events.append($0) }
 
-        _ = store.patchItem(id: item, with: ["Status": "Review"], myAppId: appId)
+        _ = store.patchItem(id: item, with: ["Status": "Review"], miniAppId: appId)
 
         #expect(events.count == 1)
         let ev = try! #require(events.first)
@@ -61,7 +61,7 @@ struct CanvasEventEmissionTests {
         var events: [CanvasEvent] = []
         store.onCanvasEvent = { events.append($0) }
 
-        _ = store.patchItem(id: item, with: ["Priority": "High"], myAppId: appId)
+        _ = store.patchItem(id: item, with: ["Priority": "High"], miniAppId: appId)
 
         #expect(events.count == 1)
         let ev = try! #require(events.first)
@@ -76,7 +76,7 @@ struct CanvasEventEmissionTests {
         var events: [CanvasEvent] = []
         store.onCanvasEvent = { events.append($0) }
 
-        _ = store.patchItem(id: item, with: ["Status": "Review"], myAppId: appId)
+        _ = store.patchItem(id: item, with: ["Status": "Review"], miniAppId: appId)
 
         #expect(events.count == 1)
         #expect(events.first?.field == "Status")
@@ -89,7 +89,7 @@ struct CanvasEventEmissionTests {
         var events: [CanvasEvent] = []
         store.onCanvasEvent = { events.append($0) }
 
-        _ = store.patchItem(id: item, with: ["Status": "Done", "Priority": "High"], myAppId: appId)
+        _ = store.patchItem(id: item, with: ["Status": "Done", "Priority": "High"], miniAppId: appId)
 
         #expect(Set(events.map(\.field)) == ["Status", "Priority"])
         #expect(events.count == 2)
@@ -101,7 +101,7 @@ struct CanvasEventEmissionTests {
         var events: [CanvasEvent] = []
         store.onCanvasEvent = { events.append($0) }
 
-        _ = store.patchItem(id: item, with: ["Priority": "High"], myAppId: appId,
+        _ = store.patchItem(id: item, with: ["Priority": "High"], miniAppId: appId,
                             actor: .agent(toolName: "patchTrackerItems"))
         #expect(events.isEmpty)
     }
@@ -112,7 +112,7 @@ struct CanvasEventEmissionTests {
         var events: [CanvasEvent] = []
         store.onCanvasEvent = { events.append($0) }
 
-        _ = store.patchItem(id: item, with: ["Status": "Doing"], myAppId: appId)
+        _ = store.patchItem(id: item, with: ["Status": "Doing"], miniAppId: appId)
         #expect(events.isEmpty)
     }
 
@@ -124,7 +124,7 @@ struct CanvasEventEmissionTests {
 
         // Both fields go "" → "X" is impossible here, so use the two-field patch
         // and assert the ids differ purely because the field name differs.
-        _ = store.patchItem(id: item, with: ["Status": "Review", "Priority": "High"], myAppId: appId)
+        _ = store.patchItem(id: item, with: ["Status": "Review", "Priority": "High"], miniAppId: appId)
 
         #expect(ids.count == 2)
         #expect(ids[0] != ids[1])
@@ -136,10 +136,10 @@ struct CanvasEventEmissionTests {
         var ids: [String] = []
         store.onCanvasEvent = { ids.append($0.transitionId) }
 
-        _ = store.patchItem(id: item, with: ["Status": "Review"], myAppId: appId)
+        _ = store.patchItem(id: item, with: ["Status": "Review"], miniAppId: appId)
         // Move back then forward again — same string transition, same id.
-        _ = store.patchItem(id: item, with: ["Status": "Doing"], myAppId: appId)
-        _ = store.patchItem(id: item, with: ["Status": "Review"], myAppId: appId)
+        _ = store.patchItem(id: item, with: ["Status": "Doing"], miniAppId: appId)
+        _ = store.patchItem(id: item, with: ["Status": "Review"], miniAppId: appId)
 
         #expect(ids.count == 3)
         #expect(ids[0] == ids[2])   // identical Doing→Review transitions share an id
@@ -152,15 +152,15 @@ struct CanvasEventEmissionTests {
         var events: [CanvasEvent] = []
         store.onCanvasEvent = { events.append($0) }
 
-        _ = store.patchItem(id: item, with: ["title": "Ship v3"], myAppId: appId)
+        _ = store.patchItem(id: item, with: ["title": "Ship v3"], miniAppId: appId)
         #expect(events.isEmpty)
     }
 
     @Test("no regression: the ItemEvent History feed still records .patched")
     func historyStillRecords() {
         let (store, appId, item) = freshKanban()
-        _ = store.patchItem(id: item, with: ["Status": "Review"], myAppId: appId)
-        let patched = store.itemEventLog.events(forMyApp: appId).filter { $0.kind == .patched }
+        _ = store.patchItem(id: item, with: ["Status": "Review"], miniAppId: appId)
+        let patched = store.itemEventLog.events(forMiniApp: appId).filter { $0.kind == .patched }
         #expect(patched.contains { $0.itemId == item })
     }
 }

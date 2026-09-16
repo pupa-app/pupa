@@ -23,9 +23,9 @@ public enum PupaID {
     /// pushes on the app's own stack, so its escape route is pinned by a test.
     public static let settingsScreenShare = "settings.screenShare"
 
-    /// Per-MyApp row in the MyApps sheet. Selecting one navigates and
+    /// Per-MiniApp row in the MiniApps sheet. Selecting one navigates and
     /// dismisses the sheet.
-    public static func sidebarMyApp(_ id: UUID) -> String { "sidebar.myApp.\(id)" }
+    public static func sidebarMiniApp(_ id: UUID) -> String { "sidebar.miniApp.\(id)" }
 
     /// Per-component; `component(_:)` builds the id from the component's own
     /// stable id, so a test can wait for exactly the one a tool created.

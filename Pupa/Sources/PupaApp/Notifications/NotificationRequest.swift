@@ -77,19 +77,36 @@ public struct NotificationRequest: Sendable, Hashable, Codable {
     }
 
     /// Optional deep-link target. When present, tapping the notification banner
-    /// navigates the app to the specified myApp (and optionally component).
+    /// navigates the app to the specified miniApp (and optionally component).
     public struct Target: Sendable, Hashable, Codable {
-        /// The myApp to open on tap. Injected from the caller's scope by
+        /// The miniApp to open on tap. Injected from the caller's scope by
         /// `AppTools.scopeNotificationRequest` (never taken from the model): the
-        /// owning myApp for a MyApp scope, `nil` for the orchestrator (which is
+        /// owning miniApp for a MiniApp scope, `nil` for the orchestrator (which is
         /// routed to its own chat at delivery time).
-        public let myAppId: UUID?
-        /// Component to focus, e.g. `"tracker-1"`. Nil opens the myApp home.
+        public let miniAppId: UUID?
+        /// Component to focus, e.g. `"tracker-1"`. Nil opens the miniApp home.
         public let componentId: String?
 
-        public init(myAppId: UUID?, componentId: String? = nil) {
-            self.myAppId = myAppId
+        public init(miniAppId: UUID?, componentId: String? = nil) {
+            self.miniAppId = miniAppId
             self.componentId = componentId
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case miniAppId, myAppId, componentId
+        }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            miniAppId = try c.decodeIfPresent(UUID.self, forKey: .miniAppId)
+                ?? c.decodeIfPresent(UUID.self, forKey: .myAppId)
+            componentId = try c.decodeIfPresent(String.self, forKey: .componentId)
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encodeIfPresent(miniAppId, forKey: .miniAppId)
+            try c.encodeIfPresent(componentId, forKey: .componentId)
         }
     }
 
@@ -128,7 +145,7 @@ public struct NotificationRequest: Sendable, Hashable, Codable {
 
     /// The request an edit should schedule: new content and timing, but the
     /// deep-link target and tap action `previous` carried. Without that, fixing
-    /// a typo in an agent's reminder stops it routing into its own myApp.
+    /// a typo in an agent's reminder stops it routing into its own miniApp.
     public static func edited(
         title: String,
         body: String,
@@ -213,14 +230,14 @@ public struct NotificationRequest: Sendable, Hashable, Codable {
         }
 
         // A model may only choose which *component* of its own scope to focus on
-        // tap — never which myApp. The owning myApp is injected downstream by
+        // tap — never which miniApp. The owning miniApp is injected downstream by
         // `AppTools.scopeNotificationRequest` from the calling agent's scope, so
-        // any `myAppId` in the args is deliberately ignored here: a notification
-        // can't be pointed at a different myApp.
+        // any `miniAppId` in the args is deliberately ignored here: a notification
+        // can't be pointed at a different miniApp.
         var target: Target? = nil
         if let targetArg = args["target"], case .object = targetArg,
            let componentId = targetArg["componentId"]?.stringValue, !componentId.isEmpty {
-            target = Target(myAppId: nil, componentId: componentId)
+            target = Target(miniAppId: nil, componentId: componentId)
         }
 
         let tapAction = try Self.parseTapAction(args["tapAction"])

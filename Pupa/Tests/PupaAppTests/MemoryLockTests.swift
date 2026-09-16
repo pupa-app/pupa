@@ -3,7 +3,7 @@ import Testing
 @testable import PupaApp
 @testable import AGUIKit
 
-/// Memory lock: a locked MyApp's memory subtree refuses every mutating memory
+/// Memory lock: a locked MiniApp's memory subtree refuses every mutating memory
 /// op (with a clear "locked" result to the agent) while reads still work.
 @MainActor
 @Suite("Memory lock")
@@ -11,20 +11,20 @@ struct MemoryLockTests {
 
     init() { TestStorage.activate() }
 
-    private func freshStore() -> (MyAppStore, UUID) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let app = MyApp(name: "Notes App", iconSystemName: "brain", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([app], app.id))
+    private func freshStore() -> (MiniAppStore, UUID) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let app = MiniApp(name: "Notes App", iconSystemName: "brain", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([app], app.id))
         return (store, app.id)
     }
 
     /// A temp-rooted scoped store wired to the app's lock exactly as the agent's
     /// per-session store is in `ChatSessionCoordinator`.
-    private func tempScoped(guardedBy store: MyAppStore, id: UUID) -> MemoryStore {
+    private func tempScoped(guardedBy store: MiniAppStore, id: UUID) -> MemoryStore {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("pupa-memlock-\(UUID().uuidString)", isDirectory: true)
         let mem = MemoryStore(rootOverride: dir)
-        mem.writeGuard = { [weak store] _ in store?.isMemoryLocked(myAppId: id) ?? false }
+        mem.writeGuard = { [weak store] _ in store?.isMemoryLocked(miniAppId: id) ?? false }
         return mem
     }
 
@@ -33,12 +33,12 @@ struct MemoryLockTests {
     @Test("setMemoryLocked toggles state and is idempotent")
     func toggle() {
         let (store, id) = freshStore()
-        #expect(!store.isMemoryLocked(myAppId: id))
-        #expect(store.setMemoryLocked(true, myAppId: id))
-        #expect(store.isMemoryLocked(myAppId: id))
-        #expect(!store.setMemoryLocked(true, myAppId: id))   // no-op
-        #expect(store.setMemoryLocked(false, myAppId: id))
-        #expect(!store.isMemoryLocked(myAppId: id))
+        #expect(!store.isMemoryLocked(miniAppId: id))
+        #expect(store.setMemoryLocked(true, miniAppId: id))
+        #expect(store.isMemoryLocked(miniAppId: id))
+        #expect(!store.setMemoryLocked(true, miniAppId: id))   // no-op
+        #expect(store.setMemoryLocked(false, miniAppId: id))
+        #expect(!store.isMemoryLocked(miniAppId: id))
     }
 
     // MARK: - Store-level backstop
@@ -49,7 +49,7 @@ struct MemoryLockTests {
         let mem = tempScoped(guardedBy: store, id: id)
         try mem.writeFile(path: "notes/a.md", content: "hi")   // unlocked: ok
 
-        store.setMemoryLocked(true, myAppId: id)
+        store.setMemoryLocked(true, miniAppId: id)
         #expect(throws: MemoryError.self) { try mem.writeFile(path: "notes/b.md", content: "x") }
         #expect(throws: MemoryError.self) { try mem.appendFile(path: "notes/a.md", content: "x") }
         #expect(throws: MemoryError.self) {
@@ -63,7 +63,7 @@ struct MemoryLockTests {
         #expect(try mem.readFile(path: "notes/a.md").content == "hi")
         #expect(!mem.fileExists(at: "notes/b.md"))
 
-        store.setMemoryLocked(false, myAppId: id)
+        store.setMemoryLocked(false, miniAppId: id)
         try mem.writeFile(path: "notes/b.md", content: "x")     // restored
         #expect(mem.fileExists(at: "notes/b.md"))
     }
@@ -73,9 +73,9 @@ struct MemoryLockTests {
     @Test("global-root path guard resolves the leading app folder")
     func rootPathGuard() {
         let (store, id) = freshStore()
-        let folder = MemoryStore.myAppFolder(myAppId: id)
+        let folder = MemoryStore.miniAppFolder(miniAppId: id)
         #expect(!store.isMemoryLocked(forRootPath: "\(folder)/notes/a.md"))
-        store.setMemoryLocked(true, myAppId: id)
+        store.setMemoryLocked(true, miniAppId: id)
         #expect(store.isMemoryLocked(forRootPath: "\(folder)/notes/a.md"))
         #expect(!store.isMemoryLocked(forRootPath: "\(UUID().uuidString.lowercased())/notes/a.md"))
         #expect(!store.isMemoryLocked(forRootPath: ""))
@@ -90,7 +90,7 @@ struct MemoryLockTests {
         try mem.writeFile(path: "notes/a.md", content: "hi")   // seed before lock
         let registry = ToolRegistry()
         AppTools.registerMemoryTools(on: registry, memory: mem)
-        store.setMemoryLocked(true, myAppId: id)
+        store.setMemoryLocked(true, miniAppId: id)
 
         let write = registry.resolve("writeMemoryFile")!
         let result = try await write.handler(
@@ -110,17 +110,17 @@ struct MemoryLockTests {
 
     @Test("isMemoryLocked round-trips and is omitted when false (legacy data)")
     func codable() throws {
-        var app = MyApp(name: "A", iconSystemName: "brain", typeId: MyAppType.tracker.id)
+        var app = MiniApp(name: "A", iconSystemName: "brain", typeId: MiniAppType.tracker.id)
         let encoder = JSONEncoder()
 
         let data0 = try encoder.encode(app)
         #expect(!(String(data: data0, encoding: .utf8) ?? "").contains("isMemoryLocked"))
         // A payload without the key (old/imported data) decodes as unlocked.
-        #expect(try !JSONDecoder().decode(MyApp.self, from: data0).isMemoryLocked)
+        #expect(try !JSONDecoder().decode(MiniApp.self, from: data0).isMemoryLocked)
 
         app.isMemoryLocked = true
         let data1 = try encoder.encode(app)
         #expect((String(data: data1, encoding: .utf8) ?? "").contains("isMemoryLocked"))
-        #expect(try JSONDecoder().decode(MyApp.self, from: data1).isMemoryLocked)
+        #expect(try JSONDecoder().decode(MiniApp.self, from: data1).isMemoryLocked)
     }
 }

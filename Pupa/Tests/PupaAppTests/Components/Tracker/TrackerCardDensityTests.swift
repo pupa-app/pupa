@@ -35,7 +35,7 @@ struct TrackerCardDensityTests {
     private static let appA = UUID()
     private static let appB = UUID()
     private static func board(_ app: UUID, _ cid: String?) -> TrackerBoardKey {
-        TrackerBoardKey(myAppId: app, componentId: cid)
+        TrackerBoardKey(miniAppId: app, componentId: cid)
     }
 
     /// The premise the board key exists for. Asserted against the real
@@ -43,22 +43,22 @@ struct TrackerCardDensityTests {
     /// true, keying on the component id alone would become safe and this
     /// machinery could go.
     @MainActor
-    @Test("Two MyApps' first trackers really are both \"tracker-1\"")
-    func componentIdsCollideAcrossMyApps() {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "list.bullet", typeId: MyAppType.tracker.id)
-        let b = MyApp(name: "B", iconSystemName: "list.bullet", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a, b], a.id))
+    @Test("Two MiniApps' first trackers really are both \"tracker-1\"")
+    func componentIdsCollideAcrossMiniApps() {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "list.bullet", typeId: MiniAppType.tracker.id)
+        let b = MiniApp(name: "B", iconSystemName: "list.bullet", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a, b], a.id))
 
         let idInA = store.addComponent(
-            kind: "tracker", name: "T", iconSystemName: "list.bullet", myAppId: a.id)
+            kind: "tracker", name: "T", iconSystemName: "list.bullet", miniAppId: a.id)
         let idInB = store.addComponent(
-            kind: "tracker", name: "T", iconSystemName: "list.bullet", myAppId: b.id)
+            kind: "tracker", name: "T", iconSystemName: "list.bullet", miniAppId: b.id)
 
         #expect(idInA == "tracker-1")
-        #expect(idInB == "tracker-1", "ids are uniqued per MyApp, so they collide across apps")
-        #expect(TrackerBoardKey(myAppId: a.id, componentId: idInA)
-                != TrackerBoardKey(myAppId: b.id, componentId: idInB),
+        #expect(idInB == "tracker-1", "ids are uniqued per MiniApp, so they collide across apps")
+        #expect(TrackerBoardKey(miniAppId: a.id, componentId: idInA)
+                != TrackerBoardKey(miniAppId: b.id, componentId: idInB),
                 "the board key must still tell these two apart")
     }
 
@@ -88,12 +88,12 @@ struct TrackerCardDensityTests {
         #expect(peeks.ids(for: b2) == [two], "clearing one board must not touch the other")
     }
 
-    @Test("Two MyApps' first trackers are different boards despite sharing a component id")
-    func componentIdIsNotUniqueAcrossMyApps() {
-        // `MyAppStore.addComponent` uniques ids against one MyApp's own
-        // components, so every MyApp's first tracker is "tracker-1" — asserted
-        // against the real store in `componentIdsCollideAcrossMyApps`. Keying on
-        // the component id alone merged their peeks and made a MyApp switch
+    @Test("Two MiniApps' first trackers are different boards despite sharing a component id")
+    func componentIdIsNotUniqueAcrossMiniApps() {
+        // `MiniAppStore.addComponent` uniques ids against one MiniApp's own
+        // components, so every MiniApp's first tracker is "tracker-1" — asserted
+        // against the real store in `componentIdsCollideAcrossMiniApps`. Keying on
+        // the component id alone merged their peeks and made a MiniApp switch
         // look like a shrink press.
         let mine = UUID(), theirs = UUID()
         let inA = Self.board(Self.appA, "tracker-1")
@@ -107,7 +107,7 @@ struct TrackerCardDensityTests {
         #expect(peeks.ids(for: inB) == [theirs])
 
         peeks.clear(for: inB)
-        #expect(peeks.ids(for: inA) == [mine], "clearing one MyApp's board must not touch another's")
+        #expect(peeks.ids(for: inA) == [mine], "clearing one MiniApp's board must not touch another's")
     }
 
     @Test("A nil component id normalises to the empty-string key")
@@ -136,7 +136,7 @@ struct TrackerCardDensityTests {
         // moves too, which is why the flag alone cannot be the trigger.
         #expect(!TrackerShrinkKey.isShrinkToggle(from: shrunkA, to: openA2))
         #expect(!TrackerShrinkKey.isShrinkToggle(from: shrunkA, to: openB),
-                "a sidebar MyApp switch is not a shrink press, even though both boards are \"tracker-1\"")
+                "a sidebar MiniApp switch is not a shrink press, even though both boards are \"tracker-1\"")
         #expect(!TrackerShrinkKey.isShrinkToggle(from: openB, to: shrunkA))
     }
 

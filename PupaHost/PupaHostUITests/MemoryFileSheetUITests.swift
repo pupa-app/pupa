@@ -128,7 +128,7 @@ final class MemoryFileSheetUITests: XCTestCase {
         XCTAssertTrue(agents.waitForExistence(timeout: 10), "no Agents item in the menu")
         agents.tap()
 
-        // The myApp's main agent, then its Prompt row.
+        // The miniApp's main agent, then its Prompt row.
         let agentRow = app.buttons.matching(
             NSPredicate(format: "label CONTAINS %@", "Main agent")).firstMatch
         XCTAssertTrue(agentRow.waitForExistence(timeout: 20), "no agent row")
@@ -224,7 +224,7 @@ final class MemoryFileSheetUITests: XCTestCase {
     @MainActor
     private func newNote(_ app: XCUIApplication, named name: String, content: String) {
         // Not `buttons["plus"]` — that also matches the sidebar's offscreen
-        // "New myapp". The Memories header labels its menu explicitly.
+        // "New miniapp". The Memories header labels its menu explicitly.
         let plus = app.buttons["Add note or folder"]
         XCTAssertTrue(plus.waitForExistence(timeout: 20), "no add menu on Memories")
         plus.tap()

@@ -1,17 +1,17 @@
 import SwiftUI
 
-/// Settings ▸ Agents ▸ Roster. App-wide roster as nested dropdowns: each MyApp
+/// Settings ▸ Agents ▸ Roster. App-wide roster as nested dropdowns: each MiniApp
 /// expands to its agents (main agent + Slack personas), and each agent expands
 /// to its own lifetime stats. The orchestrator is a top-level agent dropdown
-/// (it belongs to no MyApp).
+/// (it belongs to no MiniApp).
 ///
 /// Reads agents through the existing descriptor pipeline (`AgentRegistry`) and
 /// activity through `AgentStatsStore`, so it imposes no new requirement on
 /// agent/data structure. Nesting is derived from `AgentDescriptor.kind` /
-/// `myAppId` today; a future generic `parentId` would slot in by changing only
+/// `miniAppId` today; a future generic `parentId` would slot in by changing only
 /// how agents group under a parent.
 struct AgentRosterView: View {
-    let store: MyAppStore
+    let store: MiniAppStore
     let settings: SettingsStore
     let memory: MemoryStore
     let stats: AgentStatsStore
@@ -21,8 +21,8 @@ struct AgentRosterView: View {
     /// Owned per screen so the fetch only fires for the page you opened.
     @State private var usage = ThreadUsageStore()
 
-    private var sortedApps: [MyApp] {
-        store.myApps.sorted { $0.createdAt < $1.createdAt }
+    private var sortedApps: [MiniApp] {
+        store.miniApps.sorted { $0.createdAt < $1.createdAt }
     }
 
     var body: some View {
@@ -48,7 +48,7 @@ struct AgentRosterView: View {
     private func refreshUsage() async {
         var ids = store.threads(for: .memory).map(\.id)
         for app in sortedApps {
-            ids.append(contentsOf: store.threads(for: .myApp(app.id)).map(\.id))
+            ids.append(contentsOf: store.threads(for: .miniApp(app.id)).map(\.id))
         }
         await usage.refresh(threadIds: ids, client: usageClient())
     }
@@ -68,15 +68,15 @@ struct AgentRosterView: View {
 
     // MARK: - Agents
 
-    /// One MyApp dropdown → its agents (main agent first, then Slack
+    /// One MiniApp dropdown → its agents (main agent first, then Slack
     /// personas), each its own stats dropdown.
-    private func appDisclosure(_ app: MyApp) -> some View {
-        let agents = AgentRegistry.enumerateAgents(myApp: app, store: store, settings: settings, catalog: modelCatalog)
+    private func appDisclosure(_ app: MiniApp) -> some View {
+        let agents = AgentRegistry.enumerateAgents(miniApp: app, store: store, settings: settings, catalog: modelCatalog)
         return DisclosureGroup {
             ForEach(agents) { descriptor in
                 agentDisclosure(
                     descriptor,
-                    scope: descriptor.kind == .subagent ? nil : .myApp(app.id)
+                    scope: descriptor.kind == .subagent ? nil : .miniApp(app.id)
                 )
             }
         } label: {
@@ -87,8 +87,8 @@ struct AgentRosterView: View {
                         Text("\(agents.count)")
                             .font(.caption2).foregroundStyle(.secondary)
                     }
-                    // MyApp-wide total, summed across every thread in the app.
-                    if let caption = usage.caption(threadIds: store.threads(for: .myApp(app.id)).map(\.id)) {
+                    // MiniApp-wide total, summed across every thread in the app.
+                    if let caption = usage.caption(threadIds: store.threads(for: .miniApp(app.id)).map(\.id)) {
                         Text(caption).font(.caption2).foregroundStyle(.secondary)
                     }
                 }
@@ -163,15 +163,15 @@ struct AgentRosterView: View {
 
     /// Resolve the `AgentStatsStore` key for a descriptor, matching
     /// `AgentInvocationKey.statKey` on the write side. Main-agent
-    /// descriptors share a constant id, so key them off `myAppId`.
+    /// descriptors share a constant id, so key them off `miniAppId`.
     private func statKey(for descriptor: AgentDescriptor) -> String {
         switch descriptor.kind {
         case .orchestrator:
             return "orchestrator"
-        case .myApp:
-            return descriptor.myAppId?.uuidString ?? descriptor.id
+        case .miniApp:
+            return descriptor.miniAppId?.uuidString ?? descriptor.id
         case .subagent:
-            // Descriptor id is `subagent:<myAppId>:<slug>` — identical to
+            // Descriptor id is `subagent:<miniAppId>:<slug>` — identical to
             // `AgentInvocationKey.subagent.statKey`.
             return descriptor.id
         }

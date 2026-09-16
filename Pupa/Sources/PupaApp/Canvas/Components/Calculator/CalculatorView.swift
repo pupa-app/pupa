@@ -9,24 +9,24 @@ import SwiftUI
 /// - **Header** rows are section labels; tap to collapse/expand the rows
 ///   below until the next header.
 public struct CalculatorView: View {
-    @Bindable var store: MyAppStore
+    @Bindable var store: MiniAppStore
     let data: CalculatorData
-    let myAppId: UUID
+    let miniAppId: UUID
     let componentId: String
 
     /// Header row IDs whose sections are collapsed. Persists across renders
     /// because row IDs are stable.
     @State private var collapsedHeaders: Set<UUID> = []
 
-    public init(store: MyAppStore, data: CalculatorData, myAppId: UUID, componentId: String) {
+    public init(store: MiniAppStore, data: CalculatorData, miniAppId: UUID, componentId: String) {
         self.store = store
         self.data = data
-        self.myAppId = myAppId
+        self.miniAppId = miniAppId
         self.componentId = componentId
     }
 
     private var siblingComponents: [Component] {
-        store.myApps.first(where: { $0.id == myAppId })?.components ?? []
+        store.miniApps.first(where: { $0.id == miniAppId })?.components ?? []
     }
 
     private var resolved: CalculatorResolver.Resolved {
@@ -74,7 +74,7 @@ public struct CalculatorView: View {
 
             if let src = linkedSource {
                 CalcLinkedSourcePicker(
-                    store: store, myAppId: myAppId, componentId: componentId,
+                    store: store, miniAppId: miniAppId, componentId: componentId,
                     trackerId: src.componentId, items: src.items, selectedId: src.selectedId
                 )
             }
@@ -101,7 +101,7 @@ public struct CalculatorView: View {
                         } else {
                             CalcRowView(
                                 store: store,
-                                myAppId: myAppId,
+                                miniAppId: miniAppId,
                                 componentId: componentId,
                                 row: row,
                                 result: results.result(forKey: row.key),
@@ -122,11 +122,11 @@ public struct CalculatorView: View {
             }
 
             if let chart = data.inlineChart {
-                ChartContainerView(store: store, data: chart, myAppId: myAppId)
+                ChartContainerView(store: store, data: chart, miniAppId: miniAppId)
                     .padding(.top, 4)
             }
             ForEach(Array(data.extraCharts.enumerated()), id: \.offset) { _, chart in
-                ChartContainerView(store: store, data: chart, myAppId: myAppId)
+                ChartContainerView(store: store, data: chart, miniAppId: miniAppId)
                     .padding(.top, 4)
             }
         }
@@ -135,7 +135,7 @@ public struct CalculatorView: View {
 
     private func sourceName(for row: CalcRow) -> String? {
         guard case .aggregate(let spec) = row.kind else { return nil }
-        return store.componentName(spec.sourceComponentId, myAppId: myAppId)
+        return store.componentName(spec.sourceComponentId, miniAppId: miniAppId)
     }
 
     /// The curves to draw for a `list` row.
@@ -215,8 +215,8 @@ private struct CalcHeaderRow: View {
 // MARK: - Row
 
 private struct CalcRowView: View {
-    @Bindable var store: MyAppStore
-    let myAppId: UUID
+    @Bindable var store: MiniAppStore
+    let miniAppId: UUID
     let componentId: String
     let row: CalcRow
     let result: CalculatorResolver.RowResult?
@@ -338,7 +338,7 @@ private struct CalcRowView: View {
                     _ = store.setCalculatorVariable(
                         key: row.key,
                         value: newValue,
-                        myAppId: myAppId,
+                        miniAppId: miniAppId,
                         componentId: componentId
                     )
                 }
@@ -351,7 +351,7 @@ private struct CalcRowView: View {
             } else {
                 LinkedFieldControl(
                     store: store,
-                    myAppId: myAppId,
+                    miniAppId: miniAppId,
                     componentId: componentId,
                     rowKey: row.key,
                     spec: spec,
@@ -382,8 +382,8 @@ private struct CalcRowView: View {
 /// user (or the agent's seed) can't accidentally bind each input to a
 /// different item.
 private struct CalcLinkedSourcePicker: View {
-    @Bindable var store: MyAppStore
-    let myAppId: UUID
+    @Bindable var store: MiniAppStore
+    let miniAppId: UUID
     let componentId: String
     let trackerId: String
     let items: [TrackerItem]
@@ -399,7 +399,7 @@ private struct CalcLinkedSourcePicker: View {
                     Button {
                         store.setAllCalcRowLinks(
                             to: ComponentItemRef(componentId: trackerId, itemId: item.id),
-                            myAppId: myAppId,
+                            miniAppId: miniAppId,
                             componentId: componentId
                         )
                     } label: {
@@ -438,8 +438,8 @@ private struct CalcLinkedSourcePicker: View {
 }
 
 private struct LinkedFieldControl: View {
-    @Bindable var store: MyAppStore
-    let myAppId: UUID
+    @Bindable var store: MiniAppStore
+    let miniAppId: UUID
     let componentId: String
     let rowKey: String
     let spec: LinkedFieldSpec
@@ -454,7 +454,7 @@ private struct LinkedFieldControl: View {
         return store.displayNameForRefTarget(
             componentId: ref.componentId,
             itemId: ref.itemId,
-            myAppId: myAppId
+            miniAppId: miniAppId
         )
     }
 
@@ -481,7 +481,7 @@ private struct LinkedFieldControl: View {
         .sheet(isPresented: $pickerPresented) {
             ComponentItemPickerSheet(
                 store: store,
-                myAppId: myAppId,
+                miniAppId: miniAppId,
                 excludeRef: nil,
                 alreadyLinked: [],
                 onPick: { refs in
@@ -489,7 +489,7 @@ private struct LinkedFieldControl: View {
                         _ = store.setCalcRowLinkedRef(
                             key: rowKey,
                             ref: ref,
-                            myAppId: myAppId,
+                            miniAppId: miniAppId,
                             componentId: componentId
                         )
                     }

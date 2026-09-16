@@ -95,7 +95,7 @@ public final class SettingsStore {
     public static let maxToolRoundsRange = 4...64
     public nonisolated static let defaultToolRoundsUnlimited = true
 
-    /// Per-MyApp cap on the bytes used by stored chat threads. When enabled,
+    /// Per-MiniApp cap on the bytes used by stored chat threads. When enabled,
     /// the oldest chats in a scope are auto-deleted once it exceeds this size.
     /// A stored thread is only metadata (its transcript lives on the backend),
     /// so the cap is fractional-MB and small on purpose. Decimal MB (× 1_000_000)
@@ -118,7 +118,7 @@ public final class SettingsStore {
     /// (pushed into every turn's state as `shell_approval_disabled`).
     public private(set) var shellApprovalDisabled: Bool
     /// Per-orchestrator LLM selection. Stored as a global preference (the
-    /// orchestrator has no MyApp parent). Both fields must be non-nil for
+    /// orchestrator has no MiniApp parent). Both fields must be non-nil for
     /// the override to apply — either alone is treated as "no override" by
     /// the reader. The chat-level turn ships `forwardedProps["llm"]` for
     /// `.memory` scopes from this pair.
@@ -128,10 +128,10 @@ public final class SettingsStore {
     /// nil for the backend default. Shipped in `forwardedProps.llm.thinking` for
     /// `.memory`-scope turns. Independent of the model pair.
     public private(set) var orchestratorThinking: String?
-    /// Per-orchestrator disabled tool names. Like the per-MyApp / per-Slack
+    /// Per-orchestrator disabled tool names. Like the per-MiniApp / per-Slack
     /// override, this is unioned with the global `disabledBackendTools` set on
     /// every `.memory`-scope turn — never an override. Stored globally (the
-    /// orchestrator has no MyApp parent).
+    /// orchestrator has no MiniApp parent).
     public private(set) var orchestratorDisabledTools: Set<String>
     /// A2A guardrails surfaced in Settings → Agents and fed into
     /// `AgentInvocationGate`. `a2aMaxTurnsPerPair` is the number of back-and-forth
@@ -165,7 +165,7 @@ public final class SettingsStore {
         toolRoundsUnlimited ? nil : maxToolRounds
     }
 
-    /// The cap handed to `MyAppStore` for chat eviction: `nil` (no cap) when
+    /// The cap handed to `MiniAppStore` for chat eviction: `nil` (no cap) when
     /// disabled, else `threadCapMB` converted to bytes.
     public var effectiveThreadCapBytes: Int? {
         threadCapEnabled ? Int((threadCapMB * 1_000_000).rounded()) : nil
@@ -234,7 +234,7 @@ public final class SettingsStore {
         self.orchestratorLLMProvider = snapshot.orchestratorLLMProvider
         self.orchestratorLLMModel = snapshot.orchestratorLLMModel
         self.orchestratorThinking = snapshot.orchestratorThinking
-        self.orchestratorDisabledTools = snapshot.orchestratorDisabledTools
+        self.orchestratorDisabledTools = MiniAppType.expandedDisabledToolNames(snapshot.orchestratorDisabledTools)
         self.a2aMaxChainDepth = snapshot.a2aMaxChainDepth
         self.a2aMaxTurnsPerPair = snapshot.a2aMaxTurnsPerPair
         self.maxToolRounds = snapshot.maxToolRounds
@@ -464,8 +464,9 @@ public final class SettingsStore {
 
     /// Write (or clear) the orchestrator's disabled tool set. Empty clears it.
     public func setOrchestratorDisabledTools(_ names: Set<String>) {
-        guard orchestratorDisabledTools != names else { return }
-        orchestratorDisabledTools = names
+        let expanded = MiniAppType.expandedDisabledToolNames(names)
+        guard orchestratorDisabledTools != expanded else { return }
+        orchestratorDisabledTools = expanded
         persist()
     }
 
@@ -674,7 +675,7 @@ public final class SettingsStore {
         orchestratorLLMProvider = loaded.orchestratorLLMProvider
         orchestratorLLMModel = loaded.orchestratorLLMModel
         orchestratorThinking = loaded.orchestratorThinking
-        orchestratorDisabledTools = loaded.orchestratorDisabledTools
+        orchestratorDisabledTools = MiniAppType.expandedDisabledToolNames(loaded.orchestratorDisabledTools)
         a2aMaxChainDepth = loaded.a2aMaxChainDepth
         a2aMaxTurnsPerPair = loaded.a2aMaxTurnsPerPair
         maxToolRounds = loaded.maxToolRounds
@@ -683,4 +684,3 @@ public final class SettingsStore {
         threadCapMB = loaded.threadCapMB
     }
 }
-

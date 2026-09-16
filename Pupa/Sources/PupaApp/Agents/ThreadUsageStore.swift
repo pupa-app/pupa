@@ -93,7 +93,7 @@ extension ThreadUsageStore {
         usage(for: threadId).flatMap(Self.compose)
     }
 
-    /// Same line, summed across `threadIds` — the MyApp-wide and per-agent
+    /// Same line, summed across `threadIds` — the MiniApp-wide and per-agent
     /// aggregate captions.
     public func caption(threadIds: [String]) -> String? {
         rollup(threadIds: threadIds).flatMap(Self.compose)

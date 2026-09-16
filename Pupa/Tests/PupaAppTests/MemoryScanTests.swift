@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import PupaApp
 
-/// `MemoryStore.scan` is on the MyApp-switch path (the Agents pane builds two
+/// `MemoryStore.scan` is on the MiniApp-switch path (the Agents pane builds two
 /// stores), so it gets rewritten for syscall count. These pin the tree it
 /// produces so the rewrite can't quietly change what the UI shows.
 @MainActor

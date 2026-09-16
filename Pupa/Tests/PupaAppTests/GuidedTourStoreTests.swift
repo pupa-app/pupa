@@ -24,7 +24,7 @@ struct GuidedTourStoreTests {
 
     private func startedStore(defaults: UserDefaults, isPaired: Bool = true) -> GuidedTourStore {
         let store = GuidedTourStore(defaults: defaults)
-        store.start(activeMyAppId: UUID(), isPaired: isPaired)
+        store.start(activeMiniAppId: UUID(), isPaired: isPaired)
         return store
     }
 
@@ -39,12 +39,12 @@ struct GuidedTourStoreTests {
         #expect(store.isFirstStep)
         #expect(!store.isLastStep)
         #expect(store.currentStep?.id == "welcome")
-        // The welcome step opens on the MyApps list: a MyApp is the unit of
+        // The welcome step opens on the MiniApps list: a MiniApp is the unit of
         // the app, so the tour starts on the list of them. It navigates
         // nowhere and rings nothing.
         #expect(store.currentStep?.selection == nil)
         #expect(store.currentStep?.highlight == nil)
-        #expect(store.currentStep?.opensMyApps == true)
+        #expect(store.currentStep?.opensMiniApps == true)
     }
 
     @Test("start clears any stale intent flags")
@@ -54,7 +54,7 @@ struct GuidedTourStoreTests {
         store.wantSettingsOpen = true
         store.wantChatOpen = true
         store.chatPrefill = "stale"
-        store.start(activeMyAppId: UUID(), isPaired: true)
+        store.start(activeMiniAppId: UUID(), isPaired: true)
         #expect(!store.wantSettingsOpen)
         #expect(!store.wantChatOpen)
         #expect(store.chatPrefill == nil)
@@ -136,19 +136,19 @@ struct GuidedTourStoreTests {
     func desiredSelectionTracksNavigate() {
         let id = UUID()
         let store = GuidedTourStore(defaults: freshDefaults())
-        store.start(activeMyAppId: id, isPaired: true)
+        store.start(activeMiniAppId: id, isPaired: true)
         // Welcome step has no navigation.
         #expect(store.desiredSelection == nil)
-        // Walk to the Home step (.navigate(.myAppHome(id))).
-        let myAppStepIndex = store.steps.firstIndex { $0.id == "myapp-home" }!
-        while store.index < myAppStepIndex { store.next() }
-        #expect(store.desiredSelection == .myAppHome(id))
+        // Walk to the Home step (.navigate(.miniAppHome(id))).
+        let miniAppStepIndex = store.steps.firstIndex { $0.id == "miniapp-home" }!
+        while store.index < miniAppStepIndex { store.next() }
+        #expect(store.desiredSelection == .miniAppHome(id))
     }
 
     @Test("chat copy adapts to the paired state")
     func chatCopyAdaptsToPairing() {
-        let pairedSteps = TourContent.steps(activeMyAppId: UUID(), isPaired: true)
-        let unpairedSteps = TourContent.steps(activeMyAppId: UUID(), isPaired: false)
+        let pairedSteps = TourContent.steps(activeMiniAppId: UUID(), isPaired: true)
+        let unpairedSteps = TourContent.steps(activeMiniAppId: UUID(), isPaired: false)
         let pairedChat = pairedSteps.first { $0.id == "chat" }!
         let unpairedChat = unpairedSteps.first { $0.id == "chat" }!
         #expect(pairedChat.body != unpairedChat.body)
@@ -161,7 +161,7 @@ struct GuidedTourStoreTests {
     @Test("composable steps combine navigation, chat, and prefill")
     func composableEffects() {
         let id = UUID()
-        let steps = TourContent.steps(activeMyAppId: id, isPaired: true)
+        let steps = TourContent.steps(activeMiniAppId: id, isPaired: true)
         // Every Settings page the tour opens is introduced by a step that
         // lands on the root list and rings the section it lives in, so the
         // page has a visible origin rather than appearing from nowhere.
@@ -174,15 +174,15 @@ struct GuidedTourStoreTests {
         #expect(!backend.opensChat)
         let manage = steps.first { $0.id == "settings-manage" }!
         #expect(manage.settingsPage == .root)
-        #expect(manage.highlight == .settingsManageMyApps)
+        #expect(manage.highlight == .settingsManageMiniApps)
         // Each section step precedes the page it introduces.
         let index = { (id: String) in steps.firstIndex { $0.id == id }! }
         #expect(index("settings-essentials") < index("settings-backend"))
         #expect(index("settings-essentials") < index("settings-account"))
-        #expect(index("settings-manage") < index("share-myapp"))
-        // The MyApps/threads step keeps the chat open without a prefill and
-        // rings the chat header (the MyApp switcher + thread picker).
-        let agentsThreads = steps.first { $0.id == "myapps-threads" }!
+        #expect(index("settings-manage") < index("share-miniapp"))
+        // The MiniApps/threads step keeps the chat open without a prefill and
+        // rings the chat header (the MiniApp switcher + thread picker).
+        let agentsThreads = steps.first { $0.id == "miniapps-threads" }!
         #expect(agentsThreads.opensChat)
         #expect(agentsThreads.chatPrefill == nil)
         #expect(agentsThreads.highlight == .chatHeader)
@@ -190,23 +190,23 @@ struct GuidedTourStoreTests {
         let orchestrator = steps.first { $0.id == "orchestrator" }!
         #expect(orchestrator.selection == .orchestrator)
         #expect(orchestrator.opensChat)
-        #expect(orchestrator.chatPrefill == "Create a new myapp to organise my books")
+        #expect(orchestrator.chatPrefill == "Create a new miniapp to organise my books")
     }
 
-    @Test("MyApp steps walk the bottom bar left to right, each ringing its slot")
-    func myAppStepsWalkBottomBar() {
+    @Test("MiniApp steps walk the bottom bar left to right, each ringing its slot")
+    func miniAppStepsWalkBottomBar() {
         let id = UUID()
-        let steps = TourContent.steps(activeMyAppId: id, isPaired: true)
+        let steps = TourContent.steps(activeMiniAppId: id, isPaired: true)
         // The bar is introduced as a whole, then walked: Home, Memories,
         // Pupa(chat), the menu. One step per slot, and the walk comes before
         // any Settings step: the app is easier to grasp than the settings that
         // wire it up.
         let expected: [(String, SidebarSelection?, TourHighlight)] = [
-            ("the-bar", .myAppHome(id), .bottomBar),
-            ("myapp-home", .myAppHome(id), .bottomBarHome),
-            ("myapp-memories", .myAppMemories(id), .bottomBarMemories),
-            ("chat", .myAppHome(id), .bottomBarChat),
-            ("bar-more", .myAppHome(id), .bottomBarMore),
+            ("the-bar", .miniAppHome(id), .bottomBar),
+            ("miniapp-home", .miniAppHome(id), .bottomBarHome),
+            ("miniapp-memories", .miniAppMemories(id), .bottomBarMemories),
+            ("chat", .miniAppHome(id), .bottomBarChat),
+            ("bar-more", .miniAppHome(id), .bottomBarMore),
         ]
         // Indices are strictly increasing in this order.
         let indices = expected.map { id in steps.firstIndex { $0.id == id.0 }! }
@@ -228,9 +228,9 @@ struct GuidedTourStoreTests {
     @Test("The bar overview and the Home step are separate cards")
     func barOverviewIsNotTheHomeStep() {
         let id = UUID()
-        let steps = TourContent.steps(activeMyAppId: id, isPaired: true)
+        let steps = TourContent.steps(activeMiniAppId: id, isPaired: true)
         let bar = steps.firstIndex { $0.id == "the-bar" }!
-        let home = steps.firstIndex { $0.id == "myapp-home" }!
+        let home = steps.firstIndex { $0.id == "miniapp-home" }!
         #expect(bar == home - 1)
         #expect(steps[bar].highlight == .bottomBar)
         #expect(steps[home].highlight == .bottomBarHome)
@@ -238,19 +238,19 @@ struct GuidedTourStoreTests {
         #expect(steps.filter { $0.highlight == .bottomBar }.count == 1)
     }
 
-    /// MyApps is the list of everything the user has built. Naming it in a
+    /// MiniApps is the list of everything the user has built. Naming it in a
     /// menu preview and never showing it was the gap.
-    @Test("The tour opens on the MyApps list and comes back to it")
-    func myAppsSheetOpensFirstAndAgain() {
-        let steps = TourContent.steps(activeMyAppId: UUID(), isPaired: true)
-        let opening = steps.filter(\.opensMyApps)
-        // Twice: the opening card, because a MyApp is the unit of the app, and
+    @Test("The tour opens on the MiniApps list and comes back to it")
+    func miniAppsSheetOpensFirstAndAgain() {
+        let steps = TourContent.steps(activeMiniAppId: UUID(), isPaired: true)
+        let opening = steps.filter(\.opensMiniApps)
+        // Twice: the opening card, because a MiniApp is the unit of the app, and
         // again once the bar and the menu row that reach the list are walked.
-        #expect(opening.map(\.id) == ["welcome", "myapps-sheet"])
-        let sheet = steps.firstIndex { $0.id == "myapps-sheet" }!
+        #expect(opening.map(\.id) == ["welcome", "miniapps-sheet"])
+        let sheet = steps.firstIndex { $0.id == "miniapps-sheet" }!
         let orchestrator = steps.firstIndex { $0.id == "orchestrator" }!
         #expect(sheet < orchestrator)
-        // The revisit comes after the preview that points at the MyApps row,
+        // The revisit comes after the preview that points at the MiniApps row,
         // so the tap is visible before the destination.
         let scope = steps.firstIndex { $0.id == "menu-scope" }!
         #expect(scope < sheet)
@@ -265,14 +265,14 @@ struct GuidedTourStoreTests {
     @Test("Agents and History are shown in the menu preview, never navigated to")
     func agentsAndHistoryAreNamedNotVisited() {
         let id = UUID()
-        let steps = TourContent.steps(activeMyAppId: id, isPaired: true)
-        #expect(!steps.contains { $0.id == "myapp-agents" })
-        #expect(!steps.contains { $0.id == "myapp-history" })
-        #expect(!steps.contains { $0.selection == .myAppAgents(id) })
-        #expect(!steps.contains { $0.selection == .myAppHistory(id) })
+        let steps = TourContent.steps(activeMiniAppId: id, isPaired: true)
+        #expect(!steps.contains { $0.id == "miniapp-agents" })
+        #expect(!steps.contains { $0.id == "miniapp-history" })
+        #expect(!steps.contains { $0.selection == .miniAppAgents(id) })
+        #expect(!steps.contains { $0.selection == .miniAppHistory(id) })
         let pages = steps.first { $0.id == "menu-pages" }!
         #expect(pages.menuPreview == [.agents, .history])
-        #expect(pages.selection == .myAppHome(id))
+        #expect(pages.selection == .miniAppHome(id))
     }
 
     /// The preview is the answer to a `Menu` that cannot be opened
@@ -281,11 +281,11 @@ struct GuidedTourStoreTests {
     @Test("Every menu-preview step lights rows the real menu offers")
     func menuPreviewRowsExist() {
         let id = UUID()
-        let steps = TourContent.steps(activeMyAppId: id, isPaired: true)
+        let steps = TourContent.steps(activeMiniAppId: id, isPaired: true)
         let previews = steps.filter { $0.menuPreview != nil }
         #expect(previews.count == 3)
-        let myAppRows = Set(BarMenuRow.rows(isMyApp: true, hasMyApps: true))
-        let orchestratorRows = Set(BarMenuRow.rows(isMyApp: false, hasMyApps: true))
+        let miniAppRows = Set(BarMenuRow.rows(isMiniApp: true, hasMiniApps: true))
+        let orchestratorRows = Set(BarMenuRow.rows(isMiniApp: false, hasMiniApps: true))
         for step in previews {
             // A preview step never also rings a control: the lit row is the
             // one thing it is pointing at.
@@ -295,7 +295,7 @@ struct GuidedTourStoreTests {
             #expect(step.placement == .top)
             let onOrchestrator = step.selection == .orchestrator
                 || (step.selection == nil && step.id == "menu-settings")
-            let available = onOrchestrator ? orchestratorRows : myAppRows
+            let available = onOrchestrator ? orchestratorRows : miniAppRows
             #expect(step.menuPreview!.isSubset(of: available))
         }
     }
@@ -305,21 +305,21 @@ struct GuidedTourStoreTests {
     /// at a closed menu. Exactly one step may ring it.
     @Test("Exactly one step rings More")
     func onlyOneStepRingsMore() {
-        let steps = TourContent.steps(activeMyAppId: UUID(), isPaired: true)
+        let steps = TourContent.steps(activeMiniAppId: UUID(), isPaired: true)
         #expect(steps.filter { $0.highlight == .bottomBarMore }.count == 1)
         #expect(steps.first { $0.highlight == .bottomBarMore }?.id == "bar-more")
     }
 
     @Test("Global steps land somewhere instead of ringing the closed menu")
     func globalStepsLandSomewhere() {
-        let steps = TourContent.steps(activeMyAppId: UUID(), isPaired: true)
+        let steps = TourContent.steps(activeMiniAppId: UUID(), isPaired: true)
         // The Orchestrator opens for real; Import & Export deep-links into
         // Settings.
         let orchestrator = steps.first { $0.id == "orchestrator" }!
         #expect(orchestrator.selection == .orchestrator)
         #expect(orchestrator.opensChat)
 
-        let share = steps.first { $0.id == "share-myapp" }!
+        let share = steps.first { $0.id == "share-miniapp" }!
         #expect(share.settingsPage == .sharing)
 
         // Screen share has no card at all: it is a secondary feature living in
@@ -333,7 +333,7 @@ struct GuidedTourStoreTests {
 
     @Test("The final step lands on Settings · Examples and rings the list")
     func finalStepOpensExamples() {
-        let steps = TourContent.steps(activeMyAppId: UUID(), isPaired: true)
+        let steps = TourContent.steps(activeMiniAppId: UUID(), isPaired: true)
         let last = steps.last!
         #expect(last.id == "add-example")
         #expect(last.settingsPage == .examples)
@@ -344,7 +344,7 @@ struct GuidedTourStoreTests {
     /// introduced before the bundled examples, which are toys.
     @Test("The marketplace card precedes the bundled examples card")
     func marketplacePrecedesExamples() {
-        let steps = TourContent.steps(activeMyAppId: UUID(), isPaired: true)
+        let steps = TourContent.steps(activeMiniAppId: UUID(), isPaired: true)
         let market = steps.firstIndex { $0.id == "marketplace" }!
         let example = steps.firstIndex { $0.id == "add-example" }!
         #expect(market == example - 1)
@@ -355,18 +355,18 @@ struct GuidedTourStoreTests {
     /// House style: no em dashes in user-facing tour copy.
     @Test("No step copy contains an em dash")
     func copyHasNoEmDashes() {
-        for step in TourContent.steps(activeMyAppId: UUID(), isPaired: true) {
+        for step in TourContent.steps(activeMiniAppId: UUID(), isPaired: true) {
             #expect(!step.title.contains("\u{2014}"), "em dash in \(step.id) title")
             #expect(!step.body.contains("\u{2014}"), "em dash in \(step.id) body")
         }
-        for step in TourContent.steps(activeMyAppId: UUID(), isPaired: false) {
+        for step in TourContent.steps(activeMiniAppId: UUID(), isPaired: false) {
             #expect(!step.body.contains("\u{2014}"), "em dash in \(step.id) body")
         }
     }
 
     @Test("The account card sits in the Settings block, before the closing pair")
     func accountStepPrecedesExamples() {
-        let steps = TourContent.steps(activeMyAppId: UUID(), isPaired: true)
+        let steps = TourContent.steps(activeMiniAppId: UUID(), isPaired: true)
         let account = steps.firstIndex { $0.id == "settings-account" }!
         let example = steps.firstIndex { $0.id == "add-example" }!
         #expect(account < example)

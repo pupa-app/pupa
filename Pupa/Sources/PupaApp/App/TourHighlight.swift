@@ -12,7 +12,7 @@ enum TourHighlight: Hashable {
     case bottomBarHome
     case bottomBarMemories
     case bottomBarChat
-    /// The bar's menu — Agents, History, MyApps, Orchestrator and Settings all
+    /// The bar's menu — Agents, History, MiniApps, Orchestrator and Settings all
     /// live behind it, so every step describing one of those rings this.
     case bottomBarMore
     /// The chat's agent switcher + thread selector — two adjacent controls
@@ -30,8 +30,8 @@ enum TourHighlight: Hashable {
     /// Ringed on the root before the tour dives into one of its pages, so the
     /// user sees where the page they land on came from.
     case settingsEssentials
-    /// The Settings root's "Manage MyApps" section. Same rule.
-    case settingsManageMyApps
+    /// The Settings root's "Manage MiniApps" section. Same rule.
+    case settingsManageMiniApps
 }
 
 /// Collects the bounds of every `.tourAnchor`-tagged view in a subtree, keyed

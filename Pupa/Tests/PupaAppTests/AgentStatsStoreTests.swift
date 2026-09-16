@@ -44,8 +44,8 @@ struct AgentStatsStoreTests {
     func statKeyMapping() {
         let id = UUID()
         #expect(AgentInvocationKey.orchestrator.statKey == "orchestrator")
-        #expect(AgentInvocationKey.myApp(id).statKey == id.uuidString)
-        #expect(AgentInvocationKey.subagent(myAppId: id, slug: "abc").statKey == "subagent:\(id.uuidString):abc")
+        #expect(AgentInvocationKey.miniApp(id).statKey == id.uuidString)
+        #expect(AgentInvocationKey.subagent(miniAppId: id, slug: "abc").statKey == "subagent:\(id.uuidString):abc")
     }
 
     @Test("gate fires onDelegation for nested and session callers, never for .user")
@@ -63,12 +63,12 @@ struct AgentStatsStoreTests {
         gate.enter(invocationId: rootId, target: .orchestrator, caller: .user, treeRoot: root)
         #expect(fired.isEmpty)
 
-        // Nested invocation — the live orchestrator run delegates to a MyApp.
+        // Nested invocation — the live orchestrator run delegates to a MiniApp.
         let appId = UUID()
-        guard case let .proceed(childId, childRoot) = gate.decide(caller: rootId, target: .myApp(appId)) else {
+        guard case let .proceed(childId, childRoot) = gate.decide(caller: rootId, target: .miniApp(appId)) else {
             Issue.record("nested did not proceed"); return
         }
-        gate.enter(invocationId: childId, target: .myApp(appId), caller: .agent(rootId), treeRoot: childRoot)
+        gate.enter(invocationId: childId, target: .miniApp(appId), caller: .agent(rootId), treeRoot: childRoot)
         #expect(fired.count == 1)
         #expect(fired.first?.0 == "orchestrator")
         #expect(fired.first?.1 == appId.uuidString)
@@ -85,10 +85,10 @@ struct AgentStatsStoreTests {
         }
 
         let appId = UUID()
-        guard case let .proceed(id, root) = gate.decide(caller: nil, target: .myApp(appId)) else {
+        guard case let .proceed(id, root) = gate.decide(caller: nil, target: .miniApp(appId)) else {
             Issue.record("did not proceed"); return
         }
-        gate.enter(invocationId: id, target: .myApp(appId), caller: .session(.orchestrator), treeRoot: root)
+        gate.enter(invocationId: id, target: .miniApp(appId), caller: .session(.orchestrator), treeRoot: root)
 
         #expect(fired.count == 1)
         #expect(fired.first?.0 == "orchestrator")
@@ -105,10 +105,10 @@ struct AgentStatsStoreTests {
         gate.onDelegation = { _, _ in fired += 1 }
 
         let appId = UUID()
-        guard case let .proceed(id, root) = gate.decide(caller: nil, target: .myApp(appId)) else {
+        guard case let .proceed(id, root) = gate.decide(caller: nil, target: .miniApp(appId)) else {
             Issue.record("did not proceed"); return
         }
-        gate.enter(invocationId: id, target: .myApp(appId), caller: .agent(UUID()), treeRoot: root)
+        gate.enter(invocationId: id, target: .miniApp(appId), caller: .agent(UUID()), treeRoot: root)
         #expect(fired == 0)
     }
 }

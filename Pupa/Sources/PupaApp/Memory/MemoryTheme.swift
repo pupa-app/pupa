@@ -30,7 +30,7 @@ extension Color {
     // MARK: - Base app chrome
 
     /// Neutral warm grey driving the base app chrome (sidebar `+`, footer
-    /// glyphs, Settings) — everything that isn't inside a MyApp, which keeps
+    /// glyphs, Settings) — everything that isn't inside a MiniApp, which keeps
     /// its own per-app accent. Replaces the default system blue so the shell
     /// reads as quiet/neutral. Themed around `DCDAD6`: that light tone is the
     /// surface (`appBaseSurface`); the tint is a darker shade of the same warm
@@ -83,17 +83,17 @@ extension Color {
     }()
 
     // Deliberately understated — a dark neutral grey so the orchestrator
-    // reads as the "meta" agent without competing with the per-MyApp colors.
+    // reads as the "meta" agent without competing with the per-MiniApp colors.
     static let orchestratorColor: Color = Color(white: 0.32)
 
     /// Palette chosen for maximum visual distinction (no two look alike in
     /// light or dark mode). Assigned by creation order, not UUID hash, so
     /// apps never share a color within a 7-app session.
-    static let myAppColorPalette: [Color] = [
+    static let miniAppColorPalette: [Color] = [
         .blue, .green, .orange, .red, .yellow, .indigo, .brown
     ]
 
     static func color(atIndex index: Int) -> Color {
-        myAppColorPalette[index % myAppColorPalette.count]
+        miniAppColorPalette[index % miniAppColorPalette.count]
     }
 }

@@ -2,15 +2,15 @@ import Foundation
 
 /// Who created a notification. Distinct from `NotificationRequest.Target`,
 /// which says where a *tap* lands: the orchestrator can schedule a
-/// notification pointed at a myApp, and the user's own reminders point
+/// notification pointed at a miniApp, and the user's own reminders point
 /// nowhere at all.
 public enum NotificationOrigin: Codable, Sendable, Hashable {
     /// Composed by hand in Settings → Notifications.
     case user
     /// Scheduled by the orchestrator agent (memory scope).
     case orchestrator
-    /// Scheduled by a myApp's agent.
-    case myApp(UUID)
+    /// Scheduled by a miniApp's agent.
+    case miniApp(UUID)
     /// Adopted from the OS queue carrying no readable origin marker.
     case unknown
 
@@ -32,7 +32,7 @@ public enum NotificationOrigin: Codable, Sendable, Hashable {
         case .user: return "user"
         case .orchestrator: return "orchestrator"
         case .unknown: return "unknown"
-        case .myApp(let id): return "myApp:\(id.uuidString)"
+        case .miniApp(let id): return "miniApp:\(id.uuidString)"
         }
     }
 
@@ -43,10 +43,11 @@ public enum NotificationOrigin: Codable, Sendable, Hashable {
         case "user": return .user
         case "orchestrator": return .orchestrator
         case let raw?:
-            guard raw.hasPrefix("myApp:"),
-                  let id = UUID(uuidString: String(raw.dropFirst("myApp:".count)))
+            let prefix = raw.hasPrefix("miniApp:") ? "miniApp:" : "myApp:"
+            guard raw.hasPrefix(prefix),
+                  let id = UUID(uuidString: String(raw.dropFirst(prefix.count)))
             else { return .unknown }
-            return .myApp(id)
+            return .miniApp(id)
         default: return .unknown
         }
     }

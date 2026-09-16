@@ -7,15 +7,15 @@ extension AppTools {
     @MainActor
     static func registerChecklistTools(
         on registry: ToolRegistry,
-        store: MyAppStore,
-        myAppId: UUID
+        store: MiniAppStore,
+        miniAppId: UUID
     ) {
         registry.register(ClientTool(
             descriptor: ToolDescriptor(
                 name: "renderChecklist",
                 description: """
                 Render a checklist on the first checklist component in this \
-                MyApp (or the active component if it's a checklist) and/or set \
+                MiniApp (or the active component if it's a checklist) and/or set \
                 the checklist's LLM-authored content `summary`. Passing `title` \
                 is a DESTRUCTIVE full render — replaces the existing item \
                 list. For incremental changes use addChecklistItem / \
@@ -59,7 +59,7 @@ extension AppTools {
                         ])
                     }
                     let resolvedId: String
-                    switch store.resolveRenderTarget(kind: "checklist", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveRenderTarget(kind: "checklist", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
@@ -67,18 +67,18 @@ extension AppTools {
                     }
                     if let title = titleArg {
                         let items = parseChecklistItems(from: args["items"])
-                        store.setChecklist(title: title, items: items, myAppId: myAppId, componentId: resolvedId)
+                        store.setChecklist(title: title, items: items, miniAppId: miniAppId, componentId: resolvedId)
                     }
                     var summarySet = false
                     if hasSummary {
                         summarySet = store.setComponentSummary(
                             forKind: "checklist",
                             summary: summaryArg?.stringValue,
-                            myAppId: myAppId,
+                            miniAppId: miniAppId,
                             componentId: resolvedId
                         )
                     }
-                    let cl = checklist(store, myAppId: myAppId, componentId: resolvedId)
+                    let cl = checklist(store, miniAppId: miniAppId, componentId: resolvedId)
                     var result: [String: AnyJSON] = ["ok": .bool(cl != nil), "componentId": .string(resolvedId)]
                     if let title = titleArg { result["title"] = .string(title) }
                     result["itemCount"] = .int(cl?.items.count ?? 0)
@@ -116,19 +116,19 @@ extension AppTools {
                 let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "checklist", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "checklist", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
                         resolvedId = id
                     }
-                    guard let id = store.addChecklistItem(text: text, done: done, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "addChecklistItem")) else {
+                    guard let id = store.addChecklistItem(text: text, done: done, miniAppId: miniAppId, componentId: resolvedId, actor: .agent(toolName: "addChecklistItem")) else {
                         return .object([
                             "ok": .bool(false),
-                            "error": "no checklist component in this MyApp — call renderChecklist or addComponent first",
+                            "error": "no checklist component in this MiniApp — call renderChecklist or addComponent first",
                         ])
                     }
-                    let cl = checklist(store, myAppId: myAppId, componentId: resolvedId)
+                    let cl = checklist(store, miniAppId: miniAppId, componentId: resolvedId)
                     return .object([
                         "ok": .bool(true),
                         "componentId": .string(resolvedId),
@@ -169,19 +169,19 @@ extension AppTools {
                 let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "checklist", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "checklist", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
                         resolvedId = id
                     }
-                    guard let newValue = store.toggleChecklistItem(id: uuid, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "toggleChecklistItem")) else {
+                    guard let newValue = store.toggleChecklistItem(id: uuid, miniAppId: miniAppId, componentId: resolvedId, actor: .agent(toolName: "toggleChecklistItem")) else {
                         return .object([
                             "ok": .bool(false),
                             "error": .string("no checklist item with id \(idString)"),
                         ])
                     }
-                    let cl = checklist(store, myAppId: myAppId, componentId: resolvedId)
+                    let cl = checklist(store, miniAppId: miniAppId, componentId: resolvedId)
                     return .object([
                         "ok": .bool(true),
                         "componentId": .string(resolvedId),
@@ -239,7 +239,7 @@ extension AppTools {
                 }
                 let componentIdArg = args["componentId"]?.stringValue
                 let patchObj = args["patch"]?.objectValue ?? [:]
-                var patch = MyAppStore.ChecklistItemPatch()
+                var patch = MiniAppStore.ChecklistItemPatch()
                 if let v = patchObj["text"]?.stringValue { patch.text = v }
                 if let v = patchObj["done"]?.boolValue { patch.done = v }
                 if patchObj["linkedItems"] != nil {
@@ -247,13 +247,13 @@ extension AppTools {
                 }
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "checklist", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "checklist", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
                         resolvedId = id
                     }
-                    guard let after = store.patchChecklistItem(id: uuid, patch: patch, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "patchChecklistItem")) else {
+                    guard let after = store.patchChecklistItem(id: uuid, patch: patch, miniAppId: miniAppId, componentId: resolvedId, actor: .agent(toolName: "patchChecklistItem")) else {
                         return .object([
                             "ok": .bool(false),
                             "error": .string("no checklist item with id \(idString)"),
@@ -297,19 +297,19 @@ extension AppTools {
                 let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "checklist", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "checklist", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
                         resolvedId = id
                     }
-                    guard let removed = store.removeChecklistItem(id: uuid, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "removeChecklistItem")) else {
+                    guard let removed = store.removeChecklistItem(id: uuid, miniAppId: miniAppId, componentId: resolvedId, actor: .agent(toolName: "removeChecklistItem")) else {
                         return .object([
                             "ok": .bool(false),
                             "error": .string("no checklist item with id \(idString)"),
                         ])
                     }
-                    let cl = checklist(store, myAppId: myAppId, componentId: resolvedId)
+                    let cl = checklist(store, miniAppId: miniAppId, componentId: resolvedId)
                     return .object([
                         "ok": .bool(true),
                         "componentId": .string(resolvedId),
@@ -357,10 +357,10 @@ extension AppTools {
                 let limit = min(100, max(1, args["limit"]?.intValue ?? 20))
                 let status = args["status"]?.stringValue ?? "all"
                 return await MainActor.run {
-                    guard let resolved = resolveChecklist(store: store, myAppId: myAppId, componentId: componentId) else {
+                    guard let resolved = resolveChecklist(store: store, miniAppId: miniAppId, componentId: componentId) else {
                         return .object([
                             "ok": .bool(false),
-                            "error": "no checklist component matches that componentId (or this myApp has no checklist).",
+                            "error": "no checklist component matches that componentId (or this miniApp has no checklist).",
                         ])
                     }
                     let (cl, resolvedId) = resolved
@@ -423,10 +423,10 @@ extension AppTools {
                     ])
                 }
                 return await MainActor.run {
-                    guard let resolved = resolveChecklist(store: store, myAppId: myAppId, componentId: componentId) else {
+                    guard let resolved = resolveChecklist(store: store, miniAppId: miniAppId, componentId: componentId) else {
                         return .object([
                             "ok": .bool(false),
-                            "error": "no checklist component matches that componentId (or this myApp has no checklist).",
+                            "error": "no checklist component matches that componentId (or this miniApp has no checklist).",
                         ])
                     }
                     let (cl, resolvedId) = resolved

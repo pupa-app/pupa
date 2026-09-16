@@ -11,16 +11,16 @@ import AGUIKit
 @Suite("patchCalcRows validation")
 struct CalcRowPatchValidationTests {
 
-    private func makeStore() -> (store: MyAppStore, myAppId: UUID) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApp = MyApp(name: "T", iconSystemName: "function", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([myApp], myApp.id))
-        store.addComponent(kind: "calculator", name: "Calc", iconSystemName: "function", myAppId: myApp.id)
-        return (store, myApp.id)
+    private func makeStore() -> (store: MiniAppStore, miniAppId: UUID) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApp = MiniApp(name: "T", iconSystemName: "function", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([miniApp], miniApp.id))
+        store.addComponent(kind: "calculator", name: "Calc", iconSystemName: "function", miniAppId: miniApp.id)
+        return (store, miniApp.id)
     }
 
-    private func calc(_ store: MyAppStore, _ id: UUID) -> CalculatorData? {
-        for comp in store.myApps.first(where: { $0.id == id })?.components ?? [] {
+    private func calc(_ store: MiniAppStore, _ id: UUID) -> CalculatorData? {
+        for comp in store.miniApps.first(where: { $0.id == id })?.components ?? [] {
             if case .calculator(let c) = comp.body { return c }
         }
         return nil
@@ -62,17 +62,17 @@ struct CalcRowPatchValidationTests {
         return try await tool.handler(.object(["patches": .array(patches)]))
     }
 
-    private func rate(_ store: MyAppStore, _ myAppId: UUID) -> CalcRow? {
-        calc(store, myAppId)?.rows.first { $0.key == "rate" }
+    private func rate(_ store: MiniAppStore, _ miniAppId: UUID) -> CalcRow? {
+        calc(store, miniAppId)?.rows.first { $0.key == "rate" }
     }
 
     // MARK: - The regression this suite exists for
 
     @Test("A kind-specific field without `kind` is rejected, not silently ignored")
     func valueWithoutKind_isRejected() async throws {
-        let (store, myAppId) = makeStore()
+        let (store, miniAppId) = makeStore()
         let registry = ToolRegistry()
-        AppTools.registerMyAppTools(on: registry, store: store, myAppId: myAppId)
+        AppTools.registerMiniAppTools(on: registry, store: store, miniAppId: miniAppId)
         try await seed(registry)
 
         let result = try await patch(registry, [
@@ -83,7 +83,7 @@ struct CalcRowPatchValidationTests {
         let error = result["errors"]?.arrayValue?.first?["error"]?.stringValue ?? ""
         #expect(error.contains("kind"))
         // Row untouched — still 5, still a slider.
-        guard case .variable(let value, let control)? = rate(store, myAppId)?.kind else {
+        guard case .variable(let value, let control)? = rate(store, miniAppId)?.kind else {
             Issue.record("rate is no longer a variable"); return
         }
         #expect(value == 5)
@@ -94,9 +94,9 @@ struct CalcRowPatchValidationTests {
 
     @Test("Every kind-only field is rejected when `kind` is absent")
     func everyKindOnlyField_isRejected() async throws {
-        let (store, myAppId) = makeStore()
+        let (store, miniAppId) = makeStore()
         let registry = ToolRegistry()
-        AppTools.registerMyAppTools(on: registry, store: store, myAppId: myAppId)
+        AppTools.registerMiniAppTools(on: registry, store: store, miniAppId: miniAppId)
         try await seed(registry)
 
         for field in ["value", "control", "expression", "aggregate", "list", "linkedField"] {
@@ -111,9 +111,9 @@ struct CalcRowPatchValidationTests {
 
     @Test("An unknown row key is reported instead of quietly skipped")
     func unknownKey_isReported() async throws {
-        let (store, myAppId) = makeStore()
+        let (store, miniAppId) = makeStore()
         let registry = ToolRegistry()
-        AppTools.registerMyAppTools(on: registry, store: store, myAppId: myAppId)
+        AppTools.registerMiniAppTools(on: registry, store: store, miniAppId: miniAppId)
         try await seed(registry)
 
         let result = try await patch(registry, [
@@ -125,9 +125,9 @@ struct CalcRowPatchValidationTests {
 
     @Test("An entry with no `key` is reported")
     func missingKey_isReported() async throws {
-        let (store, myAppId) = makeStore()
+        let (store, miniAppId) = makeStore()
         let registry = ToolRegistry()
-        AppTools.registerMyAppTools(on: registry, store: store, myAppId: myAppId)
+        AppTools.registerMiniAppTools(on: registry, store: store, miniAppId: miniAppId)
         try await seed(registry)
 
         let result = try await patch(registry, [.object(["patch": .object(["name": .string("X")])])])
@@ -136,9 +136,9 @@ struct CalcRowPatchValidationTests {
 
     @Test("A patch with no recognised field is reported")
     func emptyPatch_isReported() async throws {
-        let (store, myAppId) = makeStore()
+        let (store, miniAppId) = makeStore()
         let registry = ToolRegistry()
-        AppTools.registerMyAppTools(on: registry, store: store, myAppId: myAppId)
+        AppTools.registerMiniAppTools(on: registry, store: store, miniAppId: miniAppId)
         try await seed(registry)
 
         let result = try await patch(registry, [
@@ -149,9 +149,9 @@ struct CalcRowPatchValidationTests {
 
     @Test("An unparseable `kind` is reported rather than dropped")
     func badKind_isReported() async throws {
-        let (store, myAppId) = makeStore()
+        let (store, miniAppId) = makeStore()
         let registry = ToolRegistry()
-        AppTools.registerMyAppTools(on: registry, store: store, myAppId: myAppId)
+        AppTools.registerMiniAppTools(on: registry, store: store, miniAppId: miniAppId)
         try await seed(registry)
 
         let result = try await patch(registry, [
@@ -164,9 +164,9 @@ struct CalcRowPatchValidationTests {
 
     @Test("One bad entry rejects the whole batch — no partial write")
     func batchIsAtomic() async throws {
-        let (store, myAppId) = makeStore()
+        let (store, miniAppId) = makeStore()
         let registry = ToolRegistry()
-        AppTools.registerMyAppTools(on: registry, store: store, myAppId: myAppId)
+        AppTools.registerMiniAppTools(on: registry, store: store, miniAppId: miniAppId)
         try await seed(registry)
 
         let result = try await patch(registry, [
@@ -176,7 +176,7 @@ struct CalcRowPatchValidationTests {
 
         #expect(result["ok"]?.boolValue == false)
         // The valid first entry must NOT have landed.
-        let out = calc(store, myAppId)?.rows.first { $0.key == "out" }
+        let out = calc(store, miniAppId)?.rows.first { $0.key == "out" }
         #expect(out?.name == "Out")
     }
 
@@ -184,9 +184,9 @@ struct CalcRowPatchValidationTests {
 
     @Test("Presentation-only fields still patch on their own")
     func presentationOnly_succeeds() async throws {
-        let (store, myAppId) = makeStore()
+        let (store, miniAppId) = makeStore()
         let registry = ToolRegistry()
-        AppTools.registerMyAppTools(on: registry, store: store, myAppId: myAppId)
+        AppTools.registerMiniAppTools(on: registry, store: store, miniAppId: miniAppId)
         try await seed(registry)
 
         let result = try await patch(registry, [
@@ -195,15 +195,15 @@ struct CalcRowPatchValidationTests {
             ])]),
         ])
         #expect(result["ok"]?.boolValue == true)
-        #expect(rate(store, myAppId)?.name == "Expected return")
-        #expect(rate(store, myAppId)?.unit == "%")
+        #expect(rate(store, miniAppId)?.name == "Expected return")
+        #expect(rate(store, miniAppId)?.unit == "%")
     }
 
     @Test("A full kind block still replaces row behaviour")
     func fullKindBlock_succeeds() async throws {
-        let (store, myAppId) = makeStore()
+        let (store, miniAppId) = makeStore()
         let registry = ToolRegistry()
-        AppTools.registerMyAppTools(on: registry, store: store, myAppId: myAppId)
+        AppTools.registerMiniAppTools(on: registry, store: store, miniAppId: miniAppId)
         try await seed(registry)
 
         let result = try await patch(registry, [
@@ -218,7 +218,7 @@ struct CalcRowPatchValidationTests {
         ])
         #expect(result["ok"]?.boolValue == true)
         #expect(result["patched"]?.arrayValue?.first?.stringValue == "rate")
-        guard case .variable(let value, let control)? = rate(store, myAppId)?.kind else {
+        guard case .variable(let value, let control)? = rate(store, miniAppId)?.kind else {
             Issue.record("rate is no longer a variable"); return
         }
         #expect(value == 7)

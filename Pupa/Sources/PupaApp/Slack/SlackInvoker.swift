@@ -19,7 +19,7 @@ import Observation
 public final class SlackInvoker {
     /// Shared cross-scope policy state. Two SlackInvokers built with
     /// the same `gate` participate in a single invocation graph —
-    /// reentrancy across MyApp and Slack sub-runs is detected.
+    /// reentrancy across MiniApp and Slack sub-runs is detected.
     public let gate: AgentInvocationGate
 
     /// Per-agent live invocation snapshot — what tools the agent
@@ -73,14 +73,14 @@ public final class SlackInvoker {
         _ agentId: String,
         agentName: String,
         channelId: String,
-        myAppId: UUID,
+        miniAppId: UUID,
         invocationId: UUID,
         caller: AgentCallerContext,
         treeRoot: UUID
     ) -> UUID {
         gate.enter(
             invocationId: invocationId,
-            target: .subagent(myAppId: myAppId, slug: agentId),
+            target: .subagent(miniAppId: miniAppId, slug: agentId),
             caller: caller,
             treeRoot: treeRoot
         )

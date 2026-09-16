@@ -2,22 +2,22 @@ import Foundation
 
 /// Non-generic slice of an item policy — guardrails that don't depend on the
 /// specific item type. Stored in `ItemPolicyRegistry` keyed by kind string so
-/// `MyAppStore` mutators can consult them without knowing the concrete type.
+/// `MiniAppStore` mutators can consult them without knowing the concrete type.
 ///
 /// `onItemRemoved` is `@MainActor` because implementations will call store
 /// mutators (e.g. `cascadeRemoveRefs`) which require main-actor isolation.
 /// The default implementation is a no-op; Phase 2–4 policy types override it
 /// to route removal cascades through the registry instead of the kind-switch
-/// that currently lives in `MyAppStore.cascadeRemoveRefs`.
+/// that currently lives in `MiniAppStore.cascadeRemoveRefs`.
 public protocol AnyItemPolicy: Sendable {
     var maxLinkedItems: Int { get }
     var maxDisplayNameLength: Int { get }
     func canLinkTo(targetKind: String) -> Bool
-    @MainActor func onItemRemoved(itemId: UUID, from store: MyAppStore, myAppId: UUID?)
+    @MainActor func onItemRemoved(itemId: UUID, from store: MiniAppStore, miniAppId: UUID?)
 }
 
 public extension AnyItemPolicy {
-    @MainActor func onItemRemoved(itemId: UUID, from store: MyAppStore, myAppId: UUID?) {}
+    @MainActor func onItemRemoved(itemId: UUID, from store: MiniAppStore, miniAppId: UUID?) {}
 }
 
 /// Full item policy — adds a typed `validate` method on top of the generic
@@ -33,9 +33,9 @@ public extension ItemPolicy {
 }
 
 /// Dispatch table mapping kind strings to their registered policies. Consulted
-/// by `MyAppStore.linkItems` (canLinkTo gating) and by removal cascade routing
+/// by `MiniAppStore.linkItems` (canLinkTo gating) and by removal cascade routing
 /// once Phases 2–4 land. Policies are registered at app startup alongside
-/// `MyAppTypeRegistry.registerBuiltins()`.
+/// `MiniAppTypeRegistry.registerBuiltins()`.
 @MainActor
 public final class ItemPolicyRegistry {
     public static let shared = ItemPolicyRegistry()

@@ -2,13 +2,13 @@
 
 How to build a `.pupa` template that reads like a **real instance of a real
 app** the user can augment, not a feature demo. Code:
-[Pupa/Sources/PupaApp/MyApps/](../Pupa/Sources/PupaApp/MyApps/) (one
+[Pupa/Sources/PupaApp/MiniApps/](../Pupa/Sources/PupaApp/MiniApps/) (one
 `*Example.swift` per template, registered in
-[ExampleRegistry.swift](../Pupa/Sources/PupaApp/MyApps/ExampleRegistry.swift)).
+[ExampleRegistry.swift](../Pupa/Sources/PupaApp/MiniApps/ExampleRegistry.swift)).
 Export format: [marketplace.md](marketplace.md). Build recipe (new shape):
 [adding-a-component.md](adding-a-component.md).
 
-Two ways to carry a template. Most build their `MyApp` and memory files from
+Two ways to carry a template. Most build their `MiniApp` and memory files from
 Swift literals. **Job Search & Apply** instead embeds the published
 `job-search-apply` bundle from the marketplace verbatim
 (`Resources/job-search-apply.pupa`) and decodes it, so the seed and the
@@ -48,7 +48,7 @@ A template ships only when it meets all of:
 Templates close a learning loop so the agent gets better with use (adapted from
 Hermes' memory + skills + self-improvement pillars — **no new tools**; uses
 `writeMemoryFile` / `readMemoryFile` / `lsMemories` against the per-app memory
-root `MemoryStore.appRoot(myAppId:)`). Each app `AGENTS.md` embeds a
+root `MemoryStore.appRoot(miniAppId:)`). Each app `AGENTS.md` embeds a
 **"## Keeping yourself updated"** section telling the agent to:
 
 - Maintain `MEMORY.md` (app/project facts) + `USER.md` (the user's preferences

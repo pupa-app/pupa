@@ -116,7 +116,7 @@ enum PerfDriver {
             .appendingPathComponent("pupa-perf-fixture", isDirectory: true)
         PupaStorage.overrideRoot = root
 
-        var apps: [MyApp] = []
+        var apps: [MiniApp] = []
         if ProcessInfo.processInfo.environment["PUPA_PERF_SEED"] == "1" {
             try? FileManager.default.removeItem(at: root)
             print("seeding \(appCount) apps × \(snapshotsPerApp) snapshots …")
@@ -154,12 +154,12 @@ enum PerfDriver {
                 _ = SnapshotStore.record(edited, reason: .edit)
             }
         }
-        // RC1 — what mounting the Agents pane costs on a MyApp switch.
+        // RC1 — what mounting the Agents pane costs on a MiniApp switch.
         measure("MemoryStore(appRoot) init — recursive scan") {
-            _ = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: target.id))
+            _ = MemoryStore(rootOverride: MemoryStore.appRoot(miniAppId: target.id))
         }
         measure("AgentStore(memory:) — subagent discovery") {
-            let mem = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: target.id))
+            let mem = MemoryStore(rootOverride: MemoryStore.appRoot(miniAppId: target.id))
             _ = AgentStore(memory: mem).agents
         }
     }
@@ -203,8 +203,8 @@ enum PerfDriver {
     // MARK: - Fixture
 
     @discardableResult
-    private static func seed(at root: URL) -> [MyApp] {
-        var apps: [MyApp] = []
+    private static func seed(at root: URL) -> [MiniApp] {
+        var apps: [MiniApp] = []
         for a in 0..<appCount {
             let components = (1...componentsPerApp).map { c in
                 Component(
@@ -214,7 +214,7 @@ enum PerfDriver {
                     body: .empty
                 )
             }
-            let app = MyApp(
+            let app = MiniApp(
                 name: "Perf App \(a)",
                 iconSystemName: "square.grid.2x2",
                 typeId: "tracker",
@@ -235,7 +235,7 @@ enum PerfDriver {
                 _ = SnapshotStore.record(pinned, reason: .pinned, label: "pin \(p)")
             }
 
-            let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: app.id))
+            let memory = MemoryStore(rootOverride: MemoryStore.appRoot(miniAppId: app.id))
             for f in 0..<memoryFilesPerApp {
                 _ = try? memory.writeFile(
                     path: "notes/note-\(f).md",
@@ -256,7 +256,7 @@ enum PerfDriver {
         }
         // A deliberately short history, so the report can separate listing
         // cost from prune's at-cap re-base.
-        let small = MyApp(name: "Perf App small", iconSystemName: "square",
+        let small = MiniApp(name: "Perf App small", iconSystemName: "square",
                           typeId: "tracker")
         for s in 0..<10 {
             var edited = small

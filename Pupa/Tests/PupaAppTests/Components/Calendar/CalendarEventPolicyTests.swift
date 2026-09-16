@@ -7,12 +7,12 @@ import AGUIKit
 @Suite("CalendarEvent — Phase 3 migration")
 struct CalendarEventPolicyTests {
 
-    private func makeStore() -> (store: MyAppStore, id: UUID) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApp = MyApp(name: "C", iconSystemName: "calendar", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([myApp], myApp.id))
-        store.setCalendar(title: "Test", myAppId: myApp.id)
-        return (store, myApp.id)
+    private func makeStore() -> (store: MiniAppStore, id: UUID) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApp = MiniApp(name: "C", iconSystemName: "calendar", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([miniApp], miniApp.id))
+        store.setCalendar(title: "Test", miniAppId: miniApp.id)
+        return (store, miniApp.id)
     }
 
     private func makeEvent(title: String = "Meeting", start: String = "2026-05-22T10:00:00Z") -> CalendarEvent {
@@ -92,7 +92,7 @@ struct CalendarEventPolicyTests {
 
     @Test("CalendarEventPolicy is registered after registerBuiltins")
     func policyRegistered() {
-        MyAppTypeRegistry.shared.registerBuiltins()
+        MiniAppTypeRegistry.shared.registerBuiltins()
         #expect(ItemPolicyRegistry.shared.isRegistered(forKind: "calendar"))
     }
 
@@ -163,10 +163,10 @@ struct CalendarEventPolicyTests {
     func patchDeduplicatesLinkedItems() {
         let (store, id) = makeStore()
         let event = makeEvent()
-        let eventId = store.addCalendarEvent(event, myAppId: id)!
+        let eventId = store.addCalendarEvent(event, miniAppId: id)!
         let ref = ComponentItemRef(componentId: "tracker-1", itemId: UUID())
-        let patch = MyAppStore.CalendarEventPatch(linkedItems: [ref, ref, ref])
-        let after = store.patchCalendarEvent(id: eventId, patch: patch, myAppId: id)
+        let patch = MiniAppStore.CalendarEventPatch(linkedItems: [ref, ref, ref])
+        let after = store.patchCalendarEvent(id: eventId, patch: patch, miniAppId: id)
         #expect(after?.linkedItems.count == 1)
     }
 
@@ -175,8 +175,8 @@ struct CalendarEventPolicyTests {
     @Test("addCalendarEvent emits .added event with .user actor by default")
     func addEventEmitsUserEvent() {
         let (store, id) = makeStore()
-        _ = store.addCalendarEvent(makeEvent(), myAppId: id)
-        let events = store.itemEventLog.events(forMyApp: id)
+        _ = store.addCalendarEvent(makeEvent(), miniAppId: id)
+        let events = store.itemEventLog.events(forMiniApp: id)
         #expect(events.count == 1)
         #expect(events[0].kind == .added)
         #expect(events[0].actor == .user)
@@ -185,8 +185,8 @@ struct CalendarEventPolicyTests {
     @Test("addCalendarEvent emits .added event with .agent actor when passed")
     func addEventEmitsAgentEvent() {
         let (store, id) = makeStore()
-        _ = store.addCalendarEvent(makeEvent(), myAppId: id, actor: .agent(toolName: "addCalendarEvent"))
-        let events = store.itemEventLog.events(forMyApp: id)
+        _ = store.addCalendarEvent(makeEvent(), miniAppId: id, actor: .agent(toolName: "addCalendarEvent"))
+        let events = store.itemEventLog.events(forMiniApp: id)
         #expect(events.count == 1)
         #expect(events[0].kind == .added)
         #expect(events[0].actor == .agent(toolName: "addCalendarEvent"))
@@ -195,9 +195,9 @@ struct CalendarEventPolicyTests {
     @Test("removeCalendarEvent emits .removed event")
     func removeEventEmitsEvent() {
         let (store, id) = makeStore()
-        let eventId = store.addCalendarEvent(makeEvent(), myAppId: id, actor: .agent(toolName: "addCalendarEvent"))!
-        _ = store.removeCalendarEvent(id: eventId, myAppId: id, actor: .agent(toolName: "removeCalendarEvent"))
-        let events = store.itemEventLog.events(forMyApp: id)
+        let eventId = store.addCalendarEvent(makeEvent(), miniAppId: id, actor: .agent(toolName: "addCalendarEvent"))!
+        _ = store.removeCalendarEvent(id: eventId, miniAppId: id, actor: .agent(toolName: "removeCalendarEvent"))
+        let events = store.itemEventLog.events(forMiniApp: id)
         let kinds = events.map(\.kind)
         #expect(kinds.contains(.added))
         #expect(kinds.contains(.removed))
@@ -207,26 +207,26 @@ struct CalendarEventPolicyTests {
     @Test("patchCalendarEvent emits .patched event")
     func patchEventEmitsEvent() {
         let (store, id) = makeStore()
-        let eventId = store.addCalendarEvent(makeEvent(), myAppId: id, actor: .agent(toolName: "addCalendarEvent"))!
-        let patch = MyAppStore.CalendarEventPatch(title: "Updated")
-        _ = store.patchCalendarEvent(id: eventId, patch: patch, myAppId: id, actor: .agent(toolName: "patchCalendarEvent"))
-        let events = store.itemEventLog.events(forMyApp: id)
+        let eventId = store.addCalendarEvent(makeEvent(), miniAppId: id, actor: .agent(toolName: "addCalendarEvent"))!
+        let patch = MiniAppStore.CalendarEventPatch(title: "Updated")
+        _ = store.patchCalendarEvent(id: eventId, patch: patch, miniAppId: id, actor: .agent(toolName: "patchCalendarEvent"))
+        let events = store.itemEventLog.events(forMiniApp: id)
         #expect(events.last?.kind == .patched)
         #expect(events.last?.actor == .agent(toolName: "patchCalendarEvent"))
     }
 
-    @Test("calendar events are scoped per myApp — two myApps don't mix")
-    func eventsPerMyApp() {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "calendar", typeId: MyAppType.tracker.id)
-        let b = MyApp(name: "B", iconSystemName: "calendar", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a, b], a.id))
-        store.setCalendar(title: "A", myAppId: a.id)
-        store.setCalendar(title: "B", myAppId: b.id)
-        _ = store.addCalendarEvent(makeEvent(title: "from A"), myAppId: a.id)
-        _ = store.addCalendarEvent(makeEvent(title: "from B"), myAppId: b.id)
-        _ = store.addCalendarEvent(makeEvent(title: "from A again"), myAppId: a.id)
-        #expect(store.itemEventLog.events(forMyApp: a.id).count == 2)
-        #expect(store.itemEventLog.events(forMyApp: b.id).count == 1)
+    @Test("calendar events are scoped per miniApp — two miniApps don't mix")
+    func eventsPerMiniApp() {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "calendar", typeId: MiniAppType.tracker.id)
+        let b = MiniApp(name: "B", iconSystemName: "calendar", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a, b], a.id))
+        store.setCalendar(title: "A", miniAppId: a.id)
+        store.setCalendar(title: "B", miniAppId: b.id)
+        _ = store.addCalendarEvent(makeEvent(title: "from A"), miniAppId: a.id)
+        _ = store.addCalendarEvent(makeEvent(title: "from B"), miniAppId: b.id)
+        _ = store.addCalendarEvent(makeEvent(title: "from A again"), miniAppId: a.id)
+        #expect(store.itemEventLog.events(forMiniApp: a.id).count == 2)
+        #expect(store.itemEventLog.events(forMiniApp: b.id).count == 1)
     }
 }

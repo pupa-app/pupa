@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Generic multi-select picker over every link-bearing item in a MyApp.
+/// Generic multi-select picker over every link-bearing item in a MiniApp.
 /// Replaces the per-kind picker sheets that lived inside `CalendarView`
 /// and `ChecklistView` before project `0.0.41`. Each link-bearing
 /// component (tracker, calendar, checklist) shows up as its own
@@ -21,8 +21,8 @@ import SwiftUI
 ///   mutator (`setTrackerItemLinkedItems`, `patchCalendarEvent` /
 ///   `patchChecklistItem` with a wholesale `linkedItems` patch).
 struct ComponentItemPickerSheet: View {
-    @Bindable var store: MyAppStore
-    let myAppId: UUID
+    @Bindable var store: MiniAppStore
+    let miniAppId: UUID
     /// Source ref hidden from the picker (a row cannot link to itself).
     /// Pass `nil` when the picker is opened for a brand-new item that
     /// doesn't have a stable id yet.
@@ -100,12 +100,12 @@ struct ComponentItemPickerSheet: View {
         .disabled(isLinked)
     }
 
-    /// Every link-bearing component in the MyApp. Empty components are
+    /// Every link-bearing component in the MiniApp. Empty components are
     /// excluded (they hold nothing to link to). Order matches the
     /// sidebar so the picker reads predictably.
     private var linkableComponents: [Component] {
-        guard let myApp = store.myApps.first(where: { $0.id == myAppId }) else { return [] }
-        return myApp.components.filter {
+        guard let miniApp = store.miniApps.first(where: { $0.id == miniAppId }) else { return [] }
+        return miniApp.components.filter {
             ComponentRegistry.shared.module(forKind: $0.kindString)?.isLinkable ?? false
         }
     }
@@ -121,7 +121,7 @@ struct ComponentItemPickerSheet: View {
 
     private func items(in comp: Component) -> [(UUID, String)] {
         guard let module = ComponentRegistry.shared.module(forKind: comp.kindString) else { return [] }
-        return module.linkableItems(in: comp, store: store, myAppId: myAppId)
+        return module.linkableItems(in: comp, store: store, miniAppId: miniAppId)
             .map { ($0.id, $0.displayName) }
     }
 }

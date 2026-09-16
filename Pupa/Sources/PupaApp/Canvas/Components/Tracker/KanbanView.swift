@@ -6,9 +6,9 @@ import SwiftUI
 /// re-grouped each render; cards reclassify by dragging between lanes
 /// (drop onto "(Unset)" clears the column-field value).
 public struct KanbanView: View {
-    @Bindable var store: MyAppStore
+    @Bindable var store: MiniAppStore
     let data: TrackerData
-    let myAppId: UUID
+    let miniAppId: UUID
     let componentId: String?
     @State private var sheet: SheetTarget?
     /// See `TrackerView.queryByBoard` — same structural-`@State` caveat.
@@ -19,16 +19,16 @@ public struct KanbanView: View {
     /// `TrackerView` — ephemeral, board-keyed, never persisted.
     @State private var peeks = TrackerPeekState()
 
-    public init(store: MyAppStore, data: TrackerData, myAppId: UUID, componentId: String? = nil) {
+    public init(store: MiniAppStore, data: TrackerData, miniAppId: UUID, componentId: String? = nil) {
         self.store = store
         self.data = data
-        self.myAppId = myAppId
+        self.miniAppId = miniAppId
         self.componentId = componentId
     }
 
     /// Scopes view `@State` to this board. See `TrackerBoardKey`.
     private var board: TrackerBoardKey {
-        TrackerBoardKey(myAppId: myAppId, componentId: componentId)
+        TrackerBoardKey(miniAppId: miniAppId, componentId: componentId)
     }
 
     public var body: some View {
@@ -68,7 +68,7 @@ public struct KanbanView: View {
                         let current = item.values[column.name] ?? ""
                         guard current != newValue else { return }
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                            _ = store.patchItem(id: itemId, with: [column.name: newValue], myAppId: myAppId, componentId: componentId)
+                            _ = store.patchItem(id: itemId, with: [column.name: newValue], miniAppId: miniAppId, componentId: componentId)
                         }
                     }
                 )
@@ -82,7 +82,7 @@ public struct KanbanView: View {
                 store: store,
                 fields: data.visibleFields,
                 initialItem: initialItem(for: target),
-                myAppId: myAppId,
+                miniAppId: miniAppId,
                 componentId: componentId,
                 initialLinkedItems: initialLinkedItems(for: target),
                 onClose: { sheet = nil }
@@ -177,7 +177,7 @@ public struct KanbanView: View {
 /// `setTrackerViewMode(.kanban, columnField:)` so the choice persists and
 /// the agent sees the change via `getCanvasState`.
 private struct GroupByBar: View {
-    @Bindable var store: MyAppStore
+    @Bindable var store: MiniAppStore
     let fields: [FieldDef]
     let currentColumn: FieldDef
     var componentId: String? = nil
@@ -413,7 +413,7 @@ private struct Lane: View {
 // MARK: - Empty-state hint
 
 private struct EmptyKanbanHint: View {
-    @Bindable var store: MyAppStore
+    @Bindable var store: MiniAppStore
     var componentId: String? = nil
 
     var body: some View {

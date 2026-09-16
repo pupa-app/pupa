@@ -21,17 +21,17 @@ public enum PerfFixture {
             assertionFailure("PerfFixture.seedUI needs PupaStorage.overrideRoot — refusing to seed real storage")
             return
         }
-        MyAppTypeRegistry.shared.registerBuiltins()
-        // Built through `addMyApp`, not `MyAppStore(initial:)` — only the
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        // Built through `addMiniApp`, not `MiniAppStore(initial:)` — only the
         // mutating path persists, and the roster has to survive into the run
         // that measures it.
-        let store = MyAppStore(initial: nil)
+        let store = MiniAppStore(initial: nil)
         for a in 0..<appCount {
-            let id = store.addMyApp(
-                typeId: MyAppType.tracker.id,
+            let id = store.addMiniApp(
+                typeId: MiniAppType.tracker.id,
                 name: "Perf App \(a)",
                 iconSystemName: "square.grid.2x2")
-            guard let app = store.myApps.first(where: { $0.id == id }) else { continue }
+            guard let app = store.miniApps.first(where: { $0.id == id }) else { continue }
 
             var bubbles: [ChatBubble] = []
             for b in 0..<bubbleCount {
@@ -54,6 +54,6 @@ public enum PerfFixture {
             }
             TranscriptCache.save(bubbles, threadId: app.currentThreadId)
         }
-        print("[perf] seeded \(store.myApps.count) apps, \(bubbleCount) bubbles each")
+        print("[perf] seeded \(store.miniApps.count) apps, \(bubbleCount) bubbles each")
     }
 }

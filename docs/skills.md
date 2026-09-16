@@ -2,13 +2,13 @@
 
 A **skill** is a reusable playbook the agent loads on demand — Pupa's take on
 [Claude Code skills](https://code.claude.com/docs/en/skills). Skills live in a
-MyApp's `pupa/` config folder and are picked up automatically by every agent
-in that MyApp (main agent + Slack subagents); the orchestrator has its own.
+MiniApp's `pupa/` config folder and are picked up automatically by every agent
+in that MiniApp (main agent + Slack subagents); the orchestrator has its own.
 
 ## The `pupa/` config folder
 
 ```
-memories/<myapp-slug>/pupa/
+memories/<miniapp-slug>/pupa/
   AGENTS.md                       # main agent prompt
   agents/<sub>/AGENTS.md          # subagent prompt (overrides inline persona)
   skills/<name>/SKILL.md          # a user skill — directory name is the /command
@@ -93,8 +93,8 @@ seeded as `pupa/skills/setup/SKILL.md`, which is all it takes to provide
 ### Default skills (every app)
 
 `DefaultSkills` (`Pupa/Sources/PupaApp/Skills/DefaultSkills.swift`) seeds skills
-into **every** MyApp — not just examples. Seeding happens **once, at app birth**
-(`MyAppStore.seedBirthFiles`, via `addMyApp` / example restore / the
+into **every** MiniApp — not just examples. Seeding happens **once, at app birth**
+(`MiniAppStore.seedBirthFiles`, via `addMiniApp` / example restore / the
 fresh-install default app), never on later launches, so a user's or agent's
 edits *and deletions* stick. File-exists-guarded.
 
@@ -108,9 +108,9 @@ One default ships today, riding the `.pupa` export bundle as config:
 
 `GuideSkills` (`Pupa/Sources/PupaApp/Skills/GuideSkills.swift`) is the
 user-facing guide plugin: **`/pupa`** (what Pupa is; the
-orchestrator/myapp/component/item boundaries) pointing at five children —
+orchestrator/miniapp/component/item boundaries) pointing at five children —
 **`/pupa-components`** (shapes + how they combine; kind list generated from
-`MyAppType.kinds` so it can't drift), **`/pupa-sharing`** (`.pupa`
+`MiniAppType.kinds` so it can't drift), **`/pupa-sharing`** (`.pupa`
 export/import), **`/pupa-memory`** (memories, sessions, history, archive),
 **`/pupa-agents`** (skills, subagents, slack rooms), **`/pupa-system`** (the
 app/backend boundary + where standing behaviour lives — the agent-facing
@@ -119,7 +119,7 @@ successor of `/pupa-internals`). All user-invocable and model-loadable via
 
 The guide lives under `pupa/plugins/pupa-guide/skills/`, not in the user's
 `pupa/skills/` space. Unlike default skills it is **managed content**: seeded
-into the orchestrator and every MyApp on **every launch**, overwritten when
+into the orchestrator and every MiniApp on **every launch**, overwritten when
 the shipped `GuideSkills.version` is newer than the file's frontmatter
 `version:` — so installs pick up new guide bodies on app update. Edits are
 clobbered on the next version bump and deletions resurrect; a custom copy
@@ -153,7 +153,7 @@ non-markdown supporting files, and a global cross-app skills tier.
   `skillProvider` (built-ins win on name collision).
 - Model surface: `ChatViewModel.skillsContextEntry` (in all three context
   paths) + the `app_skill_view` tool (`AppTools.registerSkillTools`), always
-  advertised via `MyAppType.skillToolNames`.
+  advertised via `MiniAppType.skillToolNames`.
 
 ## Sibling: subagents
 

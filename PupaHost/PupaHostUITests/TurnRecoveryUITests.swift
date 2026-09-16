@@ -176,7 +176,7 @@ final class TurnRecoveryUITests: XCTestCase {
     func testForceQuitWhileParkedDoesNotRerunTheSideEffect() throws {
         let root = "recovery-killparked"
         let app = launched(script: fixture(Self.realParkedTurnHung), root: root)
-        // The seeded MyApp ships with components of its own, so what matters
+        // The seeded MiniApp ships with components of its own, so what matters
         // is the delta, not the count.
         let before = componentCount(app)
         send(app, "add a Books tracker")
@@ -491,7 +491,7 @@ final class TurnRecoveryUITests: XCTestCase {
     /// toggle.isHittable` silently did nothing, which turned every downstream
     /// assertion into the same misleading "chat composer never appeared".
     ///
-    /// The drawer-dismissal dance this used to open with is gone: MyApps is a
+    /// The drawer-dismissal dance this used to open with is gone: MiniApps is a
     /// sheet now, never up at launch, so there is nothing covering the bar.
     @MainActor
     private func openChat(_ app: XCUIApplication) {

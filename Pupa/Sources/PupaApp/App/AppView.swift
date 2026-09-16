@@ -4,14 +4,14 @@ import AGUIKit
 import UIKit
 #endif
 
-/// Root view. Wires up the myApps store + memory store, hosts the chat
-/// session coordinator, and lays out a sidebar (myApps + memory files) +
+/// Root view. Wires up the miniApps store + memory store, hosts the chat
+/// session coordinator, and lays out a sidebar (miniApps + memory files) +
 /// canvas with a floating chat overlay.
 ///
 /// Layout:
-///   - Sidebar column hosts `MyAppSidebarView` with two sections: MyApps and
-///     Memories (markdown filesystem). Selecting a myApp switches the visible
-///     chat to that myApp's session (without cancelling other streams);
+///   - Sidebar column hosts `MiniAppSidebarView` with two sections: MiniApps and
+///     Memories (markdown filesystem). Selecting a miniApp switches the visible
+///     chat to that miniApp's session (without cancelling other streams);
 ///     selecting a memory file shows the rendered markdown in the detail
 ///     pane and routes chat to the shared memory session.
 ///   - Detail column is a `ZStack` of the active content (canvas or memory
@@ -22,7 +22,7 @@ public struct AppView: View {
     /// Drives the resumable-SSE lifecycle hooks (background hold / foreground
     /// re-attach). See `handleScenePhase`.
     @Environment(\.scenePhase) private var scenePhase
-    @State private var store: MyAppStore
+    @State private var store: MiniAppStore
     @State private var memory: MemoryStore
     @State private var settings: SettingsStore
     @State private var modelCatalog = ModelCatalogStore()
@@ -57,7 +57,7 @@ public struct AppView: View {
     /// iOS clears this back to nil after each tap so re-taps re-fire.
     @State private var selection: SidebarSelection?
     #if os(iOS)
-    /// Whether the MyApps sheet is up. Session state, not persisted: the drawer
+    /// Whether the MiniApps sheet is up. Session state, not persisted: the drawer
     /// used to restore its open/closed position across launches, but a *sheet*
     /// that re-presents itself on launch is a modal nobody asked for.
     @State private var showSidebar = false
@@ -69,7 +69,7 @@ public struct AppView: View {
     /// (component card from the landing page, agent detail, screen share,
     /// history), so Back returns to the page the user came from.
     @State private var detailPath: [SidebarSelection] = []
-    /// Whether the chat card is open. Owned here so the per-MyApp bottom bar's
+    /// Whether the chat card is open. Owned here so the per-MiniApp bottom bar's
     /// pupa button and the guided tour can both drive it, and `ChatOverlay`
     /// renders the card vs. its fallback launcher accordingly.
     @State private var chatOpen = false
@@ -98,7 +98,7 @@ public struct AppView: View {
     /// the first instead of racing it into `pendingImport`.
     @State private var remoteImport: Task<Void, Never>?
     @State private var isFetchingRemoteImport = false
-    /// Set when a tapped notification deep-links into a myApp that no longer
+    /// Set when a tapped notification deep-links into a miniApp that no longer
     /// exists (deleted after the notification was scheduled). Drives an error
     /// popup instead of navigating into a ghost target.
     @State private var notificationNotice: NotificationNotice?
@@ -108,7 +108,7 @@ public struct AppView: View {
     /// onboarding then mutates the very instance this view reads. Callers that
     /// don't care (previews, the macOS demo) pass nothing and get a fresh one.
     public init(settings injectedSettings: SettingsStore? = nil) {
-        MyAppTypeRegistry.shared.registerBuiltins()
+        MiniAppTypeRegistry.shared.registerBuiltins()
         // Idempotent fallback, and a no-op in the shipping app: there
         // `PupaAppDelegate` already installed the notification delegate at the
         // platform launch hook, before the cold-launch tap was dispatched. What
@@ -120,7 +120,7 @@ public struct AppView: View {
         // below load from the local canonical tree regardless; the mirror
         // converges with iCloud off the main thread.
         PupaStorage.warm()
-        let store = MyAppStore()
+        let store = MiniAppStore()
         // Guide skills are managed content, re-seeded (version-gated) into
         // the orchestrator and every app on each launch so installs pick up
         // new guide bodies on app update — the one exception to the
@@ -130,21 +130,21 @@ public struct AppView: View {
         // its app's id folder, so the seed lands in a tree that still holds the
         // user's notes rather than beside it. Self-disabling — see
         // `MemoryFolderMigration`.
-        MemoryFolderMigration.run(apps: store.myApps.map { (id: $0.id, name: $0.name) })
+        MemoryFolderMigration.run(apps: store.miniApps.map { (id: $0.id, name: $0.name) })
         GuideSkills.seedOrchestrator()
-        for app in store.myApps { GuideSkills.seed(appId: app.id) }
+        for app in store.miniApps { GuideSkills.seed(appId: app.id) }
         let memory = MemoryStore()
         store.globalMemory = memory
         // Sidebar/Memories edits go through this global store; refuse writes to
         // any app whose memories are locked, matching the agent's scoped guard.
         memory.writeGuard = { [weak store] path in store?.isMemoryLocked(forRootPath: path) ?? false }
         // Persona AGENTS.md and default skills (the `/to-memory` skill) are
-        // seeded once at app birth (addMyApp / restoreExample / fresh-install)
+        // seeded once at app birth (addMiniApp / restoreExample / fresh-install)
         // — never on launch — so user edits *and deletions* aren't
         // resurrected. Guide skills (above) are the deliberate exception.
         let settings = injectedSettings ?? SettingsStore()
         // Wire the chat-storage cap: the store reads the live cap from settings
-        // (a closure, so `MyAppStore` stays decoupled from `SettingsStore`) and
+        // (a closure, so `MiniAppStore` stays decoupled from `SettingsStore`) and
         // honors a cap lowered on another device by pruning once at launch.
         store.threadCapBytes = { [weak settings] in settings?.effectiveThreadCapBytes }
         if settings.threadCapEnabled { store.pruneAllThreads() }
@@ -162,9 +162,9 @@ public struct AppView: View {
             settings: settings
         ))
         self._screenShare = State(initialValue: ScreenShareViewModel(settings: settings))
-        self._selection = State(initialValue: .myAppHome(store.activeMyAppId))
-        self._nav = State(initialValue: NavState(rootPage: .myAppHome(store.activeMyAppId)))
-        self._chatScope = State(initialValue: .myApp(store.activeMyAppId))
+        self._selection = State(initialValue: .miniAppHome(store.activeMiniAppId))
+        self._nav = State(initialValue: NavState(rootPage: .miniAppHome(store.activeMiniAppId)))
+        self._chatScope = State(initialValue: .miniApp(store.activeMiniAppId))
     }
 
     /// Single entry point for top-level navigation: swaps the detail root in
@@ -183,8 +183,8 @@ public struct AppView: View {
                     nav.setRoot(sel)
                     detailPath = []
                     // A root change takes the sheets with it. Otherwise a
-                    // notification tap leaves MyApp A's note — or the MyApps
-                    // list — floating over MyApp B's canvas, with the chat
+                    // notification tap leaves MiniApp A's note — or the MiniApps
+                    // list — floating over MiniApp B's canvas, with the chat
                     // scope already on B.
                     memoryFileSheet = nil
                     #if os(iOS)
@@ -203,8 +203,8 @@ public struct AppView: View {
     }
 
     /// Drain a pending notification tap: navigate to the scope that scheduled it
-    /// (the owning myApp, or the orchestrator when the notification carried no
-    /// myApp), then perform its tap action in a **fresh chat**. `populateChat`
+    /// (the owning miniApp, or the orchestrator when the notification carried no
+    /// miniApp), then perform its tap action in a **fresh chat**. `populateChat`
     /// reuses the tour's prefill bridge; `runAgent` parks the prompt for
     /// `ChatPanel` to send. Consume-once — clears the buffer so a live tap
     /// (`.onReceive`) and the cold-launch drain (`.task`) never double-fire.
@@ -213,13 +213,13 @@ public struct AppView: View {
         NotificationCenterCoordinator.shared.pendingTap = nil
         let sel = tap["selection"] as? SidebarSelection
         if let sel {
-            // Defense-in-depth: the target myApp may have been deleted between
+            // Defense-in-depth: the target miniApp may have been deleted between
             // the notification being scheduled and this tap. Don't navigate
             // into a ghost (or silently no-op) — surface an error popup and
             // drop the tap action so no prompt is injected into nothing.
-            if let id = sel.myAppId, store.myApp(withId: id) == nil {
+            if let id = sel.miniAppId, store.miniApp(withId: id) == nil {
                 notificationNotice = NotificationNotice(
-                    message: "This reminder points to a myApp that no longer exists — it may have been deleted."
+                    message: "This reminder points to a miniApp that no longer exists — it may have been deleted."
                 )
                 return
             }
@@ -229,13 +229,13 @@ public struct AppView: View {
         let prompt = tap["tapPrompt"] as? String ?? ""
         guard !prompt.isEmpty else { return }
         // Route the prompt to the scope that scheduled the notification: a
-        // myApp's own chat (from the deep-link `sel`), or the orchestrator when
-        // no myApp rode along (orchestrator-scoped). Then ALWAYS start a fresh
+        // miniApp's own chat (from the deep-link `sel`), or the orchestrator when
+        // no miniApp rode along (orchestrator-scoped). Then ALWAYS start a fresh
         // thread — a scheduled prompt opens a new conversation, never appends to
         // whatever thread happened to be current in that scope.
         let scope: ChatScope
-        if let id = sel?.myAppId {
-            scope = .myApp(id)
+        if let id = sel?.miniAppId {
+            scope = .miniApp(id)
         } else {
             setRoot(.orchestrator)
             scope = .memory
@@ -254,13 +254,13 @@ public struct AppView: View {
     }
 
     /// Wire the canvas-event stream to the rule engine (once). Rules are loaded
-    /// fresh from the moved item's MyApp bundle (`pupa/automations.json`) on
+    /// fresh from the moved item's MiniApp bundle (`pupa/automations.json`) on
     /// each event, so the engine never caches stale per-app config and unrelated
     /// apps' rules never leak in.
     private func wireAutomations() {
         store.onCanvasEvent = { [weak store] event in
-            guard let store, store.myApp(withId: event.myAppId) != nil else { return }
-            let mem = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: event.myAppId))
+            guard let store, store.miniApp(withId: event.miniAppId) != nil else { return }
+            let mem = MemoryStore(rootOverride: MemoryStore.appRoot(miniAppId: event.miniAppId))
             engine.ingest(event, rules: AutomationStore(memory: mem).rules)
         }
         // A reaction thread finishing its turn releases the rule's in-flight
@@ -272,13 +272,13 @@ public struct AppView: View {
         }
     }
 
-    /// Run an automation reaction: navigate to its MyApp, open a fresh thread,
+    /// Run an automation reaction: navigate to its MiniApp, open a fresh thread,
     /// and auto-send the rendered prompt — the same fresh-thread + prefill
     /// bridge a `runAgent` notification tap uses (`handleNotificationTap`).
     private func startAutomationThread(_ proposal: RuleEngine.Proposal) {
-        let id = proposal.event.myAppId
-        setRoot(.myAppHome(id))
-        let threadId = store.addThread(for: .myApp(id))
+        let id = proposal.event.miniAppId
+        setRoot(.miniAppHome(id))
+        let threadId = store.addThread(for: .miniApp(id))
         // Hold the rule's in-flight lock until this thread's turn ends
         // (released in `wireAutomations`' `onSessionIdle`).
         reactionLocks[threadId] = (proposal.ruleId, proposal.event.itemId)
@@ -429,8 +429,8 @@ public struct AppView: View {
                     // Re-run now the cloud tree is materialized: on a fresh
                     // install the slug folders don't exist yet at init, so the
                     // pass up there had nothing to adopt.
-                    MemoryFolderMigration.run(apps: store.myApps.map { (id: $0.id, name: $0.name) })
-                    for app in store.myApps { GuideSkills.seed(appId: app.id) }
+                    MemoryFolderMigration.run(apps: store.miniApps.map { (id: $0.id, name: $0.name) })
+                    for app in store.miniApps { GuideSkills.seed(appId: app.id) }
                     memory.foldConflictTwinDirs(addressableBases: addressableMemoryBases())
                     await memory.reloadFromDisk()
                     await settings.reloadFromDisk()
@@ -601,18 +601,18 @@ public struct AppView: View {
     /// Memory dirs an app (or the orchestrator) can address — the only bases
     /// twin-folding may touch.
     private func addressableMemoryBases() -> Set<String> {
-        Set(store.myApps.map { MemoryStore.myAppFolder(myAppId: $0.id) })
+        Set(store.miniApps.map { MemoryStore.miniAppFolder(miniAppId: $0.id) })
             .union([MemoryStore.orchestratorFolder()])
     }
 
     /// Auto-start the interactive tour exactly once: after onboarding finishes
     /// and only while it hasn't already been completed / skipped. Builds the
-    /// step list against the live active myApp and the current pairing state so
+    /// step list against the live active miniApp and the current pairing state so
     /// the route targets resolve and the chat copy adapts.
     private func maybeStartTour() {
         guard onboardingCompleted, !tourCompleted, !tour.isActive else { return }
         tour.start(
-            activeMyAppId: store.activeMyAppId,
+            activeMiniAppId: store.activeMiniAppId,
             isPaired: settings.isPaired(settings.activeBackend.id)
         )
     }
@@ -626,9 +626,9 @@ public struct AppView: View {
     private func applyTourStep() {
         guard tour.isActive, let step = tour.currentStep else { return }
         #if os(iOS)
-        // One step opens MyApps for real (the list of workspaces is worth
+        // One step opens MiniApps for real (the list of workspaces is worth
         // seeing, not just naming); every other step closes it.
-        showSidebar = step.opensMyApps
+        showSidebar = step.opensMiniApps
         #endif
         tour.wantSettingsPage = step.settingsPage
         tour.wantSettingsOpen = step.settingsPage != nil
@@ -636,7 +636,7 @@ public struct AppView: View {
         tour.chatPrefill = step.chatPrefill
         tour.wantHighlight = step.highlight
         tour.wantMenuPreview = step.menuPreview
-        tour.wantMyAppsOpen = step.opensMyApps
+        tour.wantMiniAppsOpen = step.opensMiniApps
         if let sel = step.selection {
             setRoot(sel)
         }
@@ -646,18 +646,18 @@ public struct AppView: View {
     private var platformBody: some View {
         #if os(iOS)
         iOSBody
-            .onChange(of: store.myApps) { _, apps in
-                for app in apps { coordinator.ensureMyAppMemory(app) }
+            .onChange(of: store.miniApps) { _, apps in
+                for app in apps { coordinator.ensureMiniAppMemory(app) }
             }
         #else
         HStack(spacing: 0) {
-            MyAppSidebarView(
+            MiniAppSidebarView(
                 store: store,
                 selection: $selection,
-                busyMyApps: coordinator.busyMyApps,
+                busyMiniApps: coordinator.busyMiniApps,
                 onSelectionChange: setRoot,
-                onDeleteMyApp: deleteMyApp,
-                onArchiveMyApp: archiveMyApp
+                onDeleteMiniApp: deleteMiniApp,
+                onArchiveMiniApp: archiveMiniApp
             )
             .equatable()
             .frame(width: 260)
@@ -674,8 +674,8 @@ public struct AppView: View {
                 GuidedTourView(tour: tour)
             }
         }
-        .onChange(of: store.myApps) { _, apps in
-            for app in apps { coordinator.ensureMyAppMemory(app) }
+        .onChange(of: store.miniApps) { _, apps in
+            for app in apps { coordinator.ensureMiniAppMemory(app) }
         }
         #endif
     }
@@ -723,10 +723,10 @@ public struct AppView: View {
     }
 
     /// The roster on screen is a stand-in that is deliberately never written to
-    /// disk (see `MyAppStore.rosterWarning`). Without this the user works in an
+    /// disk (see `MiniAppStore.rosterWarning`). Without this the user works in an
     /// app whose every edit is dropped on relaunch — and once the retry gives
     /// up, nothing else in the UI says so.
-    private func unsavedRosterBanner(_ warning: MyAppStore.RosterWarning) -> some View {
+    private func unsavedRosterBanner(_ warning: MiniAppStore.RosterWarning) -> some View {
         HStack(spacing: 10) {
             Image(systemName: warning == .restoring
                   ? "icloud.and.arrow.down"
@@ -757,7 +757,7 @@ public struct AppView: View {
         .overlay(alignment: .bottom) { Divider() }
     }
 
-    /// Non-blocking advisement: an incoming sync removed MyApps this user didn't
+    /// Non-blocking advisement: an incoming sync removed MiniApps this user didn't
     /// delete. The removal is already applied (losers preserved in History), so
     /// this offers a one-tap restore rather than blocking the merge. Dismissing
     /// loses nothing — they stay in Settings ▸ Recently deleted.
@@ -868,7 +868,7 @@ public struct AppView: View {
     private var iOSBody: some View {
         Group {
             ZStack {
-                // No toolbar hamburger: MyApps is reached from the bar's menu
+                // No toolbar hamburger: MiniApps is reached from the bar's menu
                 // like everything else, which leaves the top-left to the page.
                 NavigationStack(path: $detailPath) {
                     content
@@ -892,25 +892,25 @@ public struct AppView: View {
                 // Chat bubbles render markdown, so an image URL the model was
                 // steered into emitting fetches on render. Same gate as the
                 // canvas: an imported app's prompts are its author's.
-                .environment(\.remoteImagesAllowed, remoteImagesAllowed(for: chatScope.myAppId))
-                .environment(\.enableRemoteImages, enableRemoteImages(for: chatScope.myAppId))
+                .environment(\.remoteImagesAllowed, remoteImagesAllowed(for: chatScope.miniAppId))
+                .environment(\.enableRemoteImages, enableRemoteImages(for: chatScope.miniAppId))
             }
             // Inset on the ZStack (not the NavigationStack) so the bar reserves
             // space for the content AND lifts the floating `ChatOverlay` above
             // it — collapsed, resized, and fullscreen.
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                myAppBottomBar
+                miniAppBottomBar
             }
 
         }
-        // MyApps arrives from the bottom, like every other overlay in the app —
+        // MiniApps arrives from the bottom, like every other overlay in the app —
         // Settings, memory notes, the composers. It used to slide in from the
         // left, which made it the only surface with its own idiom.
         .sheet(isPresented: $showSidebar) {
-            MyAppSidebarView(
+            MiniAppSidebarView(
                 store: store,
                 selection: $selection,
-                busyMyApps: coordinator.busyMyApps,
+                busyMiniApps: coordinator.busyMiniApps,
                 onSelectionChange: { sel in
                     // Dismiss here, not in `onChange(of: selection)`: tapping
                     // the *active* app writes a value equal to the one already
@@ -918,8 +918,8 @@ public struct AppView: View {
                     setRoot(sel)
                     showSidebar = false
                 },
-                onDeleteMyApp: deleteMyApp,
-                onArchiveMyApp: archiveMyApp,
+                onDeleteMiniApp: deleteMiniApp,
+                onArchiveMiniApp: archiveMiniApp,
                 // The grabber is not a focusable control and compact height
                 // (iPhone landscape) draws none at all, so the sheet needs a
                 // real button — as every other sheet in the app has.
@@ -930,10 +930,10 @@ public struct AppView: View {
             .presentationDragIndicator(.visible)
             // An iOS `.sheet` renders above the ZStack that hosts the coach
             // card, so the card would be hidden behind this one. Re-render it
-            // here for the step that opens MyApps, exactly as `SettingsSheet`
+            // here for the step that opens MiniApps, exactly as `SettingsSheet`
             // does for the Settings steps. Both sites read the one store.
             .overlay {
-                if tour.isActive, tour.wantMyAppsOpen {
+                if tour.isActive, tour.wantMiniAppsOpen {
                     GuidedTourView(tour: tour)
                 }
             }
@@ -989,8 +989,8 @@ public struct AppView: View {
                 isOpen: $chatOpen,
                 launcherVisible: !bottomBarVisible
             )
-            .environment(\.remoteImagesAllowed, remoteImagesAllowed(for: chatScope.myAppId))
-            .environment(\.enableRemoteImages, enableRemoteImages(for: chatScope.myAppId))
+            .environment(\.remoteImagesAllowed, remoteImagesAllowed(for: chatScope.miniAppId))
+            .environment(\.enableRemoteImages, enableRemoteImages(for: chatScope.miniAppId))
             // Intercept `pupa://` links the agent embeds in chat markdown —
             // route them in-app instead of to the browser. Scoped to the
             // overlay subtree so it doesn't hijack the canvas's own openURL
@@ -1001,7 +1001,7 @@ public struct AppView: View {
         // space for the content AND lifts the floating `ChatOverlay` above it —
         // collapsed, resized, and fullscreen.
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            myAppBottomBar
+            miniAppBottomBar
         }
     }
 
@@ -1017,10 +1017,10 @@ public struct AppView: View {
         // Only non-archived apps (archived ones are hidden from every
         // agent-facing list). Color comes from each app's own stable slot, not
         // its position here, so deleting one app never slides another's color.
-        let sorted = store.visibleMyApps.sorted { $0.createdAt < $1.createdAt }
+        let sorted = store.visibleMiniApps.sorted { $0.createdAt < $1.createdAt }
         for app in sorted {
             entries.append(AgentPickerEntry(
-                scope: .myApp(app.id),
+                scope: .miniApp(app.id),
                 name: app.name,
                 icon: app.iconSystemName,
                 color: .color(atIndex: store.colorIndex(for: app.id))
@@ -1054,7 +1054,7 @@ public struct AppView: View {
     /// in a `ZStack` and switch by opacity — rebuilding a page tree on every
     /// tab click measured 100–145ms click→frame even in release; an opacity
     /// flip is near-free. Populated lazily: mounting every tab of a subject on
-    /// a MyApp switch measured ~45% of the switch's cost, for pages the user
+    /// a MiniApp switch measured ~45% of the switch's cost, for pages the user
     /// hadn't asked for. Pages outside the set (history, screen share, memory
     /// files, agent details) build on demand as before.
     @ViewBuilder
@@ -1112,10 +1112,10 @@ public struct AppView: View {
     /// must go through the filtered list.
     private func subjectTabs(for root: SidebarSelection) -> [SidebarSelection] {
         switch barSubject(for: root) {
-        case .myApp(let id):
-            var pages: [SidebarSelection] = [.myAppHome(id), .myAppAgents(id), .myAppMemories(id)]
-            if let comp = store.myApps.first(where: { $0.id == id })?.activeComponentId {
-                pages.append(.myAppComponent(id, comp))
+        case .miniApp(let id):
+            var pages: [SidebarSelection] = [.miniAppHome(id), .miniAppAgents(id), .miniAppMemories(id)]
+            if let comp = store.miniApps.first(where: { $0.id == id })?.activeComponentId {
+                pages.append(.miniAppComponent(id, comp))
             }
             return pages
         case .orchestrator:
@@ -1128,7 +1128,7 @@ public struct AppView: View {
     /// Renders the detail view for a given selection. Used for both the
     /// `NavigationStack` root (driven by sidebar `selection`) and pushed
     /// destinations (driven by `detailPath`). Keeping a single source of
-    /// truth means a landing-page push of `.myAppComponent` shows the same
+    /// truth means a landing-page push of `.miniAppComponent` shows the same
     /// `CanvasView` as a direct sidebar tap on that component.
     /// Applies the per-app remote-image gate to every detail route. Done here
     /// because the routes showing imported content are siblings, not a tree —
@@ -1137,8 +1137,8 @@ public struct AppView: View {
     /// (`memoryFileSheetView`) — it is presented above this.
     private func detailView(for sel: SidebarSelection) -> some View {
         detailContent(for: sel)
-            .environment(\.remoteImagesAllowed, remoteImagesAllowed(for: sel.myAppId))
-            .environment(\.enableRemoteImages, enableRemoteImages(for: sel.myAppId))
+            .environment(\.remoteImagesAllowed, remoteImagesAllowed(for: sel.miniAppId))
+            .environment(\.enableRemoteImages, enableRemoteImages(for: sel.miniAppId))
     }
 
     /// `allowsRemoteImages` for an app id.
@@ -1147,27 +1147,27 @@ public struct AppView: View {
     /// allowed. An id that resolves to nothing means we don't know whose
     /// content this is (a stale route, a link naming an app that isn't here) →
     /// denied.
-    private func remoteImagesAllowed(for myAppId: UUID?) -> Bool {
-        guard let myAppId else { return true }
-        return store.myApps.first { $0.id == myAppId }?.allowsRemoteImages ?? false
+    private func remoteImagesAllowed(for miniAppId: UUID?) -> Bool {
+        guard let miniAppId else { return true }
+        return store.miniApps.first { $0.id == miniAppId }?.allowsRemoteImages ?? false
     }
 
     /// Action a withheld image offers, or nil when there's no app to enable.
-    private func enableRemoteImages(for myAppId: UUID?) -> (@MainActor () -> Void)? {
-        guard let myAppId else { return nil }
-        return { store.setRemoteImages(true, for: myAppId) }
+    private func enableRemoteImages(for miniAppId: UUID?) -> (@MainActor () -> Void)? {
+        guard let miniAppId else { return nil }
+        return { store.setRemoteImages(true, for: miniAppId) }
     }
 
     @ViewBuilder
     private func detailContent(for sel: SidebarSelection) -> some View {
         switch sel {
-        case .myAppHome(let id):
-            MyAppHomeView(
+        case .miniAppHome(let id):
+            MiniAppHomeView(
                 store: store,
                 memory: memory,
                 settings: settings,
                 modelCatalog: modelCatalog,
-                subject: .myApp(id),
+                subject: .miniApp(id),
                 onNavigate: { dest in
                     // Push onto the navigation stack instead of replacing
                     // selection — Back from the destination returns to the
@@ -1177,32 +1177,32 @@ public struct AppView: View {
                     detailPath.append(dest)
                 }
             )
-        case .myApp, .myAppComponent:
+        case .miniApp, .miniAppComponent:
             CanvasView(store: store, selection: sel, coordinator: coordinator)
                 // Route `pupa://` links the agent drops in `.link` fields (e.g. a
                 // tracker "Doc" pointing at a note) in-app. `chatLinkAction`
                 // falls through (`.systemAction`) for http(s), and `SlackView`'s
                 // own nested `openURL` still wins for `pupa-mention://`.
                 .environment(\.openURL, chatLinkAction)
-        case .myAppAgents(let id):
+        case .miniAppAgents(let id):
             AgentsListView(
                 store: store,
                 memory: memory,
                 settings: settings,
                 modelCatalog: modelCatalog,
-                myAppId: id,
+                miniAppId: id,
                 onNavigate: { dest in
                     dispatchSelection(dest)
                     detailPath.append(dest)
                 }
             )
-        case .myAppAgentDetail(let id, let agentId):
+        case .miniAppAgentDetail(let id, let agentId):
             AgentDetailView(
                 store: store,
                 memory: memory,
                 settings: settings,
                 modelCatalog: modelCatalog,
-                myAppId: id,
+                miniAppId: id,
                 agentId: agentId,
                 // An agent's Prompt row is a memory file (`AGENTS.md`), so this
                 // has to take the same fork the tree does — otherwise the same
@@ -1210,17 +1210,17 @@ public struct AppView: View {
                 // other.
                 onNavigate: presentOrPush
             )
-        case .myAppMemories(let id):
-            MyAppMemoriesView(
+        case .miniAppMemories(let id):
+            MiniAppMemoriesView(
                 store: store,
                 memory: memory,
-                subject: .myApp(id),
+                subject: .miniApp(id),
                 onNavigate: presentOrPush
             )
-        case .myAppHistory(let id):
-            ChangeHistoryView(store: store, myAppId: id)
+        case .miniAppHistory(let id):
+            ChangeHistoryView(store: store, miniAppId: id)
         case .orchestratorMemories:
-            MyAppMemoriesView(
+            MiniAppMemoriesView(
                 store: store,
                 memory: memory,
                 subject: .orchestrator,
@@ -1230,10 +1230,10 @@ public struct AppView: View {
         // `memoryFileSheet` before they can reach a navigation destination. An
         // arm here would be a second way to open the same file, with different
         // save semantics, which is the bug this replaced.
-        case .myAppMemoryFile, .memoryFile:
+        case .miniAppMemoryFile, .memoryFile:
             EmptyView()
         case .orchestrator:
-            MyAppHomeView(
+            MiniAppHomeView(
                 store: store,
                 memory: memory,
                 settings: settings,
@@ -1250,15 +1250,15 @@ public struct AppView: View {
                 memory: memory,
                 settings: settings,
                 modelCatalog: modelCatalog,
-                myAppId: nil,
+                miniAppId: nil,
                 agentId: AgentRegistry.orchestratorAgentId,
-                // Same fork as the myApp arm above — the Prompt row is a
+                // Same fork as the miniApp arm above — the Prompt row is a
                 // memory file.
                 onNavigate: presentOrPush
             )
         case .screenShare:
             // Titled here, not in the view: it is the one page with no bottom
-            // bar and no `MyAppPageHeader`, so without this its nav bar is
+            // bar and no `MiniAppPageHeader`, so without this its nav bar is
             // blank and nothing on screen names what you are looking at.
             ScreenShareView(viewModel: screenShare)
                 .navigationTitle("Screen share")
@@ -1284,22 +1284,22 @@ public struct AppView: View {
     /// so the bar's pupa button shows the same badge the floating circle would.
     private var chatStatus: ChatActivityStatus {
         let base = coordinator.aggregateStatus(for: chatScope)
-        if base == .idle, case .myApp(let id) = chatScope,
-           coordinator.busyMyApps.contains(id) {
+        if base == .idle, case .miniApp(let id) = chatScope,
+           coordinator.busyMiniApps.contains(id) {
             return .running
         }
         return base
     }
 
-    /// Persistent per-MyApp bottom bar, shown on a myApp's home / component /
+    /// Persistent per-MiniApp bottom bar, shown on a miniApp's home / component /
     /// memories pages. The effective page is `detailPath.last ?? rootPage` so
     /// a home→component push still marks the component active. Taps swap the
     /// root via `setRoot`, which also routes the chat scope.
     @ViewBuilder
-    private var myAppBottomBar: some View {
+    private var miniAppBottomBar: some View {
         let effective = effectiveSelection
         if let subject = barSubject(for: effective), let page = barPage(for: effective) {
-            MyAppBottomBar(
+            MiniAppBottomBar(
                 subject: subject,
                 currentPage: page,
                 appColor: barColor(for: subject),
@@ -1309,14 +1309,14 @@ public struct AppView: View {
                 // pops any drill-in pushes back to the tab's own page).
                 onSelect: setRoot,
                 onShowHistory: { id in
-                    let dest = SidebarSelection.myAppHistory(id)
+                    let dest = SidebarSelection.miniAppHistory(id)
                     PerfTrace.interaction("pushHistory." + PerfTrace.label(dest)) {
                         detailPath.append(dest)
                     }
                 },
                 onToggleChat: { toggleChat() },
                 onOpenSettings: { settingsSheetPresented = true },
-                onOpenMyApps: openMyApps
+                onOpenMiniApps: openMiniApps
             )
         }
     }
@@ -1329,9 +1329,9 @@ public struct AppView: View {
     private var tourMenuPreview: some View {
         if tour.isActive, let lit = tour.wantMenuPreview,
            let subject = barSubject(for: effectiveSelection) {
-            let isMyApp: Bool = { if case .myApp = subject { return true } else { return false } }()
+            let isMiniApp: Bool = { if case .miniApp = subject { return true } else { return false } }()
             TourMenuPreview(
-                rows: BarMenuRow.rows(isMyApp: isMyApp, hasMyApps: openMyApps != nil),
+                rows: BarMenuRow.rows(isMiniApp: isMiniApp, hasMiniApps: openMiniApps != nil),
                 emphasised: lit
             )
         }
@@ -1350,17 +1350,17 @@ public struct AppView: View {
                 // restore writes any that are missing (idempotent — user edits
                 // stick).
                 example.seedAgentsMd(
-                    globalMemory: memory, appRoot: MemoryStore.appRoot(myAppId: id))
-                setRoot(.myAppHome(id))
+                    globalMemory: memory, appRoot: MemoryStore.appRoot(miniAppId: id))
+                setRoot(.miniAppHome(id))
                 settingsSheetPresented = false
             },
             onStartTour: {
                 // Dismiss the sheet, then restart the tour from the top. Uses
-                // the live active myApp + pairing state so route targets
+                // the live active miniApp + pairing state so route targets
                 // resolve and the chat copy adapts.
                 settingsSheetPresented = false
                 tour.start(
-                    activeMyAppId: store.activeMyAppId,
+                    activeMiniAppId: store.activeMiniAppId,
                     isPaired: settings.isPaired(settings.activeBackend.id)
                 )
             },
@@ -1373,7 +1373,7 @@ public struct AppView: View {
             modelCatalog: modelCatalog,
             coordinator: coordinator,
             onImported: { id in
-                setRoot(.myAppHome(id))
+                setRoot(.miniAppHome(id))
                 settingsSheetPresented = false
             },
             onOpenScreenShare: {
@@ -1389,11 +1389,11 @@ public struct AppView: View {
         )
     }
 
-    /// Open the MyApps sheet. iOS only — macOS keeps a permanent sidebar
+    /// Open the MiniApps sheet. iOS only — macOS keeps a permanent sidebar
     /// column, so its bar menu omits the row entirely.
-    private var openMyApps: (() -> Void)? {
+    private var openMiniApps: (() -> Void)? {
         #if os(iOS)
-        return { PerfTrace.interaction("myAppsOpen") { showSidebar = true } }
+        return { PerfTrace.interaction("miniAppsOpen") { showSidebar = true } }
         #else
         return nil
         #endif
@@ -1414,19 +1414,19 @@ public struct AppView: View {
         case .toggleChat:
             toggleChat()
         case .nextApp:
-            let apps = store.visibleMyApps
+            let apps = store.visibleMiniApps
             guard apps.count > 1 else { return }
-            let current = apps.firstIndex { $0.id == store.activeMyAppId } ?? 0
-            setRoot(.myAppHome(apps[(current + 1) % apps.count].id))
+            let current = apps.firstIndex { $0.id == store.activeMiniAppId } ?? 0
+            setRoot(.miniAppHome(apps[(current + 1) % apps.count].id))
         case .tabAgents:
             // The first tab tap after a switch — what the lazy keep-alive
             // trade-off costs, so the claim can be re-measured.
-            if let id = store.visibleMyApps.first(where: { $0.id == store.activeMyAppId })?.id {
-                setRoot(.myAppAgents(id))
+            if let id = store.visibleMiniApps.first(where: { $0.id == store.activeMiniAppId })?.id {
+                setRoot(.miniAppAgents(id))
             }
-        case .toggleMyApps:
+        case .toggleMiniApps:
             #if os(iOS)
-            PerfTrace.interaction(showSidebar ? "myAppsClose" : "myAppsOpen") {
+            PerfTrace.interaction(showSidebar ? "miniAppsClose" : "miniAppsOpen") {
                 showSidebar.toggle()
             }
             #endif
@@ -1437,28 +1437,28 @@ public struct AppView: View {
 
     /// The bar's subject for a selection, or `nil` for pages that shouldn't
     /// show the bar (agents, agent detail, screen share, settings).
-    private func barSubject(for sel: SidebarSelection) -> MyAppHomeView.Subject? {
+    private func barSubject(for sel: SidebarSelection) -> MiniAppHomeView.Subject? {
         NavState.subject(for: sel)
     }
 
-    private func barColor(for subject: MyAppHomeView.Subject) -> Color {
+    private func barColor(for subject: MiniAppHomeView.Subject) -> Color {
         switch subject {
-        case .myApp(let id): return .color(atIndex: store.colorIndex(for: id))
+        case .miniApp(let id): return .color(atIndex: store.colorIndex(for: id))
         case .orchestrator: return .orchestratorColor
         }
     }
 
     /// Maps a selection to the bar's active page, or `nil` for pages that
     /// shouldn't show the bar. Memory browse pages + files highlight Memories.
-    private func barPage(for sel: SidebarSelection) -> MyAppBottomBar.Page? {
+    private func barPage(for sel: SidebarSelection) -> MiniAppBottomBar.Page? {
         switch sel {
-        case .myAppHome, .myApp, .orchestrator: return .home
-        case .myAppComponent(_, let componentId): return .component(componentId)
-        case .myAppMemories, .myAppMemoryFile, .orchestratorMemories, .memoryFile:
+        case .miniAppHome, .miniApp, .orchestrator: return .home
+        case .miniAppComponent(_, let componentId): return .component(componentId)
+        case .miniAppMemories, .miniAppMemoryFile, .orchestratorMemories, .memoryFile:
             return .memories
-        case .myAppAgents, .myAppAgentDetail, .orchestratorAgentDetail:
+        case .miniAppAgents, .miniAppAgentDetail, .orchestratorAgentDetail:
             return .agents
-        case .myAppHistory: return .history
+        case .miniAppHistory: return .history
         default: return nil
         }
     }
@@ -1472,29 +1472,29 @@ public struct AppView: View {
 
     private func dispatchSelection(_ sel: SidebarSelection) {
         switch sel {
-        case .myAppHome(let id):
+        case .miniAppHome(let id):
             store.setActive(id)
-            setChatScope(.myApp(id))
-        case .myApp(let id):
+            setChatScope(.miniApp(id))
+        case .miniApp(let id):
             // Pure rebind — other sessions keep streaming. Updating
-            // activeMyAppId is what makes CanvasView show the right myApp.
+            // activeMiniAppId is what makes CanvasView show the right miniApp.
             store.setActive(id)
-            setChatScope(.myApp(id))
-        case .myAppComponent(let id, let componentId):
+            setChatScope(.miniApp(id))
+        case .miniAppComponent(let id, let componentId):
             store.setActive(id)
             // Sidebar tap drives the active-component selection so the
             // canvas + kind-targeted mutators agree on what's focused.
-            _ = store.setActiveComponent(componentId: componentId, myAppId: id)
-            setChatScope(.myApp(id))
-        case .myAppMemoryFile(let id, _), .myAppMemories(let id), .myAppHistory(let id):
+            _ = store.setActiveComponent(componentId: componentId, miniAppId: id)
+            setChatScope(.miniApp(id))
+        case .miniAppMemoryFile(let id, _), .miniAppMemories(let id), .miniAppHistory(let id):
             store.setActive(id)
-            setChatScope(.myApp(id))
-        case .myAppAgents(let id), .myAppAgentDetail(let id, _):
+            setChatScope(.miniApp(id))
+        case .miniAppAgents(let id), .miniAppAgentDetail(let id, _):
             // Agents pages don't change the chat scope — they stay on
-            // the owning MyApp so the user can keep chatting while
+            // the owning MiniApp so the user can keep chatting while
             // inspecting agent metadata.
             store.setActive(id)
-            setChatScope(.myApp(id))
+            setChatScope(.miniApp(id))
         case .memoryFile(let path):
             // `path` is global-root-relative (`orchestrator/x.md`); the
             // orchestrator agent's `focusedFile` context is scope-relative —
@@ -1555,7 +1555,7 @@ public struct AppView: View {
         MemoryFileView(
             store: memory,
             path: route.path,
-            readOnly: route.myAppId.map { store.isMemoryLocked(myAppId: $0) } ?? false,
+            readOnly: route.miniAppId.map { store.isMemoryLocked(miniAppId: $0) } ?? false,
             // A re-presented sheet does NOT autosave again. Otherwise a write
             // that keeps failing (full disk, iCloud coordination) cycles
             // forever — dismiss, fail, re-present — and the only way out is
@@ -1569,7 +1569,7 @@ public struct AppView: View {
                 // Re-present on the next runloop turn: re-entering `.sheet`
                 // from inside the dismissal that is still unwinding is ignored.
                 let retry = MemoryFileRoute(
-                    myAppId: route.myAppId, path: route.path,
+                    miniAppId: route.miniAppId, path: route.path,
                     restoredBuffer: buffer, autosaveError: message)
                 DispatchQueue.main.async { memoryFileSheet = retry }
             },
@@ -1582,8 +1582,8 @@ public struct AppView: View {
         // *default* gate (`true`) and beacon on open. This is the trap
         // `detailView(for:)` above already documents; the sheet is a third
         // sibling and needs the same treatment.
-        .environment(\.remoteImagesAllowed, remoteImagesAllowed(for: route.myAppId))
-        .environment(\.enableRemoteImages, enableRemoteImages(for: route.myAppId))
+        .environment(\.remoteImagesAllowed, remoteImagesAllowed(for: route.miniAppId))
+        .environment(\.enableRemoteImages, enableRemoteImages(for: route.miniAppId))
         // `pupa://` links inside a note route in-app, not to the system browser
         // (which has no handler for the scheme, so the tap would do nothing).
         .environment(\.openURL, chatLinkAction)
@@ -1593,11 +1593,11 @@ public struct AppView: View {
 
     /// `OpenURLAction` that routes in-app `pupa://` links (chat + notes) to a
     /// `SidebarSelection` and lets every other URL fall through to the system
-    /// browser. Scope-relative links bind to the chat's current myApp.
+    /// browser. Scope-relative links bind to the chat's current miniApp.
     private var chatLinkAction: OpenURLAction {
         OpenURLAction { url in
-            let current: UUID? = { if case .myApp(let id) = chatScope { return id }; return nil }()
-            guard let sel = ChatLink.sidebarSelection(from: url, currentMyAppId: current) else {
+            let current: UUID? = { if case .miniApp(let id) = chatScope { return id }; return nil }()
+            guard let sel = ChatLink.sidebarSelection(from: url, currentMiniAppId: current) else {
                 return .systemAction
             }
             // ChatLink emits scope-relative memory paths; the shared `memory`
@@ -1608,32 +1608,32 @@ public struct AppView: View {
         }
     }
 
-    /// Cancel + drop the per-myApp session before the myApp leaves the
+    /// Cancel + drop the per-miniApp session before the miniApp leaves the
     /// store, so an in-flight stream tears down cleanly and any straggling
-    /// tool calls no-op against the missing-myApp guard in `MyAppStore`.
-    private func deleteMyApp(_ id: UUID) {
-        coordinator.discardSession(for: .myApp(id))
-        store.removeMyApp(id)
-        if rootPage.myAppId == id || selection?.myAppId == id {
-            setRoot(.myApp(store.activeMyAppId))
+    /// tool calls no-op against the missing-miniApp guard in `MiniAppStore`.
+    private func deleteMiniApp(_ id: UUID) {
+        coordinator.discardSession(for: .miniApp(id))
+        store.removeMiniApp(id)
+        if rootPage.miniAppId == id || selection?.miniAppId == id {
+            setRoot(.miniApp(store.activeMiniAppId))
         }
-        if case .myApp(let chatId) = chatScope, chatId == id {
-            chatScope = .myApp(store.activeMyAppId)
+        if case .miniApp(let chatId) = chatScope, chatId == id {
+            chatScope = .miniApp(store.activeMiniAppId)
         }
     }
 
-    /// Archive (hide) a myApp: tear down its session — it's now agent-off and
+    /// Archive (hide) a miniApp: tear down its session — it's now agent-off and
     /// read-only — then flip the flag and repoint any selection / chat scope
-    /// that pointed at it to the (new) active myApp. Restorable from Settings →
+    /// that pointed at it to the (new) active miniApp. Restorable from Settings →
     /// Archive.
-    private func archiveMyApp(_ id: UUID) {
-        coordinator.discardSession(for: .myApp(id))
-        store.setMyAppArchived(id, true)
-        if rootPage.myAppId == id || selection?.myAppId == id {
-            setRoot(.myApp(store.activeMyAppId))
+    private func archiveMiniApp(_ id: UUID) {
+        coordinator.discardSession(for: .miniApp(id))
+        store.setMiniAppArchived(id, true)
+        if rootPage.miniAppId == id || selection?.miniAppId == id {
+            setRoot(.miniApp(store.activeMiniAppId))
         }
-        if case .myApp(let chatId) = chatScope, chatId == id {
-            chatScope = .myApp(store.activeMyAppId)
+        if case .miniApp(let chatId) = chatScope, chatId == id {
+            chatScope = .miniApp(store.activeMiniAppId)
         }
     }
 
@@ -1652,7 +1652,7 @@ public struct AppView: View {
     }
 
     /// Read + read-only-decode an opened `.pupa` for the confirm preview.
-    /// `MyAppImporter` is the validation authority — this only extracts the app
+    /// `MiniAppImporter` is the validation authority — this only extracts the app
     /// name + agent prompts and never mutates the store.
     private func stagePendingImport(_ url: URL) {
         let scoped = url.startAccessingSecurityScopedResource()
@@ -1729,9 +1729,9 @@ public struct AppView: View {
     /// Read-only-decode bundle bytes for the confirm preview, whatever their
     /// source. Never mutates the store — `confirmImport` does that.
     private func stage(_ data: Data) {
-        switch MyAppImporter.probeFormat(data) {
+        switch MiniAppImporter.probeFormat(data) {
         case .single:
-            guard let bundle = try? MyAppBundle.makeDecoder().decode(MyAppBundle.self, from: data) else {
+            guard let bundle = try? MiniAppBundle.makeDecoder().decode(MiniAppBundle.self, from: data) else {
                 importNotice = ImportNotice(message: "This isn't a valid Pupa app bundle.")
                 return
             }
@@ -1742,7 +1742,7 @@ public struct AppView: View {
                 agentPrompts: agentPrompts(in: bundle.app),
                 automationRuleCount: automationRuleCount(in: bundle.memories))
         case .library:
-            guard let library = try? MyAppBundle.makeDecoder().decode(MyAppLibraryBundle.self, from: data) else {
+            guard let library = try? MiniAppBundle.makeDecoder().decode(MiniAppLibraryBundle.self, from: data) else {
                 importNotice = ImportNotice(message: "This isn't a valid Pupa app bundle.")
                 return
             }
@@ -1762,7 +1762,7 @@ public struct AppView: View {
     /// Slack workspace agents in a bundle — the privacy review surface. Agent
     /// slugs referenced by the rooms; their persona text ships as
     /// `pupa/agents/<slug>/AGENTS.md` memory files (shown in the memory review).
-    private func agentPrompts(in app: MyApp) -> [String] {
+    private func agentPrompts(in app: MiniApp) -> [String] {
         var slugs: Set<String> = []
         for comp in app.components {
             if case .slack(let s) = comp.body {
@@ -1775,7 +1775,7 @@ public struct AppView: View {
     /// Rules in the bundle's `pupa/automations.json`, if it ships one.
     private func automationRuleCount(in memories: [MemoryFile]) -> Int {
         memories
-            .filter { MyAppImporter.isAutomationsPath($0.path) }
+            .filter { MiniAppImporter.isAutomationsPath($0.path) }
             .reduce(0) { $0 + AutomationConfig.parse($1.content).count }
     }
 
@@ -1785,19 +1785,19 @@ public struct AppView: View {
         pendingImport = nil
         do {
             if pending.isLibrary {
-                let result = try MyAppImporter.importLibrary(pending.data, into: store, memory: memory)
-                guard let first = result.myAppIds.first else {
+                let result = try MiniAppImporter.importLibrary(pending.data, into: store, memory: memory)
+                guard let first = result.miniAppIds.first else {
                     importNotice = ImportNotice(message: "The bundle had no apps to import.")
                     return
                 }
-                setRoot(.myAppHome(first))
-                let n = result.myAppIds.count
+                setRoot(.miniAppHome(first))
+                let n = result.miniAppIds.count
                 var lines = ["Imported \(n) app\(n == 1 ? "" : "s")."]
                 lines.append(contentsOf: result.warnings)
                 importNotice = ImportNotice(message: lines.joined(separator: "\n"))
             } else {
-                let result = try MyAppImporter.importBundle(pending.data, into: store, memory: memory)
-                setRoot(.myAppHome(result.myAppId))
+                let result = try MiniAppImporter.importBundle(pending.data, into: store, memory: memory)
+                setRoot(.miniAppHome(result.miniAppId))
                 if !result.warnings.isEmpty {
                     importNotice = ImportNotice(message: result.warnings.joined(separator: "\n"))
                 }
@@ -1819,7 +1819,7 @@ private struct PendingImport: Identifiable {
     /// Agent personas across the bundle, surfaced for review before import.
     let agentPrompts: [String]
     /// Automation rules the bundle carries. They're forced to propose rather
-    /// than fire on their own (see `MyAppImporter.sanitizeAutomations`), but
+    /// than fire on their own (see `MiniAppImporter.sanitizeAutomations`), but
     /// the user should still know the app reacts to what they do.
     let automationRuleCount: Int
 }
@@ -1830,7 +1830,7 @@ private struct ImportNotice: Identifiable {
 }
 
 /// Drives the "reminder unavailable" popup shown when a tapped notification
-/// targets a myApp that has since been deleted.
+/// targets a miniApp that has since been deleted.
 private struct NotificationNotice: Identifiable {
     let id = UUID()
     let message: String
@@ -1897,7 +1897,7 @@ private struct ImportConfirmSheet: View {
 
 /// Whether the enclosing keep-alive pane is the visible one. Default `true`,
 /// so views used outside a pane behave normally. Panes stay mounted across a
-/// MyApp switch, so anything expensive in `.task` must gate on this or it runs
+/// MiniApp switch, so anything expensive in `.task` must gate on this or it runs
 /// for pages the user isn't looking at.
 private struct PaneIsActiveKey: EnvironmentKey {
     static let defaultValue = true
@@ -1911,7 +1911,7 @@ extension EnvironmentValues {
 }
 
 /// Whether views in this subtree may fetch images from the network. Set from
-/// `MyApp.allowsRemoteImages` at the canvas root; **true** by default so plain
+/// `MiniApp.allowsRemoteImages` at the canvas root; **true** by default so plain
 /// SwiftUI previews and non-app surfaces are unaffected.
 ///
 /// It's an environment value rather than a parameter because the fetch sites
@@ -1953,7 +1953,7 @@ extension EnvironmentValues {
 /// derived rather than passed in, so there is nothing left to forget.
 struct NavState: Equatable {
     private(set) var rootPage: SidebarSelection
-    private(set) var subject: MyAppHomeView.Subject?
+    private(set) var subject: MiniAppHomeView.Subject?
     private(set) var mounted: Set<SidebarSelection>
 
     init(rootPage: SidebarSelection) {
@@ -1984,13 +1984,13 @@ struct NavState: Equatable {
     }
 
     /// The bottom bar's subject for a selection, or nil for pages with no bar.
-    static func subject(for sel: SidebarSelection) -> MyAppHomeView.Subject? {
+    static func subject(for sel: SidebarSelection) -> MiniAppHomeView.Subject? {
         switch sel {
-        case .myAppHome(let id), .myApp(let id), .myAppComponent(let id, _),
-             .myAppMemories(let id), .myAppMemoryFile(let id, _),
-             .myAppHistory(let id),
-             .myAppAgents(let id), .myAppAgentDetail(let id, _):
-            return .myApp(id)
+        case .miniAppHome(let id), .miniApp(let id), .miniAppComponent(let id, _),
+             .miniAppMemories(let id), .miniAppMemoryFile(let id, _),
+             .miniAppHistory(let id),
+             .miniAppAgents(let id), .miniAppAgentDetail(let id, _):
+            return .miniApp(id)
         case .orchestrator, .orchestratorMemories, .memoryFile,
              .orchestratorAgentDetail:
             return .orchestrator

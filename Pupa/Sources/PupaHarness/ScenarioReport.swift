@@ -8,7 +8,7 @@ import PupaApp
 /// of guessing from logs. Covers all four surfaces a turn touches — the chat
 /// transcript, the canvas, the on-disk recovery records, and the wire.
 public struct ScenarioReport: Sendable {
-    public let myApp: MyApp?
+    public let miniApp: MiniApp?
     public let threadId: String
     public let bubbles: [ChatBubble]
     /// Set when the turn died on the wire — a refused connection, a dropped
@@ -21,14 +21,14 @@ public struct ScenarioReport: Sendable {
     public let root: URL
 
     public init(
-        myApp: MyApp?,
+        miniApp: MiniApp?,
         threadId: String,
         bubbles: [ChatBubble],
         connectionIssue: String? = nil,
         wire: [Data],
         root: URL
     ) {
-        self.myApp = myApp
+        self.miniApp = miniApp
         self.threadId = threadId
         self.bubbles = bubbles
         self.connectionIssue = connectionIssue
@@ -95,16 +95,16 @@ public struct ScenarioReport: Sendable {
 
         out.append("")
         out.append("── canvas ──")
-        if let myApp {
-            out.append("\(myApp.name) (\(myApp.typeId))  active=\(myApp.activeComponentId ?? "-")")
-            for component in myApp.components {
-                let mark = component.id == myApp.activeComponentId ? "*" : " "
+        if let miniApp {
+            out.append("\(miniApp.name) (\(miniApp.typeId))  active=\(miniApp.activeComponentId ?? "-")")
+            for component in miniApp.components {
+                let mark = component.id == miniApp.activeComponentId ? "*" : " "
                 let lock = component.isLocked ? " [locked]" : ""
                 out.append("\(mark) \(component.id)  \(component.name)\(lock)")
                 if let summary = component.summary { out.append("    \(oneLine(summary))") }
             }
         } else {
-            out.append("(no myApp)")
+            out.append("(no miniApp)")
         }
 
         if let recovery {
@@ -151,12 +151,12 @@ public struct ScenarioReport: Sendable {
                  "context": $0.context.count]
             },
         ]
-        if let myApp {
-            object["myApp"] = [
-                "name": myApp.name,
-                "typeId": myApp.typeId,
-                "activeComponentId": myApp.activeComponentId as Any,
-                "components": myApp.components.map {
+        if let miniApp {
+            object["miniApp"] = [
+                "name": miniApp.name,
+                "typeId": miniApp.typeId,
+                "activeComponentId": miniApp.activeComponentId as Any,
+                "components": miniApp.components.map {
                     ["id": $0.id, "name": $0.name,
                      "summary": $0.summary as Any, "isLocked": $0.isLocked]
                 },

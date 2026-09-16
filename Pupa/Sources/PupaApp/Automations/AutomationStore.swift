@@ -3,7 +3,7 @@ import Observation
 
 /// Loads the automation rules that ride a `.pupa` bundle at
 /// `pupa/automations.json`. Mirrors `SkillStore`: bound to one scope-rooted
-/// `MemoryStore` (a MyApp's memory root), cache refreshed at `init` and via
+/// `MemoryStore` (a MiniApp's memory root), cache refreshed at `init` and via
 /// `rescan()`. Missing / malformed config yields an empty rule set.
 @MainActor
 @Observable

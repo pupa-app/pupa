@@ -4,7 +4,7 @@ import Foundation
 /// results, live. It wires the two pure engines together:
 ///
 /// - `TrackerAggregator` for `aggregate` rows (resolving `sourceComponentId`
-///   against the MyApp's sibling components),
+///   against the MiniApp's sibling components),
 /// - `ExpressionEngine` for `formula` rows (topo-ordered so dependencies
 ///   compute first; cycles and broken refs are flagged, never crash).
 ///
@@ -93,7 +93,7 @@ public enum CalculatorResolver {
     #endif
 
     /// Resolve every row in `data`, pulling aggregates from `components`
-    /// (the sibling components of the same MyApp). Tracker lookups use the
+    /// (the sibling components of the same MiniApp). Tracker lookups use the
     /// passed components only — store-free so this is unit-testable with a
     /// hand-built component list.
     /// - `computeLists`: when false, `list` rows are skipped (left `nil`) —

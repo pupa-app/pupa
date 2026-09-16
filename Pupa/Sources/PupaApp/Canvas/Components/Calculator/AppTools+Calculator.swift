@@ -7,8 +7,8 @@ extension AppTools {
     @MainActor
     static func registerCalculatorTools(
         on registry: ToolRegistry,
-        store: MyAppStore,
-        myAppId: UUID
+        store: MiniAppStore,
+        miniAppId: UUID
     ) {
         registry.register(ClientTool(
             descriptor: ToolDescriptor(
@@ -48,7 +48,7 @@ extension AppTools {
                         ])
                     }
                     let resolvedId: String
-                    switch store.resolveRenderTarget(kind: "calculator", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveRenderTarget(kind: "calculator", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
@@ -56,27 +56,27 @@ extension AppTools {
                     }
                     if let title = titleArg {
                         let rows = parseCalcRows(from: args["rows"])
-                        store.setCalculator(title: title, rows: rows, myAppId: myAppId, componentId: resolvedId)
+                        store.setCalculator(title: title, rows: rows, miniAppId: miniAppId, componentId: resolvedId)
                     }
                     var summarySet = false
                     if hasSummary {
                         summarySet = store.setComponentSummary(
                             forKind: "calculator",
                             summary: summaryArg?.stringValue,
-                            myAppId: myAppId,
+                            miniAppId: miniAppId,
                             componentId: resolvedId
                         )
                     }
-                    guard let data = calculator(store, myAppId: myAppId, componentId: resolvedId) else {
+                    guard let data = calculator(store, miniAppId: miniAppId, componentId: resolvedId) else {
                         return .object([
                             "ok": .bool(false),
-                            "error": "no calculator component in this MyApp — call addComponent(kind:\"calculator\", …) first",
+                            "error": "no calculator component in this MiniApp — call addComponent(kind:\"calculator\", …) first",
                         ])
                     }
                     var result: [String: AnyJSON] = ["ok": .bool(true), "componentId": .string(resolvedId)]
                     if let title = titleArg { result["title"] = .string(title) }
                     result["rowCount"] = .int(data.rows.count)
-                    result["results"] = calcResults(store: store, myAppId: myAppId, data: data)
+                    result["results"] = calcResults(store: store, miniAppId: miniAppId, data: data)
                     if hasSummary { result["summarySet"] = .bool(summarySet) }
                     return .object(result)
                 }
@@ -112,7 +112,7 @@ extension AppTools {
                 let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "calculator", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "calculator", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
@@ -123,19 +123,19 @@ extension AppTools {
                         guard let (key, name, unit, format, kind) = parseCalcRowParts(from: entry) else { continue }
                         if let resolvedKey = store.addCalcRow(
                             key: key, name: name, unit: unit, format: format, kind: kind,
-                            myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "addCalcRows")
+                            miniAppId: miniAppId, componentId: resolvedId, actor: .agent(toolName: "addCalcRows")
                         ) {
                             added.append(.object(["key": .string(resolvedKey), "name": .string(name)]))
                         }
                     }
-                    let data = calculator(store, myAppId: myAppId, componentId: resolvedId)
+                    let data = calculator(store, miniAppId: miniAppId, componentId: resolvedId)
                     var result: [String: AnyJSON] = [
                         "ok": .bool(true),
                         "componentId": .string(resolvedId),
                         "added": .array(added),
                         "rowCount": .int(data?.rows.count ?? 0),
                     ]
-                    if let data { result["results"] = calcResults(store: store, myAppId: myAppId, data: data) }
+                    if let data { result["results"] = calcResults(store: store, miniAppId: miniAppId, data: data) }
                     return .object(result)
                 }
             }
@@ -186,7 +186,7 @@ extension AppTools {
                 let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "calculator", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "calculator", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
@@ -195,9 +195,9 @@ extension AppTools {
                     // Validate every entry before writing anything: a patch that
                     // cannot take effect used to report ok:true, costing callers
                     // blind round-trips. Rejected calls leave the rows untouched.
-                    let existingKeys = calculator(store, myAppId: myAppId, componentId: resolvedId)?.rows.map(\.key) ?? []
+                    let existingKeys = calculator(store, miniAppId: miniAppId, componentId: resolvedId)?.rows.map(\.key) ?? []
                     var errors: [AnyJSON] = []
-                    var plan: [(key: String, patch: MyAppStore.CalcRowPatch)] = []
+                    var plan: [(key: String, patch: MiniAppStore.CalcRowPatch)] = []
                     for entry in entries {
                         guard let key = entry["key"]?.stringValue, !key.isEmpty else {
                             errors.append(.object(["error": .string("entry is missing `key`")]))
@@ -226,18 +226,18 @@ extension AppTools {
                     }
                     var patched: [AnyJSON] = []
                     for step in plan {
-                        if store.patchCalcRow(key: step.key, patch: step.patch, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "patchCalcRows")) {
+                        if store.patchCalcRow(key: step.key, patch: step.patch, miniAppId: miniAppId, componentId: resolvedId, actor: .agent(toolName: "patchCalcRows")) {
                             patched.append(.string(step.key))
                         }
                     }
-                    let data = calculator(store, myAppId: myAppId, componentId: resolvedId)
+                    let data = calculator(store, miniAppId: miniAppId, componentId: resolvedId)
                     var result: [String: AnyJSON] = [
                         "ok": .bool(true),
                         "componentId": .string(resolvedId),
                         "patched": .array(patched),
                         "rowCount": .int(data?.rows.count ?? 0),
                     ]
-                    if let data { result["results"] = calcResults(store: store, myAppId: myAppId, data: data) }
+                    if let data { result["results"] = calcResults(store: store, miniAppId: miniAppId, data: data) }
                     return .object(result)
                 }
             }
@@ -269,7 +269,7 @@ extension AppTools {
                 let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "calculator", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "calculator", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
@@ -277,11 +277,11 @@ extension AppTools {
                     }
                     var removed: [AnyJSON] = []
                     for key in keys {
-                        if store.removeCalcRow(key: key, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "removeCalcRows")) {
+                        if store.removeCalcRow(key: key, miniAppId: miniAppId, componentId: resolvedId, actor: .agent(toolName: "removeCalcRows")) {
                             removed.append(.string(key))
                         }
                     }
-                    let data = calculator(store, myAppId: myAppId, componentId: resolvedId)
+                    let data = calculator(store, miniAppId: miniAppId, componentId: resolvedId)
                     return .object([
                         "ok": .bool(true),
                         "componentId": .string(resolvedId),
@@ -327,7 +327,7 @@ extension AppTools {
                 let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "calculator", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "calculator", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
@@ -336,13 +336,13 @@ extension AppTools {
                     let ok = store.setCalcRowLinkedRef(
                         key: key,
                         ref: ref,
-                        myAppId: myAppId,
+                        miniAppId: miniAppId,
                         componentId: resolvedId,
                         actor: .agent(toolName: "setCalcRowLink")
                     )
                     var result: [String: AnyJSON] = ["ok": .bool(ok), "componentId": .string(resolvedId), "key": .string(key)]
-                    if let data = calculator(store, myAppId: myAppId, componentId: resolvedId) {
-                        result["results"] = calcResults(store: store, myAppId: myAppId, data: data)
+                    if let data = calculator(store, miniAppId: miniAppId, componentId: resolvedId) {
+                        result["results"] = calcResults(store: store, miniAppId: miniAppId, data: data)
                     }
                     return .object(result)
                 }
@@ -375,14 +375,14 @@ extension AppTools {
                 let offset = max(0, args["offset"]?.intValue ?? 0)
                 let limit = min(100, max(1, args["limit"]?.intValue ?? 50))
                 return await MainActor.run {
-                    guard let resolved = resolveCalculator(store: store, myAppId: myAppId, componentId: componentId) else {
+                    guard let resolved = resolveCalculator(store: store, miniAppId: miniAppId, componentId: componentId) else {
                         return .object([
                             "ok": .bool(false),
-                            "error": "no calculator component matches that componentId (or this myApp has no calculator).",
+                            "error": "no calculator component matches that componentId (or this miniApp has no calculator).",
                         ])
                     }
                     let (data, resolvedId) = resolved
-                    let results = CalculatorResolver.resolve(data, components: siblingComponents(store: store, myAppId: myAppId))
+                    let results = CalculatorResolver.resolve(data, components: siblingComponents(store: store, miniAppId: miniAppId))
                     let total = data.rows.count
                     let slice = offset >= total ? [] : Array(data.rows[offset..<min(offset + limit, total)])
                     let rows: [AnyJSON] = slice.map { calcRowAsAnyJSON($0, result: results.result(forKey: $0.key), full: false) }
@@ -426,10 +426,10 @@ extension AppTools {
                     return .object(["ok": .bool(false), "error": "missing `key`."])
                 }
                 return await MainActor.run {
-                    guard let resolved = resolveCalculator(store: store, myAppId: myAppId, componentId: componentId) else {
+                    guard let resolved = resolveCalculator(store: store, miniAppId: miniAppId, componentId: componentId) else {
                         return .object([
                             "ok": .bool(false),
-                            "error": "no calculator component matches that componentId (or this myApp has no calculator).",
+                            "error": "no calculator component matches that componentId (or this miniApp has no calculator).",
                         ])
                     }
                     let (data, resolvedId) = resolved
@@ -439,7 +439,7 @@ extension AppTools {
                             "error": .string("no row with key '\(key)' in calculator '\(resolvedId)'."),
                         ])
                     }
-                    let results = CalculatorResolver.resolve(data, components: siblingComponents(store: store, myAppId: myAppId))
+                    let results = CalculatorResolver.resolve(data, components: siblingComponents(store: store, miniAppId: miniAppId))
                     return .object([
                         "ok": .bool(true),
                         "componentId": .string(resolvedId),

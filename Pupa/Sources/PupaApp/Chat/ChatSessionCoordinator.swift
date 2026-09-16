@@ -14,15 +14,15 @@ public enum SubagentRunError: Error, CustomStringConvertible {
     }
 }
 
-/// Owns one `ChatViewModel` per `ChatScope` (one per myApp + one shared for
+/// Owns one `ChatViewModel` per `ChatScope` (one per miniApp + one shared for
 /// memory mode) and lazily creates them on first access. Sessions live for
-/// the rest of the app process (or until their backing myApp is deleted), so
-/// a stream started in myApp A keeps running when the user navigates to
-/// myApp B — the visible chat just rebinds to B's session.
+/// the rest of the app process (or until their backing miniApp is deleted), so
+/// a stream started in miniApp A keeps running when the user navigates to
+/// miniApp B — the visible chat just rebinds to B's session.
 ///
 /// Each session owns its own `AgentSession`, `ToolRegistry`, and stream
 /// task. The registry is built with tools pinned to the session's scope, so
-/// tool dispatch from concurrent streams never races on `activeMyAppId`.
+/// tool dispatch from concurrent streams never races on `activeMiniAppId`.
 @MainActor
 @Observable
 public final class ChatSessionCoordinator {
@@ -42,23 +42,23 @@ public final class ChatSessionCoordinator {
         }
     }
 
-    /// MyApp ids with at least one in-flight stream right now. Derived from
-    /// `busyCounts` — a refcount per myApp — so independent concurrent
-    /// streams against the same myApp (e.g. the user's own chat plus an
-    /// orchestrator sub-run, or two parallel `invokeMyAppAgent` calls that
-    /// happen to target the same myApp) don't race on a shared `Set`
+    /// MiniApp ids with at least one in-flight stream right now. Derived from
+    /// `busyCounts` — a refcount per miniApp — so independent concurrent
+    /// streams against the same miniApp (e.g. the user's own chat plus an
+    /// orchestrator sub-run, or two parallel `invokeMiniAppAgent` calls that
+    /// happen to target the same miniApp) don't race on a shared `Set`
     /// membership flag. Reads are O(1) on `busyCounts.keys`. The computed
     /// property still triggers `@Observable` re-evaluation because it reads
     /// the observed `busyCounts` storage.
-    public var busyMyApps: Set<UUID> { Set(busyCounts.keys) }
+    public var busyMiniApps: Set<UUID> { Set(busyCounts.keys) }
     /// Fired when any session's turn ends (streaming true→false). Lets a caller
     /// (AppView's automation reactor) learn a reaction thread finished so it can
     /// release the rule's in-flight lock. `(scope, threadId)` of the idled
     /// session. Not observed storage — a plain notify hook.
     @ObservationIgnored public var onSessionIdle: ((ChatScope, String) -> Void)?
-    /// Per-myApp refcount of in-flight streams. `> 0` means visible streaming.
+    /// Per-miniApp refcount of in-flight streams. `> 0` means visible streaming.
     /// Bumped by per-session `onStreamingChange` (the user's own chat in that
-    /// myApp) AND by `runOneShot` for the lifetime of each orchestrator
+    /// miniApp) AND by `runOneShot` for the lifetime of each orchestrator
     /// sub-run, so the sidebar spinner reflects both.
     private var busyCounts: [UUID: Int] = [:]
 
@@ -70,7 +70,7 @@ public final class ChatSessionCoordinator {
         let threadId: String
     }
 
-    private let store: MyAppStore
+    private let store: MiniAppStore
     private let memory: MemoryStore
     private let settings: SettingsStore
     private let urlSession: URLSession
@@ -85,7 +85,7 @@ public final class ChatSessionCoordinator {
     /// Cross-scope agent-invocation policy. Owns the busy set,
     /// invocation stack, and chain-depth cap. Shared with
     /// `slackInvoker` (which adds Slack-specific UI substrate on top)
-    /// so MyApp sub-runs and Slack sub-agents participate in a single
+    /// so MiniApp sub-runs and Slack sub-agents participate in a single
     /// invocation graph — reentrancy is detected across the two
     /// scopes. Reads by SwiftUI go through `slackInvoker` for the
     /// Slack-shaped views; future agent scopes will gain their own
@@ -101,7 +101,7 @@ public final class ChatSessionCoordinator {
     public let slackInvoker: SlackInvoker
 
     public init(
-        store: MyAppStore,
+        store: MiniAppStore,
         memory: MemoryStore,
         settings: SettingsStore,
         agentStats: AgentStatsStore? = nil,
@@ -139,7 +139,7 @@ public final class ChatSessionCoordinator {
         agentInvocationGate.maxTurnsPerPair = settings.a2aMaxTurnsPerPair
     }
 
-    /// Write AGENTS.md for every existing myApp and the orchestrator at
+    /// Write AGENTS.md for every existing miniApp and the orchestrator at
     /// startup, so the sidebar shows files immediately without waiting for
     /// a chat session to be lazily opened.
     private func bootstrapMemories() {
@@ -148,29 +148,29 @@ public final class ChatSessionCoordinator {
             _ = try? orchMemory.writeFile(path: MemoryStore.pupaAgentsPath, content: Self.orchestratorAgentsMd())
             memory.rescan()
         }
-        for myApp in store.myApps {
-            ensureMyAppMemory(myApp)
+        for miniApp in store.miniApps {
+            ensureMiniAppMemory(miniApp)
         }
     }
 
-    /// Idempotent: writes AGENTS.md for a myApp if it doesn't exist yet.
-    /// Call when a new myApp is created so the sidebar shows the file
+    /// Idempotent: writes AGENTS.md for a miniApp if it doesn't exist yet.
+    /// Call when a new miniApp is created so the sidebar shows the file
     /// immediately, before any chat session is opened.
-    public func ensureMyAppMemory(_ myApp: MyApp) {
-        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myApp.id))
+    public func ensureMiniAppMemory(_ miniApp: MiniApp) {
+        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(miniAppId: miniApp.id))
         if !appMemory.fileExists(at: MemoryStore.pupaAgentsPath) {
             // Do NOT bake the type fragment here. It is applied dynamically
             // (base + catalog + per-kind) and layered under AGENTS.md by
-            // MyAppPolicy.buildSystemPrompt; freezing it would drop per-kind
+            // MiniAppPolicy.buildSystemPrompt; freezing it would drop per-kind
             // guidance as the canvas changes (issue #164). AGENTS.md is now
             // purely the user's customization surface.
             let content = """
-                # \(myApp.name)
+                # \(miniApp.name)
 
-                **Type:** \(myApp.typeId)
+                **Type:** \(miniApp.typeId)
 
                 ## Instructions
-                _No custom instructions yet — edit this file to add MyApp-specific \
+                _No custom instructions yet — edit this file to add MiniApp-specific \
                 guidance. The type's built-in rules apply automatically._
                 """
             _ = try? appMemory.writeFile(path: MemoryStore.pupaAgentsPath, content: content)
@@ -183,13 +183,13 @@ public final class ChatSessionCoordinator {
         # Orchestrator
 
         Manages the full workspace. Has access to the memories filesystem \
-        and can create, list, and delegate work to myApps.
+        and can create, list, and delegate work to miniApps.
 
         ## Tool surface
         - **Memories filesystem** — read/write/organise notes that persist across sessions
-        - **`listMyApps`** — list available myApps
-        - **`createMyApp`** — create a new myApp
-        - **`invokeMyAppAgent`** — delegate a one-shot prompt to any myApp's agent; \
+        - **`listMiniApps`** — list available miniApps
+        - **`createMiniApp`** — create a new miniApp
+        - **`invokeMiniAppAgent`** — delegate a one-shot prompt to any miniApp's agent; \
         fan out multiple calls in one turn to run in parallel
 
         > Edit this file to customise orchestrator behaviour.
@@ -278,41 +278,41 @@ public final class ChatSessionCoordinator {
         let sessionMemory: MemoryStore
         let sessionToolGateState: ToolGateState
         switch scope {
-        case .myApp(let id):
-            let myApp = store.myApps.first(where: { $0.id == id })
+        case .miniApp(let id):
+            let miniApp = store.miniApps.first(where: { $0.id == id })
             // Root the agent's memory on the immutable app id — never the display
             // name. Rename/import can't strand or divert this session's writes.
-            sessionMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: id))
+            sessionMemory = MemoryStore(rootOverride: MemoryStore.appRoot(miniAppId: id))
             sessionMemory.onDidMutate = { [weak self] in self?.memory.rescan() }
-            sessionMemory.writeGuard = { [weak store] _ in store?.isMemoryLocked(myAppId: id) ?? false }
-            if let myApp { ensureMyAppMemory(myApp) }
-            AppTools.registerMyAppTools(
+            sessionMemory.writeGuard = { [weak store] _ in store?.isMemoryLocked(miniAppId: id) ?? false }
+            if let miniApp { ensureMiniAppMemory(miniApp) }
+            AppTools.registerMiniAppTools(
                 on: registry,
                 store: store,
-                myAppId: id,
+                miniAppId: id,
                 memory: sessionMemory,
-                slack: mainChatSlackContext(myAppId: id)
+                slack: mainChatSlackContext(miniAppId: id)
             )
             AppTools.registerMemoryTools(on: registry, memory: sessionMemory)
             AppTools.registerSkillTools(on: registry, memory: sessionMemory)
             // Generic subagent invocation: the main agent can delegate to any
-            // `pupa/agents/<slug>/AGENTS.md` subagent in this myApp.
+            // `pupa/agents/<slug>/AGENTS.md` subagent in this miniApp.
             AppTools.registerSubagentTools(on: registry, run: { [weak self] name, prompt in
                 guard let self else { return "" }
                 // The panel is ungated (no forest node), but the delegation is
-                // this myApp's main agent's — credit it.
+                // this miniApp's main agent's — credit it.
                 return try await self.runSubagent(
-                    myAppId: id, agentName: name, prompt: prompt, caller: .session(.myApp(id))
+                    miniAppId: id, agentName: name, prompt: prompt, caller: .session(.miniApp(id))
                 )
             })
             let toolGateState = ToolGateState()
             sessionToolGateState = toolGateState
-            // Scope notifications to THIS myApp: it may only deep-link a
-            // banner back into itself, never into a sibling myApp.
-            AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: toolGateState, ownerMyAppId: id)
-            if let myApp,
-               let type = MyAppTypeRegistry.shared.resolve(id: myApp.typeId) {
-                AppTools.registerToolGates(on: registry, myAppType: type, toolGateState: toolGateState)
+            // Scope notifications to THIS miniApp: it may only deep-link a
+            // banner back into itself, never into a sibling miniApp.
+            AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: toolGateState, ownerMiniAppId: id)
+            if let miniApp,
+               let type = MiniAppTypeRegistry.shared.resolve(id: miniApp.typeId) {
+                AppTools.registerToolGates(on: registry, miniAppType: type, toolGateState: toolGateState)
             }
         case .memory:
             let toolGateState = ToolGateState()
@@ -323,19 +323,19 @@ public final class ChatSessionCoordinator {
             AppTools.registerSkillTools(on: registry, memory: sessionMemory)
             AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: toolGateState)
             // Orchestrator surface: lets the memory-mode agent see / create
-            // myApps and delegate a one-shot prompt to any existing myApp's
+            // miniApps and delegate a one-shot prompt to any existing miniApp's
             // agent via runOneShot below. Only registered on .memory.
             AppTools.registerOrchestratorTools(
                 on: registry,
                 store: store,
-                runOneShot: { [weak self] myAppId, prompt in
+                runOneShot: { [weak self] miniAppId, prompt in
                     guard let self else { return "" }
                     return try await self.runOneShot(
-                        myAppId: myAppId, prompt: prompt, caller: .session(.orchestrator)
+                        miniAppId: miniAppId, prompt: prompt, caller: .session(.orchestrator)
                     )
                 },
-                onMyAppCreated: { [weak self] myApp in
-                    Task { @MainActor [weak self] in self?.ensureMyAppMemory(myApp) }
+                onMiniAppCreated: { [weak self] miniApp in
+                    Task { @MainActor [weak self] in self?.ensureMiniAppMemory(miniApp) }
                 }
             )
         }
@@ -374,16 +374,16 @@ public final class ChatSessionCoordinator {
         return vm
     }
 
-    /// Spin up a transient sub-session against `myAppId` with a fresh
-    /// `threadId` and the target myApp's full tool surface (canvas mutators
+    /// Spin up a transient sub-session against `miniAppId` with a fresh
+    /// `threadId` and the target miniApp's full tool surface (canvas mutators
     /// + memories), send `prompt` as a single user message, run the
     /// multi-round AG-UI loop to completion, and return the concatenated
     /// final assistant text.
     ///
-    /// Used by the orchestrator's `invokeMyAppAgent` frontend tool when
-    /// memory-mode chat delegates work to a myApp. Sub-runs do NOT mutate
-    /// the target myApp's persistent `threadId` — the user's own
-    /// conversation in that myApp is untouched.
+    /// Used by the orchestrator's `invokeMiniAppAgent` frontend tool when
+    /// memory-mode chat delegates work to a miniApp. Sub-runs do NOT mutate
+    /// the target miniApp's persistent `threadId` — the user's own
+    /// conversation in that miniApp is untouched.
     ///
     /// **Reentrancy / chain-depth.** Consults `agentInvocationGate`
     /// before doing any setup work. `caller` says who delegated:
@@ -391,11 +391,11 @@ public final class ChatSessionCoordinator {
     /// for the ungated orchestrator chat panel (roots a tree, but the
     /// delegation is still credited to `key`). If the gate rejects the call,
     /// throws `AgentInvocationRejection` so the caller
-    /// (`AppTools.invokeMyAppAgent`) can echo a structured
+    /// (`AppTools.invokeMiniAppAgent`) can echo a structured
     /// `agent_unavailable` payload back to the orchestrating agent
     /// instead of running anyway and stomping on a concurrent run.
-    func runOneShot(myAppId: UUID, prompt: String, caller: AgentCallerContext) async throws -> String {
-        let target: AgentInvocationKey = .myApp(myAppId)
+    func runOneShot(miniAppId: UUID, prompt: String, caller: AgentCallerContext) async throws -> String {
+        let target: AgentInvocationKey = .miniApp(miniAppId)
         syncGateLimitsFromSettings()
         let decision = agentInvocationGate.decide(caller: caller.invocationId, target: target)
         guard case let .proceed(invocationId, treeRoot) = decision else {
@@ -414,19 +414,19 @@ public final class ChatSessionCoordinator {
         )
         defer { agentInvocationGate.exit(invocationId) }
         let registry = ToolRegistry()
-        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myAppId))
+        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(miniAppId: miniAppId))
         appMemory.onDidMutate = { [weak self] in self?.memory.rescan() }
-        appMemory.writeGuard = { [weak store] _ in store?.isMemoryLocked(myAppId: myAppId) ?? false }
-        AppTools.registerMyAppTools(on: registry, store: store, myAppId: myAppId, memory: appMemory)
+        appMemory.writeGuard = { [weak store] _ in store?.isMemoryLocked(miniAppId: miniAppId) ?? false }
+        AppTools.registerMiniAppTools(on: registry, store: store, miniAppId: miniAppId, memory: appMemory)
         AppTools.registerMemoryTools(on: registry, memory: appMemory)
         AppTools.registerSkillTools(on: registry, memory: appMemory)
         let subRunToolGateState = ToolGateState()
-        // Sub-run acts on behalf of `myAppId`; keep its notifications scoped
-        // to that myApp so a delegated agent can't target a sibling either.
-        AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: subRunToolGateState, ownerMyAppId: myAppId)
-        if let myApp = store.myApps.first(where: { $0.id == myAppId }),
-           let type = MyAppTypeRegistry.shared.resolve(id: myApp.typeId) {
-            AppTools.registerToolGates(on: registry, myAppType: type, toolGateState: subRunToolGateState)
+        // Sub-run acts on behalf of `miniAppId`; keep its notifications scoped
+        // to that miniApp so a delegated agent can't target a sibling either.
+        AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: subRunToolGateState, ownerMiniAppId: miniAppId)
+        if let miniApp = store.miniApps.first(where: { $0.id == miniAppId }),
+           let type = MiniAppTypeRegistry.shared.resolve(id: miniApp.typeId) {
+            AppTools.registerToolGates(on: registry, miniAppType: type, toolGateState: subRunToolGateState)
         }
         let session = AgentSession(
             client: AgentClient(
@@ -439,42 +439,42 @@ public final class ChatSessionCoordinator {
             maxRounds: settings.effectiveMaxToolRounds
         )
         // Mirror ChatViewModel's per-turn payload so the sub-agent sees the
-        // same context shape the user's own chat would for that myApp.
+        // same context shape the user's own chat would for that miniApp.
         let store = store
         let memory = appMemory
         let settings = settings
         let context: @Sendable () async -> [AgentContextEntry] = {
-            await Self.subRunContextEntries(store: store, memory: memory, myAppId: myAppId)
+            await Self.subRunContextEntries(store: store, memory: memory, miniAppId: miniAppId)
         }
         let state: @Sendable () async -> AnyJSON = {
             await MainActor.run {
-                // Global Settings → Tools set ∪ this MyApp's per-agent overrides.
-                let disabledSet = settings.disabledBackendTools.union(store.myAppDisabledTools(for: myAppId))
+                // Global Settings → Tools set ∪ this MiniApp's per-agent overrides.
+                let disabledSet = settings.disabledBackendTools.union(store.miniAppDisabledTools(for: miniAppId))
                 let disabled = disabledSet.sorted().map { AnyJSON.string($0) }
                 var entries: [String: AnyJSON] = ["disabled_tools": .array(disabled)]
                 let effective = EffectiveSettings(
                     globalSource: GlobalSettingsSource(shellApprovalDisabled: settings.shellApprovalDisabled),
-                    myAppSettings: store.myApp(withId: myAppId).map { [$0.id: $0.settings] } ?? [:]
+                    miniAppSettings: store.miniApp(withId: miniAppId).map { [$0.id: $0.settings] } ?? [:]
                 )
-                if effective.resolve(ShellApprovalDisabledKey.self, at: .myApp(myAppId)) {
+                if effective.resolve(ShellApprovalDisabledKey.self, at: .miniApp(miniAppId)) {
                     entries["shell_approval_disabled"] = .bool(true)
                 }
                 Self.mergeActiveHarnessControls(into: &entries, settings: settings)
                 return AnyJSON.object(entries)
             }
         }
-        // Forward the per-MyApp model selection so the sub-agent runs on the
+        // Forward the per-MiniApp model selection so the sub-agent runs on the
         // model configured for it (not the backend env default). Same shape as
         // ChatViewModel's main-agent turn.
-        let modelProps = await MainActor.run { Self.llmForwardedProps(store.myAppLLM(for: myAppId)) }
+        let modelProps = await MainActor.run { Self.llmForwardedProps(store.miniAppLLM(for: miniAppId)) }
         // Light up the sidebar spinner for the duration of the sub-run. The
         // refcount drops on every exit path — normal completion, thrown
         // error (incl. cancellation), or task-cancellation mid-stream — via
         // the `defer` below.
-        incrementBusy(myAppId)
-        defer { decrementBusy(myAppId) }
+        incrementBusy(miniAppId)
+        defer { decrementBusy(miniAppId) }
         var accumulated = ""
-        let scope: ChatScope = .myApp(myAppId)
+        let scope: ChatScope = .miniApp(miniAppId)
         let toolFilter: @Sendable () async -> Set<String> = { [store, subRunToolGateState] in
             await MainActor.run { ChatViewModel.allowedToolNames(scope: scope, store: store, toolGateState: subRunToolGateState) }
         }
@@ -516,21 +516,21 @@ public final class ChatSessionCoordinator {
     }
 
     /// Spin up a transient sub-session for a `pupa/agents/<slug>/AGENTS.md`
-    /// subagent within `myAppId`. Inherits the MyApp's canvas + memory
+    /// subagent within `miniAppId`. Inherits the MiniApp's canvas + memory
     /// surface but narrows the tool set to the subagent's frontmatter
     /// (`tools` / `disabled_tools`, always plus `invoke_agent`) and pins its
     /// persona (the AGENTS.md body) as a context entry. Runs the multi-round
     /// loop to completion and returns the concatenated final assistant text.
     ///
-    /// The generic counterpart to `runOneShot` (which targets another MyApp's
+    /// The generic counterpart to `runOneShot` (which targets another MiniApp's
     /// *main* agent). Invoked by the `invoke_agent` frontend tool — from the
-    /// main chat (`.session(.myApp(id))`) or from another subagent (A2A;
+    /// main chat (`.session(.miniApp(id))`) or from another subagent (A2A;
     /// `.agent(parentInvocationId)`). Consults `agentInvocationGate` first
     /// and throws `AgentInvocationRejection` when rejected so the tool handler
     /// can echo `agent_unavailable`; throws `SubagentRunError.notFound` when
     /// no such subagent exists.
     func runSubagent(
-        myAppId: UUID,
+        miniAppId: UUID,
         agentName: String,
         prompt: String,
         caller: AgentCallerContext
@@ -538,13 +538,13 @@ public final class ChatSessionCoordinator {
         let store = self.store
         let settings = self.settings
         let urlSession = self.urlSession
-        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myAppId))
+        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(miniAppId: miniAppId))
         appMemory.onDidMutate = { [weak self] in self?.memory.rescan() }
-        appMemory.writeGuard = { [weak store] _ in store?.isMemoryLocked(myAppId: myAppId) ?? false }
+        appMemory.writeGuard = { [weak store] _ in store?.isMemoryLocked(miniAppId: miniAppId) ?? false }
         guard let subagent = AgentStore(memory: appMemory).agent(named: agentName) else {
             throw SubagentRunError.notFound(agentName)
         }
-        let target: AgentInvocationKey = .subagent(myAppId: myAppId, slug: subagent.name)
+        let target: AgentInvocationKey = .subagent(miniAppId: miniAppId, slug: subagent.name)
         syncGateLimitsFromSettings()
         let decision = agentInvocationGate.decide(caller: caller.invocationId, target: target)
         guard case let .proceed(invocationId, treeRoot) = decision else {
@@ -564,7 +564,7 @@ public final class ChatSessionCoordinator {
         defer { agentInvocationGate.exit(invocationId) }
 
         let registry = ToolRegistry()
-        AppTools.registerMyAppTools(on: registry, store: store, myAppId: myAppId, memory: appMemory)
+        AppTools.registerMiniAppTools(on: registry, store: store, miniAppId: miniAppId, memory: appMemory)
         AppTools.registerMemoryTools(on: registry, memory: appMemory)
         AppTools.registerSkillTools(on: registry, memory: appMemory)
         // A2A: this subagent can invoke siblings; thread its own invocationId
@@ -572,16 +572,16 @@ public final class ChatSessionCoordinator {
         AppTools.registerSubagentTools(on: registry, run: { [weak self] name, subPrompt in
             guard let self else { return "" }
             return try await self.runSubagent(
-                myAppId: myAppId, agentName: name, prompt: subPrompt, caller: .agent(invocationId)
+                miniAppId: miniAppId, agentName: name, prompt: subPrompt, caller: .agent(invocationId)
             )
         })
         let subRunToolGateState = ToolGateState()
-        // Sub-run acts on behalf of `myAppId`; keep its notifications scoped
-        // to that myApp so a delegated agent can't target a sibling either.
-        AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: subRunToolGateState, ownerMyAppId: myAppId)
-        if let myApp = store.myApps.first(where: { $0.id == myAppId }),
-           let type = MyAppTypeRegistry.shared.resolve(id: myApp.typeId) {
-            AppTools.registerToolGates(on: registry, myAppType: type, toolGateState: subRunToolGateState)
+        // Sub-run acts on behalf of `miniAppId`; keep its notifications scoped
+        // to that miniApp so a delegated agent can't target a sibling either.
+        AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: subRunToolGateState, ownerMiniAppId: miniAppId)
+        if let miniApp = store.miniApps.first(where: { $0.id == miniAppId }),
+           let type = MiniAppTypeRegistry.shared.resolve(id: miniApp.typeId) {
+            AppTools.registerToolGates(on: registry, miniAppType: type, toolGateState: subRunToolGateState)
         }
         let session = AgentSession(
             client: AgentClient(
@@ -597,33 +597,33 @@ public final class ChatSessionCoordinator {
         let subagentSnapshot = subagent
         let context: @Sendable () async -> [AgentContextEntry] = {
             await Self.subagentContextEntries(
-                store: store, memory: memory, myAppId: myAppId, subagent: subagentSnapshot
+                store: store, memory: memory, miniAppId: miniAppId, subagent: subagentSnapshot
             )
         }
         let disabledExtra = Set(subagent.disabledTools ?? [])
         let state: @Sendable () async -> AnyJSON = {
             await MainActor.run {
                 let disabledSet = settings.disabledBackendTools
-                    .union(store.myAppDisabledTools(for: myAppId))
+                    .union(store.miniAppDisabledTools(for: miniAppId))
                     .union(disabledExtra)
                 let disabled = disabledSet.sorted().map { AnyJSON.string($0) }
                 var entries: [String: AnyJSON] = ["disabled_tools": .array(disabled)]
                 let effective = EffectiveSettings(
                     globalSource: GlobalSettingsSource(shellApprovalDisabled: settings.shellApprovalDisabled),
-                    myAppSettings: store.myApp(withId: myAppId).map { [$0.id: $0.settings] } ?? [:]
+                    miniAppSettings: store.miniApp(withId: miniAppId).map { [$0.id: $0.settings] } ?? [:]
                 )
-                if effective.resolve(ShellApprovalDisabledKey.self, at: .myApp(myAppId)) {
+                if effective.resolve(ShellApprovalDisabledKey.self, at: .miniApp(miniAppId)) {
                     entries["shell_approval_disabled"] = .bool(true)
                 }
                 Self.mergeActiveHarnessControls(into: &entries, settings: settings)
                 return AnyJSON.object(entries)
             }
         }
-        let fallbackModel = await MainActor.run { store.myAppLLM(for: myAppId) }
+        let fallbackModel = await MainActor.run { store.miniAppLLM(for: miniAppId) }
         let modelProps = Self.llmForwardedProps(subagent.llmSelection ?? fallbackModel)
-        incrementBusy(myAppId)
-        defer { decrementBusy(myAppId) }
-        let scope: ChatScope = .myApp(myAppId)
+        incrementBusy(miniAppId)
+        defer { decrementBusy(miniAppId) }
+        let scope: ChatScope = .miniApp(miniAppId)
         let toolFilter: @Sendable () async -> Set<String> = { [store, subRunToolGateState] in
             await MainActor.run {
                 let base = ChatViewModel.allowedToolNames(
@@ -666,12 +666,12 @@ public final class ChatSessionCoordinator {
     /// canvas + memory shape as any sub-run, plus a persona entry pinning the
     /// subagent's AGENTS.md body and its private memory subfolder.
     private static func subagentContextEntries(
-        store: MyAppStore,
+        store: MiniAppStore,
         memory: MemoryStore,
-        myAppId: UUID,
+        miniAppId: UUID,
         subagent: Subagent
     ) async -> [AgentContextEntry] {
-        let base = await subRunContextEntries(store: store, memory: memory, myAppId: myAppId)
+        let base = await subRunContextEntries(store: store, memory: memory, miniAppId: miniAppId)
         return await MainActor.run {
             var entries = base
             let subfolder = MemoryStore.subagentSubfolder(name: subagent.name)
@@ -693,13 +693,13 @@ public final class ChatSessionCoordinator {
     }
 
     /// Build the per-turn context entries for a sub-run. Same shape as
-    /// `ChatViewModel.contextEntries(... scope: .myApp(id))` so the
-    /// sub-agent sees the canvas state, memories paths, and myApp-type
-    /// fragment exactly the way the user's own chat in that myApp would.
+    /// `ChatViewModel.contextEntries(... scope: .miniApp(id))` so the
+    /// sub-agent sees the canvas state, memories paths, and miniApp-type
+    /// fragment exactly the way the user's own chat in that miniApp would.
     private static func subRunContextEntries(
-        store: MyAppStore,
+        store: MiniAppStore,
         memory: MemoryStore,
-        myAppId: UUID
+        miniAppId: UUID
     ) async -> [AgentContextEntry] {
         await MainActor.run {
             let memoriesPayload: [String: [String]] = ["paths": memory.snapshotPaths()]
@@ -713,27 +713,27 @@ public final class ChatSessionCoordinator {
             let skillsEntry = [ChatViewModel.skillsContextEntry(SkillStore(memory: memory))]
             // Subagents under pupa/agents/ — sub-runs can delegate to siblings.
             let agentsEntry = [ChatViewModel.agentsContextEntry(AgentStore(memory: memory))]
-            guard let myApp = store.myApps.first(where: { $0.id == myAppId }) else {
+            guard let miniApp = store.miniApps.first(where: { $0.id == miniAppId }) else {
                 return [memoriesEntry] + skillsEntry + agentsEntry
             }
             // Same thin enumeration as the main chat — full item lists
             // stay reachable via `getCanvasState` and the `list*` /
             // `search*` / `get*` discovery tools.
-            let summary = CanvasSummary.build(myApp: myApp)
+            let summary = CanvasSummary.build(miniApp: miniApp)
             let canvasJSON = summary.toJSONString()
-            // System prompt for sub-run via MyAppPolicy — reads
-            // <myapps/name>/pupa/AGENTS.md; falls back to type-fragment text.
-            let typeDescription = MyAppPolicy(myAppId: myAppId).buildSystemPrompt(
-                myApp: myApp, memory: memory
+            // System prompt for sub-run via MiniAppPolicy — reads
+            // <miniapps/name>/pupa/AGENTS.md; falls back to type-fragment text.
+            let typeDescription = MiniAppPolicy(miniAppId: miniAppId).buildSystemPrompt(
+                miniApp: miniApp, memory: memory
             )
             let typePayload: [String: String] = [
-                "typeId": myApp.typeId,
-                "myAppName": myApp.name,
+                "typeId": miniApp.typeId,
+                "miniAppName": miniApp.name,
                 "subRun": "true",
             ]
             return [
                 AgentContextEntry(
-                    description: "Live canvas state for this sub-run's target myApp — thin enumeration. This canvas lives app-side (on the client device), not on this backend host; touch it only through the frontend tools. {components: [{id, name, kind, size, summary}]}. `size` is a coarse cache-stable bucket (empty/1-9/10-99/100+), not an exact count. `summary` is the LLM-authored content-summary slot (null until you write to it via the kind's render tool with only `summary` populated). Tools target a component by explicit `componentId` (omit only when exactly one of that kind exists); there is no active/view fallback — use `getActiveComponent` for \"the one I'm looking at\". Drill into items with the kind's discovery tools (`listTrackerItems` / `searchTrackerItems` / `getTrackerItem`, plus the other components equivalents) or `getCanvasState` for a full dump.",
+                    description: "Live canvas state for this sub-run's target miniApp — thin enumeration. This canvas lives app-side (on the client device), not on this backend host; touch it only through the frontend tools. {components: [{id, name, kind, size, summary}]}. `size` is a coarse cache-stable bucket (empty/1-9/10-99/100+), not an exact count. `summary` is the LLM-authored content-summary slot (null until you write to it via the kind's render tool with only `summary` populated). Tools target a component by explicit `componentId` (omit only when exactly one of that kind exists); there is no active/view fallback — use `getActiveComponent` for \"the one I'm looking at\". Drill into items with the kind's discovery tools (`listTrackerItems` / `searchTrackerItems` / `getTrackerItem`, plus the other components equivalents) or `getCanvasState` for a full dump.",
                     value: canvasJSON
                 ),
                 memoriesEntry,
@@ -746,7 +746,7 @@ public final class ChatSessionCoordinator {
     /// the given channel. Builds a fresh `AgentSession` with the
     /// agent's persona injected as a context entry, the channel's
     /// message history rendered as a transcript in the user prompt,
-    /// and the target MyApp's normal tool surface. The final
+    /// and the target MiniApp's normal tool surface. The final
     /// assistant text is posted to the channel as an `.agent`
     /// message authored by `agentId`.
     ///
@@ -758,13 +758,13 @@ public final class ChatSessionCoordinator {
     /// concurrent user @-mention to the same agent), returns
     /// `.busy`.
     ///
-    /// The `myAppId` busy refcount is bumped for the lifetime of
+    /// The `miniAppId` busy refcount is bumped for the lifetime of
     /// the run so the sidebar spinner reflects the in-flight stream
-    /// alongside the user's own chat for that MyApp.
+    /// alongside the user's own chat for that MiniApp.
     func invokeSlackAgent(
         agentId: String,
         channelId: String,
-        myAppId: UUID,
+        miniAppId: UUID,
         componentId: String,
         caller: AgentCallerContext
     ) async -> SlackInvoker.InvocationOutcome {
@@ -777,15 +777,15 @@ public final class ChatSessionCoordinator {
         let memory = self.memory
         let settings = self.settings
         let urlSession = self.urlSession
-        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myAppId))
+        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(miniAppId: miniAppId))
         appMemory.onDidMutate = { [weak self] in self?.memory.rescan() }
-        appMemory.writeGuard = { [weak store] _ in store?.isMemoryLocked(myAppId: myAppId) ?? false }
+        appMemory.writeGuard = { [weak store] _ in store?.isMemoryLocked(miniAppId: miniAppId) ?? false }
         // Resolve the subagent (`agentId` is its slug) from the filesystem and
         // the channel from the canvas. If either is missing, fail immediately.
         let snapshot = await MainActor.run { () -> (Subagent, SlackChannel, [SlackMessage])? in
             guard let subagent = AgentStore(memory: appMemory).agent(named: agentId),
-                  let myApp = store.myApps.first(where: { $0.id == myAppId }),
-                  let comp = myApp.components.first(where: { $0.id == componentId }),
+                  let miniApp = store.miniApps.first(where: { $0.id == miniAppId }),
+                  let comp = miniApp.components.first(where: { $0.id == componentId }),
                   case .slack(let s) = comp.body,
                   let channel = s.channels.first(where: { $0.id == channelId })
             else { return nil }
@@ -801,7 +801,7 @@ public final class ChatSessionCoordinator {
         let invocationId: UUID
         let treeRoot: UUID
         syncGateLimitsFromSettings()
-        switch agentInvocationGate.decide(caller: caller.invocationId, target: .subagent(myAppId: myAppId, slug: slug)) {
+        switch agentInvocationGate.decide(caller: caller.invocationId, target: .subagent(miniAppId: miniAppId, slug: slug)) {
         case .reentrant: return .reentrant(targetName: agentDisplayName)
         case .busy: return .busy(targetName: agentDisplayName)
         case .maxDepthExceeded(_, let depth):
@@ -816,28 +816,28 @@ public final class ChatSessionCoordinator {
             slug,
             agentName: agentDisplayName,
             channelId: channelId,
-            myAppId: myAppId,
+            miniAppId: miniAppId,
             invocationId: invocationId,
             caller: caller,
             treeRoot: treeRoot
         )
-        incrementBusy(myAppId)
+        incrementBusy(miniAppId)
         defer {
             slackInvoker.exit(slug)
-            decrementBusy(myAppId)
+            decrementBusy(miniAppId)
             memory.rescan()  // keep global sidebar tree in sync with app-scoped writes
         }
         // Build the transient session, mirroring runOneShot's setup so the
         // subagent has the same canvas + memory surface as the main agent in
-        // this MyApp, narrowed to its frontmatter tools. Slack tools wired in
+        // this MiniApp, narrowed to its frontmatter tools. Slack tools wired in
         // sub-agent mode (admin tools refuse, slackPostMessage works).
         let registry = ToolRegistry()
-        AppTools.registerMyAppTools(
+        AppTools.registerMiniAppTools(
             on: registry,
             store: store,
-            myAppId: myAppId,
+            miniAppId: miniAppId,
             memory: appMemory,
-            slack: subAgentSlackContext(myAppId: myAppId, currentAgentId: slug)
+            slack: subAgentSlackContext(miniAppId: miniAppId, currentAgentId: slug)
         )
         AppTools.registerMemoryTools(on: registry, memory: appMemory)
         AppTools.registerSkillTools(on: registry, memory: appMemory)
@@ -846,15 +846,15 @@ public final class ChatSessionCoordinator {
         AppTools.registerSubagentTools(on: registry, run: { [weak self] name, subPrompt in
             guard let self else { return "" }
             return try await self.runSubagent(
-                myAppId: myAppId, agentName: name, prompt: subPrompt, caller: .agent(invocationId)
+                miniAppId: miniAppId, agentName: name, prompt: subPrompt, caller: .agent(invocationId)
             )
         })
         let slackToolGateState = ToolGateState()
-        // Slack subagent runs on behalf of `myAppId`; scope notifications to it.
-        AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: slackToolGateState, ownerMyAppId: myAppId)
-        if let myApp = store.myApps.first(where: { $0.id == myAppId }),
-           let type = MyAppTypeRegistry.shared.resolve(id: myApp.typeId) {
-            AppTools.registerToolGates(on: registry, myAppType: type, toolGateState: slackToolGateState)
+        // Slack subagent runs on behalf of `miniAppId`; scope notifications to it.
+        AppTools.registerNotificationTools(on: registry, coordinator: .shared, toolGateState: slackToolGateState, ownerMiniAppId: miniAppId)
+        if let miniApp = store.miniApps.first(where: { $0.id == miniAppId }),
+           let type = MiniAppTypeRegistry.shared.resolve(id: miniApp.typeId) {
+            AppTools.registerToolGates(on: registry, miniAppType: type, toolGateState: slackToolGateState)
         }
         // Expose `ask_user_questions` to the sub-agent. The bridge parks
         // any question on this agent's `SlackInvocationState` so the
@@ -883,7 +883,7 @@ public final class ChatSessionCoordinator {
             await Self.slackContextEntries(
                 store: store,
                 memory: appMemory,
-                myAppId: myAppId,
+                miniAppId: miniAppId,
                 agent: agentSnapshot,
                 channel: channelSnapshot,
                 history: historySnapshot
@@ -898,19 +898,19 @@ public final class ChatSessionCoordinator {
                 var entries: [String: AnyJSON] = ["disabled_tools": .array(disabled)]
                 let effective = EffectiveSettings(
                     globalSource: GlobalSettingsSource(shellApprovalDisabled: settings.shellApprovalDisabled),
-                    myAppSettings: store.myApp(withId: myAppId).map { [$0.id: $0.settings] } ?? [:]
+                    miniAppSettings: store.miniApp(withId: miniAppId).map { [$0.id: $0.settings] } ?? [:]
                 )
-                if effective.resolve(ShellApprovalDisabledKey.self, at: .myApp(myAppId)) {
+                if effective.resolve(ShellApprovalDisabledKey.self, at: .miniApp(miniAppId)) {
                     entries["shell_approval_disabled"] = .bool(true)
                 }
                 Self.mergeActiveHarnessControls(into: &entries, settings: settings)
                 return AnyJSON.object(entries)
             }
         }
-        // Per-agent model selection (frontmatter, then MyApp's, then backend default).
-        let fallbackModel = await MainActor.run { store.myAppLLM(for: myAppId) }
+        // Per-agent model selection (frontmatter, then MiniApp's, then backend default).
+        let fallbackModel = await MainActor.run { store.miniAppLLM(for: miniAppId) }
         let modelProps = Self.llmForwardedProps(subagent.llmSelection ?? fallbackModel)
-        let scope: ChatScope = .myApp(myAppId)
+        let scope: ChatScope = .miniApp(miniAppId)
         let toolFilter: @Sendable () async -> Set<String> = { [store, slackToolGateState] in
             await MainActor.run {
                 let base = ChatViewModel.allowedToolNames(scope: scope, store: store, toolGateState: slackToolGateState)
@@ -978,7 +978,7 @@ public final class ChatSessionCoordinator {
                 authorKind: .agent,
                 authorId: slug,
                 text: trimmed,
-                myAppId: myAppId,
+                miniAppId: miniAppId,
                 componentId: componentId
             )
         } : nil
@@ -992,24 +992,24 @@ public final class ChatSessionCoordinator {
     /// trigger Slack runs from a tool — but the only tool that
     /// uses it is `slackPostMessage`, which is gated to
     /// sub-agents, so it's effectively unused for the main path.
-    private func mainChatSlackContext(myAppId: UUID) -> AppTools.SlackToolContext {
+    private func mainChatSlackContext(miniAppId: UUID) -> AppTools.SlackToolContext {
         AppTools.SlackToolContext(
             currentAgentId: nil,
             invoke: { [weak self] agentId, channelId in
                 guard let self else { return .failed(error: "coordinator gone") }
-                let componentId = await MainActor.run { self.store.slackComponentId(myAppId: myAppId) }
+                let componentId = await MainActor.run { self.store.slackComponentId(miniAppId: miniAppId) }
                 guard let componentId else { return .failed(error: "no slack component") }
                 return await self.invokeSlackAgent(
                     agentId: agentId,
                     channelId: channelId,
-                    myAppId: myAppId,
+                    miniAppId: miniAppId,
                     componentId: componentId,
-                    caller: .session(.myApp(myAppId))
+                    caller: .session(.miniApp(miniAppId))
                 )
             },
             resolveAgentId: { [weak self] name in
                 guard let self else { return nil }
-                return await MainActor.run { self.resolveSubagentSlug(name: name, myAppId: myAppId) }
+                return await MainActor.run { self.resolveSubagentSlug(name: name, miniAppId: miniAppId) }
             },
             markMessagePosted: { [weak self] agentId in
                 await MainActor.run { self?.slackInvoker.markMessagePosted(agentId: agentId) }
@@ -1018,10 +1018,10 @@ public final class ChatSessionCoordinator {
     }
 
     /// Resolve an @-mention handle (display name or slug) to a subagent slug
-    /// via the MyApp's `pupa/agents/` roster. Returns nil when no match.
+    /// via the MiniApp's `pupa/agents/` roster. Returns nil when no match.
     @MainActor
-    private func resolveSubagentSlug(name: String, myAppId: UUID) -> String? {
-        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myAppId))
+    private func resolveSubagentSlug(name: String, miniAppId: UUID) -> String? {
+        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(miniAppId: miniAppId))
         let lower = name.lowercased()
         return AgentStore(memory: appMemory).agents.first(where: {
             $0.name.lowercased() == lower || ($0.displayName?.lowercased() == lower)
@@ -1034,14 +1034,14 @@ public final class ChatSessionCoordinator {
     /// `SlackInvoker` invocation-stack guard sees agent-to-agent
     /// calls as nested.
     private func subAgentSlackContext(
-        myAppId: UUID,
+        miniAppId: UUID,
         currentAgentId: String
     ) -> AppTools.SlackToolContext {
         AppTools.SlackToolContext(
             currentAgentId: currentAgentId,
             invoke: { [weak self] agentId, channelId in
                 guard let self else { return .failed(error: "coordinator gone") }
-                let componentId = await MainActor.run { self.store.slackComponentId(myAppId: myAppId) }
+                let componentId = await MainActor.run { self.store.slackComponentId(miniAppId: miniAppId) }
                 guard let componentId else { return .failed(error: "no slack component") }
                 // Walk the live forest to find the current run's
                 // invocationId so the nested call records the
@@ -1054,14 +1054,14 @@ public final class ChatSessionCoordinator {
                 return await self.invokeSlackAgent(
                     agentId: agentId,
                     channelId: channelId,
-                    myAppId: myAppId,
+                    miniAppId: miniAppId,
                     componentId: componentId,
                     caller: caller
                 )
             },
             resolveAgentId: { [weak self] name in
                 guard let self else { return nil }
-                return await MainActor.run { self.resolveSubagentSlug(name: name, myAppId: myAppId) }
+                return await MainActor.run { self.resolveSubagentSlug(name: name, miniAppId: miniAppId) }
             },
             markMessagePosted: { [weak self] agentId in
                 await MainActor.run { self?.slackInvoker.markMessagePosted(agentId: agentId) }
@@ -1165,14 +1165,14 @@ public final class ChatSessionCoordinator {
     /// canvas + memory shape as a normal sub-run, plus a persona entry that
     /// pins the subagent's AGENTS.md body and channel context.
     private static func slackContextEntries(
-        store: MyAppStore,
+        store: MiniAppStore,
         memory: MemoryStore,
-        myAppId: UUID,
+        miniAppId: UUID,
         agent: Subagent,
         channel: SlackChannel,
         history: [SlackMessage]
     ) async -> [AgentContextEntry] {
-        let baseEntries = await subRunContextEntries(store: store, memory: memory, myAppId: myAppId)
+        let baseEntries = await subRunContextEntries(store: store, memory: memory, miniAppId: miniAppId)
         return await MainActor.run {
             var entries = baseEntries
             let memorySubfolder = MemoryStore.subagentSubfolder(name: agent.name)
@@ -1199,7 +1199,7 @@ public final class ChatSessionCoordinator {
     }
 
     private func updateBusy(scope: ChatScope, streaming: Bool) {
-        guard case .myApp(let id) = scope else { return }
+        guard case .miniApp(let id) = scope else { return }
         if streaming {
             incrementBusy(id)
         } else {
@@ -1224,14 +1224,14 @@ public final class ChatSessionCoordinator {
     }
 
     /// Cancel and drop ALL sessions whose scope matches `scope`.
-    /// Used when a myApp is deleted so every conversation's stream tears down
-    /// cleanly before the underlying `MyApp` leaves `MyAppStore`.
+    /// Used when a miniApp is deleted so every conversation's stream tears down
+    /// cleanly before the underlying `MiniApp` leaves `MiniAppStore`.
     public func discardSession(for scope: ChatScope) {
         let keysToRemove = sessions.keys.filter { $0.scope == scope }
         for key in keysToRemove {
             sessions.removeValue(forKey: key)?.cancel()
         }
-        if case .myApp(let id) = scope {
+        if case .miniApp(let id) = scope {
             busyCounts.removeValue(forKey: id)
         }
     }
@@ -1241,6 +1241,6 @@ public final class ChatSessionCoordinator {
     public func discardSession(for scope: ChatScope, threadId: String) {
         let key = SessionKey(scope: scope, threadId: threadId)
         sessions.removeValue(forKey: key)?.cancel()
-        // Don't wipe busyCounts for the whole myApp — other threads may still stream.
+        // Don't wipe busyCounts for the whole miniApp — other threads may still stream.
     }
 }

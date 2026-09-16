@@ -36,15 +36,15 @@ final class ScreenshotTests: XCTestCase {
         shoot("frame-01-canvas")
     }
 
-    /// Frame 4 — the MyApps library, now a sheet from the bar's menu.
+    /// Frame 4 — the MiniApps library, now a sheet from the bar's menu.
     @MainActor
     func testFrame04Library() throws {
         let app = launched()
         dismissBanner(app)
-        openMyApps(app)
+        openMiniApps(app)
         XCTAssertTrue(
-            app.staticTexts["MyApps"].waitForExistence(timeout: 20),
-            "the MyApps sheet never opened"
+            app.staticTexts["MiniApps"].waitForExistence(timeout: 20),
+            "the MiniApps sheet never opened"
         )
         shoot("frame-04-library")
     }
@@ -132,26 +132,26 @@ final class ScreenshotTests: XCTestCase {
 
     /// Tapping a row is what the sheet is *for*, and it had no coverage: the
     /// two observers that make it work — `onChange(of: selection)` in AppView
-    /// (dismiss) and in MyAppSidebarView (navigate) — now sit on opposite
+    /// (dismiss) and in MiniAppSidebarView (navigate) — now sit on opposite
     /// sides of a sheet-presentation boundary rather than in one view tree.
     @MainActor
-    func testTappingAMyAppRowNavigatesAndDismissesTheSheet() throws {
+    func testTappingAMiniAppRowNavigatesAndDismissesTheSheet() throws {
         let app = launched()
         dismissBanner(app)
-        openMyApps(app)
+        openMiniApps(app)
         XCTAssertTrue(
-            app.staticTexts["MyApps"].waitForExistence(timeout: 20),
-            "the MyApps sheet never opened"
+            app.staticTexts["MiniApps"].waitForExistence(timeout: 20),
+            "the MiniApps sheet never opened"
         )
 
         // By identifier, not label: the row is `accessibilityElement(.combine)`
         // inside a List, so it is not a plain button. This is what
-        // `PupaID.sidebarMyApp` exists for — it had no consumer left after the
+        // `PupaID.sidebarMiniApp` exists for — it had no consumer left after the
         // drawer's test helpers went.
         let row = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "sidebar.myApp."))
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "sidebar.miniApp."))
             .firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 20), "no MyApp row")
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "no MiniApp row")
         row.tap()
 
         // The sheet goes...
@@ -171,7 +171,7 @@ final class ScreenshotTests: XCTestCase {
     /// "Components" section header are gone — the header named the only thing
     /// on the page — while the lock and Add stay reachable.
     @MainActor
-    func testMyAppHomeIsJustTheComponentGrid() throws {
+    func testMiniAppHomeIsJustTheComponentGrid() throws {
         let app = launched()
         dismissBanner(app)
 
@@ -237,18 +237,18 @@ final class ScreenshotTests: XCTestCase {
         if x.waitForExistence(timeout: 8), x.isHittable { x.tap() }
     }
 
-    /// Open the MyApps sheet from the bar's menu.
+    /// Open the MiniApps sheet from the bar's menu.
     @MainActor
-    private func openMyApps(_ app: XCUIApplication) {
+    private func openMiniApps(_ app: XCUIApplication) {
         let menu = app.buttons["Menu"]
         XCTAssertTrue(menu.waitForExistence(timeout: 20), "no bar menu")
-        let myApps = app.buttons["MyApps"]
+        let miniApps = app.buttons["MiniApps"]
         for _ in 0..<3 {
             menu.tap()
-            if myApps.waitForExistence(timeout: 5) { break }
+            if miniApps.waitForExistence(timeout: 5) { break }
         }
-        XCTAssertTrue(myApps.exists, "no MyApps item in the menu")
-        myApps.tap()
+        XCTAssertTrue(miniApps.exists, "no MiniApps item in the menu")
+        miniApps.tap()
     }
 
     /// Open Settings through the bar's menu.

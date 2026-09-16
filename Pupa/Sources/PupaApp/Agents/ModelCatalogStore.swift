@@ -58,7 +58,7 @@ public final class ModelCatalogStore {
     /// backend is unreachable → `thinkingLevels` empty) this is a no-op, so a
     /// transient outage never wipes a still-valid override. Keeps the picker
     /// display ("Default" for an unadvertised level) and the send path in sync.
-    public func reconcileThinking(store: MyAppStore, settings: SettingsStore) {
+    public func reconcileThinking(store: MiniAppStore, settings: SettingsStore) {
         guard !thinkingLevels.isEmpty else { return }
         let valid = Set(thinkingLevels.map(\.level))
         store.clearThinkingLevels(notIn: valid)

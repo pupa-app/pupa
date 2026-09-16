@@ -13,20 +13,20 @@ struct SnapshotHistoryTests {
 
     // MARK: - Helpers
 
-    private func freshTrackerStore() -> (MyAppStore, UUID) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApp = MyApp(name: "T", iconSystemName: "list.bullet.rectangle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([myApp], myApp.id))
-        store.setTracker(title: "Test", fields: [FieldDef(name: "title", type: .text)], myAppId: myApp.id)
-        SnapshotStore.deleteAll(myApp.id)  // start from a clean history
-        return (store, myApp.id)
+    private func freshTrackerStore() -> (MiniAppStore, UUID) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApp = MiniApp(name: "T", iconSystemName: "list.bullet.rectangle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([miniApp], miniApp.id))
+        store.setTracker(title: "Test", fields: [FieldDef(name: "title", type: .text)], miniAppId: miniApp.id)
+        SnapshotStore.deleteAll(miniApp.id)  // start from a clean history
+        return (store, miniApp.id)
     }
 
-    private func app(_ store: MyAppStore, _ id: UUID) -> MyApp {
-        store.myApps.first { $0.id == id }!
+    private func app(_ store: MiniAppStore, _ id: UUID) -> MiniApp {
+        store.miniApps.first { $0.id == id }!
     }
 
-    private func trackerItemCount(_ m: MyApp) -> Int {
+    private func trackerItemCount(_ m: MiniApp) -> Int {
         for c in m.components { if case .tracker(let t) = c.body { return t.items.count } }
         return -1
     }
@@ -42,7 +42,7 @@ struct SnapshotHistoryTests {
     func recordRestoreRoundTrip() {
         let (store, id) = freshTrackerStore()
         let sEmpty = SnapshotStore.record(app(store, id), reason: .edit, now: t(0))!
-        store.addItem(["title": "row1"], myAppId: id)
+        store.addItem(["title": "row1"], miniAppId: id)
         let sOne = SnapshotStore.record(app(store, id), reason: .edit, now: t(1))!
         #expect(sEmpty != sOne)
 
@@ -66,7 +66,7 @@ struct SnapshotHistoryTests {
         let (store, id) = freshTrackerStore()
         var ids: [UUID] = []
         for i in 0..<30 {
-            store.addItem(["title": "r\(i)"], myAppId: id)
+            store.addItem(["title": "r\(i)"], miniAppId: id)
             ids.append(SnapshotStore.record(app(store, id), reason: .edit, now: t(i))!)
         }
         // Restore points spanning base + diffs (base is written every 20 links).
@@ -81,7 +81,7 @@ struct SnapshotHistoryTests {
     func pruneRebasesOldestSurvivor() {
         let (store, id) = freshTrackerStore()
         for i in 0..<10 {
-            store.addItem(["title": "r\(i)"], myAppId: id)
+            store.addItem(["title": "r\(i)"], miniAppId: id)
             SnapshotStore.record(app(store, id), reason: .edit, now: t(i))
         }
         SnapshotStore.prune(id, now: t(100), ttl: SnapshotStore.defaultTTL, cap: 3)
@@ -100,9 +100,9 @@ struct SnapshotHistoryTests {
     func restoreAppendOnly() {
         let (store, id) = freshTrackerStore()
         let sEmpty = SnapshotStore.record(app(store, id), reason: .edit, now: t(0))!
-        store.addItem(["title": "keep"], myAppId: id)  // current = 1 item
+        store.addItem(["title": "keep"], miniAppId: id)  // current = 1 item
 
-        #expect(store.restore(myAppId: id, snapshotId: sEmpty))
+        #expect(store.restore(miniAppId: id, snapshotId: sEmpty))
         #expect(trackerItemCount(app(store, id)) == 0)  // reverted
 
         let metas = SnapshotStore.metas(id)
@@ -122,17 +122,17 @@ struct SnapshotHistoryTests {
         let (store, id) = freshTrackerStore()
 
         // Heavy offline side (2 items).
-        store.addItem(["title": "o1"], myAppId: id)
-        store.addItem(["title": "o2"], myAppId: id)
+        store.addItem(["title": "o1"], miniAppId: id)
+        store.addItem(["title": "o2"], miniAppId: id)
         let heavyData = try! JSONEncoder().encode(app(store, id))
 
         // Tiny online side (1 different item).
         for item in (app(store, id).components.compactMap { c -> [TrackerItem]? in
             if case .tracker(let t) = c.body { return t.items } else { return nil }
         }.first ?? []) {
-            store.removeItem(id: item.id, myAppId: id)
+            store.removeItem(id: item.id, miniAppId: id)
         }
-        store.addItem(["title": "tiny"], myAppId: id)
+        store.addItem(["title": "tiny"], miniAppId: id)
         let lightData = try! JSONEncoder().encode(app(store, id))
 
         SnapshotStore.deleteAll(id)  // isolate the conflict-capture assertions
@@ -154,7 +154,7 @@ struct SnapshotHistoryTests {
     @Test("conflict newest-wins promotes a newer conflict version")
     func conflictNewerVersionWins() {
         let (store, id) = freshTrackerStore()
-        store.addItem(["title": "a"], myAppId: id)
+        store.addItem(["title": "a"], miniAppId: id)
         let versionData = try! JSONEncoder().encode(app(store, id))
         let liveData = try! JSONEncoder().encode(app(store, id))  // same content is fine for date test
         SnapshotStore.deleteAll(id)
@@ -168,14 +168,14 @@ struct SnapshotHistoryTests {
     // MARK: - Listing cost
 
     /// The History timeline lists metadata only. Decoding each record's `base`
-    /// (a whole serialized MyApp) made every `metas` call proportional to total
+    /// (a whole serialized MiniApp) made every `metas` call proportional to total
     /// history size — and `ChangeHistoryView` calls it once per body pass, so
     /// typing a pin label re-decoded the entire history per keystroke.
     @Test("listing history never decodes full snapshot state")
     func metasSkipsFullDecode() {
         let (store, id) = freshTrackerStore()
         for i in 0..<30 {
-            store.addItem(["title": "r\(i)"], myAppId: id)
+            store.addItem(["title": "r\(i)"], miniAppId: id)
             SnapshotStore.record(
                 app(store, id),
                 reason: i % 10 == 0 ? .pinned : .edit,
@@ -192,7 +192,7 @@ struct SnapshotHistoryTests {
     @Test("history groups into consecutive same-day sections, newest first")
     func groupsByDay() {
         let (store, id) = freshTrackerStore()
-        let view = ChangeHistoryView(store: store, myAppId: id)
+        let view = ChangeHistoryView(store: store, miniAppId: id)
         let cal = Calendar.autoupdatingCurrent
         let day: TimeInterval = 24 * 60 * 60
         // Anchor at noon so no offset below can slip across a midnight.
@@ -221,14 +221,14 @@ struct SnapshotHistoryTests {
     @Test("a pinned snapshot survives a prune that evicts every automatic edit")
     func pinnedSurvivesPrune() {
         let (store, id) = freshTrackerStore()
-        store.addItem(["title": "milestone"], myAppId: id)  // 1 item
+        store.addItem(["title": "milestone"], miniAppId: id)  // 1 item
         let pin = SnapshotStore.record(app(store, id), reason: .pinned, label: "v1", now: t(0))!
 
         // Churn far past the cap with automatic edits; the pin is the oldest
         // snapshot, so this exercises the "pin older than the evicted block"
         // re-base path.
         for i in 1...50 {
-            store.addItem(["title": "r\(i)"], myAppId: id)
+            store.addItem(["title": "r\(i)"], miniAppId: id)
             SnapshotStore.record(app(store, id), reason: .edit, now: t(i))
         }
         SnapshotStore.prune(id, now: t(1000), ttl: SnapshotStore.defaultTTL, cap: 3)
@@ -260,24 +260,24 @@ struct SnapshotHistoryTests {
         let mem = tempMemory()
         store.globalMemory = mem
 
-        store.addItem(["title": "keep-me"], myAppId: id)
-        #expect(store.takeSnapshot(myAppId: id, label: "milestone") != nil)
-        #expect(store.pinnedSnapshotCount(forMyApp: id) == 1)
+        store.addItem(["title": "keep-me"], miniAppId: id)
+        #expect(store.takeSnapshot(miniAppId: id, label: "milestone") != nil)
+        #expect(store.pinnedSnapshotCount(forMiniApp: id) == 1)
 
         let pin = try #require(SnapshotStore.pinnedMetas(id).first)
         // Mirrors ExportShareScreen's snapshot path: resolve the pin, then build
         // via the shared exporter (records/memories ON keeps the row).
         let resolved = try #require(store.restoredApp(forSnapshot: pin.id, appId: id))
-        let data = try MyAppExporter.makeBundle(
+        let data = try MiniAppExporter.makeBundle(
             app: resolved,
             options: .init(selectedComponentIds: Set(resolved.components.map(\.id)),
                            includeRecords: true, includeMemories: true),
             memory: mem).encoded()
 
         // Import the exported pin into a fresh store → the tracker row survives.
-        let dest = MyAppStore(initial: ([], UUID()))
-        let result = try MyAppImporter.importBundle(data, into: dest, memory: mem)
-        let imported = try #require(dest.myApps.first { $0.id == result.myAppId })
+        let dest = MiniAppStore(initial: ([], UUID()))
+        let result = try MiniAppImporter.importBundle(data, into: dest, memory: mem)
+        let imported = try #require(dest.miniApps.first { $0.id == result.miniAppId })
         if case .tracker(let t) = imported.component(withId: "tracker-1")?.body {
             #expect(t.items.count == 1)
         } else { Issue.record("tracker missing after import") }
@@ -293,13 +293,13 @@ struct SnapshotHistoryTests {
         try mem.appScopedStore(forAppId: id)
             .writeFile(path: "pupa/agents/coach/AGENTS.md", content: "persona")
 
-        store.addItem(["title": "secret"], myAppId: id)
-        #expect(store.takeSnapshot(myAppId: id, label: "v1") != nil)
+        store.addItem(["title": "secret"], miniAppId: id)
+        #expect(store.takeSnapshot(miniAppId: id, label: "v1") != nil)
         let pin = try #require(SnapshotStore.pinnedMetas(id).first)
 
         let resolved = try #require(store.restoredApp(forSnapshot: pin.id, appId: id))
         // Snapshot-mode default in ExportShareScreen: both toggles OFF.
-        let bundle = MyAppExporter.makeBundle(
+        let bundle = MiniAppExporter.makeBundle(
             app: resolved,
             options: .init(selectedComponentIds: Set(resolved.components.map(\.id)),
                            includeRecords: false, includeMemories: false),
@@ -323,7 +323,7 @@ struct SnapshotHistoryTests {
     @Test("deleteNonPinned keeps pins, drops automatic edits")
     func deleteNonPinnedKeepsPins() {
         let (store, id) = freshTrackerStore()
-        store.addItem(["title": "x"], myAppId: id)
+        store.addItem(["title": "x"], miniAppId: id)
         SnapshotStore.record(app(store, id), reason: .edit, now: t(0))
         let pin = SnapshotStore.record(app(store, id), reason: .pinned, label: "keep", now: t(1))!
 
@@ -345,22 +345,22 @@ struct SnapshotHistoryTests {
 
     @Test("restorePinnedSnapshot revives a deleted app from its surviving pin")
     func revivesDeletedApp() {
-        // Two apps so the first can be removed (removeMyApp needs count > 1).
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "Alpha", iconSystemName: "a.circle", typeId: MyAppType.tracker.id)
-        let b = MyApp(name: "Beta", iconSystemName: "b.circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a, b], a.id))
+        // Two apps so the first can be removed (removeMiniApp needs count > 1).
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "Alpha", iconSystemName: "a.circle", typeId: MiniAppType.tracker.id)
+        let b = MiniApp(name: "Beta", iconSystemName: "b.circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a, b], a.id))
         store.globalMemory = tempMemory()
         SnapshotStore.deleteAll(a.id)
 
-        store.setTracker(title: "T", fields: [FieldDef(name: "title", type: .text)], myAppId: a.id)
-        store.addItem(["title": "important"], myAppId: a.id)
-        #expect(store.takeSnapshot(myAppId: a.id, label: "v1") != nil)
+        store.setTracker(title: "T", fields: [FieldDef(name: "title", type: .text)], miniAppId: a.id)
+        store.addItem(["title": "important"], miniAppId: a.id)
+        #expect(store.takeSnapshot(miniAppId: a.id, label: "v1") != nil)
         let pin = SnapshotStore.pinnedMetas(a.id).first!
 
         // Delete the app; its pin must survive.
-        store.removeMyApp(a.id)
-        #expect(!store.myApps.contains { $0.id == a.id })
+        store.removeMiniApp(a.id)
+        #expect(!store.miniApps.contains { $0.id == a.id })
         #expect(SnapshotStore.pinnedCount(a.id) == 1)
 
         // The Settings page sees it as a deleted (non-live) group.
@@ -372,7 +372,7 @@ struct SnapshotHistoryTests {
         // Restore revives the whole app under its original id.
         let revivedId = store.restorePinnedSnapshot(appId: a.id, snapshotId: pin.id)
         #expect(revivedId == a.id)
-        let revived = store.myApps.first { $0.id == a.id }
+        let revived = store.miniApps.first { $0.id == a.id }
         #expect(revived != nil)
         if case .tracker(let tr) = revived?.component(withId: "tracker-1")?.body {
             #expect(tr.items.count == 1)

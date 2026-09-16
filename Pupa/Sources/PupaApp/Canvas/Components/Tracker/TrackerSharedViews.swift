@@ -8,17 +8,17 @@ import SwiftUI
 // MARK: - Board identity
 
 /// Identifies one tracker board. The component id alone does not:
-/// `MyAppStore.addComponent` uniques ids against one MyApp's own components,
-/// so every MyApp's first tracker is `"tracker-1"`. `CanvasView` builds
+/// `MiniAppStore.addComponent` uniques ids against one MiniApp's own components,
+/// so every MiniApp's first tracker is `"tracker-1"`. `CanvasView` builds
 /// component views without `.id(component.id)`, so view `@State` outlives the
 /// component it belongs to — keyed on the component id it leaks across a
-/// sidebar MyApp switch, and makes a swap look like a shrink press.
+/// sidebar MiniApp switch, and makes a swap look like a shrink press.
 struct TrackerBoardKey: Hashable {
-    let myAppId: UUID
+    let miniAppId: UUID
     let componentId: String
 
-    init(myAppId: UUID, componentId: String?) {
-        self.myAppId = myAppId
+    init(miniAppId: UUID, componentId: String?) {
+        self.miniAppId = miniAppId
         self.componentId = componentId ?? ""
     }
 }
@@ -27,13 +27,13 @@ struct TrackerBoardKey: Hashable {
 
 /// Title + shrink toggle + view-mode toggle. The view-mode toggle flips
 /// `TrackerData.viewMode` between `.grid` and `.kanban` via
-/// `MyAppStore.setTrackerViewMode`. Disabled in grid mode when no select
+/// `MiniAppStore.setTrackerViewMode`. Disabled in grid mode when no select
 /// field has options — kanban needs a column field to group by.
 struct CanvasTitleBar: View {
-    @Bindable var store: MyAppStore
+    @Bindable var store: MiniAppStore
     let data: TrackerData
     /// Component being rendered. Threaded into the view-mode toggle so the
-    /// mutation lands on THIS tracker, not the first tracker in the myApp
+    /// mutation lands on THIS tracker, not the first tracker in the miniApp
     /// (the kind-routed fallback ignores which component is on screen).
     var componentId: String? = nil
     /// Disclosure state for the filter chips. Nil when the tracker has no
@@ -168,7 +168,7 @@ struct SectionCard<Content: View>: View {
 /// parent would rebuild the whole board on every keystroke — the debounce
 /// alone would not help. Here a keystroke invalidates this one `HStack`.
 ///
-/// Never persisted: `MyAppStore.persist()` is a synchronous whole-app encode
+/// Never persisted: `MiniAppStore.persist()` is a synchronous whole-app encode
 /// plus disk write, so a stored query would mean one of those per character.
 struct TrackerSearchField: View {
     let initialText: String
@@ -243,7 +243,7 @@ struct TrackerSearchField: View {
 /// occasional, and on a narrow board they cost a whole row of the canvas.
 /// The button carries a count badge so a live filter is never invisible.
 struct FiltersBar: View {
-    @Bindable var store: MyAppStore
+    @Bindable var store: MiniAppStore
     let fields: [FieldDef]
     let filter: [String: String]
     var componentId: String? = nil
@@ -345,14 +345,14 @@ enum SheetTarget: Identifiable {
 
 struct ItemSheet: View {
     let target: SheetTarget
-    @Bindable var store: MyAppStore
+    @Bindable var store: MiniAppStore
     let fields: [FieldDef]
     let initialItem: [String: String]
-    /// MyApp the tracker lives in. Used by the "Linked items" picker to
+    /// MiniApp the tracker lives in. Used by the "Linked items" picker to
     /// resolve cross-component targets and by the save path to call
-    /// store mutators with an explicit `myAppId:` (rather than relying
-    /// on `activeMyAppId`, which would race in multi-myapp scenarios).
-    let myAppId: UUID
+    /// store mutators with an explicit `miniAppId:` (rather than relying
+    /// on `activeMiniAppId`, which would race in multi-miniapp scenarios).
+    let miniAppId: UUID
     /// Tracker component id the edited row belongs to. Used by the
     /// picker's `excludeRef` to hide the row from itself and by the
     /// link-pill resolver to scope display names. Optional because
@@ -370,10 +370,10 @@ struct ItemSheet: View {
 
     init(
         target: SheetTarget,
-        store: MyAppStore,
+        store: MiniAppStore,
         fields: [FieldDef],
         initialItem: [String: String],
-        myAppId: UUID,
+        miniAppId: UUID,
         componentId: String? = nil,
         initialLinkedItems: [ComponentItemRef] = [],
         onClose: @escaping () -> Void
@@ -382,7 +382,7 @@ struct ItemSheet: View {
         self.store = store
         self.fields = fields
         self.initialItem = initialItem
-        self.myAppId = myAppId
+        self.miniAppId = miniAppId
         self.componentId = componentId
         self.initialLinkedItems = initialLinkedItems
         self.onClose = onClose
@@ -402,7 +402,7 @@ struct ItemSheet: View {
                     linkedItemsSection(for: itemId)
                     Section {
                         Button(role: .destructive) {
-                            _ = store.removeItem(id: itemId, myAppId: myAppId, componentId: componentId)
+                            _ = store.removeItem(id: itemId, miniAppId: miniAppId, componentId: componentId)
                             onClose()
                         } label: {
                             Label("Delete item", systemImage: "trash")
@@ -429,7 +429,7 @@ struct ItemSheet: View {
             .sheet(isPresented: $pickerPresented) {
                 ComponentItemPickerSheet(
                     store: store,
-                    myAppId: myAppId,
+                    miniAppId: miniAppId,
                     excludeRef: editingItemRef,
                     alreadyLinked: Set(linkedDraft),
                     onPick: { newRefs in
@@ -443,7 +443,7 @@ struct ItemSheet: View {
                 )
             }
         }
-        .linkedItemPopupHost(store: store, myAppId: myAppId)
+        .linkedItemPopupHost(store: store, miniAppId: miniAppId)
         #if os(iOS)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
@@ -473,7 +473,7 @@ struct ItemSheet: View {
         } header: {
             Text("Linked items")
         } footer: {
-            Text("Attach any tracker row, calendar event, or checklist row in this MyApp. Each pill shows the live name; edits in the target update it automatically.")
+            Text("Attach any tracker row, calendar event, or checklist row in this MiniApp. Each pill shows the live name; edits in the target update it automatically.")
                 .font(.caption)
         }
     }
@@ -483,9 +483,9 @@ struct ItemSheet: View {
         let resolved = store.displayNameForRefTarget(
             componentId: ref.componentId,
             itemId: ref.itemId,
-            myAppId: myAppId
+            miniAppId: miniAppId
         )
-        let comp = store.componentName(ref.componentId, myAppId: myAppId) ?? ref.componentId
+        let comp = store.componentName(ref.componentId, miniAppId: miniAppId) ?? ref.componentId
         LinkedRefEditorRow(
             ref: ref,
             resolvedName: resolved,
@@ -526,13 +526,13 @@ struct ItemSheet: View {
         let trimmed = draft.mapValues { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         switch target {
         case .add:
-            _ = store.addItem(trimmed, myAppId: myAppId, componentId: componentId)
+            _ = store.addItem(trimmed, miniAppId: miniAppId, componentId: componentId)
         case .edit(let itemId):
             if draft != initialItem {
-                _ = store.patchItem(id: itemId, with: trimmed, myAppId: myAppId, componentId: componentId)
+                _ = store.patchItem(id: itemId, with: trimmed, miniAppId: miniAppId, componentId: componentId)
             }
             if linkedDraft != initialLinkedItems {
-                _ = store.setTrackerItemLinkedItems(id: itemId, refs: linkedDraft, myAppId: myAppId, componentId: componentId)
+                _ = store.setTrackerItemLinkedItems(id: itemId, refs: linkedDraft, miniAppId: miniAppId, componentId: componentId)
             }
         }
         onClose()
@@ -843,7 +843,7 @@ struct TrackerItemCard: View {
     let onTap: () -> Void
     /// Optional resolver invoked once per ref in `item.linkedItems` to
     /// produce the chain-link pill text. Caller is typically `TrackerView`
-    /// closing over the store + myAppId. Nil → linked-items row hidden
+    /// closing over the store + miniAppId. Nil → linked-items row hidden
     /// (kanban passes nil to keep lane cards tight).
     let resolveLinkName: ((ComponentItemRef) -> String?)?
     /// Non-nil only while the board is shrunk: this card's peek state plus the

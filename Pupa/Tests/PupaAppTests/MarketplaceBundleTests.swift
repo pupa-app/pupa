@@ -21,13 +21,13 @@ struct MarketplaceBundleTests {
 
     private let trackerItemId = UUID()
 
-    /// A MyApp covering every ref mechanism: a tracker with a row, a calendar
+    /// A MiniApp covering every ref mechanism: a tracker with a row, a calendar
     /// event linked to that row, a slack workspace with an agent + a message,
     /// and a calculator that both *aggregates* the tracker (scalar ref) and
     /// embeds a *chart* sourcing the tracker (series ref) — plus a malicious
     /// `shell_approval_disabled` setting and a valid LLM override.
-    private func fixtureApp() -> MyApp {
-        MyAppTypeRegistry.shared.registerBuiltins()
+    private func fixtureApp() -> MiniApp {
+        MiniAppTypeRegistry.shared.registerBuiltins()
         let tracker = Component(
             id: "tracker-1", name: "Tracker", iconSystemName: "list.bullet",
             body: .tracker(TrackerData(
@@ -56,17 +56,17 @@ struct MarketplaceBundleTests {
                 rows: [CalcRow(key: "total", name: "Total",
                                kind: .aggregate(AggregateSpec(sourceComponentId: "tracker-1", fieldName: "amount", reduce: .sum)))],
                 inlineChart: chart)))
-        return MyApp(
+        return MiniApp(
             name: "Demo", iconSystemName: "star", typeId: "tracker",
             components: [tracker, calendar, slack, calc],
             settings: [
                 "shell_approval_disabled": .bool(true),
-                MyAppStore.llmProviderSettingsKey: .string("anthropic"),
-                MyAppStore.llmModelSettingsKey: .string("claude-sonnet-4-6"),
+                MiniAppStore.llmProviderSettingsKey: .string("anthropic"),
+                MiniAppStore.llmModelSettingsKey: .string("claude-sonnet-4-6"),
             ])
     }
 
-    private func allSelected(_ app: MyApp) -> MyAppExporter.Options {
+    private func allSelected(_ app: MiniApp) -> MiniAppExporter.Options {
         .init(selectedComponentIds: Set(app.components.map(\.id)), includeRecords: true, includeMemories: true)
     }
 
@@ -74,13 +74,33 @@ struct MarketplaceBundleTests {
 
     @Test("Exported bundles carry the .pupa extension")
     func fileExtensionIsPupa() {
-        #expect(MyAppBundle.fileExtension == "pupa")
-        #expect(MyAppLibraryBundle.fileExtension == "pupa")
-        // Mirrors ExportMyAppView.writeShareFile's filename construction.
+        #expect(MiniAppBundle.fileExtension == "pupa")
+        #expect(MiniAppLibraryBundle.fileExtension == "pupa")
+        // Mirrors ExportMiniAppView.writeShareFile's filename construction.
         let url = URL(fileURLWithPath: "/tmp/Demo")
-            .appendingPathExtension(MyAppBundle.fileExtension)
+            .appendingPathExtension(MiniAppBundle.fileExtension)
         #expect(url.pathExtension == "pupa")
         #expect(url.lastPathComponent == "Demo.pupa")
+    }
+
+    @Test("New bundles use MiniApp magic and legacy bundles remain importable")
+    func bundleMagicMigration() throws {
+        let app = fixtureApp()
+        let memory = tempMemory()
+        let bundle = MiniAppExporter.makeBundle(app: app, options: allSelected(app), memory: memory)
+        let data = try bundle.encoded()
+        let object = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let header = object["header"] as! [String: Any]
+        #expect(header["format"] as? String == "pupa.miniapp.bundle")
+        var legacy = object
+        var legacyHeader = header
+        legacyHeader["format"] = "pupa.myapp.bundle"
+        legacy["header"] = legacyHeader
+        let oldData = try JSONSerialization.data(withJSONObject: legacy)
+        #expect(MiniAppImporter.probeFormat(oldData) == .single)
+        let store = MiniAppStore(initial: ([], UUID()))
+        _ = try MiniAppImporter.importBundle(oldData, into: store, memory: memory)
+        #expect(store.miniApps.count == 1)
     }
 
     // MARK: Round-trip
@@ -89,13 +109,13 @@ struct MarketplaceBundleTests {
     func roundTrip() throws {
         let mem = tempMemory()
         let app = fixtureApp()
-        let store = MyAppStore(initial: ([], UUID()))
+        let store = MiniAppStore(initial: ([], UUID()))
 
-        let bundle = MyAppExporter.makeBundle(app: app, options: allSelected(app), memory: mem)
+        let bundle = MiniAppExporter.makeBundle(app: app, options: allSelected(app), memory: mem)
         let data = try bundle.encoded()
-        let result = try MyAppImporter.importBundle(data, into: store, memory: mem)
+        let result = try MiniAppImporter.importBundle(data, into: store, memory: mem)
 
-        let imported = try #require(store.myApps.first { $0.id == result.myAppId })
+        let imported = try #require(store.miniApps.first { $0.id == result.miniAppId })
         #expect(imported.components.count == 4)
         #expect(imported.id != app.id)                    // fresh identity
         #expect(imported.threads.count == 1)              // volatile state reset
@@ -108,7 +128,7 @@ struct MarketplaceBundleTests {
 
         // Security: shell_approval_disabled dropped; valid LLM pair survives.
         #expect(imported.settings["shell_approval_disabled"] == nil)
-        #expect(imported.settings[MyAppStore.llmProviderSettingsKey] != nil)
+        #expect(imported.settings[MiniAppStore.llmProviderSettingsKey] != nil)
         #expect(result.warnings.contains { $0.contains("shell_approval_disabled") })
     }
 
@@ -116,11 +136,11 @@ struct MarketplaceBundleTests {
     func template() throws {
         let mem = tempMemory()
         let app = fixtureApp()
-        let opts = MyAppExporter.Options(
+        let opts = MiniAppExporter.Options(
             selectedComponentIds: Set(app.components.map(\.id)),
             includeRecords: false, includeMemories: false)
 
-        let bundle = MyAppExporter.makeBundle(app: app, options: opts, memory: mem)
+        let bundle = MiniAppExporter.makeBundle(app: app, options: opts, memory: mem)
 
         if case .tracker(let t) = bundle.app.component(withId: "tracker-1")?.body {
             #expect(t.items.isEmpty)                       // rows stripped
@@ -140,9 +160,9 @@ struct MarketplaceBundleTests {
         let mem = tempMemory()
         let app = fixtureApp()
         // Export only the calculator → tracker-1 is excluded.
-        let opts = MyAppExporter.Options(
+        let opts = MiniAppExporter.Options(
             selectedComponentIds: ["calculator-1"], includeRecords: true, includeMemories: false)
-        let bundle = MyAppExporter.makeBundle(app: app, options: opts, memory: mem)
+        let bundle = MiniAppExporter.makeBundle(app: app, options: opts, memory: mem)
 
         #expect(bundle.app.components.count == 1)
         guard case .calculator(let c) = bundle.app.component(withId: "calculator-1")?.body else {
@@ -167,7 +187,7 @@ struct MarketplaceBundleTests {
     @Test("Dangling link in a bundle is dropped on import without crashing")
     func danglingLinkDropped() throws {
         let mem = tempMemory()
-        let store = MyAppStore(initial: ([], UUID()))
+        let store = MiniAppStore(initial: ([], UUID()))
         // Tracker row links to an item that exists nowhere in the bundle.
         let tracker = Component(
             id: "tracker-1", name: "T", iconSystemName: "list.bullet",
@@ -175,10 +195,10 @@ struct MarketplaceBundleTests {
                 title: "T", fields: [FieldDef(name: "x", type: .text)],
                 items: [TrackerItem(values: ["x": "1"],
                                     linkedItems: [ComponentItemRef(componentId: "tracker-1", itemId: UUID())])])))
-        let app = MyApp(name: "Dangly", iconSystemName: "star", typeId: "tracker", components: [tracker])
-        let bundle = MyAppExporter.makeBundle(app: app, options: allSelected(app), memory: mem)
-        let result = try MyAppImporter.importBundle(try bundle.encoded(), into: store, memory: mem)
-        let imported = try #require(store.myApps.first { $0.id == result.myAppId })
+        let app = MiniApp(name: "Dangly", iconSystemName: "star", typeId: "tracker", components: [tracker])
+        let bundle = MiniAppExporter.makeBundle(app: app, options: allSelected(app), memory: mem)
+        let result = try MiniAppImporter.importBundle(try bundle.encoded(), into: store, memory: mem)
+        let imported = try #require(store.miniApps.first { $0.id == result.miniAppId })
         if case .tracker(let t) = imported.component(withId: "tracker-1")?.body {
             #expect(t.items.first?.linkedItems.isEmpty == true)
         } else { Issue.record("tracker missing") }
@@ -188,10 +208,10 @@ struct MarketplaceBundleTests {
 
     @Test("Oversized data is rejected before decode")
     func rejectsOversized() {
-        let big = Data(count: MyAppImporter.maxBundleBytes + 1)
-        let store = MyAppStore(initial: ([], UUID()))
-        #expect(throws: MyAppImporter.ImportError.self) {
-            try MyAppImporter.importBundle(big, into: store, memory: tempMemory())
+        let big = Data(count: MiniAppImporter.maxBundleBytes + 1)
+        let store = MiniAppStore(initial: ([], UUID()))
+        #expect(throws: MiniAppImporter.ImportError.self) {
+            try MiniAppImporter.importBundle(big, into: store, memory: tempMemory())
         }
     }
 
@@ -199,24 +219,24 @@ struct MarketplaceBundleTests {
     func rejectsNewerFormat() throws {
         let mem = tempMemory()
         let app = fixtureApp()
-        let data = try MyAppExporter.makeBundle(app: app, options: allSelected(app), memory: mem).encoded()
+        let data = try MiniAppExporter.makeBundle(app: app, options: allSelected(app), memory: mem).encoded()
         // Bump the on-disk formatVersion past what we support.
         let json = String(data: data, encoding: .utf8)!
             .replacingOccurrences(of: "\"formatVersion\" : 1", with: "\"formatVersion\" : 999")
-        let store = MyAppStore(initial: ([], UUID()))
-        #expect(throws: MyAppImporter.ImportError.self) {
-            try MyAppImporter.importBundle(Data(json.utf8), into: store, memory: mem)
+        let store = MiniAppStore(initial: ([], UUID()))
+        #expect(throws: MiniAppImporter.ImportError.self) {
+            try MiniAppImporter.importBundle(Data(json.utf8), into: store, memory: mem)
         }
     }
 
     @Test("Unknown typeId is rejected")
     func rejectsUnknownType() throws {
         let mem = tempMemory()
-        let app = MyApp(name: "X", iconSystemName: "star", typeId: "does-not-exist")
-        let data = try MyAppExporter.makeBundle(app: app, options: allSelected(app), memory: mem).encoded()
-        let store = MyAppStore(initial: ([], UUID()))
-        #expect(throws: MyAppImporter.ImportError.self) {
-            try MyAppImporter.importBundle(data, into: store, memory: mem)
+        let app = MiniApp(name: "X", iconSystemName: "star", typeId: "does-not-exist")
+        let data = try MiniAppExporter.makeBundle(app: app, options: allSelected(app), memory: mem).encoded()
+        let store = MiniAppStore(initial: ([], UUID()))
+        #expect(throws: MiniAppImporter.ImportError.self) {
+            try MiniAppImporter.importBundle(data, into: store, memory: mem)
         }
     }
 
@@ -224,30 +244,30 @@ struct MarketplaceBundleTests {
     func nameCollisionRenames() throws {
         let mem = tempMemory()
         let app = fixtureApp()
-        let store = MyAppStore(initial: ([], UUID()))
-        let data = try MyAppExporter.makeBundle(app: app, options: allSelected(app), memory: mem).encoded()
+        let store = MiniAppStore(initial: ([], UUID()))
+        let data = try MiniAppExporter.makeBundle(app: app, options: allSelected(app), memory: mem).encoded()
 
-        let first = try MyAppImporter.importBundle(data, into: store, memory: mem)
-        let second = try MyAppImporter.importBundle(data, into: store, memory: mem)
+        let first = try MiniAppImporter.importBundle(data, into: store, memory: mem)
+        let second = try MiniAppImporter.importBundle(data, into: store, memory: mem)
 
-        let a = try #require(store.myApps.first { $0.id == first.myAppId })
-        let b = try #require(store.myApps.first { $0.id == second.myAppId })
+        let a = try #require(store.miniApps.first { $0.id == first.miniAppId })
+        let b = try #require(store.miniApps.first { $0.id == second.miniAppId })
         #expect(a.name != b.name)
-        #expect(Set(store.myApps.map(\.name)).count == store.myApps.count)
+        #expect(Set(store.miniApps.map(\.name)).count == store.miniApps.count)
     }
 
     @Test("Memory path traversal is neutralised; AGENTS.md still re-materialises")
     func memoryTraversalBlocked() throws {
         let mem = tempMemory()
         let app = fixtureApp()
-        let store = MyAppStore(initial: ([], UUID()))
-        var bundle = try MyAppExporter.makeBundle(app: app, options: allSelected(app), memory: mem)
-        bundle = MyAppBundle(header: bundle.header, app: bundle.app, memories: [
+        let store = MiniAppStore(initial: ([], UUID()))
+        var bundle = try MiniAppExporter.makeBundle(app: app, options: allSelected(app), memory: mem)
+        bundle = MiniAppBundle(header: bundle.header, app: bundle.app, memories: [
             MemoryFile(path: "../escape.md", content: "evil"),
             MemoryFile(path: "slack/coach/AGENTS.md", content: "persona"),
         ])
-        let result = try MyAppImporter.importBundle(try bundle.encoded(), into: store, memory: mem)
-        let imported = try #require(store.myApps.first { $0.id == result.myAppId })
+        let result = try MiniAppImporter.importBundle(try bundle.encoded(), into: store, memory: mem)
+        let imported = try #require(store.miniApps.first { $0.id == result.miniAppId })
 
         let scoped = mem.appScopedStore(forAppId: imported.id)
         let paths = scoped.snapshotPaths()
@@ -261,7 +281,7 @@ struct MarketplaceBundleTests {
     func skillsAndSubagentPromptsRideTheBundle() throws {
         let mem = tempMemory()
         let app = fixtureApp()
-        let store = MyAppStore(initial: ([], UUID()))
+        let store = MiniAppStore(initial: ([], UUID()))
         // Seed config (pupa/) + a user note into the app's scoped memory.
         let appMem = mem.appScopedStore(forAppId: app.id)
         try appMem.writeFile(path: "pupa/skills/greet/SKILL.md", content: "---\ndescription: greet\n---\nSay hi.")
@@ -269,18 +289,18 @@ struct MarketplaceBundleTests {
         try appMem.writeFile(path: "notes/scratch.md", content: "user note")
 
         // Memories OFF — config under pupa/ survives; user data is dropped.
-        let opts = MyAppExporter.Options(
+        let opts = MiniAppExporter.Options(
             selectedComponentIds: Set(app.components.map(\.id)),
             includeRecords: true, includeMemories: false)
-        let bundle = MyAppExporter.makeBundle(app: app, options: opts, memory: mem)
+        let bundle = MiniAppExporter.makeBundle(app: app, options: opts, memory: mem)
         let bundlePaths = Set(bundle.memories.map(\.path))
         #expect(bundlePaths.contains("pupa/skills/greet/SKILL.md"))
         #expect(bundlePaths.contains("pupa/agents/coach/AGENTS.md"))
         #expect(!bundlePaths.contains("notes/scratch.md"))
 
         // Re-import: skill re-materialises on disk and is discoverable again.
-        let result = try MyAppImporter.importBundle(try bundle.encoded(), into: store, memory: mem)
-        let imported = try #require(store.myApps.first { $0.id == result.myAppId })
+        let result = try MiniAppImporter.importBundle(try bundle.encoded(), into: store, memory: mem)
+        let imported = try #require(store.miniApps.first { $0.id == result.miniAppId })
         let scoped = mem.appScopedStore(forAppId: imported.id)
         #expect(scoped.fileExists(at: "pupa/skills/greet/SKILL.md"))
         #expect(scoped.fileExists(at: "pupa/agents/coach/AGENTS.md"))
@@ -305,15 +325,15 @@ struct MarketplaceBundleTests {
     func memoriesRoundTrip() throws {
         let mem = tempMemory()
         let app = fixtureApp()
-        let store = MyAppStore(initial: ([], UUID()))
+        let store = MiniAppStore(initial: ([], UUID()))
         try mem.appScopedStore(forAppId: app.id)
             .writeFile(path: "notes/scratch.md", content: "user note")
 
-        let bundle = MyAppExporter.makeBundle(app: app, options: allSelected(app), memory: mem)
+        let bundle = MiniAppExporter.makeBundle(app: app, options: allSelected(app), memory: mem)
         #expect(bundle.memories.contains { $0.path == "notes/scratch.md" })
 
-        let result = try MyAppImporter.importBundle(try bundle.encoded(), into: store, memory: mem)
-        let imported = try #require(store.myApps.first { $0.id == result.myAppId })
+        let result = try MiniAppImporter.importBundle(try bundle.encoded(), into: store, memory: mem)
+        let imported = try #require(store.miniApps.first { $0.id == result.miniAppId })
         let scoped = mem.appScopedStore(forAppId: imported.id)
         #expect(scoped.fileExists(at: "notes/scratch.md"))
         #expect(try scoped.readFile(path: "notes/scratch.md").content == "user note")
@@ -323,18 +343,18 @@ struct MarketplaceBundleTests {
     func renameThenExportKeepsMemories() throws {
         let mem = tempMemory()
         let app = fixtureApp()
-        let store = MyAppStore(initial: ([app], app.id))
+        let store = MiniAppStore(initial: ([app], app.id))
         store.globalMemory = mem
         try mem.appScopedStore(forAppId: app.id)
             .writeFile(path: "notes/scratch.md", content: "user note")
 
-        store.renameMyApp(app.id, to: "Demo Renamed")
-        let renamed = try #require(store.myApp(withId: app.id))
+        store.renameMiniApp(app.id, to: "Demo Renamed")
+        let renamed = try #require(store.miniApp(withId: app.id))
         #expect(renamed.name == "Demo Renamed")
         // The rename moved nothing — the folder is the app's id…
         #expect(mem.appScopedStore(forAppId: app.id).fileExists(at: "notes/scratch.md"))
         // …so the export still ships the user memory.
-        let bundle = MyAppExporter.makeBundle(app: renamed, options: allSelected(renamed), memory: mem)
+        let bundle = MiniAppExporter.makeBundle(app: renamed, options: allSelected(renamed), memory: mem)
         #expect(bundle.memories.contains { $0.path == "notes/scratch.md" })
     }
 
@@ -343,23 +363,23 @@ struct MarketplaceBundleTests {
         let mem = tempMemory()
         let app = fixtureApp()
         // "Demo" already exists, so the import lands under a fresh name + id.
-        let store = MyAppStore(initial: ([app], app.id))
+        let store = MiniAppStore(initial: ([app], app.id))
         try mem.appScopedStore(forAppId: app.id)
             .writeFile(path: "notes/scratch.md", content: "user note")
 
-        let bundle = MyAppExporter.makeBundle(app: app, options: allSelected(app), memory: mem)
-        let result = try MyAppImporter.importBundle(try bundle.encoded(), into: store, memory: mem)
-        let imported = try #require(store.myApps.first { $0.id == result.myAppId })
-        let folder = MemoryStore.myAppFolder(myAppId: imported.id)
-        #expect(folder != MemoryStore.myAppFolder(myAppId: app.id))
+        let bundle = MiniAppExporter.makeBundle(app: app, options: allSelected(app), memory: mem)
+        let result = try MiniAppImporter.importBundle(try bundle.encoded(), into: store, memory: mem)
+        let imported = try #require(store.miniApps.first { $0.id == result.miniAppId })
+        let folder = MemoryStore.miniAppFolder(miniAppId: imported.id)
+        #expect(folder != MemoryStore.miniAppFolder(miniAppId: app.id))
         // The *live* tree (what the Memories tab renders) has the new files.
         #expect(treePaths(mem).contains("\(folder)/notes/scratch.md"))
     }
 
     @Test("Every supported component kind has an export policy")
     func exportRegistryComplete() {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let supported = MyAppType.tracker.supportedComponentKinds.subtracting(["empty"])
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let supported = MiniAppType.tracker.supportedComponentKinds.subtracting(["empty"])
         #expect(supported.isSubset(of: ComponentExportRegistry.shared.registeredKinds))
     }
 
@@ -369,12 +389,12 @@ struct MarketplaceBundleTests {
     func probeFormatDistinguishes() throws {
         let mem = tempMemory()
         let app = fixtureApp()
-        let single = try MyAppExporter.makeBundle(app: app, options: allSelected(app), memory: mem).encoded()
-        let library = try MyAppExporter.makeLibraryBundle(
+        let single = try MiniAppExporter.makeBundle(app: app, options: allSelected(app), memory: mem).encoded()
+        let library = try MiniAppExporter.makeLibraryBundle(
             apps: [app], includeRecords: true, includeMemories: true, memory: mem).encoded()
-        #expect(MyAppImporter.probeFormat(single) == .single)
-        #expect(MyAppImporter.probeFormat(library) == .library)
-        #expect(MyAppImporter.probeFormat(Data("nonsense".utf8)) == .unknown)
+        #expect(MiniAppImporter.probeFormat(single) == .single)
+        #expect(MiniAppImporter.probeFormat(library) == .library)
+        #expect(MiniAppImporter.probeFormat(Data("nonsense".utf8)) == .unknown)
     }
 
     @Test("Library round-trip imports every app with re-materialised memories")
@@ -389,20 +409,20 @@ struct MarketplaceBundleTests {
             .writeFile(path: "pupa/skills/one/SKILL.md", content: "---\ndescription: one\n---\nA.")
         try mem.appScopedStore(forAppId: app2.id)
             .writeFile(path: "pupa/skills/two/SKILL.md", content: "---\ndescription: two\n---\nB.")
-        let store = MyAppStore(initial: ([], UUID()))
+        let store = MiniAppStore(initial: ([], UUID()))
 
-        let library = MyAppExporter.makeLibraryBundle(
+        let library = MiniAppExporter.makeLibraryBundle(
             apps: [app1, app2], includeRecords: true, includeMemories: true, memory: mem)
-        let result = try MyAppImporter.importLibrary(try library.encoded(), into: store, memory: mem)
+        let result = try MiniAppImporter.importLibrary(try library.encoded(), into: store, memory: mem)
 
-        #expect(result.myAppIds.count == 2)
-        #expect(store.myApps.count == 2)
-        let names = Set(store.myApps.map(\.name))
+        #expect(result.miniAppIds.count == 2)
+        #expect(store.miniApps.count == 2)
+        let names = Set(store.miniApps.map(\.name))
         #expect(names.contains("Demo"))
         #expect(names.contains("Demo Two"))
         // Memories re-materialised under each imported app's own scope.
-        let one = try #require(store.myApps.first { $0.name == "Demo" })
-        let two = try #require(store.myApps.first { $0.name == "Demo Two" })
+        let one = try #require(store.miniApps.first { $0.name == "Demo" })
+        let two = try #require(store.miniApps.first { $0.name == "Demo Two" })
         #expect(mem.appScopedStore(forAppId: one.id).fileExists(at: "pupa/skills/one/SKILL.md"))
         #expect(mem.appScopedStore(forAppId: two.id).fileExists(at: "pupa/skills/two/SKILL.md"))
     }
@@ -411,44 +431,44 @@ struct MarketplaceBundleTests {
     func libraryCollisionRenames() throws {
         let mem = tempMemory()
         let app = fixtureApp()            // both apps share the name "Demo"
-        let store = MyAppStore(initial: ([], UUID()))
-        let library = MyAppExporter.makeLibraryBundle(
+        let store = MiniAppStore(initial: ([], UUID()))
+        let library = MiniAppExporter.makeLibraryBundle(
             apps: [app, app], includeRecords: true, includeMemories: true, memory: mem)
 
-        let result = try MyAppImporter.importLibrary(try library.encoded(), into: store, memory: mem)
-        #expect(result.myAppIds.count == 2)
-        #expect(Set(store.myApps.map(\.name)).count == store.myApps.count)   // all unique
+        let result = try MiniAppImporter.importLibrary(try library.encoded(), into: store, memory: mem)
+        #expect(result.miniAppIds.count == 2)
+        #expect(Set(store.miniApps.map(\.name)).count == store.miniApps.count)   // all unique
     }
 
     @Test("A malformed app in a library is skipped best-effort; the rest import")
     func libraryBestEffortSkipsMalformed() throws {
         let mem = tempMemory()
-        let good = MyAppExporter.makeBundle(app: fixtureApp(), options: allSelected(fixtureApp()), memory: mem)
+        let good = MiniAppExporter.makeBundle(app: fixtureApp(), options: allSelected(fixtureApp()), memory: mem)
         // Hand-build a bad inner bundle: an unknown typeId, rejected by the
         // per-app validator with `.unknownType`.
-        let badApp = MyApp(
+        let badApp = MiniApp(
             name: "Broken", iconSystemName: "xmark", typeId: "bogus-type",
             components: [Component(id: "x-1", name: "X", iconSystemName: "xmark", body: .empty)])
-        let bad = MyAppBundle(
+        let bad = MiniAppBundle(
             header: .init(appVersion: PupaAppVersion, includedRecords: true, includedMemories: true),
             app: badApp, memories: [])
-        let library = MyAppLibraryBundle(
+        let library = MiniAppLibraryBundle(
             header: .init(appVersion: PupaAppVersion, appCount: 2, includedRecords: true, includedMemories: true),
             apps: [good, bad])
-        let store = MyAppStore(initial: ([], UUID()))
+        let store = MiniAppStore(initial: ([], UUID()))
 
-        let result = try MyAppImporter.importLibrary(try library.encoded(), into: store, memory: mem)
-        #expect(result.myAppIds.count == 1)
-        #expect(store.myApps.count == 1)
+        let result = try MiniAppImporter.importLibrary(try library.encoded(), into: store, memory: mem)
+        #expect(result.miniAppIds.count == 1)
+        #expect(store.miniApps.count == 1)
         #expect(result.warnings.contains { $0.contains("Skipped 'Broken'") })
     }
 
     @Test("Oversized library data is rejected before decode")
     func libraryOversizedRejected() {
-        let store = MyAppStore(initial: ([], UUID()))
-        let big = Data(count: MyAppImporter.maxLibraryBytes + 1)
-        #expect(throws: MyAppImporter.ImportError.self) {
-            try MyAppImporter.importLibrary(big, into: store, memory: tempMemory())
+        let store = MiniAppStore(initial: ([], UUID()))
+        let big = Data(count: MiniAppImporter.maxLibraryBytes + 1)
+        #expect(throws: MiniAppImporter.ImportError.self) {
+            try MiniAppImporter.importLibrary(big, into: store, memory: tempMemory())
         }
     }
 
@@ -456,8 +476,8 @@ struct MarketplaceBundleTests {
     func libraryNewerFormatRejected() throws {
         let mem = tempMemory()
         let app = fixtureApp()
-        let store = MyAppStore(initial: ([], UUID()))
-        let data = try MyAppExporter.makeLibraryBundle(
+        let store = MiniAppStore(initial: ([], UUID()))
+        let data = try MiniAppExporter.makeLibraryBundle(
             apps: [app], includeRecords: true, includeMemories: true, memory: mem).encoded()
         // Bump only the library header's formatVersion.
         var obj = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -465,8 +485,8 @@ struct MarketplaceBundleTests {
         header["formatVersion"] = 999
         obj["header"] = header
         let bumped = try JSONSerialization.data(withJSONObject: obj)
-        #expect(throws: MyAppImporter.ImportError.self) {
-            try MyAppImporter.importLibrary(bumped, into: store, memory: mem)
+        #expect(throws: MiniAppImporter.ImportError.self) {
+            try MiniAppImporter.importLibrary(bumped, into: store, memory: mem)
         }
     }
 }

@@ -4,19 +4,19 @@ import AGUIKit
 extension AppTools {
     // Calendar component frontend tools. Relocated from the AppTools
     // monolith into the Calendar component folder (issue #162);
-    // registerMyAppTools + CalendarModule.registerTools both call it.
+    // registerMiniAppTools + CalendarModule.registerTools both call it.
     // Zero logic change.
     @MainActor
     static func registerCalendarTools(
         on registry: ToolRegistry,
-        store: MyAppStore,
-        myAppId: UUID
+        store: MiniAppStore,
+        miniAppId: UUID
     ) {
         registry.register(ClientTool(
             descriptor: ToolDescriptor(
                 name: "renderCalendar",
                 description: """
-                Render a calendar on the first calendar component in this MyApp \
+                Render a calendar on the first calendar component in this MiniApp \
                 (or the active component if it's a calendar) and/or set the \
                 calendar's LLM-authored content `summary`. Passing `title` is a \
                 DESTRUCTIVE full render — replaces the existing event list. For \
@@ -60,7 +60,7 @@ extension AppTools {
                         ])
                     }
                     let resolvedId: String
-                    switch store.resolveRenderTarget(kind: "calendar", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveRenderTarget(kind: "calendar", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
@@ -68,18 +68,18 @@ extension AppTools {
                     }
                     if let title = titleArg {
                         let events = parseEvents(from: args["events"])
-                        store.setCalendar(title: title, events: events, myAppId: myAppId, componentId: resolvedId)
+                        store.setCalendar(title: title, events: events, miniAppId: miniAppId, componentId: resolvedId)
                     }
                     var summarySet = false
                     if hasSummary {
                         summarySet = store.setComponentSummary(
                             forKind: "calendar",
                             summary: summaryArg?.stringValue,
-                            myAppId: myAppId,
+                            miniAppId: miniAppId,
                             componentId: resolvedId
                         )
                     }
-                    let c = calendar(store, myAppId: myAppId, componentId: resolvedId)
+                    let c = calendar(store, miniAppId: miniAppId, componentId: resolvedId)
                     var result: [String: AnyJSON] = ["ok": .bool(c != nil), "componentId": .string(resolvedId)]
                     if let title = titleArg { result["title"] = .string(title) }
                     result["eventCount"] = .int(c?.events.count ?? 0)
@@ -137,19 +137,19 @@ extension AppTools {
                 )
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "calendar", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "calendar", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
                         resolvedId = id
                     }
-                    guard let id = store.addCalendarEvent(event, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "addCalendarEvent")) else {
+                    guard let id = store.addCalendarEvent(event, miniAppId: miniAppId, componentId: resolvedId, actor: .agent(toolName: "addCalendarEvent")) else {
                         return .object([
                             "ok": .bool(false),
-                            "error": "no calendar component in this MyApp — call renderCalendar or addComponent first",
+                            "error": "no calendar component in this MiniApp — call renderCalendar or addComponent first",
                         ])
                     }
-                    let c = calendar(store, myAppId: myAppId, componentId: resolvedId)
+                    let c = calendar(store, miniAppId: miniAppId, componentId: resolvedId)
                     return .object([
                         "ok": .bool(true),
                         "componentId": .string(resolvedId),
@@ -189,19 +189,19 @@ extension AppTools {
                 let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "calendar", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "calendar", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
                         resolvedId = id
                     }
-                    guard let removed = store.removeCalendarEvent(id: uuid, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "removeCalendarEvent")) else {
+                    guard let removed = store.removeCalendarEvent(id: uuid, miniAppId: miniAppId, componentId: resolvedId, actor: .agent(toolName: "removeCalendarEvent")) else {
                         return .object([
                             "ok": .bool(false),
                             "error": .string("no event with id \(idString)"),
                         ])
                     }
-                    let c = calendar(store, myAppId: myAppId, componentId: resolvedId)
+                    let c = calendar(store, miniAppId: miniAppId, componentId: resolvedId)
                     return .object([
                         "ok": .bool(true),
                         "componentId": .string(resolvedId),
@@ -247,16 +247,16 @@ extension AppTools {
                 }
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "calendar", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "calendar", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
                         resolvedId = id
                     }
-                    guard let resolved = store.setCalendarViewMode(mode, myAppId: myAppId, componentId: resolvedId) else {
+                    guard let resolved = store.setCalendarViewMode(mode, miniAppId: miniAppId, componentId: resolvedId) else {
                         return .object([
                             "ok": .bool(false),
-                            "error": .string("no calendar component in this MyApp"),
+                            "error": .string("no calendar component in this MiniApp"),
                         ])
                     }
                     return .object([
@@ -319,7 +319,7 @@ extension AppTools {
                 }
                 let componentIdArg = args["componentId"]?.stringValue
                 let patchObj = args["patch"]?.objectValue ?? [:]
-                var patch = MyAppStore.CalendarEventPatch()
+                var patch = MiniAppStore.CalendarEventPatch()
                 if let v = patchObj["title"]?.stringValue { patch.title = v }
                 if let v = patchObj["start"]?.stringValue { patch.start = v }
                 if let v = patchObj["end"]?.stringValue {
@@ -336,13 +336,13 @@ extension AppTools {
                 }
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "calendar", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "calendar", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
                         resolvedId = id
                     }
-                    guard let after = store.patchCalendarEvent(id: uuid, patch: patch, myAppId: myAppId, componentId: resolvedId, actor: .agent(toolName: "patchCalendarEvent")) else {
+                    guard let after = store.patchCalendarEvent(id: uuid, patch: patch, miniAppId: miniAppId, componentId: resolvedId, actor: .agent(toolName: "patchCalendarEvent")) else {
                         return .object([
                             "ok": .bool(false),
                             "error": .string("no event with id \(idString)"),
@@ -399,10 +399,10 @@ extension AppTools {
                 let from = args["dateRange"]?["from"]?.stringValue
                 let to = args["dateRange"]?["to"]?.stringValue
                 return await MainActor.run {
-                    guard let resolved = resolveCalendar(store: store, myAppId: myAppId, componentId: componentId) else {
+                    guard let resolved = resolveCalendar(store: store, miniAppId: miniAppId, componentId: componentId) else {
                         return .object([
                             "ok": .bool(false),
-                            "error": "no calendar component matches that componentId (or this myApp has no calendar).",
+                            "error": "no calendar component matches that componentId (or this miniApp has no calendar).",
                         ])
                     }
                     let (cal, resolvedId) = resolved
@@ -463,10 +463,10 @@ extension AppTools {
                     ])
                 }
                 return await MainActor.run {
-                    guard let resolved = resolveCalendar(store: store, myAppId: myAppId, componentId: componentId) else {
+                    guard let resolved = resolveCalendar(store: store, miniAppId: miniAppId, componentId: componentId) else {
                         return .object([
                             "ok": .bool(false),
-                            "error": "no calendar component matches that componentId (or this myApp has no calendar).",
+                            "error": "no calendar component matches that componentId (or this miniApp has no calendar).",
                         ])
                     }
                     let (cal, resolvedId) = resolved

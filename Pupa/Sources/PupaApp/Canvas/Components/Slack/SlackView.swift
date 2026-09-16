@@ -2,16 +2,16 @@ import SwiftUI
 
 /// Slack canvas component view. Two panes: channel sidebar on the
 /// left, message thread + composer on the right. Channel/message mutations
-/// route through `MyAppStore`'s `slack*` mutators; agents are filesystem
+/// route through `MiniAppStore`'s `slack*` mutators; agents are filesystem
 /// subagents (`pupa/agents/`) surfaced via `agentRoster`.
 ///
 /// @-mentioning an agent (or posting in a DM) spawns a subagent run via
 /// `ChatSessionCoordinator.invokeSlackAgent`, streamed live into the channel
 /// pane through `SlackInvoker`.
 public struct SlackView: View {
-    @Bindable var store: MyAppStore
+    @Bindable var store: MiniAppStore
     let data: SlackData
-    let myAppId: UUID
+    let miniAppId: UUID
     let componentId: String
     let coordinator: ChatSessionCoordinator
     @Bindable var invoker: SlackInvoker
@@ -54,21 +54,21 @@ public struct SlackView: View {
     #endif
 
     public init(
-        store: MyAppStore,
+        store: MiniAppStore,
         data: SlackData,
-        myAppId: UUID,
+        miniAppId: UUID,
         componentId: String,
         coordinator: ChatSessionCoordinator
     ) {
         self.store = store
         self.data = data
-        self.myAppId = myAppId
+        self.miniAppId = miniAppId
         self.componentId = componentId
         self.coordinator = coordinator
         self.invoker = coordinator.slackInvoker
     }
 
-    /// The MyApp's subagent roster — every `pupa/agents/<slug>/AGENTS.md`.
+    /// The MiniApp's subagent roster — every `pupa/agents/<slug>/AGENTS.md`.
     /// Slack agents ARE subagents now; the component holds no agent list of
     /// its own. `rosterRefresh` forces a recompute after the create-agent
     /// sheet writes a new file.
@@ -80,7 +80,7 @@ public struct SlackView: View {
     /// render into hundreds of directory walks.
     private var agentRoster: [Subagent] {
         _ = rosterRefresh
-        return AgentStore(memory: MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myAppId))).agents
+        return AgentStore(memory: MemoryStore(rootOverride: MemoryStore.appRoot(miniAppId: miniAppId))).agents
     }
 
     public var body: some View {
@@ -110,22 +110,22 @@ public struct SlackView: View {
         // the mentioned agent instead of handing the URL off to
         // the system browser. Any other URL falls through to the
         // default handler.
-        .environment(\.openURL, OpenURLAction { [store, myAppId, componentId] url in
+        .environment(\.openURL, OpenURLAction { [store, miniAppId, componentId] url in
             guard url.scheme == Self.mentionURLScheme,
                   let agentId = url.host, !agentId.isEmpty else {
                 return .systemAction
             }
-            let display = AgentStore(memory: MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myAppId)))
+            let display = AgentStore(memory: MemoryStore(rootOverride: MemoryStore.appRoot(miniAppId: miniAppId)))
                 .agent(named: agentId)?.displayName ?? agentId
             if let dmId = store.slackOpenDM(
                 agentId: agentId,
                 displayName: display,
-                myAppId: myAppId,
+                miniAppId: miniAppId,
                 componentId: componentId
             ) {
                 _ = store.slackSetActiveChannel(
                     channelId: dmId,
-                    myAppId: myAppId,
+                    miniAppId: miniAppId,
                     componentId: componentId
                 )
             }
@@ -164,7 +164,7 @@ public struct SlackView: View {
                         name: name,
                         type: type,
                         memberAgentIds: members,
-                        myAppId: myAppId,
+                        miniAppId: miniAppId,
                         componentId: componentId
                     )
                     newChannelSheet = false
@@ -178,7 +178,7 @@ public struct SlackView: View {
                     // Create a filesystem subagent — the canonical writer
                     // produces pupa/agents/<slug>/AGENTS.md; `role` becomes the
                     // subagent description.
-                    let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myAppId))
+                    let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(miniAppId: miniAppId))
                     _ = try? AgentStore(memory: appMemory).createAgent(
                         name: name,
                         description: role,
@@ -253,7 +253,7 @@ public struct SlackView: View {
                         onTap: {
                             _ = store.slackSetActiveChannel(
                                 channelId: channel.id,
-                                myAppId: myAppId,
+                                miniAppId: miniAppId,
                                 componentId: componentId
                             )
                         }
@@ -277,13 +277,13 @@ public struct SlackView: View {
                         let dmId = store.slackOpenDM(
                             agentId: agent.name,
                             displayName: label,
-                            myAppId: myAppId,
+                            miniAppId: miniAppId,
                             componentId: componentId
                         )
                         if let dmId {
                             _ = store.slackSetActiveChannel(
                                 channelId: dmId,
-                                myAppId: myAppId,
+                                miniAppId: miniAppId,
                                 componentId: componentId
                             )
                         }
@@ -408,7 +408,7 @@ public struct SlackView: View {
         // and finish — they live above this marker too.
         let bottomAnchor = "slack-bottom"
         let channelKey = SlackChannelKey(
-            myAppId: myAppId, componentId: componentId, channelId: channel.id)
+            miniAppId: miniAppId, componentId: componentId, channelId: channel.id)
 
         // Two-way binding into `channelScrollAnchor`. Default value is
         // `bottomAnchor` so first-time visits open at the most recent
@@ -647,14 +647,14 @@ public struct SlackView: View {
             authorId: "user",
             text: trimmed,
             mentionedAgentIds: resolvedMentions,
-            myAppId: myAppId,
+            miniAppId: miniAppId,
             componentId: componentId
         )
         composerText = ""
         lastInvocationNote = nil
         guard !resolvedMentions.isEmpty else { return }
         let channelId = channel.id
-        let myAppId = myAppId
+        let miniAppId = miniAppId
         let componentId = componentId
         let coordinator = coordinator
         let agentNamesById = Dictionary(
@@ -665,7 +665,7 @@ public struct SlackView: View {
                 let outcome = await coordinator.invokeSlackAgent(
                     agentId: agentId,
                     channelId: channelId,
-                    myAppId: myAppId,
+                    miniAppId: miniAppId,
                     componentId: componentId,
                     // A person typed the @-mention — no agent to credit.
                     caller: .user

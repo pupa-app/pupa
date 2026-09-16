@@ -13,17 +13,17 @@ import AGUIKit
 @Suite("Tracker schema evolution")
 struct TrackerSchemaEvolutionTests {
 
-    private func makeStore(fields: [FieldDef]) -> (store: MyAppStore, id: UUID) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApp = MyApp(name: "T", iconSystemName: "list.bullet.rectangle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([myApp], myApp.id))
-        store.setTracker(title: "Test", fields: fields, myAppId: myApp.id)
-        return (store, myApp.id)
+    private func makeStore(fields: [FieldDef]) -> (store: MiniAppStore, id: UUID) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApp = MiniApp(name: "T", iconSystemName: "list.bullet.rectangle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([miniApp], miniApp.id))
+        store.setTracker(title: "Test", fields: fields, miniAppId: miniApp.id)
+        return (store, miniApp.id)
     }
 
-    private func tracker(_ store: MyAppStore, id: UUID) -> TrackerData? {
-        guard let myApp = store.myApps.first(where: { $0.id == id }) else { return nil }
-        if case .tracker(let t) = myApp.canvas { return t }
+    private func tracker(_ store: MiniAppStore, id: UUID) -> TrackerData? {
+        guard let miniApp = store.miniApps.first(where: { $0.id == id }) else { return nil }
+        if case .tracker(let t) = miniApp.canvas { return t }
         return nil
     }
 
@@ -32,11 +32,11 @@ struct TrackerSchemaEvolutionTests {
     @Test("addField appends without mutating items")
     func addFieldDoesNotTouchItems() {
         let (store, id) = makeStore(fields: [FieldDef(name: "title", type: .text)])
-        _ = store.addItem(["title": "first"], myAppId: id)
-        _ = store.addItem(["title": "second"], myAppId: id)
+        _ = store.addItem(["title": "first"], miniAppId: id)
+        _ = store.addItem(["title": "second"], miniAppId: id)
         let beforeIds = tracker(store, id: id)?.items.map(\.id) ?? []
 
-        let err = store.addField(FieldDef(name: "category", type: .text), myAppId: id)
+        let err = store.addField(FieldDef(name: "category", type: .text), miniAppId: id)
 
         #expect(err == nil)
         let t = tracker(store, id: id)
@@ -51,7 +51,7 @@ struct TrackerSchemaEvolutionTests {
     @Test("addField rejects a duplicate name")
     func addFieldRejectsDuplicate() {
         let (store, id) = makeStore(fields: [FieldDef(name: "title", type: .text)])
-        let err = store.addField(FieldDef(name: "title", type: .number), myAppId: id)
+        let err = store.addField(FieldDef(name: "title", type: .number), miniAppId: id)
         #expect(err == .duplicateName)
         #expect(tracker(store, id: id)?.fields.count == 1)
     }
@@ -64,13 +64,13 @@ struct TrackerSchemaEvolutionTests {
             FieldDef(name: "status", type: .select, options: ["todo", "done"]),
             FieldDef(name: "note", type: .text),
         ])
-        _ = store.addItem(["status": "todo", "note": "a"], myAppId: id)
-        _ = store.addItem(["status": "done", "note": "b"], myAppId: id)
-        _ = store.addItem(["note": "c"], myAppId: id) // no status value
-        _ = store.setTrackerViewMode(.kanban, columnField: "status", myAppId: id)
-        store.setFilter(field: "status", value: "todo", myAppId: id)
+        _ = store.addItem(["status": "todo", "note": "a"], miniAppId: id)
+        _ = store.addItem(["status": "done", "note": "b"], miniAppId: id)
+        _ = store.addItem(["note": "c"], miniAppId: id) // no status value
+        _ = store.setTrackerViewMode(.kanban, columnField: "status", miniAppId: id)
+        store.setFilter(field: "status", value: "todo", miniAppId: id)
 
-        let result = store.renameField(from: "status", to: "stage", myAppId: id)
+        let result = store.renameField(from: "status", to: "stage", miniAppId: id)
 
         switch result {
         case .failure(let err):
@@ -98,8 +98,8 @@ struct TrackerSchemaEvolutionTests {
             FieldDef(name: "a", type: .text),
             FieldDef(name: "b", type: .text),
         ])
-        _ = store.addItem(["a": "1", "b": "2"], myAppId: id)
-        let result = store.renameField(from: "a", to: "b", myAppId: id)
+        _ = store.addItem(["a": "1", "b": "2"], miniAppId: id)
+        let result = store.renameField(from: "a", to: "b", miniAppId: id)
         if case .failure(let err) = result {
             #expect(err == .duplicateName)
         } else {
@@ -121,11 +121,11 @@ struct TrackerSchemaEvolutionTests {
             FieldDef(name: "b", type: .text),
             FieldDef(name: "c", type: .text),
         ])
-        _ = store.addItem(["a": "1", "b": "2", "c": "3"], myAppId: id)
+        _ = store.addItem(["a": "1", "b": "2", "c": "3"], miniAppId: id)
         let beforeIds = tracker(store, id: id)?.items.map(\.id) ?? []
 
         // Happy path — a valid permutation.
-        let ok = store.reorderFields(["c", "a", "b"], myAppId: id)
+        let ok = store.reorderFields(["c", "a", "b"], miniAppId: id)
         #expect(ok == nil)
         let t = tracker(store, id: id)
         #expect(t?.fields.map(\.name) == ["c", "a", "b"])
@@ -133,11 +133,11 @@ struct TrackerSchemaEvolutionTests {
         #expect(t?.items[0].values == ["a": "1", "b": "2", "c": "3"])
 
         // Length mismatch.
-        #expect(store.reorderFields(["a", "b"], myAppId: id) == .invalidOrder)
+        #expect(store.reorderFields(["a", "b"], miniAppId: id) == .invalidOrder)
         // Unknown name.
-        #expect(store.reorderFields(["a", "b", "z"], myAppId: id) == .invalidOrder)
+        #expect(store.reorderFields(["a", "b", "z"], miniAppId: id) == .invalidOrder)
         // Duplicate entries.
-        #expect(store.reorderFields(["a", "a", "b"], myAppId: id) == .invalidOrder)
+        #expect(store.reorderFields(["a", "a", "b"], miniAppId: id) == .invalidOrder)
         // Field list unchanged after each rejection.
         #expect(tracker(store, id: id)?.fields.map(\.name) == ["c", "a", "b"])
     }
@@ -150,10 +150,10 @@ struct TrackerSchemaEvolutionTests {
             FieldDef(name: "title", type: .text),
             FieldDef(name: "notes", type: .text),
         ])
-        _ = store.addItem(["title": "x", "notes": "draft"], myAppId: id)
-        store.setFilter(field: "notes", value: "draft", myAppId: id)
+        _ = store.addItem(["title": "x", "notes": "draft"], miniAppId: id)
+        store.setFilter(field: "notes", value: "draft", miniAppId: id)
 
-        switch store.setFieldHidden(name: "notes", hidden: true, myAppId: id) {
+        switch store.setFieldHidden(name: "notes", hidden: true, miniAppId: id) {
         case .failure(let err):
             Issue.record("hide failed: \(err)")
         case .success(let r):
@@ -167,7 +167,7 @@ struct TrackerSchemaEvolutionTests {
         #expect(t?.filter["notes"] == nil)
 
         // Un-hide: column reappears with original value intact.
-        _ = store.setFieldHidden(name: "notes", hidden: false, myAppId: id)
+        _ = store.setFieldHidden(name: "notes", hidden: false, miniAppId: id)
         t = tracker(store, id: id)
         #expect(t?.visibleFields.map(\.name) == ["title", "notes"])
         #expect(t?.items[0].values["notes"] == "draft")
@@ -178,16 +178,16 @@ struct TrackerSchemaEvolutionTests {
         let (store, id) = makeStore(fields: [
             FieldDef(name: "stage", type: .select, options: ["todo", "done"]),
         ])
-        _ = store.addItem(["stage": "todo"], myAppId: id)
-        _ = store.setTrackerViewMode(.kanban, columnField: "stage", myAppId: id)
+        _ = store.addItem(["stage": "todo"], miniAppId: id)
+        _ = store.setTrackerViewMode(.kanban, columnField: "stage", miniAppId: id)
         #expect(tracker(store, id: id)?.viewMode == .kanban)
         #expect(tracker(store, id: id)?.columnField == "stage")
 
-        _ = store.setFieldHidden(name: "stage", hidden: true, myAppId: id)
+        _ = store.setFieldHidden(name: "stage", hidden: true, miniAppId: id)
         // columnField stays so unhide restores grouping, but the resolved
         // column is now invalid — the view falls back to the empty hint and
         // setTrackerViewMode auto-pick skips hidden fields.
-        let resumed = store.setTrackerViewMode(.kanban, myAppId: id)
+        let resumed = store.setTrackerViewMode(.kanban, miniAppId: id)
         #expect(resumed?.columnField == nil, "no visible select field → no column")
     }
 
@@ -197,7 +197,7 @@ struct TrackerSchemaEvolutionTests {
     func itemIdEchoRoundTrip() async throws {
         let (store, id) = makeStore(fields: [FieldDef(name: "title", type: .text)])
         let registry = ToolRegistry()
-        AppTools.registerMyAppTools(on: registry, store: store, myAppId: id)
+        AppTools.registerMiniAppTools(on: registry, store: store, miniAppId: id)
 
         guard let add = registry.resolve("addTrackerItems"),
               let patch = registry.resolve("patchTrackerItems"),
@@ -244,11 +244,11 @@ struct TrackerSchemaEvolutionTests {
             FieldDef(name: "a", type: .text),
             FieldDef(name: "b", type: .text),
         ])
-        guard let itemId = store.addItem(["a": "1", "b": "2"], myAppId: id) else {
+        guard let itemId = store.addItem(["a": "1", "b": "2"], miniAppId: id) else {
             Issue.record("addItem returned no id"); return
         }
-        _ = store.reorderFields(["b", "a"], myAppId: id)
-        let ok = store.patchItem(id: itemId, with: ["a": "1-edited"], myAppId: id)
+        _ = store.reorderFields(["b", "a"], miniAppId: id)
+        let ok = store.patchItem(id: itemId, with: ["a": "1-edited"], miniAppId: id)
         #expect(ok == true)
         let t = tracker(store, id: id)
         #expect(t?.items.first(where: { $0.id == itemId })?.values["a"] == "1-edited")

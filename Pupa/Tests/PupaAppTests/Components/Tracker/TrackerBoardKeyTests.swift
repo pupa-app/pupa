@@ -5,29 +5,29 @@ import AGUIKit
 
 /// `TrackerBoardKey` is what scopes `TrackerView` / `KanbanView` `@State`
 /// (search query, filter-panel disclosure) to one board. These tests pin the
-/// premise it exists for: component ids are unique per MyApp, not globally.
+/// premise it exists for: component ids are unique per MiniApp, not globally.
 @MainActor
 @Suite("Tracker board key")
 struct TrackerBoardKeyTests {
 
-    private func makeMyApp(_ name: String) -> MyApp {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        return MyApp(name: name, iconSystemName: "list.bullet.rectangle", typeId: MyAppType.tracker.id)
+    private func makeMiniApp(_ name: String) -> MiniApp {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        return MiniApp(name: name, iconSystemName: "list.bullet.rectangle", typeId: MiniAppType.tracker.id)
     }
 
-    /// The bug this type fixes: `MyAppStore.addComponent` uniques the id
-    /// against that MyApp's own components only, so the first tracker in every
-    /// MyApp is `"tracker-1"`. Keying view state on the component id alone
-    /// therefore aliases two different boards — one MyApp's search query
-    /// rendered the next MyApp's tracker after a sidebar switch.
-    @Test("Two MyApps each mint tracker-1; their board keys still differ")
-    func componentIdsRepeatAcrossMyApps() {
-        let a = makeMyApp("A")
-        let b = makeMyApp("B")
-        let store = MyAppStore(initial: ([a, b], a.id))
+    /// The bug this type fixes: `MiniAppStore.addComponent` uniques the id
+    /// against that MiniApp's own components only, so the first tracker in every
+    /// MiniApp is `"tracker-1"`. Keying view state on the component id alone
+    /// therefore aliases two different boards — one MiniApp's search query
+    /// rendered the next MiniApp's tracker after a sidebar switch.
+    @Test("Two MiniApps each mint tracker-1; their board keys still differ")
+    func componentIdsRepeatAcrossMiniApps() {
+        let a = makeMiniApp("A")
+        let b = makeMiniApp("B")
+        let store = MiniAppStore(initial: ([a, b], a.id))
 
-        let idA = store.addComponent(kind: "tracker", name: "Board A", iconSystemName: "tablecells", myAppId: a.id)
-        let idB = store.addComponent(kind: "tracker", name: "Board B", iconSystemName: "tablecells", myAppId: b.id)
+        let idA = store.addComponent(kind: "tracker", name: "Board A", iconSystemName: "tablecells", miniAppId: a.id)
+        let idB = store.addComponent(kind: "tracker", name: "Board B", iconSystemName: "tablecells", miniAppId: b.id)
 
         // The premise, asserted against the real store — not assumed.
         #expect(idA == "tracker-1")
@@ -36,36 +36,36 @@ struct TrackerBoardKeyTests {
         // ... which is exactly why the component id cannot be the key.
         #expect(idA == idB)
         #expect(
-            TrackerBoardKey(myAppId: a.id, componentId: idA)
-            != TrackerBoardKey(myAppId: b.id, componentId: idB)
+            TrackerBoardKey(miniAppId: a.id, componentId: idA)
+            != TrackerBoardKey(miniAppId: b.id, componentId: idB)
         )
     }
 
-    /// Within one MyApp ids do stay distinct, so board keys separate those
-    /// boards too — a MyApp with two trackers must not share a query.
-    @Test("Second tracker in the same MyApp gets a distinct id and key")
-    func componentIdsAreUniqueWithinOneMyApp() {
-        let a = makeMyApp("A")
-        let store = MyAppStore(initial: ([a], a.id))
+    /// Within one MiniApp ids do stay distinct, so board keys separate those
+    /// boards too — a MiniApp with two trackers must not share a query.
+    @Test("Second tracker in the same MiniApp gets a distinct id and key")
+    func componentIdsAreUniqueWithinOneMiniApp() {
+        let a = makeMiniApp("A")
+        let store = MiniAppStore(initial: ([a], a.id))
 
-        let first = store.addComponent(kind: "tracker", name: "One", iconSystemName: "tablecells", myAppId: a.id)
-        let second = store.addComponent(kind: "tracker", name: "Two", iconSystemName: "tablecells", myAppId: a.id)
+        let first = store.addComponent(kind: "tracker", name: "One", iconSystemName: "tablecells", miniAppId: a.id)
+        let second = store.addComponent(kind: "tracker", name: "Two", iconSystemName: "tablecells", miniAppId: a.id)
 
         #expect(first == "tracker-1")
         #expect(second == "tracker-2")
         #expect(
-            TrackerBoardKey(myAppId: a.id, componentId: first)
-            != TrackerBoardKey(myAppId: a.id, componentId: second)
+            TrackerBoardKey(miniAppId: a.id, componentId: first)
+            != TrackerBoardKey(miniAppId: a.id, componentId: second)
         )
     }
 
     /// Same board, two lookups: equal and same hash, so a dictionary read
     /// written by `TrackerView` finds its own entry.
-    @Test("Same myApp + component id is one key")
+    @Test("Same miniApp + component id is one key")
     func sameBoardIsOneKey() {
         let id = UUID()
-        let lhs = TrackerBoardKey(myAppId: id, componentId: "tracker-1")
-        let rhs = TrackerBoardKey(myAppId: id, componentId: "tracker-1")
+        let lhs = TrackerBoardKey(miniAppId: id, componentId: "tracker-1")
+        let rhs = TrackerBoardKey(miniAppId: id, componentId: "tracker-1")
 
         #expect(lhs == rhs)
         #expect(lhs.hashValue == rhs.hashValue)
@@ -80,18 +80,18 @@ struct TrackerBoardKeyTests {
     func nilAndEmptyComponentIdAlias() {
         let id = UUID()
         #expect(
-            TrackerBoardKey(myAppId: id, componentId: nil)
-            == TrackerBoardKey(myAppId: id, componentId: "")
+            TrackerBoardKey(miniAppId: id, componentId: nil)
+            == TrackerBoardKey(miniAppId: id, componentId: "")
         )
-        #expect(TrackerBoardKey(myAppId: id, componentId: nil).componentId == "")
+        #expect(TrackerBoardKey(miniAppId: id, componentId: nil).componentId == "")
     }
 
-    /// The other half of the identity: two MyApps sharing a component id must
+    /// The other half of the identity: two MiniApps sharing a component id must
     /// not read each other's state out of a board-keyed dictionary.
-    @Test("Different myAppIds with the same component id do not collide")
-    func differentMyAppIdsDoNotCollide() {
-        let lhs = TrackerBoardKey(myAppId: UUID(), componentId: "tracker-1")
-        let rhs = TrackerBoardKey(myAppId: UUID(), componentId: "tracker-1")
+    @Test("Different miniAppIds with the same component id do not collide")
+    func differentMiniAppIdsDoNotCollide() {
+        let lhs = TrackerBoardKey(miniAppId: UUID(), componentId: "tracker-1")
+        let rhs = TrackerBoardKey(miniAppId: UUID(), componentId: "tracker-1")
 
         #expect(lhs != rhs)
         var state: [TrackerBoardKey: String] = [:]

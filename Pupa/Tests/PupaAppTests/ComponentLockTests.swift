@@ -11,18 +11,18 @@ struct ComponentLockTests {
 
     init() { TestStorage.activate() }
 
-    private func freshTrackerStore() -> (MyAppStore, UUID, String) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApp = MyApp(name: "T", iconSystemName: "list.bullet.rectangle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([myApp], myApp.id))
-        store.setTracker(title: "Test", fields: [FieldDef(name: "title", type: .text)], myAppId: myApp.id)
-        let cid = store.myApps.first { $0.id == myApp.id }!
+    private func freshTrackerStore() -> (MiniAppStore, UUID, String) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApp = MiniApp(name: "T", iconSystemName: "list.bullet.rectangle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([miniApp], miniApp.id))
+        store.setTracker(title: "Test", fields: [FieldDef(name: "title", type: .text)], miniAppId: miniApp.id)
+        let cid = store.miniApps.first { $0.id == miniApp.id }!
             .components.first { $0.kindString == "tracker" }!.id
-        return (store, myApp.id, cid)
+        return (store, miniApp.id, cid)
     }
 
-    private func trackerItemCount(_ store: MyAppStore, _ id: UUID) -> Int {
-        for c in store.myApps.first(where: { $0.id == id })?.components ?? [] {
+    private func trackerItemCount(_ store: MiniAppStore, _ id: UUID) -> Int {
+        for c in store.miniApps.first(where: { $0.id == id })?.components ?? [] {
             if case .tracker(let t) = c.body { return t.items.count }
         }
         return -1
@@ -33,18 +33,18 @@ struct ComponentLockTests {
     @Test("locked component refuses direct mutations; unlock restores them")
     func backstopBlocksAndRestores() {
         let (store, id, cid) = freshTrackerStore()
-        store.setComponentLocked(componentId: cid, locked: true, myAppId: id)
-        #expect(store.isComponentLocked(componentId: cid, myAppId: id))
+        store.setComponentLocked(componentId: cid, locked: true, miniAppId: id)
+        #expect(store.isComponentLocked(componentId: cid, miniAppId: id))
 
         store.resetLockFlag()
-        let added = store.addItem(["title": "x"], myAppId: id)
+        let added = store.addItem(["title": "x"], miniAppId: id)
         #expect(added == nil)                       // refused
         #expect(store.lastWriteBlockedByLock)       // flagged for the tool layer
         #expect(trackerItemCount(store, id) == 0)   // no write
 
-        store.setComponentLocked(componentId: cid, locked: false, myAppId: id)
+        store.setComponentLocked(componentId: cid, locked: false, miniAppId: id)
         store.resetLockFlag()
-        #expect(store.addItem(["title": "x"], myAppId: id) != nil)
+        #expect(store.addItem(["title": "x"], miniAppId: id) != nil)
         #expect(!store.lastWriteBlockedByLock)
         #expect(trackerItemCount(store, id) == 1)
     }
@@ -52,26 +52,26 @@ struct ComponentLockTests {
     @Test("setComponentLocked is idempotent and captions the change feed")
     func lockEmitsEvent() {
         let (store, id, cid) = freshTrackerStore()
-        #expect(store.setComponentLocked(componentId: cid, locked: true, myAppId: id))
-        #expect(!store.setComponentLocked(componentId: cid, locked: true, myAppId: id))  // no-op
-        let last = store.itemEventLog.events(forMyApp: id).last
+        #expect(store.setComponentLocked(componentId: cid, locked: true, miniAppId: id))
+        #expect(!store.setComponentLocked(componentId: cid, locked: true, miniAppId: id))  // no-op
+        let last = store.itemEventLog.events(forMiniApp: id).last
         #expect(last?.kind == .locked)
     }
 
-    @Test("MyApp-level lock toggles every component at once")
+    @Test("MiniApp-level lock toggles every component at once")
     func lockAllComponents() {
         let (store, id, _) = freshTrackerStore()
-        store.addComponent(kind: "checklist", name: "List", iconSystemName: "checklist", myAppId: id)
-        #expect(!store.areAllComponentsLocked(myAppId: id))
+        store.addComponent(kind: "checklist", name: "List", iconSystemName: "checklist", miniAppId: id)
+        #expect(!store.areAllComponentsLocked(miniAppId: id))
 
-        #expect(store.setAllComponentsLocked(locked: true, myAppId: id))
-        #expect(store.areAllComponentsLocked(myAppId: id))
-        let allLocked = store.myApps.first { $0.id == id }!.components.allSatisfy { $0.isLocked }
+        #expect(store.setAllComponentsLocked(locked: true, miniAppId: id))
+        #expect(store.areAllComponentsLocked(miniAppId: id))
+        let allLocked = store.miniApps.first { $0.id == id }!.components.allSatisfy { $0.isLocked }
         #expect(allLocked)
 
-        #expect(store.setAllComponentsLocked(locked: false, myAppId: id))
-        #expect(!store.areAllComponentsLocked(myAppId: id))
-        let noneLocked = store.myApps.first { $0.id == id }!.components.allSatisfy { !$0.isLocked }
+        #expect(store.setAllComponentsLocked(locked: false, miniAppId: id))
+        #expect(!store.areAllComponentsLocked(miniAppId: id))
+        let noneLocked = store.miniApps.first { $0.id == id }!.components.allSatisfy { !$0.isLocked }
         #expect(noneLocked)
     }
 
@@ -81,8 +81,8 @@ struct ComponentLockTests {
     func toolGating() async throws {
         let (store, id, cid) = freshTrackerStore()
         let registry = ToolRegistry()
-        AppTools.registerMyAppTools(on: registry, store: store, myAppId: id)
-        store.setComponentLocked(componentId: cid, locked: true, myAppId: id)
+        AppTools.registerMiniAppTools(on: registry, store: store, miniAppId: id)
+        store.setComponentLocked(componentId: cid, locked: true, miniAppId: id)
 
         let add = registry.resolve("addTrackerItems")!
         let addResult = try await add.handler(.object(["items": .array([.object(["title": "x"])])]))
@@ -100,13 +100,13 @@ struct ComponentLockTests {
     func unlockToolAlwaysWorks() async throws {
         let (store, id, cid) = freshTrackerStore()
         let registry = ToolRegistry()
-        AppTools.registerMyAppTools(on: registry, store: store, myAppId: id)
-        store.setComponentLocked(componentId: cid, locked: true, myAppId: id)
+        AppTools.registerMiniAppTools(on: registry, store: store, miniAppId: id)
+        store.setComponentLocked(componentId: cid, locked: true, miniAppId: id)
 
         let unlock = registry.resolve("setComponentLocked")!
         let result = try await unlock.handler(.object(["componentId": .string(cid), "locked": .bool(false)]))
         #expect(result["ok"]?.boolValue == true)
-        #expect(!store.isComponentLocked(componentId: cid, myAppId: id))
+        #expect(!store.isComponentLocked(componentId: cid, miniAppId: id))
     }
 
     // MARK: - Compatibility

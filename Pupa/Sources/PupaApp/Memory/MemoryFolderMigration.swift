@@ -2,7 +2,7 @@ import Foundation
 
 /// One-shot adoption of pre-0.0.249 memory folders.
 ///
-/// Before #257 a myApp's memories lived under its **name slug**; since then
+/// Before #257 a miniApp's memories lived under its **name slug**; since then
 /// they live under its immutable **id**. Nothing moved the existing trees, so
 /// upgrading left every app pointing at an empty seeded scaffold while its real
 /// notes, subagents, and skills sat orphaned one folder over.
@@ -32,7 +32,7 @@ enum MemoryFolderMigration {
 
     private static func adopt(_ app: (id: UUID, name: String), under root: URL) -> Bool {
         let slug = MemoryStore.slugify(app.name)
-        let idFolder = MemoryStore.myAppFolder(myAppId: app.id)
+        let idFolder = MemoryStore.miniAppFolder(miniAppId: app.id)
         // `orchestrator` is a real scope, not an app slug — an app named
         // "Orchestrator" slugifies onto it and would swallow its memories.
         // A slug that is already a uuid can only be an id folder.

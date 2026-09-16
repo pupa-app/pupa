@@ -11,7 +11,7 @@ import SwiftUI
 /// reachable regardless.
 public struct AgentsSettingsView: View {
     let settings: SettingsStore
-    var store: MyAppStore?
+    var store: MiniAppStore?
     var memory: MemoryStore?
     var stats: AgentStatsStore?
     var modelCatalog: ModelCatalogStore?
@@ -20,7 +20,7 @@ public struct AgentsSettingsView: View {
 
     public init(
         settings: SettingsStore,
-        store: MyAppStore? = nil,
+        store: MiniAppStore? = nil,
         memory: MemoryStore? = nil,
         stats: AgentStatsStore? = nil,
         modelCatalog: ModelCatalogStore? = nil,

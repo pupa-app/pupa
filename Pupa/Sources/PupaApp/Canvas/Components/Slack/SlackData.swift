@@ -7,7 +7,7 @@ import Foundation
 
 // Slack agents are generic filesystem subagents — `pupa/agents/<slug>/AGENTS.md`
 // discovered by `AgentStore`. A Slack component's workspace roster is *all*
-// subagents in the MyApp; the component holds no agent list of its own.
+// subagents in the MiniApp; the component holds no agent list of its own.
 // Channels reference agents by their subagent slug.
 
 /// How a Slack channel is presented in the sidebar and which members
@@ -89,7 +89,7 @@ public struct SlackMessage: Codable, Hashable, Sendable, Identifiable {
 /// Body of a Slack canvas component — the full state of the
 /// multi-agent room: every agent, every channel, the message history
 /// per channel, and which channel the user is currently viewing.
-/// Persists as part of the enclosing `CanvasApp` via `MyAppStore`'s
+/// Persists as part of the enclosing `CanvasApp` via `MiniAppStore`'s
 /// UserDefaults blob.
 public struct SlackData: Codable, Hashable, Sendable {
     public var channels: [SlackChannel]

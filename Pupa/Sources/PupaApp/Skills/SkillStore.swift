@@ -3,7 +3,7 @@ import Observation
 
 /// Discovers and caches the skills under a scope's `pupa/skills/` folder.
 ///
-/// One `SkillStore` is bound to one (scope-rooted) `MemoryStore`: a MyApp's
+/// One `SkillStore` is bound to one (scope-rooted) `MemoryStore`: a MiniApp's
 /// memory root, or the orchestrator's. Discovery is a cheap walk of
 /// `memory.snapshotPaths()` — only the `pupa/skills/<name>/SKILL.md`
 /// entrypoint of each skill folder becomes a `Skill` (supporting files are

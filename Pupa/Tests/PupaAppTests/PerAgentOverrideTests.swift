@@ -12,32 +12,32 @@ import AGUIKit
 @Suite("Per-agent model + tool overrides")
 struct PerAgentOverrideTests {
 
-    private func freshStore() -> (MyAppStore, MyApp) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApp = MyApp(name: "T", iconSystemName: "list.bullet.rectangle", typeId: "tracker")
-        let store = MyAppStore(initial: ([myApp], myApp.id))
-        return (store, myApp)
+    private func freshStore() -> (MiniAppStore, MiniApp) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApp = MiniApp(name: "T", iconSystemName: "list.bullet.rectangle", typeId: "tracker")
+        let store = MiniAppStore(initial: ([miniApp], miniApp.id))
+        return (store, miniApp)
     }
 
-    @Test("Main-agent disabled tools round-trip through MyApp.settings as a stringArray")
-    func myAppDisabledToolsRoundTrip() {
-        let (store, myApp) = freshStore()
-        #expect(store.myAppDisabledTools(for: myApp.id).isEmpty)
+    @Test("Main-agent disabled tools round-trip through MiniApp.settings as a stringArray")
+    func miniAppDisabledToolsRoundTrip() {
+        let (store, miniApp) = freshStore()
+        #expect(store.miniAppDisabledTools(for: miniApp.id).isEmpty)
 
-        store.setMyAppDisabledTools(["mcp_playwright", "tavily_search"], for: myApp.id)
-        #expect(store.myAppDisabledTools(for: myApp.id) == ["mcp_playwright", "tavily_search"])
+        store.setMiniAppDisabledTools(["mcp_playwright", "tavily_search"], for: miniApp.id)
+        #expect(store.miniAppDisabledTools(for: miniApp.id) == ["mcp_playwright", "tavily_search"])
 
         // Stored as a SettingValue.stringArray under the documented key.
-        if case .stringArray(let names) = store.myApps.first!.settings[MyAppStore.disabledToolsSettingsKey] {
+        if case .stringArray(let names) = store.miniApps.first!.settings[MiniAppStore.disabledToolsSettingsKey] {
             #expect(Set(names) == ["mcp_playwright", "tavily_search"])
         } else {
-            Issue.record("expected stringArray under \(MyAppStore.disabledToolsSettingsKey)")
+            Issue.record("expected stringArray under \(MiniAppStore.disabledToolsSettingsKey)")
         }
 
         // Clearing removes the key entirely.
-        store.setMyAppDisabledTools([], for: myApp.id)
-        #expect(store.myAppDisabledTools(for: myApp.id).isEmpty)
-        #expect(store.myApps.first!.settings[MyAppStore.disabledToolsSettingsKey] == nil)
+        store.setMiniAppDisabledTools([], for: miniApp.id)
+        #expect(store.miniAppDisabledTools(for: miniApp.id).isEmpty)
+        #expect(store.miniApps.first!.settings[MiniAppStore.disabledToolsSettingsKey] == nil)
     }
 
     @Test("Subagent disabled tools round-trip through its AGENTS.md frontmatter")
@@ -96,8 +96,8 @@ struct PerAgentOverrideTests {
 
     @Test("Per-thread LLM override round-trips and clears atomically")
     func threadLLMRoundTrip() {
-        let (store, myApp) = freshStore()
-        let scope: ChatScope = .myApp(myApp.id)
+        let (store, miniApp) = freshStore()
+        let scope: ChatScope = .miniApp(miniApp.id)
         let tid = store.addThread(for: scope)
         #expect(store.threadLLM(threadId: tid, for: scope) == nil)
 
@@ -111,11 +111,11 @@ struct PerAgentOverrideTests {
         #expect(store.threadLLM(threadId: tid, for: scope) == nil)
     }
 
-    @Test("forwardedProps prefers the thread pin over the MyApp default, independent of later default changes")
+    @Test("forwardedProps prefers the thread pin over the MiniApp default, independent of later default changes")
     func threadOverridePrecedence() {
-        let (store, myApp) = freshStore()
+        let (store, miniApp) = freshStore()
         let settings = SettingsStore(backendURL: URL(string: "http://localhost:65535/")!)
-        let scope: ChatScope = .myApp(myApp.id)
+        let scope: ChatScope = .miniApp(miniApp.id)
         let tid = store.addThread(for: scope)
 
         func props() -> AnyJSON {
@@ -125,16 +125,16 @@ struct PerAgentOverrideTests {
             .object(["llm": .object(["provider": .string(provider), "model": .string(model)])])
         }
 
-        // No thread pin → inherits the MyApp default (A).
-        store.setMyAppLLM(provider: "anthropic", model: "claude-sonnet-4-6", for: myApp.id)
+        // No thread pin → inherits the MiniApp default (A).
+        store.setMiniAppLLM(provider: "anthropic", model: "claude-sonnet-4-6", for: miniApp.id)
         #expect(props() == llm("anthropic", "claude-sonnet-4-6"))
 
         // Pin the thread to B → B wins.
         store.setThreadLLM(provider: "bedrock", model: "claude-opus-4-8", threadId: tid, for: scope)
         #expect(props() == llm("bedrock", "claude-opus-4-8"))
 
-        // Change the MyApp default to C → pinned thread is unaffected.
-        store.setMyAppLLM(provider: "openai_compatible", model: "gpt-x", for: myApp.id)
+        // Change the MiniApp default to C → pinned thread is unaffected.
+        store.setMiniAppLLM(provider: "openai_compatible", model: "gpt-x", for: miniApp.id)
         #expect(props() == llm("bedrock", "claude-opus-4-8"))
 
         // Clear the pin → re-inherits the current default (C).
@@ -142,42 +142,42 @@ struct PerAgentOverrideTests {
         #expect(props() == llm("openai_compatible", "gpt-x"))
     }
 
-    @Test("forwardedProps is empty when neither thread nor MyApp sets a model")
+    @Test("forwardedProps is empty when neither thread nor MiniApp sets a model")
     func threadNoOverrideEmpty() {
-        let (store, myApp) = freshStore()
+        let (store, miniApp) = freshStore()
         let settings = SettingsStore(backendURL: URL(string: "http://localhost:65535/")!)
-        let scope: ChatScope = .myApp(myApp.id)
+        let scope: ChatScope = .miniApp(miniApp.id)
         let tid = store.addThread(for: scope)
         #expect(ChatViewModel.forwardedPropsJSON(scope: scope, threadId: tid, store: store, settings: settings) == .object([:]))
     }
 
     // MARK: - Per-agent thinking override
 
-    @Test("Per-MyApp thinking level round-trips and clears")
-    func myAppThinkingRoundTrip() {
-        let (store, myApp) = freshStore()
-        #expect(store.myAppThinking(for: myApp.id) == nil)
+    @Test("Per-MiniApp thinking level round-trips and clears")
+    func miniAppThinkingRoundTrip() {
+        let (store, miniApp) = freshStore()
+        #expect(store.miniAppThinking(for: miniApp.id) == nil)
 
-        store.setMyAppThinking("high", for: myApp.id)
-        #expect(store.myAppThinking(for: myApp.id) == "high")
+        store.setMiniAppThinking("high", for: miniApp.id)
+        #expect(store.miniAppThinking(for: miniApp.id) == "high")
 
-        store.setMyAppThinking(nil, for: myApp.id)
-        #expect(store.myAppThinking(for: myApp.id) == nil)
+        store.setMiniAppThinking(nil, for: miniApp.id)
+        #expect(store.miniAppThinking(for: miniApp.id) == nil)
         // Empty string also clears.
-        store.setMyAppThinking("low", for: myApp.id)
-        store.setMyAppThinking("", for: myApp.id)
-        #expect(store.myAppThinking(for: myApp.id) == nil)
+        store.setMiniAppThinking("low", for: miniApp.id)
+        store.setMiniAppThinking("", for: miniApp.id)
+        #expect(store.miniAppThinking(for: miniApp.id) == nil)
     }
 
     @Test("forwardedProps folds thinking into the llm object alongside the model")
     func forwardedPropsCarriesThinking() {
-        let (store, myApp) = freshStore()
+        let (store, miniApp) = freshStore()
         let settings = SettingsStore(backendURL: URL(string: "http://localhost:65535/")!)
-        let scope: ChatScope = .myApp(myApp.id)
+        let scope: ChatScope = .miniApp(miniApp.id)
         let tid = store.addThread(for: scope)
 
-        store.setMyAppLLM(provider: "anthropic", model: "claude-sonnet-4-6", for: myApp.id)
-        store.setMyAppThinking("auto", for: myApp.id)
+        store.setMiniAppLLM(provider: "anthropic", model: "claude-sonnet-4-6", for: miniApp.id)
+        store.setMiniAppThinking("auto", for: miniApp.id)
         #expect(ChatViewModel.forwardedPropsJSON(scope: scope, threadId: tid, store: store, settings: settings)
             == .object(["llm": .object([
                 "provider": .string("anthropic"),
@@ -188,45 +188,45 @@ struct PerAgentOverrideTests {
 
     @Test("thinking ships even with no model override (llm carries just thinking)")
     func forwardedPropsThinkingOnly() {
-        let (store, myApp) = freshStore()
+        let (store, miniApp) = freshStore()
         let settings = SettingsStore(backendURL: URL(string: "http://localhost:65535/")!)
-        let scope: ChatScope = .myApp(myApp.id)
+        let scope: ChatScope = .miniApp(miniApp.id)
         let tid = store.addThread(for: scope)
 
-        store.setMyAppThinking("off", for: myApp.id)
+        store.setMiniAppThinking("off", for: miniApp.id)
         #expect(ChatViewModel.forwardedPropsJSON(scope: scope, threadId: tid, store: store, settings: settings)
             == .object(["llm": .object(["thinking": .string("off")])]))
     }
 
     @Test("clearThinkingLevels drops stale overrides but never wipes on an empty set")
     func clearStaleThinking() {
-        let (store, myApp) = freshStore()
-        store.setMyAppThinking("high", for: myApp.id)
+        let (store, miniApp) = freshStore()
+        store.setMiniAppThinking("high", for: miniApp.id)
 
         // Empty set (harness has no thinking / unreachable) → no-op, keeps value.
         #expect(store.clearThinkingLevels(notIn: []) == false)
-        #expect(store.myAppThinking(for: myApp.id) == "high")
+        #expect(store.miniAppThinking(for: miniApp.id) == "high")
 
         // Non-empty set that still contains the level → kept.
         #expect(store.clearThinkingLevels(notIn: ["auto", "high"]) == false)
-        #expect(store.myAppThinking(for: myApp.id) == "high")
+        #expect(store.miniAppThinking(for: miniApp.id) == "high")
 
         // Non-empty set missing the level → cleared.
         #expect(store.clearThinkingLevels(notIn: ["auto", "off"]) == true)
-        #expect(store.myAppThinking(for: myApp.id) == nil)
+        #expect(store.miniAppThinking(for: miniApp.id) == nil)
     }
 
     @Test("No thinking row when the active harness advertises no levels")
     @MainActor
     func thinkingHiddenWhenHarnessHasNoLevels() {
-        let (store, myApp) = freshStore()
+        let (store, miniApp) = freshStore()
         let settings = SettingsStore(backendURL: URL(string: "http://localhost:65535/")!)
         // Fresh catalog: no successful refresh → thinkingLevels empty.
         let catalog = ModelCatalogStore()
         #expect(catalog.thinkingLevels.isEmpty)
 
-        let agents = AgentRegistry.enumerateAgents(myApp: myApp, store: store, settings: settings, catalog: catalog)
-        let main = agents.first { $0.kind == .myApp }
+        let agents = AgentRegistry.enumerateAgents(miniApp: miniApp, store: store, settings: settings, catalog: catalog)
+        let main = agents.first { $0.kind == .miniApp }
         // Building the page must not crash and must omit the thinking picker.
         #expect(main != nil)
         #expect(main?.properties.contains { $0.id == "thinking" } == false)

@@ -5,7 +5,7 @@ import SwiftUI
 ///
 /// MarkdownUI's `DefaultImageProvider` loads on render, so an image URL in
 /// attacker-authored content is a callout with no interaction. Imported apps
-/// start with `MyApp.allowsRemoteImages` off; see `docs/marketplace.md`.
+/// start with `MiniApp.allowsRemoteImages` off; see `docs/marketplace.md`.
 ///
 /// One type with a flag rather than two providers, because
 /// `markdownImageProvider` takes a concrete type.

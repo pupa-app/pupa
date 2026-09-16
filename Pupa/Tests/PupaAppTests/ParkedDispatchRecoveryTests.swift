@@ -11,7 +11,7 @@ import AGUIKit
 /// Now the park's rewind cursor is persisted, so the relaunch re-fetches the
 /// call list and answers it from the dispatch journal.
 ///
-/// Disk-backed: `TestStorage.activate()` + `MyAppStore.clearStorage()` per the
+/// Disk-backed: `TestStorage.activate()` + `MiniAppStore.clearStorage()` per the
 /// shared-root serial rule.
 @MainActor
 @Suite("Parked dispatch recovery", .serialized)
@@ -31,7 +31,7 @@ struct ParkedDispatchRecoveryTests {
         return URLSession(configuration: cfg)
     }
 
-    private func makeVM(store: MyAppStore, scope: ChatScope,
+    private func makeVM(store: MiniAppStore, scope: ChatScope,
                         registry: ToolRegistry = ToolRegistry()) -> ChatViewModel {
         ChatViewModel(
             store: store, memory: makeMemory(),
@@ -64,11 +64,11 @@ struct ParkedDispatchRecoveryTests {
         return #"{"type":"CUSTOM","name":"on_interrupt","value":"\#(escaped)"}"#
     }
 
-    private func makeApp() -> (MyAppStore, ChatScope, String) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let scope: ChatScope = .myApp(a.id)
+    private func makeApp() -> (MiniAppStore, ChatScope, String) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let scope: ChatScope = .miniApp(a.id)
         return (store, scope, store.currentThreadId(for: scope))
     }
 
@@ -83,7 +83,7 @@ struct ParkedDispatchRecoveryTests {
 
     @Test("A snapshot parked on a frontend tool reattaches from the interrupt frame, not the cache end")
     func parkedSnapshot_reattachesFromRewindPoint() async throws {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         RelaunchMockURLProtocol.reset()
         let (store, scope, tid) = makeApp()
 
@@ -108,7 +108,7 @@ struct ParkedDispatchRecoveryTests {
 
     @Test("A journaled result answers the re-delivered call without re-running the tool")
     func parkedTurn_resumesFromJournal() async throws {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         RelaunchMockURLProtocol.reset()
         let (store, scope, tid) = makeApp()
 
@@ -177,7 +177,7 @@ struct ParkedDispatchRecoveryTests {
 
     @Test("An expired park says so instead of silently restarting the turn")
     func expiredPark_surfacesNotice() async throws {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         RelaunchMockURLProtocol.reset()
         let (store, scope, tid) = makeApp()
 
@@ -204,7 +204,7 @@ struct ParkedDispatchRecoveryTests {
 
     @Test("A clean catch-up with nothing parked adds no notice")
     func nothingParked_noNotice() async throws {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         RelaunchMockURLProtocol.reset()
         let (store, scope, tid) = makeApp()
 
@@ -231,7 +231,7 @@ struct ParkedDispatchRecoveryTests {
     /// backend is still holding.
     @Test("A transport failure during recovery keeps the rewind point and stays quiet")
     func recoveryTransportFailure_preservesState() async throws {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         RelaunchMockURLProtocol.reset()
         let (store, scope, tid) = makeApp()
 
@@ -267,7 +267,7 @@ struct ParkedDispatchRecoveryTests {
 
     @Test("Stop abandons a parked dispatch instead of re-dispatching it next launch")
     func stopClearsParkedDispatch() async throws {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         RelaunchMockURLProtocol.reset()
         let (store, scope, tid) = makeApp()
 
@@ -307,7 +307,7 @@ struct ParkedDispatchRecoveryTests {
     /// it dies on its wall with the user told nothing.
     @Test("A foreground reattach rewinds to the parked interrupt, not the live cursor")
     func foregroundReattach_rewindsToPark() async throws {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         RelaunchMockURLProtocol.reset()
         let (store, scope, tid) = makeApp()
 
@@ -365,7 +365,7 @@ struct ParkedDispatchRecoveryTests {
     /// set, which keeps `turnInFlight` latched and re-errors on every launch.
     @Test("A resume the backend rejects is reported as an expired park, not a generic failure")
     func rejectedResume_surfacesExpiredPark() async throws {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         RelaunchMockURLProtocol.reset()
         let (store, scope, tid) = makeApp()
 
@@ -405,7 +405,7 @@ struct ParkedDispatchRecoveryTests {
 
     @Test("The journal round-trips through disk and clears")
     func journalStore_roundTrips() async throws {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         let tid = "thread-\(UUID().uuidString)"
         let store = FrontendDispatchJournalStore(threadId: tid)
 
@@ -435,7 +435,7 @@ struct ParkedDispatchRecoveryTests {
 
     @Test("The launch sweep reaps stale records and spares fresh ones")
     func journalStore_sweepsByAge() async throws {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         let stale = "thread-stale-\(UUID().uuidString)"
         let fresh = "thread-fresh-\(UUID().uuidString)"
         try writeJournal(["call_A": FrontendCallRecord(name: "addItem")], threadId: stale)
@@ -453,11 +453,11 @@ struct ParkedDispatchRecoveryTests {
 
     @Test("Deleting a thread deletes its journal")
     func journalStore_deletedWithThread() async throws {
-        await MyAppStore.clearStorage()
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let scope: ChatScope = .myApp(a.id)
+        await MiniAppStore.clearStorage()
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let scope: ChatScope = .miniApp(a.id)
         let tid = store.currentThreadId(for: scope)
         try writeJournal(["call_A": FrontendCallRecord(name: "addItem")], threadId: tid)
 
@@ -473,7 +473,7 @@ struct ParkedDispatchRecoveryTests {
     /// wiping the device's whole cached history.
     @Test("A snapshot written before the parked-dispatch field still decodes")
     func oldSnapshot_stillDecodes() async throws {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         let tid = "thread-\(UUID().uuidString)"
         // Build a genuine v1 file: save one, then strip the new key and stamp
         // the old version, exactly as a pre-#258 install would have left it.

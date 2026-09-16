@@ -10,11 +10,11 @@ private func makeSource(shellApprovalDisabled: Bool = false) -> GlobalSettingsSo
 
 private func makeSettings(
     globalShell: Bool = false,
-    myAppOverrides: [UUID: [String: SettingValue]] = [:]
+    miniAppOverrides: [UUID: [String: SettingValue]] = [:]
 ) -> EffectiveSettings {
     EffectiveSettings(
         globalSource: makeSource(shellApprovalDisabled: globalShell),
-        myAppSettings: myAppOverrides
+        miniAppSettings: miniAppOverrides
     )
 }
 
@@ -36,54 +36,54 @@ struct EffectiveSettingsTests {
         #expect(es.resolve(ShellApprovalDisabledKey.self, at: .global) == true)
     }
 
-    @Test("MyApp layer overrides global (true overrides false)")
-    func myAppOverridesGlobal_trueOverFalse() {
+    @Test("MiniApp layer overrides global (true overrides false)")
+    func miniAppOverridesGlobal_trueOverFalse() {
         let id = UUID()
         let es = makeSettings(
             globalShell: false,
-            myAppOverrides: [id: [ShellApprovalDisabledKey.name: .bool(true)]]
+            miniAppOverrides: [id: [ShellApprovalDisabledKey.name: .bool(true)]]
         )
-        #expect(es.resolve(ShellApprovalDisabledKey.self, at: .myApp(id)) == true)
+        #expect(es.resolve(ShellApprovalDisabledKey.self, at: .miniApp(id)) == true)
     }
 
-    @Test("MyApp layer overrides global (false overrides true)")
-    func myAppOverridesGlobal_falseOverTrue() {
+    @Test("MiniApp layer overrides global (false overrides true)")
+    func miniAppOverridesGlobal_falseOverTrue() {
         let id = UUID()
         let es = makeSettings(
             globalShell: true,
-            myAppOverrides: [id: [ShellApprovalDisabledKey.name: .bool(false)]]
+            miniAppOverrides: [id: [ShellApprovalDisabledKey.name: .bool(false)]]
         )
-        #expect(es.resolve(ShellApprovalDisabledKey.self, at: .myApp(id)) == false)
+        #expect(es.resolve(ShellApprovalDisabledKey.self, at: .miniApp(id)) == false)
     }
 
-    @Test("MyApp layer absent: falls back to global")
-    func myAppAbsent_fallsBackToGlobal() {
+    @Test("MiniApp layer absent: falls back to global")
+    func miniAppAbsent_fallsBackToGlobal() {
         let id = UUID()
         let otherId = UUID()
         let es = makeSettings(
             globalShell: true,
-            myAppOverrides: [otherId: [ShellApprovalDisabledKey.name: .bool(false)]]
+            miniAppOverrides: [otherId: [ShellApprovalDisabledKey.name: .bool(false)]]
         )
         // id has no override → picks up global true
-        #expect(es.resolve(ShellApprovalDisabledKey.self, at: .myApp(id)) == true)
+        #expect(es.resolve(ShellApprovalDisabledKey.self, at: .miniApp(id)) == true)
     }
 
-    @Test("Component scope falls through to myApp then global")
+    @Test("Component scope falls through to miniApp then global")
     func componentFallsThrough() {
-        let myAppId = UUID()
+        let miniAppId = UUID()
         let es = makeSettings(
             globalShell: false,
-            myAppOverrides: [myAppId: [ShellApprovalDisabledKey.name: .bool(true)]]
+            miniAppOverrides: [miniAppId: [ShellApprovalDisabledKey.name: .bool(true)]]
         )
-        let v = es.resolve(ShellApprovalDisabledKey.self, at: .component(myAppId: myAppId, componentId: "tracker-1"))
+        let v = es.resolve(ShellApprovalDisabledKey.self, at: .component(miniAppId: miniAppId, componentId: "tracker-1"))
         #expect(v == true)
     }
 
-    @Test("Component scope with no myApp override falls to global")
+    @Test("Component scope with no miniApp override falls to global")
     func componentFallsToGlobal() {
-        let myAppId = UUID()
-        let es = makeSettings(globalShell: true, myAppOverrides: [:])
-        let v = es.resolve(ShellApprovalDisabledKey.self, at: .component(myAppId: myAppId, componentId: "tracker-1"))
+        let miniAppId = UUID()
+        let es = makeSettings(globalShell: true, miniAppOverrides: [:])
+        let v = es.resolve(ShellApprovalDisabledKey.self, at: .component(miniAppId: miniAppId, componentId: "tracker-1"))
         #expect(v == true)
     }
 }
@@ -120,56 +120,56 @@ struct SettingValueCodableTests {
     }
 }
 
-// MARK: - ShellApproval integration with MyAppStore
+// MARK: - ShellApproval integration with MiniAppStore
 
 @MainActor
-@Suite("ShellApproval per-MyApp settings via MyAppStore")
+@Suite("ShellApproval per-MiniApp settings via MiniAppStore")
 struct ShellApprovalSettingsTests {
 
-    @Test("setMyAppSetting stores bool override")
+    @Test("setMiniAppSetting stores bool override")
     func storesBoolOverride() {
-        let store = MyAppStore(initial: nil)
-        let myAppId = store.addMyApp(typeId: "tracker", name: "My App", iconSystemName: "star")
-        store.setMyAppSetting(ShellApprovalDisabledKey.self, value: true, for: myAppId)
-        let myApp = store.myApp(withId: myAppId)
-        #expect(myApp?.settings[ShellApprovalDisabledKey.name] == .bool(true))
+        let store = MiniAppStore(initial: nil)
+        let miniAppId = store.addMiniApp(typeId: "tracker", name: "My App", iconSystemName: "star")
+        store.setMiniAppSetting(ShellApprovalDisabledKey.self, value: true, for: miniAppId)
+        let miniApp = store.miniApp(withId: miniAppId)
+        #expect(miniApp?.settings[ShellApprovalDisabledKey.name] == .bool(true))
     }
 
-    @Test("setMyAppSetting nil clears the override")
+    @Test("setMiniAppSetting nil clears the override")
     func clearsOverride() {
-        let store = MyAppStore(initial: nil)
-        let myAppId = store.addMyApp(typeId: "tracker", name: "My App", iconSystemName: "star")
-        store.setMyAppSetting(ShellApprovalDisabledKey.self, value: true, for: myAppId)
-        store.setMyAppSetting(ShellApprovalDisabledKey.self, value: nil, for: myAppId)
-        let myApp = store.myApp(withId: myAppId)
-        #expect(myApp?.settings[ShellApprovalDisabledKey.name] == nil)
+        let store = MiniAppStore(initial: nil)
+        let miniAppId = store.addMiniApp(typeId: "tracker", name: "My App", iconSystemName: "star")
+        store.setMiniAppSetting(ShellApprovalDisabledKey.self, value: true, for: miniAppId)
+        store.setMiniAppSetting(ShellApprovalDisabledKey.self, value: nil, for: miniAppId)
+        let miniApp = store.miniApp(withId: miniAppId)
+        #expect(miniApp?.settings[ShellApprovalDisabledKey.name] == nil)
     }
 
-    @Test("Per-myApp override beats global in EffectiveSettings")
+    @Test("Per-miniApp override beats global in EffectiveSettings")
     func overrideBeatsGlobal() {
-        let store = MyAppStore(initial: nil)
-        let myAppId = store.addMyApp(typeId: "tracker", name: "My App", iconSystemName: "star")
-        store.setMyAppSetting(ShellApprovalDisabledKey.self, value: true, for: myAppId)
+        let store = MiniAppStore(initial: nil)
+        let miniAppId = store.addMiniApp(typeId: "tracker", name: "My App", iconSystemName: "star")
+        store.setMiniAppSetting(ShellApprovalDisabledKey.self, value: true, for: miniAppId)
 
-        let myApp = store.myApp(withId: myAppId)!
+        let miniApp = store.miniApp(withId: miniAppId)!
         let es = EffectiveSettings(
             globalSource: GlobalSettingsSource(shellApprovalDisabled: false),
-            myAppSettings: [myAppId: myApp.settings]
+            miniAppSettings: [miniAppId: miniApp.settings]
         )
-        #expect(es.resolve(ShellApprovalDisabledKey.self, at: .myApp(myAppId)) == true)
+        #expect(es.resolve(ShellApprovalDisabledKey.self, at: .miniApp(miniAppId)) == true)
     }
 
     @Test("Absence of override defers to global")
     func absenceDefersToGlobal() {
-        let store = MyAppStore(initial: nil)
-        let myAppId = store.addMyApp(typeId: "tracker", name: "My App", iconSystemName: "star")
+        let store = MiniAppStore(initial: nil)
+        let miniAppId = store.addMiniApp(typeId: "tracker", name: "My App", iconSystemName: "star")
         // No override set
 
-        let myApp = store.myApp(withId: myAppId)!
+        let miniApp = store.miniApp(withId: miniAppId)!
         let es = EffectiveSettings(
             globalSource: GlobalSettingsSource(shellApprovalDisabled: true),
-            myAppSettings: [myAppId: myApp.settings]
+            miniAppSettings: [miniAppId: miniApp.settings]
         )
-        #expect(es.resolve(ShellApprovalDisabledKey.self, at: .myApp(myAppId)) == true)
+        #expect(es.resolve(ShellApprovalDisabledKey.self, at: .miniApp(miniAppId)) == true)
     }
 }

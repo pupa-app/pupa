@@ -8,7 +8,7 @@ import Foundation
 ///
 /// Discovered from disk by `AgentStore` — drop the file and the subagent
 /// exists. Invoked via the `invoke_agent` frontend tool, which spins a
-/// transient sub-session scoped to the parent MyApp (see
+/// transient sub-session scoped to the parent MiniApp (see
 /// `ChatSessionCoordinator.runSubagent`).
 public struct Subagent: Sendable, Hashable, Identifiable {
     /// Directory name (slugified). The `invoke_agent` target and `id`.
@@ -20,12 +20,12 @@ public struct Subagent: Sendable, Hashable, Identifiable {
     /// Extra "when to delegate to me" hint appended to `description`.
     public let whenToUse: String?
     /// Frontmatter `tools` — allowlist of tool names this subagent may use.
-    /// `nil` → inherit the parent MyApp's full surface (minus `disabledTools`).
+    /// `nil` → inherit the parent MiniApp's full surface (minus `disabledTools`).
     public let tools: [String]?
     /// Frontmatter `disabled_tools` — tool names to strip from the surface.
     public let disabledTools: [String]?
     /// Per-agent LLM model id (frontmatter `model`). Paired with `provider`;
-    /// both must be non-nil for the override to apply, else inherit the MyApp's.
+    /// both must be non-nil for the override to apply, else inherit the MiniApp's.
     public let model: String?
     /// Per-agent LLM provider (frontmatter `provider`). See `model`.
     public let provider: String?

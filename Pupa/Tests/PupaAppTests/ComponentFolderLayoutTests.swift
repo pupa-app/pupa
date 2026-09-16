@@ -12,34 +12,34 @@ struct ComponentFolderLayoutTests {
     init() { TestStorage.activate() }
 
     /// Fresh store with one app holding two components; returns (store, appId, [id]).
-    private func makeAppWithTwoComponents() async -> (MyAppStore, UUID, [String]) {
-        await MyAppStore.clearStorage()
-        let store = MyAppStore()
-        let appId = store.addMyApp(typeId: "tracker", name: "Folders", iconSystemName: "star")
-        let a = store.addComponent(kind: "tracker", name: "Alpha", iconSystemName: "a.circle", myAppId: appId)!
-        let b = store.addComponent(kind: "tracker", name: "Bravo", iconSystemName: "b.circle", myAppId: appId)!
+    private func makeAppWithTwoComponents() async -> (MiniAppStore, UUID, [String]) {
+        await MiniAppStore.clearStorage()
+        let store = MiniAppStore()
+        let appId = store.addMiniApp(typeId: "tracker", name: "Folders", iconSystemName: "star")
+        let a = store.addComponent(kind: "tracker", name: "Alpha", iconSystemName: "a.circle", miniAppId: appId)!
+        let b = store.addComponent(kind: "tracker", name: "Bravo", iconSystemName: "b.circle", miniAppId: appId)!
         return (store, appId, [a, b])
     }
 
     // MARK: - Agent / export invisibility invariant
 
-    @Test("Folder layout never leaks into an encoded MyApp")
-    func folderDataAbsentFromMyAppEncoding() async throws {
+    @Test("Folder layout never leaks into an encoded MiniApp")
+    func folderDataAbsentFromMiniAppEncoding() async throws {
         let (store, appId, ids) = await makeAppWithTwoComponents()
-        store.combineComponentsIntoFolder(ids[0], ids[1], myAppId: appId)
+        store.combineComponentsIntoFolder(ids[0], ids[1], miniAppId: appId)
         #expect(!store.componentFolders.isEmpty)   // layout exists off-model
 
-        let app = store.myApp(withId: appId)!
+        let app = store.miniApp(withId: appId)!
         let json = String(data: try JSONEncoder().encode(app), encoding: .utf8)!
         for needle in ["New Folder", "componentFolders", "assignments", "folderId"] {
-            #expect(!json.contains(needle), "encoded MyApp leaked \"\(needle)\"")
+            #expect(!json.contains(needle), "encoded MiniApp leaked \"\(needle)\"")
         }
     }
 
     @Test("Folder data lives in index.json, not the app file")
     func folderDataInIndexNotAppFile() async throws {
         let (store, appId, ids) = await makeAppWithTwoComponents()
-        store.combineComponentsIntoFolder(ids[0], ids[1], myAppId: appId)
+        store.combineComponentsIntoFolder(ids[0], ids[1], miniAppId: appId)
 
         let root = PupaStorage.stateRoot
         let appFile = root.appendingPathComponent("apps/\(appId.uuidString).json")
@@ -57,8 +57,8 @@ struct ComponentFolderLayoutTests {
     @Test("Combine creates a folder holding both components")
     func combineCreatesFolder() async throws {
         let (store, appId, ids) = await makeAppWithTwoComponents()
-        store.combineComponentsIntoFolder(ids[0], ids[1], myAppId: appId)
-        let layout = store.componentFolderLayout(forMyApp: appId)
+        store.combineComponentsIntoFolder(ids[0], ids[1], miniAppId: appId)
+        let layout = store.componentFolderLayout(forMiniApp: appId)
         #expect(layout.folders.count == 1)
         let fid = layout.folders[0].id
         #expect(Set(layout.componentIds(inFolder: fid)) == Set(ids))
@@ -67,32 +67,32 @@ struct ComponentFolderLayoutTests {
     @Test("Combine is a no-op on the same tile")
     func combineSameTileNoOp() async throws {
         let (store, appId, ids) = await makeAppWithTwoComponents()
-        store.combineComponentsIntoFolder(ids[0], ids[0], myAppId: appId)
-        #expect(store.componentFolderLayout(forMyApp: appId).folders.isEmpty)
+        store.combineComponentsIntoFolder(ids[0], ids[0], miniAppId: appId)
+        #expect(store.componentFolderLayout(forMiniApp: appId).folders.isEmpty)
     }
 
     @Test("Dropping onto an existing folder adds the component")
     func dropOntoFolderAdds() async throws {
-        await MyAppStore.clearStorage()
-        let store = MyAppStore()
-        let appId = store.addMyApp(typeId: "tracker", name: "F", iconSystemName: "star")
-        let a = store.addComponent(kind: "tracker", name: "A", iconSystemName: "a", myAppId: appId)!
-        let b = store.addComponent(kind: "tracker", name: "B", iconSystemName: "b", myAppId: appId)!
-        let c = store.addComponent(kind: "tracker", name: "C", iconSystemName: "c", myAppId: appId)!
-        store.combineComponentsIntoFolder(a, b, myAppId: appId)
-        let fid = store.componentFolderLayout(forMyApp: appId).folders[0].id
-        store.setComponentFolder(componentId: c, folderId: fid, myAppId: appId)
-        #expect(Set(store.componentFolderLayout(forMyApp: appId).componentIds(inFolder: fid)) == Set([a, b, c]))
+        await MiniAppStore.clearStorage()
+        let store = MiniAppStore()
+        let appId = store.addMiniApp(typeId: "tracker", name: "F", iconSystemName: "star")
+        let a = store.addComponent(kind: "tracker", name: "A", iconSystemName: "a", miniAppId: appId)!
+        let b = store.addComponent(kind: "tracker", name: "B", iconSystemName: "b", miniAppId: appId)!
+        let c = store.addComponent(kind: "tracker", name: "C", iconSystemName: "c", miniAppId: appId)!
+        store.combineComponentsIntoFolder(a, b, miniAppId: appId)
+        let fid = store.componentFolderLayout(forMiniApp: appId).folders[0].id
+        store.setComponentFolder(componentId: c, folderId: fid, miniAppId: appId)
+        #expect(Set(store.componentFolderLayout(forMiniApp: appId).componentIds(inFolder: fid)) == Set([a, b, c]))
     }
 
     @Test("Move out drops the assignment; last item auto-dissolves the folder")
     func moveOutAutoDissolves() async throws {
         let (store, appId, ids) = await makeAppWithTwoComponents()
-        store.combineComponentsIntoFolder(ids[0], ids[1], myAppId: appId)
-        store.setComponentFolder(componentId: ids[0], folderId: nil, myAppId: appId)
+        store.combineComponentsIntoFolder(ids[0], ids[1], miniAppId: appId)
+        store.setComponentFolder(componentId: ids[0], folderId: nil, miniAppId: appId)
         // One member left → folder survives.
-        #expect(store.componentFolderLayout(forMyApp: appId).folders.count == 1)
-        store.setComponentFolder(componentId: ids[1], folderId: nil, myAppId: appId)
+        #expect(store.componentFolderLayout(forMiniApp: appId).folders.count == 1)
+        store.setComponentFolder(componentId: ids[1], folderId: nil, miniAppId: appId)
         // Empty → dissolved, and the whole app entry cleared.
         #expect(store.componentFolders[appId.uuidString] == nil)
     }
@@ -100,41 +100,41 @@ struct ComponentFolderLayoutTests {
     @Test("Deleting a folder returns children to the top level")
     func deleteFolderReturnsChildren() async throws {
         let (store, appId, ids) = await makeAppWithTwoComponents()
-        store.combineComponentsIntoFolder(ids[0], ids[1], myAppId: appId)
-        let fid = store.componentFolderLayout(forMyApp: appId).folders[0].id
-        store.removeComponentFolder(folderId: fid, myAppId: appId)
+        store.combineComponentsIntoFolder(ids[0], ids[1], miniAppId: appId)
+        let fid = store.componentFolderLayout(forMiniApp: appId).folders[0].id
+        store.removeComponentFolder(folderId: fid, miniAppId: appId)
         // Folder gone, but the components themselves survive at the top level.
         #expect(store.componentFolders[appId.uuidString] == nil)
-        let comps = Set(store.myApp(withId: appId)!.components.map(\.id))
+        let comps = Set(store.miniApp(withId: appId)!.components.map(\.id))
         #expect(comps.isSuperset(of: Set(ids)))
     }
 
     @Test("Renaming a folder updates its name")
     func renameFolder() async throws {
         let (store, appId, ids) = await makeAppWithTwoComponents()
-        store.combineComponentsIntoFolder(ids[0], ids[1], myAppId: appId)
-        let fid = store.componentFolderLayout(forMyApp: appId).folders[0].id
-        store.renameComponentFolder(folderId: fid, name: "Work", myAppId: appId)
-        #expect(store.componentFolderLayout(forMyApp: appId).folders[0].name == "Work")
+        store.combineComponentsIntoFolder(ids[0], ids[1], miniAppId: appId)
+        let fid = store.componentFolderLayout(forMiniApp: appId).folders[0].id
+        store.renameComponentFolder(folderId: fid, name: "Work", miniAppId: appId)
+        #expect(store.componentFolderLayout(forMiniApp: appId).folders[0].name == "Work")
     }
 
     @Test("Removing a component prunes its stale assignment and empty folder")
     func removeComponentPrunes() async throws {
         // Three components (a store refuses to delete the last one), two foldered.
-        await MyAppStore.clearStorage()
-        let store = MyAppStore()
-        let appId = store.addMyApp(typeId: "tracker", name: "F", iconSystemName: "star")
-        let a = store.addComponent(kind: "tracker", name: "A", iconSystemName: "a", myAppId: appId)!
-        let b = store.addComponent(kind: "tracker", name: "B", iconSystemName: "b", myAppId: appId)!
-        _ = store.addComponent(kind: "tracker", name: "C", iconSystemName: "c", myAppId: appId)!
-        store.combineComponentsIntoFolder(a, b, myAppId: appId)
+        await MiniAppStore.clearStorage()
+        let store = MiniAppStore()
+        let appId = store.addMiniApp(typeId: "tracker", name: "F", iconSystemName: "star")
+        let a = store.addComponent(kind: "tracker", name: "A", iconSystemName: "a", miniAppId: appId)!
+        let b = store.addComponent(kind: "tracker", name: "B", iconSystemName: "b", miniAppId: appId)!
+        _ = store.addComponent(kind: "tracker", name: "C", iconSystemName: "c", miniAppId: appId)!
+        store.combineComponentsIntoFolder(a, b, miniAppId: appId)
 
-        store.removeComponent(componentId: a, myAppId: appId)
-        let layout = store.componentFolderLayout(forMyApp: appId)
+        store.removeComponent(componentId: a, miniAppId: appId)
+        let layout = store.componentFolderLayout(forMiniApp: appId)
         #expect(layout.folderId(forComponent: a) == nil)
         // One member remains → folder still present.
         #expect(layout.folders.count == 1)
-        store.removeComponent(componentId: b, myAppId: appId)
+        store.removeComponent(componentId: b, miniAppId: appId)
         #expect(store.componentFolders[appId.uuidString] == nil)
     }
 
@@ -143,11 +143,11 @@ struct ComponentFolderLayoutTests {
     @Test("Folder layout round-trips through a fresh store")
     func persistenceRoundTrip() async throws {
         let (store, appId, ids) = await makeAppWithTwoComponents()
-        store.combineComponentsIntoFolder(ids[0], ids[1], myAppId: appId)
-        let fid = store.componentFolderLayout(forMyApp: appId).folders[0].id
+        store.combineComponentsIntoFolder(ids[0], ids[1], miniAppId: appId)
+        let fid = store.componentFolderLayout(forMiniApp: appId).folders[0].id
 
-        let reader = MyAppStore()   // reloads the same on-disk root
-        let layout = reader.componentFolderLayout(forMyApp: appId)
+        let reader = MiniAppStore()   // reloads the same on-disk root
+        let layout = reader.componentFolderLayout(forMiniApp: appId)
         #expect(layout.folders.map(\.id) == [fid])
         #expect(Set(layout.componentIds(inFolder: fid)) == Set(ids))
     }
@@ -163,8 +163,8 @@ struct ComponentFolderLayoutTests {
         obj.removeValue(forKey: "componentFolders")
         try CloudDocument.write(try JSONSerialization.data(withJSONObject: obj), to: indexFile)
 
-        let reader = MyAppStore()
-        #expect(reader.myApp(withId: appId) != nil)
+        let reader = MiniAppStore()
+        #expect(reader.miniApp(withId: appId) != nil)
         #expect(reader.componentFolders.isEmpty)
     }
 }

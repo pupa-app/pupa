@@ -10,15 +10,15 @@ import AGUIKit
 @Suite("Bulk tracker tools")
 struct BulkTrackerToolsTests {
 
-    private func makeStore() -> (store: MyAppStore, myAppId: UUID) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApp = MyApp(
+    private func makeStore() -> (store: MiniAppStore, miniAppId: UUID) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApp = MiniApp(
             name: "T",
             iconSystemName: "list.bullet.rectangle",
-            typeId: MyAppType.tracker.id
+            typeId: MiniAppType.tracker.id
         )
-        let store = MyAppStore(initial: ([myApp], myApp.id))
-        return (store, myApp.id)
+        let store = MiniAppStore(initial: ([miniApp], miniApp.id))
+        return (store, miniApp.id)
     }
 
     private func renderTracker(_ registry: ToolRegistry) async throws {
@@ -34,9 +34,9 @@ struct BulkTrackerToolsTests {
         ]))
     }
 
-    private func trackerItems(_ store: MyAppStore, _ myAppId: UUID) -> [TrackerItem] {
-        guard let myApp = store.myApps.first(where: { $0.id == myAppId }) else { return [] }
-        if case .tracker(let t) = myApp.canvas { return t.items }
+    private func trackerItems(_ store: MiniAppStore, _ miniAppId: UUID) -> [TrackerItem] {
+        guard let miniApp = store.miniApps.first(where: { $0.id == miniAppId }) else { return [] }
+        if case .tracker(let t) = miniApp.canvas { return t.items }
         return []
     }
 
@@ -44,9 +44,9 @@ struct BulkTrackerToolsTests {
 
     @Test("addTrackerItems appends every item in one call and echoes their ids + total")
     func addTrackerItems_appendsAllInOneCall() async throws {
-        let (store, myAppId) = makeStore()
+        let (store, miniAppId) = makeStore()
         let registry = ToolRegistry()
-        AppTools.registerMyAppTools(on: registry, store: store, myAppId: myAppId)
+        AppTools.registerMiniAppTools(on: registry, store: store, miniAppId: miniAppId)
         try await renderTracker(registry)
 
         guard let add = registry.resolve("addTrackerItems") else {
@@ -67,15 +67,15 @@ struct BulkTrackerToolsTests {
         #expect(added.count == 3)
         #expect(result.objectValue?["totalItems"]?.intValue == 3)
 
-        let items = trackerItems(store, myAppId)
+        let items = trackerItems(store, miniAppId)
         #expect(items.map { $0.values["note"] ?? "" } == ["a", "b", "c"])
     }
 
     @Test("addTrackerItems with empty array is a no-op that reports totalItems")
     func addTrackerItems_emptyArrayNoop() async throws {
-        let (store, myAppId) = makeStore()
+        let (store, miniAppId) = makeStore()
         let registry = ToolRegistry()
-        AppTools.registerMyAppTools(on: registry, store: store, myAppId: myAppId)
+        AppTools.registerMiniAppTools(on: registry, store: store, miniAppId: miniAppId)
         try await renderTracker(registry)
 
         // Seed one item so totalItems > 0.
@@ -90,14 +90,14 @@ struct BulkTrackerToolsTests {
         #expect(result.objectValue?["ok"]?.boolValue == true)
         #expect(result.objectValue?["ids"]?.arrayValue?.count == 0)
         #expect(result.objectValue?["totalItems"]?.intValue == 1)
-        #expect(trackerItems(store, myAppId).count == 1)
+        #expect(trackerItems(store, miniAppId).count == 1)
     }
 
     @Test("addTrackerItems with missing items returns ok=false")
     func addTrackerItems_missingArrayIsError() async throws {
-        let (store, myAppId) = makeStore()
+        let (store, miniAppId) = makeStore()
         let registry = ToolRegistry()
-        AppTools.registerMyAppTools(on: registry, store: store, myAppId: myAppId)
+        AppTools.registerMiniAppTools(on: registry, store: store, miniAppId: miniAppId)
         try await renderTracker(registry)
 
         let result = try await registry.resolve("addTrackerItems")!.handler(.object([:]))
@@ -109,9 +109,9 @@ struct BulkTrackerToolsTests {
 
     @Test("patchTrackerItems applies each patch and echoes per-entry results")
     func patchTrackerItems_appliesAll() async throws {
-        let (store, myAppId) = makeStore()
+        let (store, miniAppId) = makeStore()
         let registry = ToolRegistry()
-        AppTools.registerMyAppTools(on: registry, store: store, myAppId: myAppId)
+        AppTools.registerMiniAppTools(on: registry, store: store, miniAppId: miniAppId)
         try await renderTracker(registry)
 
         // Seed three items.
@@ -143,7 +143,7 @@ struct BulkTrackerToolsTests {
         #expect(results.count == 2)
         #expect(results.allSatisfy { $0.objectValue?["ok"]?.boolValue == true })
 
-        let items = trackerItems(store, myAppId)
+        let items = trackerItems(store, miniAppId)
         #expect(items[0].values["priority"] == "hi")
         #expect(items[1].values["priority"] == nil)
         #expect(items[2].values["priority"] == "lo")
@@ -151,9 +151,9 @@ struct BulkTrackerToolsTests {
 
     @Test("patchTrackerItems reports partial failures without aborting later patches")
     func patchTrackerItems_partialFailure() async throws {
-        let (store, myAppId) = makeStore()
+        let (store, miniAppId) = makeStore()
         let registry = ToolRegistry()
-        AppTools.registerMyAppTools(on: registry, store: store, myAppId: myAppId)
+        AppTools.registerMiniAppTools(on: registry, store: store, miniAppId: miniAppId)
         try await renderTracker(registry)
 
         let bulkAdd = try await registry.resolve("addTrackerItems")!.handler(.object([
@@ -188,7 +188,7 @@ struct BulkTrackerToolsTests {
         #expect(results[2].objectValue?["ok"]?.boolValue == true)
         #expect(result.objectValue?["ok"]?.boolValue == false)  // overall ok=false on partial
 
-        let items = trackerItems(store, myAppId)
+        let items = trackerItems(store, miniAppId)
         #expect(items[0].values["priority"] == "hi")
         #expect(items[1].values["priority"] == "lo")
     }
@@ -197,9 +197,9 @@ struct BulkTrackerToolsTests {
 
     @Test("removeTrackerItems removes every target in one call, indices resolved before mutation")
     func removeTrackerItems_resolvesIndicesUpfront() async throws {
-        let (store, myAppId) = makeStore()
+        let (store, miniAppId) = makeStore()
         let registry = ToolRegistry()
-        AppTools.registerMyAppTools(on: registry, store: store, myAppId: myAppId)
+        AppTools.registerMiniAppTools(on: registry, store: store, miniAppId: miniAppId)
         try await renderTracker(registry)
 
         _ = try await registry.resolve("addTrackerItems")!.handler(.object([
@@ -226,15 +226,15 @@ struct BulkTrackerToolsTests {
         #expect(results.count == 2)
         #expect(result.objectValue?["totalItems"]?.intValue == 2)
 
-        let remaining = trackerItems(store, myAppId).map { $0.values["note"] ?? "" }
+        let remaining = trackerItems(store, miniAppId).map { $0.values["note"] ?? "" }
         #expect(remaining == ["b", "d"])
     }
 
     @Test("removeTrackerItems reports partial failures without aborting")
     func removeTrackerItems_partialFailure() async throws {
-        let (store, myAppId) = makeStore()
+        let (store, miniAppId) = makeStore()
         let registry = ToolRegistry()
-        AppTools.registerMyAppTools(on: registry, store: store, myAppId: myAppId)
+        AppTools.registerMiniAppTools(on: registry, store: store, miniAppId: miniAppId)
         try await renderTracker(registry)
 
         let bulkAdd = try await registry.resolve("addTrackerItems")!.handler(.object([
@@ -264,9 +264,9 @@ struct BulkTrackerToolsTests {
 
     // MARK: - Tool surface
 
-    @Test("Bulk tools are registered in MyAppType.tracker.toolNamesByKind[\"tracker\"]")
+    @Test("Bulk tools are registered in MiniAppType.tracker.toolNamesByKind[\"tracker\"]")
     func bulkToolNamesAdvertised() {
-        let tracker = MyAppType.tracker
+        let tracker = MiniAppType.tracker
         let names = tracker.toolNamesByKind["tracker"] ?? []
         #expect(names.contains("addTrackerItems"))
         #expect(names.contains("patchTrackerItems"))

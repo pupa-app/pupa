@@ -11,7 +11,7 @@ struct ProfileSettingsView: View {
     @Bindable var settings: SettingsStore
     /// Optional so the screen degrades in previews (matches SettingsSheet's
     /// `canShare` pattern). When nil the Data section hides.
-    var store: MyAppStore?
+    var store: MiniAppStore?
     var memory: MemoryStore?
 
     /// Gate the destructive first prune behind a confirmation (enabling the cap
@@ -137,19 +137,19 @@ struct ProfileSettingsView: View {
             Text("iCloud Sync")
         } footer: {
             Text(iCloudActive
-                 ? "Your MyApps, memories and settings sync automatically across your devices signed in to the same Apple ID."
-                 : "Sign in to iCloud to sync your MyApps, memories and settings across your devices. Data is kept on this device until then.")
+                 ? "Your MiniApps, memories and settings sync automatically across your devices signed in to the same Apple ID."
+                 : "Sign in to iCloud to sync your MiniApps, memories and settings across your devices. Data is kept on this device until then.")
         }
     }
 
     // MARK: Data overview
 
-    private func dataSection(store: MyAppStore, memory: MemoryStore) -> some View {
+    private func dataSection(store: MiniAppStore, memory: MemoryStore) -> some View {
         let fileCount = memory.snapshotPaths().count
         let totalBytes = Self.totalBytes(memory.tree)
-        let chatCount = store.myApps.reduce(0) { $0 + $1.threads.count } + store.memoryThreads.count
+        let chatCount = store.miniApps.reduce(0) { $0 + $1.threads.count } + store.memoryThreads.count
         return Section("Data") {
-            LabeledContent("MyApps", value: "\(store.myApps.count)")
+            LabeledContent("MiniApps", value: "\(store.miniApps.count)")
             LabeledContent("Chats", value: "\(chatCount)")
             LabeledContent("Memories") {
                 Text(fileCount == 1 ? "1 file" : "\(fileCount) files")
@@ -161,12 +161,12 @@ struct ProfileSettingsView: View {
 
     // MARK: Chat storage cap
 
-    /// Opt-in per-MyApp chat-storage cap. A stored chat is only local metadata
+    /// Opt-in per-MiniApp chat-storage cap. A stored chat is only local metadata
     /// (its transcript lives on the backend), so the limit is fractional-MB and
-    /// deletes the oldest chats once a MyApp exceeds it. Enabling is confirmed
+    /// deletes the oldest chats once a MiniApp exceeds it. Enabling is confirmed
     /// (it's destructive and syncs); lowering the limit prunes on a debounce so
     /// scrubbing the `Stepper` doesn't fire a full prune per 0.1 tick.
-    private func chatStorageSection(store: MyAppStore) -> some View {
+    private func chatStorageSection(store: MiniAppStore) -> some View {
         Section {
             Toggle(isOn: Binding(
                 get: { settings.threadCapEnabled },
@@ -179,7 +179,7 @@ struct ProfileSettingsView: View {
             )) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Auto-delete old chats")
-                    Text("Keep only recent chats per MyApp within a size limit.")
+                    Text("Keep only recent chats per MiniApp within a size limit.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -200,7 +200,7 @@ struct ProfileSettingsView: View {
                 set: { settings.setThreadCapMB($0); scheduleCapPrune(store) }
             ), in: SettingsStore.threadCapMBRange, step: 0.1) {
                 LabeledContent(
-                    "Limit per MyApp",
+                    "Limit per MiniApp",
                     value: settings.threadCapMB.formatted(.number.precision(.fractionLength(1))) + " MB"
                 )
             }
@@ -208,13 +208,13 @@ struct ProfileSettingsView: View {
         } header: {
             Text("Chat storage")
         } footer: {
-            Text("Keeps only the most recent chats per MyApp within this size. Older chats are removed here and on synced devices; backend history is unaffected.")
+            Text("Keeps only the most recent chats per MiniApp within this size. Older chats are removed here and on synced devices; backend history is unaffected.")
         }
     }
 
     /// Coalesce rapid `Stepper` changes into one prune ~400ms after the last
     /// edit, so a press-and-hold doesn't run a full prune + persist per tick.
-    private func scheduleCapPrune(_ store: MyAppStore) {
+    private func scheduleCapPrune(_ store: MiniAppStore) {
         capPruneTask?.cancel()
         capPruneTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(400))

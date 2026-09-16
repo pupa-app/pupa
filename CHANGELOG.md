@@ -3,6 +3,12 @@
 All notable changes to the Pupa iOS / macOS repo are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) — patch-only bumps (`0.0.X` → `0.0.X+1`).
 
+## [0.0.286] — 2026-09-16
+
+### Changed
+
+- **MyApps are now MiniApps.** Existing apps, memories, and history stay in place. Pupa migrates saved sidebar metadata and accepts older bundles, links, notifications, and agent tool names. New exports use the MiniApp bundle format; devices sharing an iCloud library should update together.
+
 ## [0.0.285] — 2026-09-08
 
 ### Fixed
