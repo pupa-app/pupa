@@ -88,7 +88,7 @@ final class RelaunchMockURLProtocol: URLProtocol, @unchecked Sendable {
 /// reattaches on first open, continuing the transcript from where the cache
 /// ends instead of showing "connection closed".
 ///
-/// Disk-backed: `TestStorage.activate()` + `MyAppStore.clearStorage()` per the
+/// Disk-backed: `TestStorage.activate()` + `MiniAppStore.clearStorage()` per the
 /// shared-root serial rule.
 @MainActor
 @Suite("Relaunch catch-up", .serialized)
@@ -108,7 +108,7 @@ struct RelaunchCatchUpTests {
         return URLSession(configuration: cfg)
     }
 
-    private func makeVM(store: MyAppStore, scope: ChatScope,
+    private func makeVM(store: MiniAppStore, scope: ChatScope,
                         session: URLSession? = nil) -> ChatViewModel {
         ChatViewModel(
             store: store, memory: makeMemory(),
@@ -135,13 +135,13 @@ struct RelaunchCatchUpTests {
 
     @Test("in-flight snapshot on first open seeds after_seq and replays the tail into the transcript")
     func relaunch_inFlightSnapshot_catchesUp() async {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         RelaunchMockURLProtocol.reset()
-        MyAppTypeRegistry.shared.registerBuiltins()
+        MiniAppTypeRegistry.shared.registerBuiltins()
 
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let scope: ChatScope = .myApp(a.id)
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let scope: ChatScope = .miniApp(a.id)
         let tid = store.currentThreadId(for: scope)
 
         // The state a kill left behind: user question + half an answer, cursor
@@ -194,13 +194,13 @@ struct RelaunchCatchUpTests {
     /// Recoverability is `turnMayStillBeRunning`, never the banner.
     @Test("a catch-up that fails on a dead VPN stays recoverable — the next relaunch retries")
     func relaunch_failedBanner_keepsTurnInFlight() async {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         RelaunchMockURLProtocol.reset()
-        MyAppTypeRegistry.shared.registerBuiltins()
+        MiniAppTypeRegistry.shared.registerBuiltins()
 
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let scope: ChatScope = .myApp(a.id)
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let scope: ChatScope = .miniApp(a.id)
         let tid = store.currentThreadId(for: scope)
 
         TranscriptCache.save(
@@ -243,13 +243,13 @@ struct RelaunchCatchUpTests {
     /// this state; these are its unaudited *producers*.
     @Test("a retry clears the recoverable latch — it must not stick true")
     func turnMayStillBeRunning_clearedOnRetry() async {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         RelaunchMockURLProtocol.reset()
-        MyAppTypeRegistry.shared.registerBuiltins()
+        MiniAppTypeRegistry.shared.registerBuiltins()
 
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let scope: ChatScope = .myApp(a.id)
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let scope: ChatScope = .miniApp(a.id)
         let tid = store.currentThreadId(for: scope)
 
         TranscriptCache.save(
@@ -283,13 +283,13 @@ struct RelaunchCatchUpTests {
 
     @Test("settled snapshot does not fire a reattach on open")
     func relaunch_settledSnapshot_noCatchUp() async {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         RelaunchMockURLProtocol.reset()
-        MyAppTypeRegistry.shared.registerBuiltins()
+        MiniAppTypeRegistry.shared.registerBuiltins()
 
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let scope: ChatScope = .myApp(a.id)
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let scope: ChatScope = .miniApp(a.id)
         let tid = store.currentThreadId(for: scope)
         TranscriptCache.save(
             TranscriptSnapshot(bubbles: [ChatBubble(role: .user, text: "done")],
@@ -306,13 +306,13 @@ struct RelaunchCatchUpTests {
 
     @Test("expired replay buffer (204) settles the catch-up silently — no dropped-stream notice")
     func relaunch_bufferGone_settlesSilently() async {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         RelaunchMockURLProtocol.reset()  // sseBody nil → POST answered 204
-        MyAppTypeRegistry.shared.registerBuiltins()
+        MiniAppTypeRegistry.shared.registerBuiltins()
 
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let scope: ChatScope = .myApp(a.id)
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let scope: ChatScope = .miniApp(a.id)
         let tid = store.currentThreadId(for: scope)
         TranscriptCache.save(
             TranscriptSnapshot(bubbles: [ChatBubble(role: .user, text: "old turn")],
@@ -335,12 +335,12 @@ struct RelaunchCatchUpTests {
 
     @Test("send persists an in-flight snapshot so an immediate kill can catch up")
     func send_persistsInFlightSnapshot() async {
-        await MyAppStore.clearStorage()
-        MyAppTypeRegistry.shared.registerBuiltins()
+        await MiniAppStore.clearStorage()
+        MiniAppTypeRegistry.shared.registerBuiltins()
 
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let scope: ChatScope = .myApp(a.id)
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let scope: ChatScope = .miniApp(a.id)
         let tid = store.currentThreadId(for: scope)
 
         // Blackholed connect keeps the turn in flight while we inspect the cache.
@@ -362,15 +362,15 @@ struct RelaunchCatchUpTests {
 
     @Test("coordinator persistAllForBackground snapshots every streaming session")
     func background_persistsStreamingSessions() async {
-        await MyAppStore.clearStorage()
-        MyAppTypeRegistry.shared.registerBuiltins()
+        await MiniAppStore.clearStorage()
+        MiniAppTypeRegistry.shared.registerBuiltins()
 
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
         let coord = ChatSessionCoordinator(
             store: store, memory: makeMemory(),
             settings: SettingsStore(backendURL: URL(string: "http://192.0.2.1/")!))
-        let vm = coord.session(for: .myApp(a.id))
+        let vm = coord.session(for: .miniApp(a.id))
         let tid = vm.threadId
 
         vm.send("background me")
@@ -387,11 +387,11 @@ struct RelaunchCatchUpTests {
 
     @Test("cursorAdvanced events drive the applied replay cursor")
     func apply_tracksAppliedCursor() async {
-        await MyAppStore.clearStorage()
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let vm = makeVM(store: store, scope: .myApp(a.id))
+        await MiniAppStore.clearStorage()
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let vm = makeVM(store: store, scope: .miniApp(a.id))
 
         #expect(vm.appliedEventSeq == nil)
         vm.apply(.cursorAdvanced(7))
@@ -402,11 +402,11 @@ struct RelaunchCatchUpTests {
 
     @Test("assistantMessageEnd never truncates a hydrated head when the buffer only holds the tail")
     func apply_messageEnd_suffixGuard() async {
-        await MyAppStore.clearStorage()
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let vm = makeVM(store: store, scope: .myApp(a.id))
+        await MiniAppStore.clearStorage()
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let vm = makeVM(store: store, scope: .miniApp(a.id))
 
         // Live stream: bubble accumulates "head", then the post-relaunch
         // session buffer only saw " tail".

@@ -9,7 +9,7 @@ public struct ChecklistModule: ComponentModule {
     public let kind = "checklist"
     public let defaultIcon = "checklist"
 
-    /// Owned here; `MyAppType.tracker.kinds` assembles from this at load.
+    /// Owned here; `MiniAppType.tracker.kinds` assembles from this at load.
     public nonisolated static let kindSpec = ComponentKindSpec(
         tools: [
             "renderChecklist",
@@ -36,8 +36,8 @@ public struct ChecklistModule: ComponentModule {
     public var linkPickerEmptyHint: String { "No rows on this checklist yet" }
     public func linkableItems(
         in component: Component,
-        store: MyAppStore,
-        myAppId: UUID
+        store: MiniAppStore,
+        miniAppId: UUID
     ) -> [(id: UUID, displayName: String)] {
         guard case .checklist(let cl) = component.body else { return [] }
         return cl.items.map { item in
@@ -63,17 +63,17 @@ public struct ChecklistModule: ComponentModule {
 
     public func makeView(
         component: Component,
-        store: MyAppStore,
-        myAppId: UUID,
+        store: MiniAppStore,
+        miniAppId: UUID,
         coordinator: ChatSessionCoordinator?
     ) -> AnyView {
         guard case .checklist(let data) = component.body else { return AnyView(EmptyView()) }
         return AnyView(ChecklistView(
-            store: store, data: data, myAppId: myAppId, componentId: component.id))
+            store: store, data: data, miniAppId: miniAppId, componentId: component.id))
     }
 
     public func registerTools(on registry: ToolRegistry, context: ComponentToolContext) {
         AppTools.registerChecklistTools(
-            on: registry, store: context.store, myAppId: context.myAppId)
+            on: registry, store: context.store, miniAppId: context.miniAppId)
     }
 }

@@ -12,10 +12,10 @@ struct DeterministicRequestTests {
 
     @Test func encodingInitSortsKeys() throws {
         let entry = AgentContextEntry(
-            description: "myApp type",
-            encoding: ["typeId": "tracker", "myAppName": "WebExplorer"]
+            description: "miniApp type",
+            encoding: ["typeId": "tracker", "miniAppName": "WebExplorer"]
         )
-        #expect(entry.value == #"{"myAppName":"WebExplorer","typeId":"tracker"}"#)
+        #expect(entry.value == #"{"miniAppName":"WebExplorer","typeId":"tracker"}"#)
     }
 
     @Test func encodingInitIsStableAcrossManyEncodes() throws {
@@ -152,8 +152,8 @@ struct DeterministicWire {
                     ]
                 )],
                 context: [AgentContextEntry(
-                    description: "myApp type",
-                    encoding: ["typeId": "tracker", "myAppName": "WebExplorer"]
+                    description: "miniApp type",
+                    encoding: ["typeId": "tracker", "miniAppName": "WebExplorer"]
                 )]
             )
             for try await _ in client.run(input) {}

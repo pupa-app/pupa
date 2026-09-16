@@ -6,11 +6,11 @@ import Foundation
 /// `pupa-mention://` interception `SlackView` already does for DMs.
 ///
 /// **Scope-relative by design.** The agent only ever sees note paths
-/// *relative to its own memory root* (the myApp's store is rooted at
-/// `appRoot(myAppId:)`), so it emits `pupa://memory/<that-same-path>`
+/// *relative to its own memory root* (the miniApp's store is rooted at
+/// `appRoot(miniAppId:)`), so it emits `pupa://memory/<that-same-path>`
 /// — no app id, no global-root knowledge. The resolver binds the path to
-/// the chat's current scope: a myApp chat → `.myAppMemoryFile`, the
-/// orchestrator → `.memoryFile`. The explicit `myapp/<uuid>/memory/…`
+/// the chat's current scope: a miniApp chat → `.miniAppMemoryFile`, the
+/// orchestrator → `.memoryFile`. The explicit `miniapp/<uuid>/memory/…`
 /// form exists only for cross-scope links (e.g. the orchestrator pointing
 /// into one app); the per-app agent never needs it.
 public enum ChatLink {
@@ -19,17 +19,17 @@ public enum ChatLink {
     public static let scheme = "pupa"
 
     /// Resolve a `pupa://` URL to a navigation target, or `nil` if it isn't
-    /// one (callers fall through to `.systemAction`). `currentMyAppId` is the
-    /// myApp owning the chat the link was tapped in — `nil` in orchestrator
+    /// one (callers fall through to `.systemAction`). `currentMiniAppId` is the
+    /// miniApp owning the chat the link was tapped in — `nil` in orchestrator
     /// scope — used to bind scope-relative `memory` / `component` links.
     ///
     /// Forms:
     /// - `pupa://memory/<path>` — scope-relative note
-    /// - `pupa://myapp/<uuid>/memory/<path>` — explicit cross-scope note
-    /// - `pupa://component/<componentId>` — component in the current myApp
+    /// - `pupa://miniapp/<uuid>/memory/<path>` — explicit cross-scope note
+    /// - `pupa://component/<componentId>` — component in the current miniApp
     public static func sidebarSelection(
         from url: URL,
-        currentMyAppId: UUID?
+        currentMiniAppId: UUID?
     ) -> SidebarSelection? {
         guard url.scheme == scheme,
               let host = url.host(percentEncoded: false) else { return nil }
@@ -41,18 +41,18 @@ public enum ChatLink {
         case "memory":
             let path = segments.joined(separator: "/")
             guard !path.isEmpty else { return nil }
-            return currentMyAppId.map { .myAppMemoryFile($0, path) } ?? .memoryFile(path)
+            return currentMiniAppId.map { .miniAppMemoryFile($0, path) } ?? .memoryFile(path)
 
-        case "myapp":
-            // myapp/<uuid>/memory/<path…>
+        case "miniapp", "myapp":
+            // miniapp/<uuid>/memory/<path…>
             guard segments.count >= 3, segments[1] == "memory",
                   let id = UUID(uuidString: segments[0]) else { return nil }
-            return .myAppMemoryFile(id, segments.dropFirst(2).joined(separator: "/"))
+            return .miniAppMemoryFile(id, segments.dropFirst(2).joined(separator: "/"))
 
         case "component":
-            guard let id = currentMyAppId,
+            guard let id = currentMiniAppId,
                   let componentId = segments.first, !componentId.isEmpty else { return nil }
-            return .myAppComponent(id, componentId)
+            return .miniAppComponent(id, componentId)
 
         default:
             return nil
@@ -77,7 +77,7 @@ public enum ChatLink {
         case "memory":
             return segments.last.map(noteName)
 
-        case "myapp":
+        case "miniapp", "myapp":
             guard segments.count >= 3, segments[1] == "memory",
                   UUID(uuidString: segments[0]) != nil else { return nil }
             return segments.last.map(noteName)

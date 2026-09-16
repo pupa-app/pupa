@@ -1,21 +1,27 @@
 # Export / Import (marketplace foundation)
 
-How a MyApp is turned into a portable artifact and rebuilt elsewhere. Code:
+How a MiniApp is turned into a portable artifact and rebuilt elsewhere. Code:
 [Pupa/Sources/PupaApp/Marketplace/](../Pupa/Sources/PupaApp/Marketplace/).
 Building the seeded templates that ship as bundles: [templates.md](templates.md).
 
 ## What a bundle is
 
-A `.pupa` file is **inert JSON** — `MyAppBundle` (`MyAppBundle.swift`):
+A `.pupa` file is **inert JSON** — `MiniAppBundle` (`MiniAppBundle.swift`):
+
+New single-app exports use `pupa.miniapp.bundle`. Import also accepts the earlier
+`pupa.myapp.bundle` magic, including inside library bundles. The `.pupa`
+extension and file type remain unchanged.
+The embedded Job Search bundle keeps its published bytes, including the old
+magic. Managed guide skills refresh to MiniApp wording on launch.
 
 ```
-header   (read & validated first)   app (Codable MyApp tree)   memories[]
+header   (read & validated first)   app (Codable MiniApp tree)   memories[]
 ```
 
 - `header`: `format` magic, `formatVersion` (hard-reject when newer),
   `appVersion` (soft-warn when newer), `exportedAt`, `includedRecords`,
   `includedMemories`.
-- `app`: the whole `MyApp` — the single source of truth. No parallel schema.
+- `app`: the whole `MiniApp` — the single source of truth. No parallel schema.
   A component's editable `name` / `iconSystemName` / `summary` already live
   here, so renaming or re-iconing a component (via `setComponentMeta`) needs
   **no format change** — `formatVersion` stays put and old bundles load as-is.
@@ -37,7 +43,7 @@ app and is dispatched by component `kind`.
 Every cross-component reference is enumerated and pruned in **one** place —
 `CanvasApp.componentReferences()` / `remapReferences(keepComponent:keepItem:)`
 ([CanvasState.swift](../Pupa/Sources/PupaApp/Canvas/CanvasState.swift)) — shared
-by the delete cascade (`MyAppStore.cascadeRemoveRefs`) and the exporter. The
+by the delete cascade (`MiniAppStore.cascadeRemoveRefs`) and the exporter. The
 switch is exhaustive (no `default`), so a new `CanvasApp` arm fails the build
 until its refs are declared. It covers: item `linkedItems`; calculator
 `aggregate` / `linkedField` / `list` source refs; chart series source
@@ -50,7 +56,7 @@ than cascading row deletion.
 `ComponentExportPolicy` (`ComponentExportPolicy.swift`) owns only what's
 export-specific: `strippingUserData(_ body:)` (drop user records, keep reusable
 structure) and an `exportDataWarning`. One per kind, registered in
-`MyAppTypeRegistry.registerBuiltins()`. Completeness is enforced by
+`MiniAppTypeRegistry.registerBuiltins()`. Completeness is enforced by
 `ComponentExportRegistry.assertComplete` (a `preconditionFailure` at bootstrap)
 **and** a CI test — a supported kind without a policy can't ship.
 
@@ -64,20 +70,20 @@ toggles change.
 
 On Mac (`DeviceInfo.isMac` — the shipping Mac app is the iOS binary, so
 `#if os(macOS)` is false there) it's a **Save…** action: the same bytes go
-straight to `.fileExporter` / `MyAppDocument`, no temp file. The share sheet is
+straight to `.fileExporter` / `MiniAppDocument`, no temp file. The share sheet is
 not offered because its "Save to Files" service crashes the app — ShareKit
 passes `nil` to `-[NSSavePanel setNameFieldStringValue:]` (Apple bug,
-FB13819800). The file base name comes from `MyAppExporter.exportBaseName`,
+FB13819800). The file base name comes from `MiniAppExporter.exportBaseName`,
 which falls back to `pupa-app` for names that slugify to empty.
 
-`MyAppExporter.makeBundle`: keep selected components → strip records per policy
+`MiniAppExporter.makeBundle`: keep selected components → strip records per policy
 (when records off) → prune dangling refs → carry agents (structural) → scope
 memories (drop a deselected kind's subtree; memories-off keeps only `AGENTS.md`)
 → reset volatile state (threads) → assemble header.
 
 A pin's **Export** (History / Settings ▸ Pinned snapshots) reuses this *same*
 screen (`ExportShareScreen`), fed the resolved snapshot
-(`MyAppStore.restoredApp(forSnapshot:appId:)`) instead of the live app and
+(`MiniAppStore.restoredApp(forSnapshot:appId:)`) instead of the live app and
 flagged with a "Pinned version" banner. Records/memories default off, same as a
 live share.
 
@@ -90,7 +96,7 @@ registered file type (see *File type*) and the link via the registered
 `pupa-install` scheme; SwiftUI delivers both to `AppView.onOpenURL`. Because
 those sources are untrusted, an external open is **read-only decoded for a
 confirm sheet** (app name + agent prompts) before anything runs — only on
-confirm does it call the same `MyAppImporter.importBundle`. All three paths
+confirm does it call the same `MiniAppImporter.importBundle`. All three paths
 share that one validation authority.
 
 ### Install links (`pupa-install://`)
@@ -110,7 +116,7 @@ suppresses them when link and page share a domain.
 prefix would accept `https://raw.githubusercontent.com@evil.example/…`, and a
 repo-wide prefix would accept unmerged fork-PR heads, which raw.githubusercontent
 serves under the base repo's path. `fetchBundle` then caps the transfer at
-`MyAppImporter.maxBundleBytes` (declared `Content-Length` first, running cap
+`MiniAppImporter.maxBundleBytes` (declared `Content-Length` first, running cap
 while reading) and verifies the bytes against the link's digest before anything
 is staged. One target builds both platforms, so macOS registers the scheme too.
 
@@ -118,7 +124,7 @@ Only `pupa-install` is registered. The in-app `pupa` (ChatLink) and `pupa-pair`
 (QR) schemes stay unregistered — both feed paths written for locally produced
 text, not for anything a web page can emit.
 
-`MyAppImporter.importBundle` treats the bundle as **hostile** and validates
+`MiniAppImporter.importBundle` treats the bundle as **hostile** and validates
 fully before any store/disk mutation:
 
 1. size cap (pre-decode) → decode → header magic + version.
@@ -141,17 +147,17 @@ fully before any store/disk mutation:
 
 ## Library bundle (many apps in one file)
 
-`MyAppLibraryBundle` (`MyAppLibraryBundle.swift`) is a thin container —
-`header` + `apps: [MyAppBundle]` — that ships **every** MyApp in one file. Same
+`MiniAppLibraryBundle` (`MiniAppLibraryBundle.swift`) is a thin container —
+`header` + `apps: [MiniAppBundle]` — that ships **every** MiniApp in one file. Same
 `.pupa` extension; the two are told apart by `header.format`
-(`pupa.library.bundle` vs `pupa.myapp.bundle`), probed by
-`MyAppImporter.probeFormat` so the UI routes single vs library (Files picker,
+(`pupa.library.bundle` vs `pupa.miniapp.bundle`), probed by
+`MiniAppImporter.probeFormat` so the UI routes single vs library (Files picker,
 tap-to-open confirm sheet). No new UTType.
 
 - **Export**: the Share screen's app picker has an **All apps** option →
-  `MyAppExporter.makeLibraryBundle` calls `makeBundle` once per app (all
+  `MiniAppExporter.makeLibraryBundle` calls `makeBundle` once per app (all
   components, shared records/memories toggles). No separate screen.
-- **Import**: `MyAppImporter.importLibrary` decodes, checks the library
+- **Import**: `MiniAppImporter.importLibrary` decodes, checks the library
   magic/version + an app-count cap, then loops `importDecoded` — the same
   per-app authority the single path uses. **Best-effort**: one malformed app is
   skipped with a warning, the rest land. Because each app is inserted before the
@@ -185,7 +191,7 @@ structure; the export screen surfaces personas for review.
 ## Follow-on (not yet built)
 
 Remote marketplace service (store/serve bundles + in-app browser). Add a
-**signature** to `MyAppBundle` and server-side moderation then — the primary
+**signature** to `MiniAppBundle` and server-side moderation then — the primary
 defense against prompt injection, which the importer can only surface. (A
 checksum exists for install links, but it binds bytes to a link, not a bundle to
 a publisher.)

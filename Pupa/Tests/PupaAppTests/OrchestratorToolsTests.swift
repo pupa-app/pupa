@@ -5,8 +5,8 @@ import AGUIKit
 
 /// Tests for the orchestrator tool surface installed on the memory-mode
 /// session in [#18](https://github.com/*/issues/18):
-/// `listMyApps`, `createMyApp`, and `invokeMyAppAgent`. The first two are
-/// pure `MyAppStore` shims and fully unit-testable here. `invokeMyAppAgent`
+/// `listMiniApps`, `createMiniApp`, and `invokeMiniAppAgent`. The first two are
+/// pure `MiniAppStore` shims and fully unit-testable here. `invokeMiniAppAgent`
 /// hits a backend round-trip via `runOneShot`, so we only test argument
 /// validation + the `parallelSafe` opt-in (the actual end-to-end sub-run is
 /// exercised in the AGUIKit `parallelSafeTools_*` regression test and
@@ -15,61 +15,88 @@ import AGUIKit
 @Suite("Orchestrator tools")
 struct OrchestratorToolsTests {
 
-    private func makeStore() -> (store: MyAppStore, a: UUID, b: UUID) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myAppA = MyApp(name: "Garden", iconSystemName: "leaf", typeId: MyAppType.tracker.id)
-        let myAppB = MyApp(name: "Books", iconSystemName: "book", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([myAppA, myAppB], myAppA.id))
-        return (store, myAppA.id, myAppB.id)
+    private func makeStore() -> (store: MiniAppStore, a: UUID, b: UUID) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniAppA = MiniApp(name: "Garden", iconSystemName: "leaf", typeId: MiniAppType.tracker.id)
+        let miniAppB = MiniApp(name: "Books", iconSystemName: "book", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([miniAppA, miniAppB], miniAppA.id))
+        return (store, miniAppA.id, miniAppB.id)
     }
 
     /// `runOneShot` stub that records its invocations and returns a canned
-    /// reply per `myAppId`. Lets us exercise `invokeMyAppAgent`'s arg
+    /// reply per `miniAppId`. Lets us exercise `invokeMiniAppAgent`'s arg
     /// validation and result shape without standing up an AGUIKit session.
     private final class RunOneShotRecorder: @unchecked Sendable {
         private let lock = NSLock()
-        private var _calls: [(myAppId: UUID, prompt: String)] = []
-        var calls: [(myAppId: UUID, prompt: String)] {
+        private var _calls: [(miniAppId: UUID, prompt: String)] = []
+        var calls: [(miniAppId: UUID, prompt: String)] {
             lock.lock(); defer { lock.unlock() }
             return _calls
         }
 
-        func record(myAppId: UUID, prompt: String) {
+        func record(miniAppId: UUID, prompt: String) {
             lock.lock(); defer { lock.unlock() }
-            _calls.append((myAppId, prompt))
+            _calls.append((miniAppId, prompt))
         }
     }
 
-    @Test("listMyApps returns every myApp in sidebar order with id/typeId/name/iconSystemName")
+    @Test("listMiniApps returns every miniApp in sidebar order with id/typeId/name/iconSystemName")
     func listSpaces_returnsAllSpaces() async throws {
         let (store, idA, idB) = makeStore()
         let registry = ToolRegistry()
         AppTools.registerOrchestratorTools(on: registry, store: store, runOneShot: { _, _ in "" })
 
-        guard let tool = registry.resolve("listMyApps") else {
-            Issue.record("listMyApps not registered")
+        guard let tool = registry.resolve("listMiniApps") else {
+            Issue.record("listMiniApps not registered")
             return
         }
         let result = try await tool.handler(.object([:]))
-        let myApps = try #require(result["myApps"]?.arrayValue)
-        #expect(myApps.count == 2)
-        #expect(myApps[0]["id"]?.stringValue == idA.uuidString)
-        #expect(myApps[0]["name"]?.stringValue == "Garden")
-        #expect(myApps[0]["typeId"]?.stringValue == "tracker")
-        #expect(myApps[0]["iconSystemName"]?.stringValue == "leaf")
-        #expect(myApps[1]["id"]?.stringValue == idB.uuidString)
-        #expect(myApps[1]["name"]?.stringValue == "Books")
+        let miniApps = try #require(result["miniApps"]?.arrayValue)
+        #expect(miniApps.count == 2)
+        #expect(miniApps[0]["id"]?.stringValue == idA.uuidString)
+        #expect(miniApps[0]["name"]?.stringValue == "Garden")
+        #expect(miniApps[0]["typeId"]?.stringValue == "tracker")
+        #expect(miniApps[0]["iconSystemName"]?.stringValue == "leaf")
+        #expect(miniApps[1]["id"]?.stringValue == idB.uuidString)
+        #expect(miniApps[1]["name"]?.stringValue == "Books")
     }
 
-    @Test("createMyApp appends a new myApp via MyAppStore.addMyApp and returns its id")
+    @Test("Old orchestrator tools keep their old argument and result fields")
+    func legacyToolAliases() async throws {
+        let (store, id, _) = makeStore()
+        let registry = ToolRegistry()
+        AppTools.registerOrchestratorTools(on: registry, store: store, runOneShot: { _, _ in "" })
+        let list = try #require(registry.resolve("listMyApps"))
+        let listed = try await list.handler(.object([:]))
+        #expect(listed["myApps"]?.arrayValue?.count == 2)
+        let rename = try #require(registry.resolve("renameMyApp"))
+        let result = try await rename.handler(.object([
+            "myAppId": .string(id.uuidString), "name": .string("New Garden")
+        ]))
+        #expect(result["ok"]?.boolValue == true)
+        #expect(store.miniApp(withId: id)?.name == "New Garden")
+    }
+
+    @Test("Disabling an old tool name also disables its MiniApp name")
+    func legacyDisabledToolNames() {
+        TestStorage.activate()
+        SettingsStore.clearStorage()
+        let settings = SettingsStore(credentials: InMemoryCredentialStore())
+        settings.setOrchestratorDisabledTools(["renameMyApp"])
+        #expect(settings.orchestratorDisabledTools.contains("renameMiniApp"))
+        let reader = SettingsStore(credentials: InMemoryCredentialStore())
+        #expect(reader.orchestratorDisabledTools.contains("renameMiniApp"))
+    }
+
+    @Test("createMiniApp appends a new miniApp via MiniAppStore.addMiniApp and returns its id")
     func createSpace_appendsToStore() async throws {
         let (store, _, _) = makeStore()
-        let before = store.myApps.count
+        let before = store.miniApps.count
         let registry = ToolRegistry()
         AppTools.registerOrchestratorTools(on: registry, store: store, runOneShot: { _, _ in "" })
 
-        guard let tool = registry.resolve("createMyApp") else {
-            Issue.record("createMyApp not registered")
+        guard let tool = registry.resolve("createMiniApp") else {
+            Issue.record("createMiniApp not registered")
             return
         }
         let result = try await tool.handler(.object([
@@ -80,94 +107,94 @@ struct OrchestratorToolsTests {
         #expect(result["ok"]?.boolValue == true)
         let newIdString = try #require(result["id"]?.stringValue)
         let newId = try #require(UUID(uuidString: newIdString))
-        #expect(store.myApps.count == before + 1)
-        #expect(store.myApps.contains(where: { $0.id == newId && $0.name == "Plants" }))
-        #expect(store.myApps.last?.iconSystemName == "leaf.circle")
+        #expect(store.miniApps.count == before + 1)
+        #expect(store.miniApps.contains(where: { $0.id == newId && $0.name == "Plants" }))
+        #expect(store.miniApps.last?.iconSystemName == "leaf.circle")
     }
 
-    @Test("createMyApp rejects unknown typeId and does NOT mutate the store")
+    @Test("createMiniApp rejects unknown typeId and does NOT mutate the store")
     func createSpace_rejectsUnknownType() async throws {
         let (store, _, _) = makeStore()
-        let before = store.myApps.count
+        let before = store.miniApps.count
         let registry = ToolRegistry()
         AppTools.registerOrchestratorTools(on: registry, store: store, runOneShot: { _, _ in "" })
 
-        let tool = try #require(registry.resolve("createMyApp"))
+        let tool = try #require(registry.resolve("createMiniApp"))
         let result = try await tool.handler(.object([
             "typeId": .string("not-a-real-type"),
             "name": .string("Whatever"),
         ]))
         #expect(result["ok"]?.boolValue == false)
-        #expect(store.myApps.count == before)
+        #expect(store.miniApps.count == before)
     }
 
-    @Test("renameMyApp updates store.myApps[i].name and echoes previousName")
-    func renameMyApp_appliesToStore() async throws {
+    @Test("renameMiniApp updates store.miniApps[i].name and echoes previousName")
+    func renameMiniApp_appliesToStore() async throws {
         let (store, idA, _) = makeStore()
         let registry = ToolRegistry()
         AppTools.registerOrchestratorTools(on: registry, store: store, runOneShot: { _, _ in "" })
 
-        let tool = try #require(registry.resolve("renameMyApp"))
+        let tool = try #require(registry.resolve("renameMiniApp"))
         let result = try await tool.handler(.object([
-            "myAppId": .string(idA.uuidString),
+            "miniAppId": .string(idA.uuidString),
             "name": .string("Plants"),
         ]))
         #expect(result["ok"]?.boolValue == true)
         #expect(result["id"]?.stringValue == idA.uuidString)
         #expect(result["name"]?.stringValue == "Plants")
         #expect(result["previousName"]?.stringValue == "Garden")
-        #expect(store.myApps.first(where: { $0.id == idA })?.name == "Plants")
+        #expect(store.miniApps.first(where: { $0.id == idA })?.name == "Plants")
     }
 
-    @Test("renameMyApp rejects an unknown myAppId without mutating the store")
-    func renameMyApp_rejectsUnknownId() async throws {
+    @Test("renameMiniApp rejects an unknown miniAppId without mutating the store")
+    func renameMiniApp_rejectsUnknownId() async throws {
         let (store, _, _) = makeStore()
-        let before = store.myApps.map(\.name)
+        let before = store.miniApps.map(\.name)
         let registry = ToolRegistry()
         AppTools.registerOrchestratorTools(on: registry, store: store, runOneShot: { _, _ in "" })
 
-        let tool = try #require(registry.resolve("renameMyApp"))
+        let tool = try #require(registry.resolve("renameMiniApp"))
         let result = try await tool.handler(.object([
-            "myAppId": .string(UUID().uuidString),
+            "miniAppId": .string(UUID().uuidString),
             "name": .string("Whatever"),
         ]))
         #expect(result["ok"]?.boolValue == false)
-        #expect(store.myApps.map(\.name) == before)
+        #expect(store.miniApps.map(\.name) == before)
     }
 
-    @Test("renameMyApp rejects a malformed myAppId (not a UUID)")
-    func renameMyApp_rejectsMalformedId() async throws {
+    @Test("renameMiniApp rejects a malformed miniAppId (not a UUID)")
+    func renameMiniApp_rejectsMalformedId() async throws {
         let (store, _, _) = makeStore()
-        let before = store.myApps.map(\.name)
+        let before = store.miniApps.map(\.name)
         let registry = ToolRegistry()
         AppTools.registerOrchestratorTools(on: registry, store: store, runOneShot: { _, _ in "" })
 
-        let tool = try #require(registry.resolve("renameMyApp"))
+        let tool = try #require(registry.resolve("renameMiniApp"))
         let result = try await tool.handler(.object([
-            "myAppId": .string("not-a-uuid"),
+            "miniAppId": .string("not-a-uuid"),
             "name": .string("Plants"),
         ]))
         #expect(result["ok"]?.boolValue == false)
-        #expect(store.myApps.map(\.name) == before)
+        #expect(store.miniApps.map(\.name) == before)
     }
 
-    @Test("renameMyApp rejects an empty / whitespace-only name without mutating the store")
-    func renameMyApp_rejectsEmptyName() async throws {
+    @Test("renameMiniApp rejects an empty / whitespace-only name without mutating the store")
+    func renameMiniApp_rejectsEmptyName() async throws {
         let (store, idA, _) = makeStore()
-        let before = store.myApps.map(\.name)
+        let before = store.miniApps.map(\.name)
         let registry = ToolRegistry()
         AppTools.registerOrchestratorTools(on: registry, store: store, runOneShot: { _, _ in "" })
 
-        let tool = try #require(registry.resolve("renameMyApp"))
+        let tool = try #require(registry.resolve("renameMiniApp"))
         let result = try await tool.handler(.object([
-            "myAppId": .string(idA.uuidString),
+            "miniAppId": .string(idA.uuidString),
             "name": .string("   "),
         ]))
         #expect(result["ok"]?.boolValue == false)
-        #expect(store.myApps.map(\.name) == before)
+        #expect(store.miniApps.map(\.name) == before)
     }
 
-    @Test("invokeMyAppAgent forwards (myAppId, prompt) to runOneShot and returns the text")
+    @Test("invokeMiniAppAgent forwards (miniAppId, prompt) to runOneShot and returns the text")
     func invokeSpaceAgent_forwardsToRunOneShot() async throws {
         let (store, idA, _) = makeStore()
         let recorder = RunOneShotRecorder()
@@ -175,26 +202,26 @@ struct OrchestratorToolsTests {
         AppTools.registerOrchestratorTools(
             on: registry,
             store: store,
-            runOneShot: { myAppId, prompt in
-                recorder.record(myAppId: myAppId, prompt: prompt)
+            runOneShot: { miniAppId, prompt in
+                recorder.record(miniAppId: miniAppId, prompt: prompt)
                 return "sub-agent reply for \(prompt)"
             }
         )
 
-        let tool = try #require(registry.resolve("invokeMyAppAgent"))
+        let tool = try #require(registry.resolve("invokeMiniAppAgent"))
         let result = try await tool.handler(.object([
-            "myAppId": .string(idA.uuidString),
+            "miniAppId": .string(idA.uuidString),
             "prompt": .string("suggest 3 plants"),
         ]))
         #expect(result["ok"]?.boolValue == true)
-        #expect(result["myAppId"]?.stringValue == idA.uuidString)
+        #expect(result["miniAppId"]?.stringValue == idA.uuidString)
         #expect(result["text"]?.stringValue == "sub-agent reply for suggest 3 plants")
         #expect(recorder.calls.count == 1)
-        #expect(recorder.calls[0].myAppId == idA)
+        #expect(recorder.calls[0].miniAppId == idA)
         #expect(recorder.calls[0].prompt == "suggest 3 plants")
     }
 
-    @Test("invokeMyAppAgent rejects an unknown myAppId without invoking runOneShot")
+    @Test("invokeMiniAppAgent rejects an unknown miniAppId without invoking runOneShot")
     func invokeSpaceAgent_rejectsUnknownSpace() async throws {
         let (store, _, _) = makeStore()
         let recorder = RunOneShotRecorder()
@@ -202,23 +229,23 @@ struct OrchestratorToolsTests {
         AppTools.registerOrchestratorTools(
             on: registry,
             store: store,
-            runOneShot: { myAppId, prompt in
-                recorder.record(myAppId: myAppId, prompt: prompt)
+            runOneShot: { miniAppId, prompt in
+                recorder.record(miniAppId: miniAppId, prompt: prompt)
                 return ""
             }
         )
 
-        let tool = try #require(registry.resolve("invokeMyAppAgent"))
+        let tool = try #require(registry.resolve("invokeMiniAppAgent"))
         let fake = UUID()
         let result = try await tool.handler(.object([
-            "myAppId": .string(fake.uuidString),
+            "miniAppId": .string(fake.uuidString),
             "prompt": .string("hi"),
         ]))
         #expect(result["ok"]?.boolValue == false)
-        #expect(recorder.calls.isEmpty, "runOneShot must not be invoked for an unknown myAppId")
+        #expect(recorder.calls.isEmpty, "runOneShot must not be invoked for an unknown miniAppId")
     }
 
-    @Test("invokeMyAppAgent rejects a malformed myAppId (not a UUID)")
+    @Test("invokeMiniAppAgent rejects a malformed miniAppId (not a UUID)")
     func invokeSpaceAgent_rejectsMalformedSpaceId() async throws {
         let (store, _, _) = makeStore()
         let recorder = RunOneShotRecorder()
@@ -226,104 +253,104 @@ struct OrchestratorToolsTests {
         AppTools.registerOrchestratorTools(
             on: registry,
             store: store,
-            runOneShot: { myAppId, prompt in
-                recorder.record(myAppId: myAppId, prompt: prompt)
+            runOneShot: { miniAppId, prompt in
+                recorder.record(miniAppId: miniAppId, prompt: prompt)
                 return ""
             }
         )
 
-        let tool = try #require(registry.resolve("invokeMyAppAgent"))
+        let tool = try #require(registry.resolve("invokeMiniAppAgent"))
         let result = try await tool.handler(.object([
-            "myAppId": .string("not-a-uuid"),
+            "miniAppId": .string("not-a-uuid"),
             "prompt": .string("hi"),
         ]))
         #expect(result["ok"]?.boolValue == false)
         #expect(recorder.calls.isEmpty)
     }
 
-    @Test("invokeMyAppAgent is marked parallelSafe; the other two orchestrator tools are not")
+    @Test("invokeMiniAppAgent is marked parallelSafe; the other two orchestrator tools are not")
     func invokeSpaceAgent_isParallelSafe() async throws {
         let (store, _, _) = makeStore()
         let registry = ToolRegistry()
         AppTools.registerOrchestratorTools(on: registry, store: store, runOneShot: { _, _ in "" })
 
-        #expect(registry.resolve("invokeMyAppAgent")?.parallelSafe == true)
-        #expect(registry.resolve("listMyApps")?.parallelSafe == false)
-        #expect(registry.resolve("createMyApp")?.parallelSafe == false)
-        #expect(registry.resolve("renameMyApp")?.parallelSafe == false)
+        #expect(registry.resolve("invokeMiniAppAgent")?.parallelSafe == true)
+        #expect(registry.resolve("listMiniApps")?.parallelSafe == false)
+        #expect(registry.resolve("createMiniApp")?.parallelSafe == false)
+        #expect(registry.resolve("renameMiniApp")?.parallelSafe == false)
     }
 
-    @Test("Orchestrator tool names match MyAppType.orchestratorToolNames exactly")
+    @Test("Orchestrator tool names match MiniAppType.orchestratorToolNames exactly")
     func orchestratorToolNames_matchRegistration() async throws {
         let (store, _, _) = makeStore()
         let registry = ToolRegistry()
         AppTools.registerOrchestratorTools(on: registry, store: store, runOneShot: { _, _ in "" })
 
         let registered = Set(registry.descriptors.map(\.name))
-        #expect(registered == MyAppType.orchestratorToolNames,
-                "Registered tools \(registered) drift from MyAppType.orchestratorToolNames \(MyAppType.orchestratorToolNames)")
+        #expect(registered == MiniAppType.orchestratorToolNames,
+                "Registered tools \(registered) drift from MiniAppType.orchestratorToolNames \(MiniAppType.orchestratorToolNames)")
     }
 
-    // MARK: - setMyAppIcon
+    // MARK: - setMiniAppIcon
 
-    @Test("setMyAppIcon updates the store icon and echoes previousIconSystemName")
-    func setMyAppIcon_appliesToStore() async throws {
+    @Test("setMiniAppIcon updates the store icon and echoes previousIconSystemName")
+    func setMiniAppIcon_appliesToStore() async throws {
         let (store, idA, _) = makeStore()
         let registry = ToolRegistry()
         AppTools.registerOrchestratorTools(on: registry, store: store, runOneShot: { _, _ in "" })
 
-        let tool = try #require(registry.resolve("setMyAppIcon"))
+        let tool = try #require(registry.resolve("setMiniAppIcon"))
         let result = try await tool.handler(.object([
-            "myAppId": .string(idA.uuidString),
+            "miniAppId": .string(idA.uuidString),
             "iconSystemName": .string("carrot"),
         ]))
         #expect(result["ok"]?.boolValue == true)
         #expect(result["iconSystemName"]?.stringValue == "carrot")
         #expect(result["previousIconSystemName"]?.stringValue == "leaf")
-        #expect(store.myApps.first(where: { $0.id == idA })?.iconSystemName == "carrot")
+        #expect(store.miniApps.first(where: { $0.id == idA })?.iconSystemName == "carrot")
     }
 
-    @Test("setMyAppIcon rejects an empty icon and does NOT mutate the store")
-    func setMyAppIcon_rejectsEmpty() async throws {
+    @Test("setMiniAppIcon rejects an empty icon and does NOT mutate the store")
+    func setMiniAppIcon_rejectsEmpty() async throws {
         let (store, idA, _) = makeStore()
         let registry = ToolRegistry()
         AppTools.registerOrchestratorTools(on: registry, store: store, runOneShot: { _, _ in "" })
 
-        let tool = try #require(registry.resolve("setMyAppIcon"))
+        let tool = try #require(registry.resolve("setMiniAppIcon"))
         let result = try await tool.handler(.object([
-            "myAppId": .string(idA.uuidString),
+            "miniAppId": .string(idA.uuidString),
             "iconSystemName": .string("   "),
         ]))
         #expect(result["ok"]?.boolValue == false)
-        #expect(store.myApps.first(where: { $0.id == idA })?.iconSystemName == "leaf")
+        #expect(store.miniApps.first(where: { $0.id == idA })?.iconSystemName == "leaf")
     }
 
-    @Test("setMyAppIcon rejects an unknown myAppId")
-    func setMyAppIcon_rejectsUnknownId() async throws {
+    @Test("setMiniAppIcon rejects an unknown miniAppId")
+    func setMiniAppIcon_rejectsUnknownId() async throws {
         let (store, _, _) = makeStore()
         let registry = ToolRegistry()
         AppTools.registerOrchestratorTools(on: registry, store: store, runOneShot: { _, _ in "" })
 
-        let tool = try #require(registry.resolve("setMyAppIcon"))
+        let tool = try #require(registry.resolve("setMiniAppIcon"))
         let result = try await tool.handler(.object([
-            "myAppId": .string(UUID().uuidString),
+            "miniAppId": .string(UUID().uuidString),
             "iconSystemName": .string("star"),
         ]))
         #expect(result["ok"]?.boolValue == false)
     }
 
-    // MARK: - setMyAppColor
+    // MARK: - setMiniAppColor
 
-    @Test("setMyAppColor updates the store colorIndex and echoes previousColorIndex")
-    func setMyAppColor_appliesToStore() async throws {
+    @Test("setMiniAppColor updates the store colorIndex and echoes previousColorIndex")
+    func setMiniAppColor_appliesToStore() async throws {
         let (store, idA, _) = makeStore()
         let registry = ToolRegistry()
         AppTools.registerOrchestratorTools(on: registry, store: store, runOneShot: { _, _ in "" })
 
         let previous = store.colorIndex(for: idA)
-        let tool = try #require(registry.resolve("setMyAppColor"))
+        let tool = try #require(registry.resolve("setMiniAppColor"))
         let result = try await tool.handler(.object([
-            "myAppId": .string(idA.uuidString),
+            "miniAppId": .string(idA.uuidString),
             "colorIndex": .int(5),
         ]))
         #expect(result["ok"]?.boolValue == true)
@@ -332,31 +359,31 @@ struct OrchestratorToolsTests {
         #expect(store.colorIndex(for: idA) == 5)
     }
 
-    @Test("setMyAppColor rejects a negative colorIndex and does NOT mutate the store")
-    func setMyAppColor_rejectsNegative() async throws {
+    @Test("setMiniAppColor rejects a negative colorIndex and does NOT mutate the store")
+    func setMiniAppColor_rejectsNegative() async throws {
         let (store, idA, _) = makeStore()
         let registry = ToolRegistry()
         AppTools.registerOrchestratorTools(on: registry, store: store, runOneShot: { _, _ in "" })
 
         let before = store.colorIndex(for: idA)
-        let tool = try #require(registry.resolve("setMyAppColor"))
+        let tool = try #require(registry.resolve("setMiniAppColor"))
         let result = try await tool.handler(.object([
-            "myAppId": .string(idA.uuidString),
+            "miniAppId": .string(idA.uuidString),
             "colorIndex": .int(-1),
         ]))
         #expect(result["ok"]?.boolValue == false)
         #expect(store.colorIndex(for: idA) == before)
     }
 
-    @Test("setMyAppColor rejects an unknown myAppId")
-    func setMyAppColor_rejectsUnknownId() async throws {
+    @Test("setMiniAppColor rejects an unknown miniAppId")
+    func setMiniAppColor_rejectsUnknownId() async throws {
         let (store, _, _) = makeStore()
         let registry = ToolRegistry()
         AppTools.registerOrchestratorTools(on: registry, store: store, runOneShot: { _, _ in "" })
 
-        let tool = try #require(registry.resolve("setMyAppColor"))
+        let tool = try #require(registry.resolve("setMiniAppColor"))
         let result = try await tool.handler(.object([
-            "myAppId": .string(UUID().uuidString),
+            "miniAppId": .string(UUID().uuidString),
             "colorIndex": .int(2),
         ]))
         #expect(result["ok"]?.boolValue == false)

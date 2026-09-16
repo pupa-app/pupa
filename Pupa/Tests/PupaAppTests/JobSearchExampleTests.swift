@@ -25,22 +25,22 @@ struct JobSearchExampleTests {
         #expect(digest == Self.publishedSHA256)
 
         let bundle = JobSearchExample.bundle
-        #expect(bundle.header.format == MyAppBundle.formatMagic)
-        #expect(bundle.header.formatVersion <= MyAppBundle.currentFormatVersion)
+        #expect(bundle.header.format == MiniAppBundle.legacyFormatMagic)
+        #expect(bundle.header.formatVersion <= MiniAppBundle.currentFormatVersion)
         #expect(bundle.app.name == JobSearchExample.name)
     }
 
     @Test("make() returns the bundle's four components with stable ids")
     func makeSeedHasBundleComponents() {
-        let myApp = JobSearchExample.make()
-        #expect(myApp.name == JobSearchExample.name)
-        #expect(myApp.typeId == "tracker")
-        #expect(myApp.iconSystemName == "briefcase")
-        #expect(myApp.activeComponentId == "tracker-3")
+        let miniApp = JobSearchExample.make()
+        #expect(miniApp.name == JobSearchExample.name)
+        #expect(miniApp.typeId == "tracker")
+        #expect(miniApp.iconSystemName == "briefcase")
+        #expect(miniApp.activeComponentId == "tracker-3")
 
-        let ids = Set(myApp.components.map(\.id))
+        let ids = Set(miniApp.components.map(\.id))
         #expect(ids == ["tracker-3", "tracker-1", "calendar-1", "checklist-1"])
-        #expect(myApp.components.allSatisfy { !$0.isLocked })
+        #expect(miniApp.components.allSatisfy { !$0.isLocked })
     }
 
     @Test("Each call allocates a fresh app id and thread")
@@ -55,8 +55,8 @@ struct JobSearchExampleTests {
 
     @Test("Job Search tracker carries the scoring pipeline fields, no seed rows")
     func jobTrackerIsTheScoringPipeline() {
-        let myApp = JobSearchExample.make()
-        guard case .tracker(let data) = body(myApp, id: "tracker-3") else {
+        let miniApp = JobSearchExample.make()
+        guard case .tracker(let data) = body(miniApp, id: "tracker-3") else {
             Issue.record("tracker-3 missing or wrong kind"); return
         }
         let fieldNames = Set(data.fields.map(\.name))
@@ -73,8 +73,8 @@ struct JobSearchExampleTests {
 
     @Test("Relevant Events tracker ships the ranking fields, no seed rows")
     func eventsTrackerIsTheRankingBoard() {
-        let myApp = JobSearchExample.make()
-        guard case .tracker(let data) = body(myApp, id: "tracker-1") else {
+        let miniApp = JobSearchExample.make()
+        guard case .tracker(let data) = body(miniApp, id: "tracker-1") else {
             Issue.record("tracker-1 missing or wrong kind"); return
         }
         let fieldNames = Set(data.fields.map(\.name))
@@ -84,11 +84,11 @@ struct JobSearchExampleTests {
 
     @Test("Deadlines calendar and Application Steps checklist ship empty")
     func calendarAndChecklistShipEmpty() {
-        let myApp = JobSearchExample.make()
-        guard case .calendar(let cal) = body(myApp, id: "calendar-1") else {
+        let miniApp = JobSearchExample.make()
+        guard case .calendar(let cal) = body(miniApp, id: "calendar-1") else {
             Issue.record("calendar-1 missing or wrong kind"); return
         }
-        guard case .checklist(let list) = body(myApp, id: "checklist-1") else {
+        guard case .checklist(let list) = body(miniApp, id: "checklist-1") else {
             Issue.record("checklist-1 missing or wrong kind"); return
         }
         #expect(cal.events.isEmpty)
@@ -147,30 +147,30 @@ struct JobSearchExampleTests {
         #expect(after == "# User-edited\n", "Second seed clobbered the user edit")
     }
 
-    @Test("restoreExampleMyApp inserts the example then is a no-op when called again")
+    @Test("restoreExampleMiniApp inserts the example then is a no-op when called again")
     func restoreIsIdempotent() {
-        let placeholder = MyApp(
+        let placeholder = MiniApp(
             name: "T",
             iconSystemName: "list.bullet.rectangle",
             typeId: "tracker"
         )
-        let store = MyAppStore(initial: ([placeholder], placeholder.id))
-        #expect(store.myApps.contains(where: { $0.name == JobSearchExample.name }) == false)
+        let store = MiniAppStore(initial: ([placeholder], placeholder.id))
+        #expect(store.miniApps.contains(where: { $0.name == JobSearchExample.name }) == false)
 
-        let firstId = store.restoreExampleMyApp()
-        #expect(store.myApps.count == 2)
-        #expect(store.activeMyAppId == firstId)
+        let firstId = store.restoreExampleMiniApp()
+        #expect(store.miniApps.count == 2)
+        #expect(store.activeMiniAppId == firstId)
 
         store.setActive(placeholder.id)
-        let secondId = store.restoreExampleMyApp()
+        let secondId = store.restoreExampleMiniApp()
         #expect(secondId == firstId)
-        #expect(store.myApps.count == 2)
-        #expect(store.activeMyAppId == firstId)
+        #expect(store.miniApps.count == 2)
+        #expect(store.activeMiniAppId == firstId)
     }
 
     // MARK: - Helpers
 
-    private func body(_ myApp: MyApp, id: String) -> CanvasApp? {
-        myApp.components.first(where: { $0.id == id })?.body
+    private func body(_ miniApp: MiniApp, id: String) -> CanvasApp? {
+        miniApp.components.first(where: { $0.id == id })?.body
     }
 }

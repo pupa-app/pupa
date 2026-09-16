@@ -5,11 +5,11 @@ import Foundation
 /// The granularity at which a setting value can be stored or resolved.
 ///
 /// Resolution order (most-specific wins):
-///   `component → myApp → global → defaultValue`
+///   `component → miniApp → global → defaultValue`
 public enum SettingsScope: Hashable, Sendable {
     case global
-    case myApp(UUID)
-    case component(myAppId: UUID, componentId: String)
+    case miniApp(UUID)
+    case component(miniAppId: UUID, componentId: String)
 }
 
 // MARK: - SettingsKey
@@ -18,11 +18,11 @@ public enum SettingsScope: Hashable, Sendable {
 /// and the narrowest scope at which it is meaningful.
 ///
 /// `lowestSupportedScope` prevents nonsensical keys: a setting that only
-/// makes sense globally rejects per-myApp overrides at the resolver level.
-/// The ordering is: `.global` < `.myApp` < `.component` (global is widest).
+/// makes sense globally rejects per-miniApp overrides at the resolver level.
+/// The ordering is: `.global` < `.miniApp` < `.component` (global is widest).
 public protocol SettingsKey: Sendable {
     associatedtype Value: Sendable & Codable
-    /// Stable snake_case name used as the JSON dictionary key in `MyApp.settings`.
+    /// Stable snake_case name used as the JSON dictionary key in `MiniApp.settings`.
     static var name: String { get }
     static var defaultValue: Value { get }
     /// The narrowest scope this key supports. Resolving at a finer scope than
@@ -34,7 +34,7 @@ public protocol SettingsKey: Sendable {
 /// Ordered granularity levels — used by `lowestSupportedScope` comparisons.
 public enum SettingsScopeLevel: Int, Comparable, Sendable {
     case global = 0
-    case myApp = 1
+    case miniApp = 1
     case component = 2
 
     public static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
@@ -42,7 +42,7 @@ public enum SettingsScopeLevel: Int, Comparable, Sendable {
     init(_ scope: SettingsScope) {
         switch scope {
         case .global: self = .global
-        case .myApp: self = .myApp
+        case .miniApp: self = .miniApp
         case .component: self = .component
         }
     }
@@ -51,7 +51,7 @@ public enum SettingsScopeLevel: Int, Comparable, Sendable {
 // MARK: - SettingValue (type-erased storage)
 
 /// Serialisable wrapper used to store arbitrary setting values in
-/// `MyApp.settings: [String: SettingValue]` without losing type safety
+/// `MiniApp.settings: [String: SettingValue]` without losing type safety
 /// at the resolver layer.
 ///
 /// Only the types we actually use today are represented; extend the enum
@@ -101,8 +101,8 @@ public enum SettingValue: Codable, Hashable, Sendable {
 ///
 /// **Sources (in resolution order):**
 /// 1. Component layer — reserved; no concrete component-level keys in this phase.
-/// 2. MyApp layer — `myAppSettings[myAppId]?[key.name]` (a `[String: SettingValue]`
-///    persisted inside `MyApp.settings`).
+/// 2. MiniApp layer — `miniAppSettings[miniAppId]?[key.name]` (a `[String: SettingValue]`
+///    persisted inside `MiniApp.settings`).
 /// 3. Global layer — `SettingsStore`'s strongly-typed properties.
 /// 4. `SettingsKey.defaultValue` — always present.
 ///
@@ -113,13 +113,13 @@ public struct EffectiveSettings: Sendable {
     // MARK: Construction
 
     /// `globalSource` is the typed accessor bag for global-scope values.
-    /// `myAppSettings` maps each myApp UUID to its raw override dictionary.
+    /// `miniAppSettings` maps each miniApp UUID to its raw override dictionary.
     public init(
         globalSource: GlobalSettingsSource,
-        myAppSettings: [UUID: [String: SettingValue]]
+        miniAppSettings: [UUID: [String: SettingValue]]
     ) {
         self.globalSource = globalSource
-        self.myAppSettings = myAppSettings
+        self.miniAppSettings = miniAppSettings
     }
 
     // MARK: Resolution
@@ -128,7 +128,7 @@ public struct EffectiveSettings: Sendable {
     ///
     /// - If `scope` is finer than `key.lowestSupportedScope`, returns
     ///   `defaultValue` (and asserts in DEBUG).
-    /// - Otherwise walks component → myApp → global → default.
+    /// - Otherwise walks component → miniApp → global → default.
     public func resolve<K: SettingsKey>(_ key: K.Type, at scope: SettingsScope) -> K.Value {
         let requested = SettingsScopeLevel(scope)
         guard requested <= K.lowestSupportedScope || K.lowestSupportedScope == .global
@@ -138,16 +138,16 @@ public struct EffectiveSettings: Sendable {
         }
 
         // Component layer (reserved — no concrete keys yet)
-        if case .component(let myAppId, _) = scope {
-            // Fall through to myApp layer
-            if let value = myAppValue(key, myAppId: myAppId) { return value }
+        if case .component(let miniAppId, _) = scope {
+            // Fall through to miniApp layer
+            if let value = miniAppValue(key, miniAppId: miniAppId) { return value }
             if let value = globalSource.value(for: key) { return value }
             return K.defaultValue
         }
 
-        // MyApp layer
-        if case .myApp(let myAppId) = scope {
-            if let value = myAppValue(key, myAppId: myAppId) { return value }
+        // MiniApp layer
+        if case .miniApp(let miniAppId) = scope {
+            if let value = miniAppValue(key, miniAppId: miniAppId) { return value }
             if let value = globalSource.value(for: key) { return value }
             return K.defaultValue
         }
@@ -160,11 +160,11 @@ public struct EffectiveSettings: Sendable {
     // MARK: Private
 
     private let globalSource: GlobalSettingsSource
-    private let myAppSettings: [UUID: [String: SettingValue]]
+    private let miniAppSettings: [UUID: [String: SettingValue]]
 
-    private func myAppValue<K: SettingsKey>(_ key: K.Type, myAppId: UUID) -> K.Value? {
-        guard K.lowestSupportedScope >= .myApp else { return nil }
-        guard let raw = myAppSettings[myAppId]?[K.name] else { return nil }
+    private func miniAppValue<K: SettingsKey>(_ key: K.Type, miniAppId: UUID) -> K.Value? {
+        guard K.lowestSupportedScope >= .miniApp else { return nil }
+        guard let raw = miniAppSettings[miniAppId]?[K.name] else { return nil }
         return K.extract(raw)
     }
 }
@@ -208,11 +208,11 @@ extension SettingsKey {
 
 // MARK: - Concrete keys
 
-/// Global + per-MyApp toggle for `ShellApprovalMiddleware`.
-/// `lowestSupportedScope = .myApp` means it can be overridden per-MyApp.
+/// Global + per-MiniApp toggle for `ShellApprovalMiddleware`.
+/// `lowestSupportedScope = .miniApp` means it can be overridden per-MiniApp.
 public enum ShellApprovalDisabledKey: SettingsKey {
     public typealias Value = Bool
     public static let name = "shell_approval_disabled"
     public static let defaultValue = false
-    public static let lowestSupportedScope: SettingsScopeLevel = .myApp
+    public static let lowestSupportedScope: SettingsScopeLevel = .miniApp
 }

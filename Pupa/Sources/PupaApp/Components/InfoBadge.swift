@@ -2,9 +2,9 @@ import SwiftUI
 
 /// Small `info.circle` button that presents a popover with a one or two
 /// sentence explanation of the adjacent concept. Used next to the
-/// "Memories" and "MyApps" sidebar section headers and in the Settings
+/// "Memories" and "MiniApps" sidebar section headers and in the Settings
 /// sheet's toolbar — three locations matching the three concepts the user
-/// can ask about ("what are memories?", "what is a myapp?", "what does
+/// can ask about ("what are memories?", "what is a miniapp?", "what does
 /// Settings do?").
 public struct InfoBadge: View {
     let title: String

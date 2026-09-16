@@ -3,7 +3,7 @@ import SwiftUI
 /// The bar's menu, drawn open, for the guided tour.
 ///
 /// A SwiftUI `Menu` cannot be opened programmatically, so a tour step that says
-/// "the menu holds MyApps" used to either ring a closed button or teleport the
+/// "the menu holds MiniApps" used to either ring a closed button or teleport the
 /// user to the destination with no visible tap in between. This draws the menu
 /// as it looks when open, above the bar's trailing corner, with the rows the
 /// step is talking about lit up.
@@ -30,7 +30,7 @@ struct TourMenuPreview: View {
         }
         .padding(.horizontal, 12)
         // Clear the bar itself, the way the real menu sits above it.
-        .padding(.bottom, MyAppBottomBar.rowHeight + MyAppBottomBar.verticalPadding * 2 + 8)
+        .padding(.bottom, MiniAppBottomBar.rowHeight + MiniAppBottomBar.verticalPadding * 2 + 8)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }

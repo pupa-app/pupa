@@ -3,7 +3,7 @@ import SwiftUI
 /// Floating chat overlay. `isOpen` (owned by `AppView`) drives the expanded
 /// floating card hosting a `ConversationPager` — the `ChatPanel` for the active
 /// scope's current conversation, with a header dropdown for switching threads.
-/// On MyApp pages the per-MyApp bottom bar's pupa button toggles `isOpen`; on
+/// On MiniApp pages the per-MiniApp bottom bar's pupa button toggles `isOpen`; on
 /// other pages (orchestrator, agents, screen share) `launcherVisible` is true
 /// so a fallback circular pupa launcher keeps chat reachable. The card is
 /// user-resizable via a grip on its top-leading corner. The chosen size
@@ -11,7 +11,7 @@ import SwiftUI
 struct ChatOverlay: View {
     let scope: ChatScope
     let coordinator: ChatSessionCoordinator
-    let store: MyAppStore
+    let store: MiniAppStore
     /// Scope default resolver for the header model chip (`.memory` reads the
     /// orchestrator default here).
     let settings: SettingsStore
@@ -19,11 +19,11 @@ struct ChatOverlay: View {
     let modelCatalog: ModelCatalogStore
     let agents: [AgentPickerEntry]
     let onSwitchAgent: (ChatScope) -> Void
-    /// Whether the chat card is open. Owned by `AppView` so the per-MyApp
+    /// Whether the chat card is open. Owned by `AppView` so the per-MiniApp
     /// bottom bar's pupa button — and the guided tour — can toggle it.
     @Binding var isOpen: Bool
     /// Show the fallback floating launcher circle. `false` on pages that
-    /// already carry the bar's pupa button (MyApp pages); `true` elsewhere so
+    /// already carry the bar's pupa button (MiniApp pages); `true` elsewhere so
     /// chat stays reachable.
     var launcherVisible: Bool = true
 
@@ -144,7 +144,7 @@ struct ChatOverlay: View {
                 // Aggregate status across the scope's threads — surfaces a
                 // background run that needs attention while chat is collapsed.
                 // A live stream (this scope's own chat or an orchestrator
-                // sub-run bumping `busyMyApps`) shows the spinner.
+                // sub-run bumping `busyMiniApps`) shows the spinner.
                 if status != .idle {
                     StatusBadge(status: status, size: 16)
                         .padding(2)
@@ -158,12 +158,12 @@ struct ChatOverlay: View {
 
     /// Folded status for the collapsed circle: the highest-priority thread in
     /// this scope, upgraded to `.running` whenever the scope has an in-flight
-    /// stream (covers orchestrator sub-runs that bump `busyMyApps` without a
+    /// stream (covers orchestrator sub-runs that bump `busyMiniApps` without a
     /// foreground session).
     private var status: ChatActivityStatus {
         let base = coordinator.aggregateStatus(for: scope)
-        if base == .idle, case .myApp(let id) = scope,
-           coordinator.busyMyApps.contains(id) {
+        if base == .idle, case .miniApp(let id) = scope,
+           coordinator.busyMiniApps.contains(id) {
             return .running
         }
         return base

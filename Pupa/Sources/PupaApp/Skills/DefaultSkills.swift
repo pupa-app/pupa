@@ -1,16 +1,16 @@
 import Foundation
 
-/// Skills every MyApp ships with, independent of which example (if any) it was
+/// Skills every MiniApp ships with, independent of which example (if any) it was
 /// created from. Universal: written into `pupa/skills/` so the capability rides
 /// the `.pupa` export bundle.
 ///
-/// Seeded **once, at app birth** — `addMyApp`, `restoreExample`, and the
+/// Seeded **once, at app birth** — `addMiniApp`, `restoreExample`, and the
 /// fresh-install default app. Never on subsequent launches, so the file is the
 /// user's from then on: edits *and deletions* stick (a launch-time reseed would
 /// resurrect anything the user removed). The `fileExists` guard only avoids
 /// clobbering an app that was already seeded.
 enum DefaultSkills {
-    /// `(path, body)` pairs written into a MyApp's memory root when missing.
+    /// `(path, body)` pairs written into a MiniApp's memory root when missing.
     static let files: [(path: String, body: String)] = [
         ("pupa/skills/to-memory/SKILL.md", toMemorySkillMd),
     ]
@@ -31,7 +31,7 @@ enum DefaultSkills {
     /// Call once when the app is created — not on every launch.
     @MainActor @discardableResult
     static func seed(appId: UUID) -> Bool {
-        seed(into: MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: appId)))
+        seed(into: MemoryStore(rootOverride: MemoryStore.appRoot(miniAppId: appId)))
     }
 
     // MARK: - Skill bodies
@@ -75,7 +75,7 @@ enum DefaultSkills {
     stores **no app data**. Never write app content to a backend path or via a
     shell unless explicitly told to; if unsure where something belongs, ask.
 
-    **The object model.** A myapp's canvas holds *components*; data items live
+    **The object model.** A miniapp's canvas holds *components*; data items live
     **inside** a component. Memory is a *separate* per-app markdown filesystem for
     durable notes — not canvas data. Two different stores; don't cross them.
 

@@ -17,7 +17,7 @@ import AGUIKit
 struct ChatViewModelLifecycleTests {
 
     private func makeViewModel(
-        store: MyAppStore,
+        store: MiniAppStore,
         memory: MemoryStore,
         scope: ChatScope,
         threadId: String? = nil
@@ -40,16 +40,16 @@ struct ChatViewModelLifecycleTests {
 
     @Test("Initial state: bubbles empty, not streaming, no error")
     func initialState() {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApp = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([myApp], myApp.id))
-        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(myApp.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApp = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([miniApp], miniApp.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .miniApp(miniApp.id))
 
         #expect(vm.bubbles.isEmpty)
         #expect(vm.isStreaming == false)
         #expect(vm.connectionIssue == nil)
-        #expect(vm.pinnedScope == .myApp(myApp.id))
-        #expect(vm.threadId == store.currentThreadId(for: .myApp(myApp.id)))
+        #expect(vm.pinnedScope == .miniApp(miniApp.id))
+        #expect(vm.threadId == store.currentThreadId(for: .miniApp(miniApp.id)))
         // A fresh VM is idle with nothing unviewed.
         #expect(vm.hasUnviewedCompletion == false)
         #expect(vm.activityStatus == .idle)
@@ -57,48 +57,48 @@ struct ChatViewModelLifecycleTests {
 
     @Test("markViewed() clears the unviewed-answer flag and is safe on a fresh VM")
     func markViewedClears() {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApp = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([myApp], myApp.id))
-        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(myApp.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApp = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([miniApp], miniApp.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .miniApp(miniApp.id))
 
         vm.markViewed()
         #expect(vm.hasUnviewedCompletion == false)
         #expect(vm.activityStatus == .idle)
     }
 
-    @Test("newThread() on a myApp scope adds a thread to the store and makes it current — other scopes untouched")
+    @Test("newThread() on a miniApp scope adds a thread to the store and makes it current — other scopes untouched")
     func newThreadAddsThreadForBoundScope() {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let b = MyApp(name: "B", iconSystemName: "square", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a, b], a.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let b = MiniApp(name: "B", iconSystemName: "square", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a, b], a.id))
 
-        let initialA = store.currentThreadId(for: .myApp(a.id))
-        let initialB = store.currentThreadId(for: .myApp(b.id))
+        let initialA = store.currentThreadId(for: .miniApp(a.id))
+        let initialB = store.currentThreadId(for: .miniApp(b.id))
         let initialMemory = store.memoryCurrentThreadId
-        let initialACount = store.threads(for: .myApp(a.id)).count
+        let initialACount = store.threads(for: .miniApp(a.id)).count
 
-        let vmA = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+        let vmA = makeViewModel(store: store, memory: makeMemory(), scope: .miniApp(a.id))
         vmA.newThread()
 
         // A new thread is current for scope A, and the list grew by one.
-        let afterA = store.currentThreadId(for: .myApp(a.id))
+        let afterA = store.currentThreadId(for: .miniApp(a.id))
         #expect(afterA != initialA)
-        #expect(store.threads(for: .myApp(a.id)).count == initialACount + 1)
+        #expect(store.threads(for: .miniApp(a.id)).count == initialACount + 1)
 
         // B and memory are completely untouched.
-        #expect(store.currentThreadId(for: .myApp(b.id)) == initialB)
+        #expect(store.currentThreadId(for: .miniApp(b.id)) == initialB)
         #expect(store.memoryCurrentThreadId == initialMemory)
     }
 
-    @Test("newThread() in memory scope adds only to memory threads — myApps untouched")
+    @Test("newThread() in memory scope adds only to memory threads — miniApps untouched")
     func newThreadInMemoryScope() {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
 
-        let initialA = store.currentThreadId(for: .myApp(a.id))
+        let initialA = store.currentThreadId(for: .miniApp(a.id))
         let initialMemory = store.memoryCurrentThreadId
         let initialMemoryCount = store.memoryThreads.count
 
@@ -107,15 +107,15 @@ struct ChatViewModelLifecycleTests {
 
         #expect(store.memoryCurrentThreadId != initialMemory)
         #expect(store.memoryThreads.count == initialMemoryCount + 1)
-        #expect(store.currentThreadId(for: .myApp(a.id)) == initialA)
+        #expect(store.currentThreadId(for: .miniApp(a.id)) == initialA)
     }
 
     @Test("newThread() does NOT clear the current VM's bubbles — the pager creates a fresh VM")
     func newThreadPreservesBubbles() async {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .miniApp(a.id))
 
         // Plant a bubble manually to simulate a conversation in progress.
         vm.apply(.assistantMessageStart(messageId: "msg-1"))
@@ -130,24 +130,24 @@ struct ChatViewModelLifecycleTests {
 
     @Test("threadId is immutable and matches the store's thread for this scope at init time")
     func threadIdIsImmutable() {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let expectedId = store.currentThreadId(for: .myApp(a.id))
-        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let expectedId = store.currentThreadId(for: .miniApp(a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .miniApp(a.id))
         #expect(vm.threadId == expectedId)
 
         // After newThread() the store moves to a new thread — this VM keeps its old id.
         vm.newThread()
         #expect(vm.threadId == expectedId)
-        #expect(store.currentThreadId(for: .myApp(a.id)) != expectedId)
+        #expect(store.currentThreadId(for: .miniApp(a.id)) != expectedId)
     }
 
     @Test("memoryFocusedPath is mutable and round-trips through the viewmodel")
     func memoryFocusedPathRoundTrips() {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
         let vm = makeViewModel(store: store, memory: makeMemory(), scope: .memory)
 
         #expect(vm.memoryFocusedPath == "")
@@ -155,19 +155,19 @@ struct ChatViewModelLifecycleTests {
         #expect(vm.memoryFocusedPath == "notes/diet.md")
     }
 
-    @Test("Two viewmodels for two myApps have distinct identity and independent state")
+    @Test("Two viewmodels for two miniApps have distinct identity and independent state")
     func twoViewModelsAreIndependent() {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let b = MyApp(name: "B", iconSystemName: "square", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a, b], a.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let b = MiniApp(name: "B", iconSystemName: "square", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a, b], a.id))
 
-        let vmA = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
-        let vmB = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(b.id))
+        let vmA = makeViewModel(store: store, memory: makeMemory(), scope: .miniApp(a.id))
+        let vmB = makeViewModel(store: store, memory: makeMemory(), scope: .miniApp(b.id))
 
         #expect(vmA !== vmB)
-        #expect(vmA.pinnedScope == .myApp(a.id))
-        #expect(vmB.pinnedScope == .myApp(b.id))
+        #expect(vmA.pinnedScope == .miniApp(a.id))
+        #expect(vmB.pinnedScope == .miniApp(b.id))
         #expect(vmA.threadId != vmB.threadId)
     }
 
@@ -198,10 +198,10 @@ struct ChatViewModelLifecycleTests {
 
     @Test("askQuestions appends a multi-row humanQuestion bubble and arms pending state")
     func askQuestions_rendersMultiRowBubble_andFlagsPending() async {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .miniApp(a.id))
 
         #expect(vm.hasPendingQuestion == false)
 
@@ -230,10 +230,10 @@ struct ChatViewModelLifecycleTests {
 
     @Test("Typed answers fill slots; pendingAnswersComplete flips when all rows are non-empty")
     func typedAnswers_trackPerRowState() async {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .miniApp(a.id))
 
         async let answers = vm.askQuestions([
             HumanQuestionRow(question: "Q1?", options: []),
@@ -262,10 +262,10 @@ struct ChatViewModelLifecycleTests {
 
     @Test("Typing an option's exact text stays a free-text answer — it does not select that option")
     func typingOptionText_doesNotSelectTheOption() async {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .miniApp(a.id))
 
         async let answers = vm.askQuestions([
             HumanQuestionRow(question: "Ship it?", options: ["Yes", "No"]),
@@ -286,10 +286,10 @@ struct ChatViewModelLifecycleTests {
 
     @Test("\"Other…\" switches an untouched row to free text without needing an option first")
     func chooseOther_fromUnsetRow() async {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .miniApp(a.id))
 
         async let answers = vm.askQuestions([
             HumanQuestionRow(question: "Ship it?", options: ["Yes", "No"]),
@@ -316,10 +316,10 @@ struct ChatViewModelLifecycleTests {
 
     @Test("Tapping the selected option again clears it")
     func pickOption_togglesOff() async {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .miniApp(a.id))
 
         async let answers = vm.askQuestions([
             HumanQuestionRow(question: "Ship it?", options: ["Yes", "No"]),
@@ -345,10 +345,10 @@ struct ChatViewModelLifecycleTests {
 
     @Test("Duplicate option strings select independently, by index")
     func duplicateOptions_selectByIndex() async {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .miniApp(a.id))
 
         async let answers = vm.askQuestions([
             HumanQuestionRow(question: "Which?", options: ["Same", "Same"]),
@@ -370,10 +370,10 @@ struct ChatViewModelLifecycleTests {
 
     @Test("Answer intents are ignored when no question is parked")
     func answerIntents_ignoredWhenIdle() async {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .miniApp(a.id))
 
         vm.applyAnswerIntent(rowIndex: 0, intent: .pickOption(0))
         vm.applyAnswerIntent(rowIndex: 0, intent: .chooseOther)
@@ -385,10 +385,10 @@ struct ChatViewModelLifecycleTests {
 
     @Test("A picked option submits its text; mixed option + free-text rows resolve in order")
     func submit_resolvesOptionsAndFreeText() async {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .miniApp(a.id))
 
         async let answers = vm.askQuestions([
             HumanQuestionRow(question: "Ship it?", options: ["Yes", "No"]),
@@ -407,10 +407,10 @@ struct ChatViewModelLifecycleTests {
 
     @Test("A typed reply survives a detour through the options")
     func typedText_survivesOptionDetour() async {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .miniApp(a.id))
 
         async let answers = vm.askQuestions([
             HumanQuestionRow(question: "Ship it?", options: ["Yes", "No"]),
@@ -432,10 +432,10 @@ struct ChatViewModelLifecycleTests {
 
     @Test("Clearing an option leaves the row unanswered even while it still carries text")
     func togglingOffAnOption_leavesRowIncomplete() async {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .miniApp(a.id))
 
         async let answers = vm.askQuestions([
             HumanQuestionRow(question: "Ship it?", options: ["Yes", "No"]),
@@ -457,10 +457,10 @@ struct ChatViewModelLifecycleTests {
 
     @Test("Only the newest question card is live; earlier ones stay historic")
     func laterQuestion_doesNotReviveTheEarlierCard() async {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .miniApp(a.id))
 
         async let first = vm.askQuestions([HumanQuestionRow(question: "Q1?", options: [])])
         await awaitBubbleAppear(vm)
@@ -483,10 +483,10 @@ struct ChatViewModelLifecycleTests {
 
     @Test("A question with no rows is not submittable")
     func emptyRows_isNotComplete() async {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .miniApp(a.id))
 
         async let answers = vm.askQuestions([])
         for _ in 0..<100 where vm.hasPendingQuestion == false { await Task.yield() }
@@ -500,10 +500,10 @@ struct ChatViewModelLifecycleTests {
 
     @Test("submitInterruptAnswers clears pending state, appends a transcript bubble, and returns answers")
     func submitInterruptAnswers_clearsAndSummarises() async {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .miniApp(a.id))
 
         vm.submitInterruptAnswers()
         #expect(vm.bubbles.isEmpty)
@@ -534,10 +534,10 @@ struct ChatViewModelLifecycleTests {
 
     @Test("Single-question submit summary is just the answer text, no numbering")
     func submitInterruptAnswers_singleRow_summaryIsBare() async {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .miniApp(a.id))
 
         async let answers = vm.askQuestions([
             HumanQuestionRow(question: "Which book?", options: []),
@@ -552,10 +552,10 @@ struct ChatViewModelLifecycleTests {
 
     @Test("newThread() clears pending question state and resumes the bridge with empty answers")
     func newThreadClearsPendingState() async {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .miniApp(a.id))
 
         async let answers = vm.askQuestions([
             HumanQuestionRow(question: "Q?", options: []),
@@ -576,10 +576,10 @@ struct ChatViewModelLifecycleTests {
 
     @Test("cancel() clears pending question state and resumes the bridge with empty answers")
     func cancelClearsPendingState() async {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .miniApp(a.id))
 
         async let answers = vm.askQuestions([
             HumanQuestionRow(question: "Q?", options: []),
@@ -598,10 +598,10 @@ struct ChatViewModelLifecycleTests {
 
     @Test("send(_:) while a question is pending is a no-op")
     func sendWhilePending_isNoOp() async {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .myApp(a.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let vm = makeViewModel(store: store, memory: makeMemory(), scope: .miniApp(a.id))
 
         async let answers = vm.askQuestions([
             HumanQuestionRow(question: "Which one?", options: []),

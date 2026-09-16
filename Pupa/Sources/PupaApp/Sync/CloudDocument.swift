@@ -14,7 +14,7 @@ import os
 /// uncoordinated and relies on atomic writes + its baseline-aware 3-way merge
 /// for consistency. A coordinated write here only bought a synchronous XPC
 /// round-trip to `filecoordinationd`, which on device can stall the calling
-/// thread (here the main actor, via `MyAppStore.persist`) for hundreds of ms —
+/// thread (here the main actor, via `MiniAppStore.persist`) for hundreds of ms —
 /// the intermittent freeze in pupa#120. Atomic writes still guarantee no reader
 /// ever sees a torn file.
 public enum CloudDocument {
@@ -83,8 +83,8 @@ public enum CloudDocument {
 /// Updates are **coalesced**: during an initial iCloud download (or any burst
 /// of remote writes) `NSMetadataQuery` posts `DidUpdate` many times a second,
 /// and each `onChange` here drives a store reload whose heavy file IO
-/// (re-encode every MyApp, per-file `NSFileVersion` conflict probes,
-/// coordinated reads of the whole tree — see `MyAppStore.reloadFromDisk`) is
+/// (re-encode every MiniApp, per-file `NSFileVersion` conflict probes,
+/// coordinated reads of the whole tree — see `MiniAppStore.reloadFromDisk`) is
 /// the leading suspect for the iPhone-only slowdown in pupa#110 (the iPad
 /// rarely does a big initial download, so it never sees the storm). Two
 /// defences stack:

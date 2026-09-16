@@ -14,7 +14,7 @@ import SwiftUI
 struct ConversationPager: View {
     let scope: ChatScope
     let coordinator: ChatSessionCoordinator
-    let store: MyAppStore
+    let store: MiniAppStore
     let settings: SettingsStore
     let modelCatalog: ModelCatalogStore
 

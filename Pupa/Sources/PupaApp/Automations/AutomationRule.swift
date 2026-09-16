@@ -1,7 +1,7 @@
 import Foundation
 
 /// A canvas **domain** event — the trigger side of an automation. Emitted from
-/// `MyAppStore`'s single mutation choke-point, never persisted. These are Pupa
+/// `MiniAppStore`'s single mutation choke-point, never persisted. These are Pupa
 /// domain events (something only Pupa can observe), NOT Claude Code harness
 /// hooks. v1 carries only `.itemMoved`.
 public struct CanvasEvent: Sendable, Equatable {
@@ -10,7 +10,7 @@ public struct CanvasEvent: Sendable, Equatable {
     }
 
     public let type: EventType
-    public let myAppId: UUID
+    public let miniAppId: UUID
     public let componentId: String
     public let itemId: UUID
     /// Best-effort display name of the moved item (for `{{item.title}}`).
@@ -27,7 +27,7 @@ public struct CanvasEvent: Sendable, Equatable {
 
     public init(
         type: EventType,
-        myAppId: UUID,
+        miniAppId: UUID,
         componentId: String,
         itemId: UUID,
         itemTitle: String,
@@ -37,7 +37,7 @@ public struct CanvasEvent: Sendable, Equatable {
         toColumn: String?
     ) {
         self.type = type
-        self.myAppId = myAppId
+        self.miniAppId = miniAppId
         self.componentId = componentId
         self.itemId = itemId
         self.itemTitle = itemTitle

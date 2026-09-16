@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Modal Settings sheet. Reuses the `NavigationStack { Form { Section } }`
-/// pattern from the New MyApp / Rename MyApp sheets so iOS / macOS gets a
+/// pattern from the New MiniApp / Rename MiniApp sheets so iOS / macOS gets a
 /// system-shaped layout for free.
 ///
 /// Categories (each pushes its own screen):
@@ -16,7 +16,7 @@ import SwiftUI
 ///   - **Notifications** — Active (grouped by who scheduled them) and Past
 ///     (fired / cancelled), backed by `NotificationLogStore`; rows can be
 ///     edited or cancelled.
-///   - **Manage MyApps** — the per-app housekeeping pages: Agents, Import &
+///   - **Manage MiniApps** — the per-app housekeeping pages: Agents, Import &
 ///     Export, Pinned snapshots, Archive, Recently deleted.
 ///   - **Examples** — add a sample workspace to the sidebar; the guided tour
 ///     replay sits at the bottom of that page.
@@ -24,16 +24,16 @@ import SwiftUI
 ///     (the sheet closes first) so the video gets the whole window.
 public struct SettingsSheet: View {
     @Bindable var settings: SettingsStore
-    var onRestoreExample: ((any ExampleMyApp.Type) -> Void)?
+    var onRestoreExample: ((any ExampleMiniApp.Type) -> Void)?
     /// Replay entry point for the interactive guided tour. Provided by the
-    /// caller (which has the active myApp + pairing state); tapping the
+    /// caller (which has the active miniApp + pairing state); tapping the
     /// "Getting started tour" row dismisses the sheet and (re)starts the tour.
     /// `nil` hides the row (e.g. previews).
     var onStartTour: (() -> Void)?
     var onClose: () -> Void
-    /// MyApp + memory stores backing the Import & Export screen. When any of
+    /// MiniApp + memory stores backing the Import & Export screen. When any of
     /// these three is nil the Sharing row is hidden (e.g. previews).
-    var store: MyAppStore?
+    var store: MiniAppStore?
     var memory: MemoryStore?
     /// Lifetime per-agent activity counters backing the Agents roster.
     /// When nil (e.g. previews) the hub's Roster row is hidden; Tools and
@@ -74,10 +74,10 @@ public struct SettingsSheet: View {
 
     public init(
         settings: SettingsStore,
-        onRestoreExample: ((any ExampleMyApp.Type) -> Void)? = nil,
+        onRestoreExample: ((any ExampleMiniApp.Type) -> Void)? = nil,
         onStartTour: (() -> Void)? = nil,
         onClose: @escaping () -> Void,
-        store: MyAppStore? = nil,
+        store: MiniAppStore? = nil,
         memory: MemoryStore? = nil,
         stats: AgentStatsStore? = nil,
         modelCatalog: ModelCatalogStore? = nil,
@@ -115,12 +115,12 @@ public struct SettingsSheet: View {
     @State private var hasPinnedSnapshots = false
 
     /// Off-main tombstone scan feeding `hasDeletedApps`. `hasTombstones()`, not
-    /// `deletedMyApps()` — the row needs only "any?", and the full listing's
+    /// `deletedMiniApps()` — the row needs only "any?", and the full listing's
     /// per-entry resolve belongs on the screen itself, not on a gate re-run on
     /// every settings navigation.
     private func refreshHasDeletedApps() async {
         hasDeletedApps = await Task.detached(priority: .userInitiated) {
-            MyAppStore.hasTombstones()
+            MiniAppStore.hasTombstones()
         }.value
     }
 
@@ -149,8 +149,8 @@ public struct SettingsSheet: View {
                 }
                 .tourAnchor(.settingsEssentials)
                 // Housekeeping for the apps you already have — the rows that
-                // only mean something once you own a MyApp.
-                Section("Manage MyApps") {
+                // only mean something once you own a MiniApp.
+                Section("Manage MiniApps") {
                     NavigationLink(value: SettingsCategory.agents) {
                         SettingsHubRow(icon: "person.3.sequence", title: "Agents",
                                     caption: "Roster, tools, limits & threads")
@@ -158,7 +158,7 @@ public struct SettingsSheet: View {
                     if canShare {
                         NavigationLink(value: SettingsCategory.sharing) {
                             SettingsHubRow(icon: "square.and.arrow.up.on.square", title: "Import & Export",
-                                        caption: "Share or load a MyApp bundle")
+                                        caption: "Share or load a MiniApp bundle")
                         }
                     }
                     if store != nil, hasPinnedSnapshots {
@@ -167,7 +167,7 @@ public struct SettingsSheet: View {
                                         caption: "Saved states per app")
                         }
                     }
-                    if let store, !store.archivedMyApps.isEmpty {
+                    if let store, !store.archivedMiniApps.isEmpty {
                         NavigationLink(value: SettingsCategory.archive) {
                             SettingsHubRow(icon: "archivebox", title: "Archive",
                                         caption: "Hidden apps")
@@ -182,7 +182,7 @@ public struct SettingsSheet: View {
                         }
                     }
                 }
-                .tourAnchor(.settingsManageMyApps)
+                .tourAnchor(.settingsManageMiniApps)
                 // Side doors. Neither is needed to use the app, so both sit
                 // last rather than competing with Backend.
                 Section {
@@ -488,7 +488,7 @@ public struct SettingsSheet: View {
         } header: {
             Text("Examples")
         } footer: {
-            Text("Adds an example MyApp. Browse the marketplace for more.")
+            Text("Adds an example MiniApp. Browse the marketplace for more.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -511,7 +511,7 @@ public struct SettingsSheet: View {
     }
 
     @ViewBuilder
-    private func exampleRow(_ example: any ExampleMyApp.Type) -> some View {
+    private func exampleRow(_ example: any ExampleMiniApp.Type) -> some View {
         HStack(spacing: 12) {
             Image(systemName: example.iconSystemName)
                 .font(.title3)
@@ -613,18 +613,18 @@ public struct SettingsSheet: View {
 /// restores (`Unarchive`) or permanently deletes the app. Reached only when at
 /// least one app is archived (the row is otherwise hidden).
 private struct ArchivedAppsView: View {
-    @Bindable var store: MyAppStore
+    @Bindable var store: MiniAppStore
     /// App awaiting delete confirmation.
-    @State private var pendingDelete: MyApp?
+    @State private var pendingDelete: MiniApp?
 
     var body: some View {
         List {
             Section {
-                if store.archivedMyApps.isEmpty {
+                if store.archivedMiniApps.isEmpty {
                     Text("No archived apps.")
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(store.archivedMyApps) { app in
+                    ForEach(store.archivedMiniApps) { app in
                         row(app)
                     }
                 }
@@ -648,7 +648,7 @@ private struct ArchivedAppsView: View {
             presenting: pendingDelete
         ) { app in
             Button("Delete", role: .destructive) {
-                store.removeMyApp(app.id)
+                store.removeMiniApp(app.id)
                 pendingDelete = nil
             }
             Button("Cancel", role: .cancel) { pendingDelete = nil }
@@ -657,14 +657,14 @@ private struct ArchivedAppsView: View {
         }
     }
 
-    private func row(_ app: MyApp) -> some View {
+    private func row(_ app: MiniApp) -> some View {
         HStack(spacing: 10) {
             Image(systemName: app.iconSystemName)
                 .foregroundStyle(Color.color(atIndex: store.colorIndex(for: app.id)))
             Text(app.name)
                 .foregroundStyle(.primary)
             Spacer()
-            Button("Unarchive") { store.setMyAppArchived(app.id, false) }
+            Button("Unarchive") { store.setMiniAppArchived(app.id, false) }
                 .buttonStyle(.borderless)
         }
         #if os(iOS)
@@ -672,14 +672,14 @@ private struct ArchivedAppsView: View {
             Button(role: .destructive) { pendingDelete = app } label: {
                 Label("Delete", systemImage: "trash")
             }
-            Button { store.setMyAppArchived(app.id, false) } label: {
+            Button { store.setMiniAppArchived(app.id, false) } label: {
                 Label("Unarchive", systemImage: "tray.and.arrow.up")
             }
             .tint(.blue)
         }
         #endif
         .contextMenu {
-            Button { store.setMyAppArchived(app.id, false) } label: {
+            Button { store.setMiniAppArchived(app.id, false) } label: {
                 Label("Unarchive", systemImage: "tray.and.arrow.up")
             }
             Button(role: .destructive) { pendingDelete = app } label: {
@@ -691,14 +691,14 @@ private struct ArchivedAppsView: View {
 
 /// Settings → Notifications screen. Two lists over `NotificationLogStore`:
 /// **Active** (still in the OS queue), grouped by who scheduled it — one
-/// section per myApp, then the orchestrator, then the user — and **Past**
+/// section per miniApp, then the orchestrator, then the user — and **Past**
 /// (fired or cancelled), newest first.
 ///
 /// Reads the log rather than the OS queue directly: the queue holds only
 /// pending requests, so a fired one-shot has already vanished from it.
 /// Opening the screen reconciles the two.
 private struct NotificationsList: View {
-    var store: MyAppStore?
+    var store: MiniAppStore?
 
     private let log = NotificationLogStore.shared
     @State private var tab: Tab = .active
@@ -725,12 +725,12 @@ private struct NotificationsList: View {
         log.records.filter { $0.status != .scheduled }.sorted(by: NotificationRecord.byMostRecent)
     }
 
-    /// Active records bucketed by Origin, myApps first (alphabetical), then
+    /// Active records bucketed by Origin, miniApps first (alphabetical), then
     /// the orchestrator, the user, and finally anything adopted from a build
     /// that predates the log.
     private var activeGroups: [NotificationOriginGroup] {
         NotificationOriginGroup.grouped(active) { id in
-            guard let store, let app = store.myApp(withId: id) else { return nil }
+            guard let store, let app = store.miniApp(withId: id) else { return nil }
             return (app.name, app.iconSystemName, Color.color(atIndex: store.colorIndex(for: id)))
         }
     }

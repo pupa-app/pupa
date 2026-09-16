@@ -16,16 +16,16 @@ struct TurnStateProbeTests {
     init() { TestStorage.activate() }
 
     private func makeVM() -> ChatViewModel {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let app = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([app], app.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let app = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([app], app.id))
         let memory = MemoryStore(rootOverride: URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("pupa-tests-\(UUID().uuidString)"))
         return ChatViewModel(
             store: store, memory: memory,
             settings: SettingsStore(backendURL: URL(string: "http://localhost:65535/")!),
-            registry: ToolRegistry(), scope: .myApp(app.id),
-            threadId: store.currentThreadId(for: .myApp(app.id)),
+            registry: ToolRegistry(), scope: .miniApp(app.id),
+            threadId: store.currentThreadId(for: .miniApp(app.id)),
             urlSession: .shared, toolGateState: ToolGateState())
     }
 

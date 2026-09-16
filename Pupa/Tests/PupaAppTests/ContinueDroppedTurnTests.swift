@@ -29,20 +29,20 @@ struct ContinueDroppedTurnTests {
             .appendingPathComponent("pupa-tests-\(UUID().uuidString)"))
     }
 
-    private func makeStore() -> (store: MyAppStore, id: UUID) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let app = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        return (MyAppStore(initial: ([app], app.id)), app.id)
+    private func makeStore() -> (store: MiniAppStore, id: UUID) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let app = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        return (MiniAppStore(initial: ([app], app.id)), app.id)
     }
 
     private func makeVM(
-        store: MyAppStore, id: UUID, backend: URL, session: URLSession = .shared
+        store: MiniAppStore, id: UUID, backend: URL, session: URLSession = .shared
     ) -> ChatViewModel {
         ChatViewModel(
             store: store, memory: makeMemory(),
             settings: SettingsStore(backendURL: backend),
-            registry: ToolRegistry(), scope: .myApp(id),
-            threadId: store.currentThreadId(for: .myApp(id)),
+            registry: ToolRegistry(), scope: .miniApp(id),
+            threadId: store.currentThreadId(for: .miniApp(id)),
             urlSession: session, toolGateState: ToolGateState())
     }
 

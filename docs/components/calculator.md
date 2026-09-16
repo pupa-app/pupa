@@ -108,7 +108,7 @@ time as a line chart.
 
 ## Mutator surface
 
-[`MyApps/MyAppStore.swift`](../../Pupa/Sources/PupaApp/MyApps/MyAppStore.swift):
+[`MiniApps/MiniAppStore.swift`](../../Pupa/Sources/PupaApp/MiniApps/MiniAppStore.swift):
 `setCalculator`, `addCalcRow` (slug-dedupes, returns the key),
 `patchCalcRow` (+`CalcRowPatch`), `removeCalcRow`, `setCalculatorVariable`
 (UI tuning path — emits no event so slider drags don't flood History),

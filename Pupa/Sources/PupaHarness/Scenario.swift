@@ -5,7 +5,7 @@ import PupaApp
 
 /// A real Pupa object graph, headless.
 ///
-/// Builds the same stores the app builds — `MyAppStore`, `MemoryStore`,
+/// Builds the same stores the app builds — `MiniAppStore`, `MemoryStore`,
 /// `SettingsStore`, `ChatSessionCoordinator` — against a storage root of your
 /// choosing and a `URLSession` of your choosing, then lets a caller send chat
 /// turns and read back everything they touched. The graph is the app's, not a
@@ -21,20 +21,21 @@ import PupaApp
 @MainActor
 public final class Scenario {
     public let root: URL
-    public let store: MyAppStore
+    public let store: MiniAppStore
     public let memory: MemoryStore
     public let settings: SettingsStore
     public let coordinator: ChatSessionCoordinator
 
-    /// The MyApp every `send` targets.
-    public private(set) var myAppId: UUID
+    /// The MiniApp every `send` targets.
+    public private(set) var miniAppId: UUID
+    public let orchestrator: Bool
 
     /// Whatever `PupaStorage.overrideRoot` held before this scenario claimed
     /// it. `PupaStorage` is process-global, so a scenario sharing a process
     /// with other suites must hand it back — see `restoreStorageRoot()`.
     private let previousStorageRoot: URL?
 
-    public var scope: ChatScope { .myApp(myAppId) }
+    public var scope: ChatScope { orchestrator ? .memory : .miniApp(miniAppId) }
     public var threadId: String { store.currentThreadId(for: scope) }
     public var vm: ChatViewModel { coordinator.session(for: scope) }
 
@@ -44,7 +45,7 @@ public final class Scenario {
     ///   - backend: the AG-UI endpoint. Scripted runs still need one — the
     ///     transport intercepts it before it reaches the network.
     ///   - urlSession: `ScriptedTransport.session()` or a live session.
-    ///   - typeId: MyApp type to seed. Defaults to tracker.
+    ///   - typeId: MiniApp type to seed. Defaults to tracker.
     ///   - reset: wipe `root` first. False continues an existing store, which
     ///     is what multi-turn `PupaCtl --continue` needs.
     ///   - token: paired-device token for a live backend. Held in memory only
@@ -55,28 +56,32 @@ public final class Scenario {
         root: URL,
         backend: URL,
         urlSession: URLSession,
-        typeId: String = MyAppType.tracker.id,
+        typeId: String = MiniAppType.tracker.id,
         reset: Bool = true,
         token: String? = nil,
-        harnessID: String? = nil
+        harnessID: String? = nil,
+        orchestrator: Bool = false,
+        selectedMiniAppId: UUID? = nil
     ) {
         if reset { try? FileManager.default.removeItem(at: root) }
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         self.previousStorageRoot = PupaStorage.overrideRoot
         PupaStorage.overrideRoot = root
         self.root = root
+        self.orchestrator = orchestrator
 
-        MyAppTypeRegistry.shared.registerBuiltins()
+        MiniAppTypeRegistry.shared.registerBuiltins()
 
         // A restored store already has apps; only seed when it came up empty.
-        let restored = MyAppStore()
-        if let existing = restored.myApps.first(where: { !$0.isArchived }) {
+        let restored = MiniAppStore()
+        if let existing = restored.miniApps.first(where: { $0.id == selectedMiniAppId && !$0.isArchived })
+            ?? restored.miniApps.first(where: { !$0.isArchived }) {
             self.store = restored
-            self.myAppId = existing.id
+            self.miniAppId = existing.id
         } else {
-            let seed = MyApp(name: "Harness", iconSystemName: "circle", typeId: typeId)
-            self.store = MyAppStore(initial: ([seed], seed.id))
-            self.myAppId = seed.id
+            let seed = MiniApp(name: "Harness", iconSystemName: "circle", typeId: typeId)
+            self.store = MiniAppStore(initial: ([seed], seed.id))
+            self.miniAppId = seed.id
         }
 
         // No override — `PupaStorage.memoriesRoot` already follows the root
@@ -137,7 +142,7 @@ public final class Scenario {
             ? RecordingTransport.postBodies
             : ScriptedTransport.postBodies
         return ScenarioReport(
-            myApp: store.myApps.first(where: { $0.id == myAppId }),
+            miniApp: store.miniApps.first(where: { $0.id == miniAppId }),
             threadId: threadId,
             bubbles: vm.bubbles,
             connectionIssue: vm.connectionIssue.map { String(describing: $0) },
@@ -164,9 +169,9 @@ public final class Scenario {
         PupaStorage.overrideRoot = previousStorageRoot
     }
 
-    /// Point the scenario at a different MyApp — `PupaCtl --app`.
-    public func select(myAppId id: UUID) {
-        guard store.myApps.contains(where: { $0.id == id }) else { return }
-        myAppId = id
+    /// Point the scenario at a different MiniApp — `PupaCtl --app`.
+    public func select(miniAppId id: UUID) {
+        guard store.miniApps.contains(where: { $0.id == id }) else { return }
+        miniAppId = id
     }
 }

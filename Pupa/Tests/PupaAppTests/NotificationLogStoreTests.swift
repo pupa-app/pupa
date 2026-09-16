@@ -38,16 +38,16 @@ struct NotificationLogStoreTests {
     @Test("a scheduled record round-trips to disk")
     func roundTrip() {
         let writer = freshStore()
-        let myAppId = UUID()
+        let miniAppId = UUID()
         writer.noteScheduled(
-            request(), origin: .myApp(myAppId),
+            request(), origin: .miniApp(miniAppId),
             unId: "un-1", deliveryAt: Date(timeIntervalSince1970: 1_000)
         )
 
         let reader = NotificationLogStore()
         #expect(reader.records.count == 1)
         #expect(reader.records[0].unId == "un-1")
-        #expect(reader.records[0].origin == .myApp(myAppId))
+        #expect(reader.records[0].origin == .miniApp(miniAppId))
         #expect(reader.records[0].title == "Stand up")
         #expect(reader.records[0].status == .scheduled)
         #expect(reader.records[0].request?.trigger == .after(seconds: 60))
@@ -56,22 +56,22 @@ struct NotificationLogStoreTests {
     @Test("a deep link survives persistence, so an edit after relaunch keeps it")
     func routingSurvivesDisk() {
         let store = freshStore()
-        let myAppId = UUID()
+        let miniAppId = UUID()
         store.noteScheduled(
             NotificationRequest(
                 title: "Stand up", body: "body",
                 trigger: .weekly(weekday: 3, hour: 8, minute: 15),
-                target: .init(myAppId: myAppId, componentId: "tracker-1"),
+                target: .init(miniAppId: miniAppId, componentId: "tracker-1"),
                 tapAction: .runAgent(prompt: "log it")
             ),
-            origin: .myApp(myAppId), unId: "un-1", deliveryAt: Date()
+            origin: .miniApp(miniAppId), unId: "un-1", deliveryAt: Date()
         )
 
         // After a relaunch the composer seeds `preserving:` from the decoded
         // request — if Target or TapAction don't survive JSON, editing an
-        // agent's reminder silently severs its route back into the myApp.
+        // agent's reminder silently severs its route back into the miniApp.
         let decoded = NotificationLogStore().records[0].request
-        #expect(decoded?.target?.myAppId == myAppId)
+        #expect(decoded?.target?.miniAppId == miniAppId)
         #expect(decoded?.target?.componentId == "tracker-1")
         #expect(decoded?.tapAction == .runAgent(prompt: "log it"))
         #expect(decoded?.trigger == .weekly(weekday: 3, hour: 8, minute: 15))
@@ -81,11 +81,31 @@ struct NotificationLogStoreTests {
     func originCodable() throws {
         let id = UUID()
         for origin in [
-            NotificationOrigin.user, .orchestrator, .unknown, .myApp(id),
+            NotificationOrigin.user, .orchestrator, .unknown, .miniApp(id),
         ] {
             let data = try JSONEncoder().encode(origin)
             #expect(try JSONDecoder().decode(NotificationOrigin.self, from: data) == origin)
         }
+    }
+
+    @Test("New notification origin writes MiniApp and reads MyApp")
+    func originNameMigration() throws {
+        let id = UUID()
+        let origin = NotificationOrigin.miniApp(id)
+        #expect(origin.userInfoValue == "miniApp:\(id.uuidString)")
+        #expect(NotificationOrigin.fromUserInfo("myApp:\(id.uuidString)") == origin)
+    }
+
+    @Test("Old notification targets retain their app route")
+    func targetNameMigration() throws {
+        let id = UUID()
+        let target = NotificationRequest.Target(miniAppId: id, componentId: "tracker-1")
+        var object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(target)) as! [String: Any]
+        object["myAppId"] = object.removeValue(forKey: "miniAppId")
+        let decoded = try JSONDecoder().decode(NotificationRequest.Target.self,
+                                               from: JSONSerialization.data(withJSONObject: object))
+        #expect(decoded.miniAppId == id)
+        #expect(decoded.componentId == "tracker-1")
     }
 
     @Test("the log stays out of the mirrored state/ subtree")
@@ -158,21 +178,21 @@ struct NotificationLogStoreTests {
     @Test("a pending request the log has never seen is adopted, origin from its marker")
     func adoptsOrphanWithMarker() {
         let store = freshStore()
-        let myAppId = UUID()
+        let miniAppId = UUID()
 
         store.reconcile(
             pending: [
                 pending(
                     "un-orphan", deliveryAt: Date().addingTimeInterval(60),
                     componentId: "tracker-1",
-                    origin: NotificationOrigin.myApp(myAppId).userInfoValue
+                    origin: NotificationOrigin.miniApp(miniAppId).userInfoValue
                 )
             ],
             capturedAt: Date(), now: Date()
         )
 
         #expect(store.records.count == 1)
-        #expect(store.records[0].origin == .myApp(myAppId))
+        #expect(store.records[0].origin == .miniApp(miniAppId))
         #expect(store.records[0].componentId == "tracker-1")
         // No trigger detail survives in the OS queue, so it can't be edited.
         #expect(store.records[0].request == nil)
@@ -188,12 +208,12 @@ struct NotificationLogStoreTests {
         #expect(store.records[0].origin == .unknown)
     }
 
-    @Test("a malformed origin marker adopts as Unattributed, not as a bogus myApp")
+    @Test("a malformed origin marker adopts as Unattributed, not as a bogus miniApp")
     func adoptsMalformedMarker() {
         let store = freshStore()
 
         store.reconcile(
-            pending: [pending("un-bad", deliveryAt: Date(), origin: "myApp:not-a-uuid")],
+            pending: [pending("un-bad", deliveryAt: Date(), origin: "miniApp:not-a-uuid")],
             capturedAt: Date(), now: Date()
         )
 
@@ -327,9 +347,9 @@ struct NotificationLogStoreTests {
     @Test("an edit keeps the record's id and Origin while the OS identifier churns")
     func editKeepsIdentity() {
         let store = freshStore()
-        let myAppId = UUID()
+        let miniAppId = UUID()
         store.noteScheduled(
-            request(), origin: .myApp(myAppId), unId: "un-1", deliveryAt: Date()
+            request(), origin: .miniApp(miniAppId), unId: "un-1", deliveryAt: Date()
         )
         let recordId = store.records[0].id
 
@@ -343,7 +363,7 @@ struct NotificationLogStoreTests {
         #expect(store.records.count == 1)
         #expect(store.records[0].id == recordId)
         #expect(store.records[0].unId == "un-2")
-        #expect(store.records[0].origin == .myApp(myAppId))
+        #expect(store.records[0].origin == .miniApp(miniAppId))
         #expect(store.records[0].title == "Retimed")
         #expect(store.records[0].repeats)
         #expect(store.records[0].editedByUser)

@@ -13,21 +13,21 @@ import AGUIKit
 @Suite("Slack tools")
 struct SlackToolsTests {
 
-    private func freshStore() -> (MyAppStore, UUID) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApp = MyApp(
+    private func freshStore() -> (MiniAppStore, UUID) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApp = MiniApp(
             name: "T",
             iconSystemName: "bubble.left.and.bubble.right",
-            typeId: MyAppType.tracker.id
+            typeId: MiniAppType.tracker.id
         )
-        let store = MyAppStore(initial: ([myApp], myApp.id))
+        let store = MiniAppStore(initial: ([miniApp], miniApp.id))
         store.addComponent(
             kind: "slack",
             name: "Slack",
             iconSystemName: "bubble.left.and.bubble.right",
-            myAppId: myApp.id
+            miniAppId: miniApp.id
         )
-        return (store, myApp.id)
+        return (store, miniApp.id)
     }
 
     /// A temp, isolated memory store to hold the subagent roster. Seed agents
@@ -38,8 +38,8 @@ struct SlackToolsTests {
     }
 
     private func makeRegistry(
-        store: MyAppStore,
-        myAppId: UUID,
+        store: MiniAppStore,
+        miniAppId: UUID,
         memory: MemoryStore? = nil,
         currentAgentId: String?,
         invokeOutcome: SlackInvoker.InvocationOutcome = .completed(text: "ok", postedMessageId: "msg-x")
@@ -49,7 +49,7 @@ struct SlackToolsTests {
         AppTools.registerSlackTools(
             on: registry,
             store: store,
-            myAppId: myAppId,
+            miniAppId: miniAppId,
             memory: memory,
             context: AppTools.SlackToolContext(
                 currentAgentId: currentAgentId,
@@ -73,11 +73,11 @@ struct SlackToolsTests {
 
     @Test("Discovery tools return the live channel + agent rosters")
     func discovery() async throws {
-        let (store, myAppId) = freshStore()
+        let (store, miniAppId) = freshStore()
         let mem = tempMemory()
         try AgentStore(memory: mem).createAgent(name: "marketing", description: "marketing")
-        _ = store.slackAddChannel(name: "planning", type: .channel, myAppId: myAppId)
-        let registry = makeRegistry(store: store, myAppId: myAppId, memory: mem, currentAgentId: nil)
+        _ = store.slackAddChannel(name: "planning", type: .channel, miniAppId: miniAppId)
+        let registry = makeRegistry(store: store, miniAppId: miniAppId, memory: mem, currentAgentId: nil)
 
         let agents = try await registry.resolve("slackListAgents")!.handler(.object([:]))
         let agentList = agents.objectValue?["agents"]?.arrayValue?.compactMap { $0.objectValue?["name"]?.stringValue }
@@ -90,8 +90,8 @@ struct SlackToolsTests {
 
     @Test("slackPostMessage refuses when there's no sub-agent context (main chat caller)")
     func postMessageRefusedForMainChat() async throws {
-        let (store, myAppId) = freshStore()
-        let registry = makeRegistry(store: store, myAppId: myAppId, currentAgentId: nil)
+        let (store, miniAppId) = freshStore()
+        let registry = makeRegistry(store: store, miniAppId: miniAppId, currentAgentId: nil)
         let result = try await registry.resolve("slackPostMessage")!.handler(.object([
             "channelId": .string("channel-1"),
             "text": .string("hi"),
@@ -102,8 +102,8 @@ struct SlackToolsTests {
 
     @Test("Channel-admin tools refuse when called by a sub-agent")
     func adminToolsRefuseForSubAgents() async throws {
-        let (store, myAppId) = freshStore()
-        let registry = makeRegistry(store: store, myAppId: myAppId, currentAgentId: "agent-x")
+        let (store, miniAppId) = freshStore()
+        let registry = makeRegistry(store: store, miniAppId: miniAppId, currentAgentId: "agent-x")
 
         let createCh = try await registry.resolve("slackCreateChannels")!.handler(.object([
             "channels": .array([.object([
@@ -117,8 +117,8 @@ struct SlackToolsTests {
 
     @Test("Channel-admin tools succeed for the main chat agent (currentAgentId: nil)")
     func adminToolsSucceedForMainChat() async throws {
-        let (store, myAppId) = freshStore()
-        let registry = makeRegistry(store: store, myAppId: myAppId, currentAgentId: nil)
+        let (store, miniAppId) = freshStore()
+        let registry = makeRegistry(store: store, miniAppId: miniAppId, currentAgentId: nil)
 
         let createCh = try await registry.resolve("slackCreateChannels")!.handler(.object([
             "channels": .array([
@@ -133,14 +133,14 @@ struct SlackToolsTests {
 
     @Test("slackPostMessage fans out to @-mentioned agents and surfaces outcomes")
     func postMessageFanOut() async throws {
-        let (store, myAppId) = freshStore()
+        let (store, miniAppId) = freshStore()
         let mem = tempMemory()
         try AgentStore(memory: mem).createAgent(name: "dev", description: "dev")
         try AgentStore(memory: mem).createAgent(name: "research", description: "")
-        let channelId = store.slackAddChannel(name: "planning", type: .channel, myAppId: myAppId)!
+        let channelId = store.slackAddChannel(name: "planning", type: .channel, miniAppId: miniAppId)!
 
         let registry = makeRegistry(
-            store: store, myAppId: myAppId, memory: mem, currentAgentId: "dev",
+            store: store, miniAppId: miniAppId, memory: mem, currentAgentId: "dev",
             invokeOutcome: .completed(text: "researched it", postedMessageId: "msg-research")
         )
 
@@ -155,7 +155,7 @@ struct SlackToolsTests {
         #expect(fanOut.first?.objectValue?["agentId"]?.stringValue == "research")
         #expect(fanOut.first?.objectValue?["outcome"]?.stringValue == "completed")
         // The message landed in the store with the agent author (the dev slug).
-        let posted = (store.myApps.first?.components.compactMap { c -> SlackData? in
+        let posted = (store.miniApps.first?.components.compactMap { c -> SlackData? in
             if case .slack(let s) = c.body { return s }
             return nil
         }.first?.messagesByChannel[channelId] ?? [])
@@ -166,14 +166,14 @@ struct SlackToolsTests {
 
     @Test("slackPostMessage encodes a reentrant fan-out outcome with an error message")
     func postMessageReentrantOutcome() async throws {
-        let (store, myAppId) = freshStore()
+        let (store, miniAppId) = freshStore()
         let mem = tempMemory()
         try AgentStore(memory: mem).createAgent(name: "dev", description: "")
         try AgentStore(memory: mem).createAgent(name: "marketing", description: "")
-        let channelId = store.slackAddChannel(name: "planning", type: .channel, myAppId: myAppId)!
+        let channelId = store.slackAddChannel(name: "planning", type: .channel, miniAppId: miniAppId)!
 
         let registry = makeRegistry(
-            store: store, myAppId: myAppId, memory: mem, currentAgentId: "dev",
+            store: store, miniAppId: miniAppId, memory: mem, currentAgentId: "dev",
             invokeOutcome: .reentrant(targetName: "marketing")
         )
 
@@ -188,8 +188,8 @@ struct SlackToolsTests {
 
     @Test("slackPostMessage with empty text returns an error")
     func postMessageEmpty() async throws {
-        let (store, myAppId) = freshStore()
-        let registry = makeRegistry(store: store, myAppId: myAppId, currentAgentId: "agent-1")
+        let (store, miniAppId) = freshStore()
+        let registry = makeRegistry(store: store, miniAppId: miniAppId, currentAgentId: "agent-1")
         let result = try await registry.resolve("slackPostMessage")!.handler(.object([
             "channelId": .string("channel-x"),
             "text": .string("   "),
@@ -198,11 +198,11 @@ struct SlackToolsTests {
     }
 
     private func seedMessages(
-        store: MyAppStore,
-        myAppId: UUID,
+        store: MiniAppStore,
+        miniAppId: UUID,
         count: Int
     ) -> (channelId: String, ids: [String]) {
-        let channelId = store.slackAddChannel(name: "planning", type: .channel, myAppId: myAppId)!
+        let channelId = store.slackAddChannel(name: "planning", type: .channel, miniAppId: miniAppId)!
         var ids: [String] = []
         let base: TimeInterval = 1_700_000_000
         for i in 0..<count {
@@ -212,7 +212,7 @@ struct SlackToolsTests {
                 authorId: "user",
                 text: "m\(i)",
                 timestamp: Date(timeIntervalSince1970: base + TimeInterval(i * 60)),
-                myAppId: myAppId
+                miniAppId: miniAppId
             )!
             ids.append(id)
         }
@@ -221,9 +221,9 @@ struct SlackToolsTests {
 
     @Test("slackReadChannelHistory returns the tail when no cursor is passed, and signals hasMore when clipped")
     func readChannelHistoryTail() async throws {
-        let (store, myAppId) = freshStore()
-        let registry = makeRegistry(store: store, myAppId: myAppId, currentAgentId: nil)
-        let (channelId, ids) = seedMessages(store: store, myAppId: myAppId, count: 5)
+        let (store, miniAppId) = freshStore()
+        let registry = makeRegistry(store: store, miniAppId: miniAppId, currentAgentId: nil)
+        let (channelId, ids) = seedMessages(store: store, miniAppId: miniAppId, count: 5)
 
         let result = try await registry.resolve("slackReadChannelHistory")!.handler(.object([
             "channelId": .string(channelId),
@@ -238,9 +238,9 @@ struct SlackToolsTests {
 
     @Test("slackReadChannelHistory `before` cursor returns the page strictly older than the given message id")
     func readChannelHistoryBeforeCursor() async throws {
-        let (store, myAppId) = freshStore()
-        let registry = makeRegistry(store: store, myAppId: myAppId, currentAgentId: nil)
-        let (channelId, ids) = seedMessages(store: store, myAppId: myAppId, count: 5)
+        let (store, miniAppId) = freshStore()
+        let registry = makeRegistry(store: store, miniAppId: miniAppId, currentAgentId: nil)
+        let (channelId, ids) = seedMessages(store: store, miniAppId: miniAppId, count: 5)
 
         let result = try await registry.resolve("slackReadChannelHistory")!.handler(.object([
             "channelId": .string(channelId),
@@ -255,9 +255,9 @@ struct SlackToolsTests {
 
     @Test("slackReadChannelHistory `before` cursor still respects limit and reports hasMore for an older page")
     func readChannelHistoryBeforeWithLimit() async throws {
-        let (store, myAppId) = freshStore()
-        let registry = makeRegistry(store: store, myAppId: myAppId, currentAgentId: nil)
-        let (channelId, ids) = seedMessages(store: store, myAppId: myAppId, count: 5)
+        let (store, miniAppId) = freshStore()
+        let registry = makeRegistry(store: store, miniAppId: miniAppId, currentAgentId: nil)
+        let (channelId, ids) = seedMessages(store: store, miniAppId: miniAppId, count: 5)
 
         let result = try await registry.resolve("slackReadChannelHistory")!.handler(.object([
             "channelId": .string(channelId),
@@ -272,9 +272,9 @@ struct SlackToolsTests {
 
     @Test("slackReadChannelHistory ignores an unknown `before` cursor and returns the tail of all messages")
     func readChannelHistoryUnknownBefore() async throws {
-        let (store, myAppId) = freshStore()
-        let registry = makeRegistry(store: store, myAppId: myAppId, currentAgentId: nil)
-        let (channelId, ids) = seedMessages(store: store, myAppId: myAppId, count: 3)
+        let (store, miniAppId) = freshStore()
+        let registry = makeRegistry(store: store, miniAppId: miniAppId, currentAgentId: nil)
+        let (channelId, ids) = seedMessages(store: store, miniAppId: miniAppId, count: 3)
 
         let result = try await registry.resolve("slackReadChannelHistory")!.handler(.object([
             "channelId": .string(channelId),

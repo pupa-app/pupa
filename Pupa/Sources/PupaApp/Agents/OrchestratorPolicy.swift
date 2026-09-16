@@ -15,7 +15,7 @@ public struct OrchestratorPolicy: AgentPolicy {
     // MARK: AgentPolicy
 
     @MainActor
-    public func payload(for scope: ChatScope, store: MyAppStore) async -> AgentPayload {
+    public func payload(for scope: ChatScope, store: MiniAppStore) async -> AgentPayload {
         let memory = MemoryStore(rootOverride: MemoryStore.orchestratorRoot())
         let systemPrompt = buildSystemPrompt(memory: memory)
         let toolNames = ChatViewModel.allowedToolNames(scope: .memory, store: store, toolGateState: ToolGateState())
@@ -45,9 +45,9 @@ public struct OrchestratorPolicy: AgentPolicy {
             "Orchestrator instructions (pupa/AGENTS.md):\n\n\($0)"
         } ?? """
             ORCHESTRATOR scope — no canvas here. Surfaces: memories FileSystem + \
-            list/create/renameMyApp + invokeMyAppAgent(myAppId, prompt) to \
+            list/create/renameMiniApp + invokeMiniAppAgent(miniAppId, prompt) to \
             delegate one-shot tasks (sub-run mutates that canvas + returns \
-            summary). Fan out by emitting multiple invokeMyAppAgent calls \
+            summary). Fan out by emitting multiple invokeMiniAppAgent calls \
             in one assistant message. No direct canvas calls from here.
             """
     }

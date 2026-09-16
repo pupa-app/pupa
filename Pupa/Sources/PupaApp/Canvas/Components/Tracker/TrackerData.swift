@@ -58,7 +58,7 @@ public struct FieldDef: Codable, Hashable, Sendable, Identifiable {
 /// items in other components (tracker rows, calendar events, or other
 /// checklist rows). Each ref renders as a chain-link pill on the row's
 /// card; deleting the target sweeps the ref via
-/// `MyAppStore.cascadeRemoveRefs`.
+/// `MiniAppStore.cascadeRemoveRefs`.
 public struct TrackerItem: Codable, Hashable, Identifiable, Sendable {
     public let id: UUID
     public var values: [String: String]
@@ -105,7 +105,7 @@ extension TrackerItem: Item {
     /// Best-effort display name for pills and pickers. Prefers well-known
     /// keys ("title", "name", "label") then falls back to the first
     /// non-empty value in sorted-key order. Callers with full field
-    /// metadata should prefer `MyAppStore.displayNameForTrackerItem`.
+    /// metadata should prefer `MiniAppStore.displayNameForTrackerItem`.
     public var displayName: String {
         let preferred = ["title", "name", "label", "text"]
         for key in preferred {

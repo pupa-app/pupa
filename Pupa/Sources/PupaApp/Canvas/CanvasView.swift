@@ -1,12 +1,12 @@
 import SwiftUI
 
 public struct CanvasView: View {
-    @Bindable var store: MyAppStore
+    @Bindable var store: MiniAppStore
     let selection: SidebarSelection
     let coordinator: ChatSessionCoordinator
 
     public init(
-        store: MyAppStore,
+        store: MiniAppStore,
         selection: SidebarSelection,
         coordinator: ChatSessionCoordinator
     ) {
@@ -24,7 +24,7 @@ public struct CanvasView: View {
                         // the body is disabled (controls inert) but still scrolls.
                         LockToggle(
                             store: store,
-                            myAppId: resolvedMyAppId,
+                            miniAppId: resolvedMiniAppId,
                             componentId: component.id,
                             isLocked: component.isLocked
                         )
@@ -39,7 +39,7 @@ public struct CanvasView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.canvasBackground)
-        .linkedItemPopupHost(store: store, myAppId: resolvedMyAppId)
+        .linkedItemPopupHost(store: store, miniAppId: resolvedMiniAppId)
     }
 
     @ViewBuilder
@@ -52,7 +52,7 @@ public struct CanvasView: View {
             module.makeView(
                 component: component,
                 store: store,
-                myAppId: resolvedMyAppId,
+                miniAppId: resolvedMiniAppId,
                 coordinator: coordinator
             )
         } else {
@@ -61,30 +61,30 @@ public struct CanvasView: View {
     }
 
     /// Component the canvas should render. Resolution prefers an explicit
-    /// `.myAppComponent` selection; falling back to the active component of
-    /// the MyApp (which a `.myApp` parent selection or stale `componentId`
+    /// `.miniAppComponent` selection; falling back to the active component of
+    /// the MiniApp (which a `.miniApp` parent selection or stale `componentId`
     /// both end up at).
     private var resolvedComponent: Component? {
         switch selection {
-        case .myAppComponent(let myAppId, let componentId):
-            guard let m = store.myApps.first(where: { $0.id == myAppId }) else { return nil }
+        case .miniAppComponent(let miniAppId, let componentId):
+            guard let m = store.miniApps.first(where: { $0.id == miniAppId }) else { return nil }
             return m.component(withId: componentId) ?? m.activeComponent
-        case .myApp(let myAppId):
-            return store.myApps.first(where: { $0.id == myAppId })?.activeComponent
+        case .miniApp(let miniAppId):
+            return store.miniApps.first(where: { $0.id == miniAppId })?.activeComponent
         default:
-            return store.activeMyApp.activeComponent
+            return store.activeMiniApp.activeComponent
         }
     }
 
-    /// MyApp id the resolved component belongs to. Passed into the
+    /// MiniApp id the resolved component belongs to. Passed into the
     /// calendar view so linked-event resolution can find sibling tracker
-    /// components in the same MyApp.
-    private var resolvedMyAppId: UUID {
+    /// components in the same MiniApp.
+    private var resolvedMiniAppId: UUID {
         switch selection {
-        case .myAppComponent(let id, _), .myApp(let id):
+        case .miniAppComponent(let id, _), .miniApp(let id):
             return id
         default:
-            return store.activeMyAppId
+            return store.activeMiniAppId
         }
     }
 }
@@ -93,8 +93,8 @@ public struct CanvasView: View {
 /// a locked component refuses every mutating tool (agent) and disables its
 /// in-canvas edit controls (user), while reads/scroll still work.
 private struct LockToggle: View {
-    @Bindable var store: MyAppStore
-    let myAppId: UUID
+    @Bindable var store: MiniAppStore
+    let miniAppId: UUID
     let componentId: String
     let isLocked: Bool
 
@@ -102,7 +102,7 @@ private struct LockToggle: View {
         HStack {
             Spacer()
             Button {
-                store.setComponentLocked(componentId: componentId, locked: !isLocked, myAppId: myAppId)
+                store.setComponentLocked(componentId: componentId, locked: !isLocked, miniAppId: miniAppId)
             } label: {
                 Image(systemName: isLocked ? "lock.fill" : "lock.open")
                     .font(.callout.weight(.semibold))

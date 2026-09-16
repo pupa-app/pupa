@@ -5,7 +5,7 @@ import AGUIKit
 /// Why a snapshot was captured. Drives the History timeline's badge and the
 /// conflict-recovery affordance.
 public enum SnapshotReason: String, Codable, Sendable {
-    /// Debounced capture after the user/agent edited the MyApp.
+    /// Debounced capture after the user/agent edited the MiniApp.
     case edit
     /// A losing side of an iCloud `NSFileVersion` conflict, preserved so no
     /// offline work is ever lost.
@@ -13,9 +13,9 @@ public enum SnapshotReason: String, Codable, Sendable {
     /// The local state just before a remote reload overwrote it.
     case preReload
     /// A user restore — the new head produced by reverting to an earlier
-    /// snapshot (restore is append-only; see `MyAppStore.restore`).
+    /// snapshot (restore is append-only; see `MiniAppStore.restore`).
     case restored
-    /// The state just before the user deleted the MyApp — the restore point
+    /// The state just before the user deleted the MiniApp — the restore point
     /// behind Settings → Recently deleted.
     case deleted
     /// A user-pinned permanent snapshot: labelled, always stored as a full
@@ -88,7 +88,7 @@ public struct SnapshotMeta: Codable, Sendable, Identifiable, Hashable {
 }
 
 /// Header-only view of a snapshot record: everything `SnapshotMeta` needs,
-/// decoded without materialising `base`/`diff`. Listing a MyApp's history must
+/// decoded without materialising `base`/`diff`. Listing a MiniApp's history must
 /// not decode every full app state it has ever held.
 private struct SnapshotHeader: Decodable {
     let meta: SnapshotMeta
@@ -115,7 +115,7 @@ private struct SnapshotHeader: Decodable {
     }
 }
 
-/// Git-style snapshot history per MyApp. Files live at
+/// Git-style snapshot history per MiniApp. Files live at
 /// `state/snapshots/<appId>/<snapshotId>.json` and ride the same
 /// `CloudDocument`/`PupaStorage` seam as everything else, so history syncs
 /// across devices and stays `NSFileCoordinator`-safe.
@@ -159,7 +159,7 @@ public enum SnapshotStore {
 
     /// Newest-first history listing for `appId` (metadata only). Decodes only
     /// each record's header — never its `base`/`diff` payload, which is the
-    /// whole serialized MyApp and dwarfs everything else on disk.
+    /// whole serialized MiniApp and dwarfs everything else on disk.
     public static func metas(_ appId: UUID) -> [SnapshotMeta] {
         let ids = recordIDs(appId)
         guard !ids.isEmpty else {
@@ -295,7 +295,7 @@ public enum SnapshotStore {
     /// from the current head.
     @discardableResult
     public static func record(
-        _ app: MyApp, reason: SnapshotReason, label: String? = nil, now: Date = Date()
+        _ app: MiniApp, reason: SnapshotReason, label: String? = nil, now: Date = Date()
     ) -> UUID? {
         guard let json = stateJSON(app) else { return nil }
         let contentHash = hash(json)
@@ -325,26 +325,26 @@ public enum SnapshotStore {
         return sid
     }
 
-    /// Reconstruct the MyApp captured by snapshot `id`, or nil if the chain
+    /// Reconstruct the MiniApp captured by snapshot `id`, or nil if the chain
     /// is missing/corrupt.
-    public static func restoredApp(_ appId: UUID, id: UUID) -> MyApp? {
+    public static func restoredApp(_ appId: UUID, id: UUID) -> MiniApp? {
         guard let json = resolve(appId, id: id),
               let data = try? JSONEncoder().encode(json) else { return nil }
-        return try? JSONDecoder().decode(MyApp.self, from: data)
+        return try? JSONDecoder().decode(MiniApp.self, from: data)
     }
 
-    /// Drop all history for `appId` (called when the MyApp is deleted).
+    /// Drop all history for `appId` (called when the MiniApp is deleted).
     public static func deleteAll(_ appId: UUID) {
         try? FileManager.default.removeItem(at: dir(appId))
         try? FileManager.default.removeItem(at: indexURL(appId))
     }
 
-    /// Reasons whose records outlive the MyApp: the user's permanent pins, and
+    /// Reasons whose records outlive the MiniApp: the user's permanent pins, and
     /// the `.deleted` restore point that backs Settings → Recently deleted.
     public static let survivesDeletion: Set<SnapshotReason> = [.pinned, .deleted]
 
     /// Drop the automatic history for `appId`, keeping the reasons in `keeping`
-    /// — by default everything that must survive deleting the MyApp. Removes
+    /// — by default everything that must survive deleting the MiniApp. Removes
     /// the whole dir when nothing survives. Every kept kind is a self-contained
     /// full base (see `record`), so dropping siblings never dangles a chain.
     ///
@@ -376,7 +376,7 @@ public enum SnapshotStore {
     ///
     /// This is how the un-delete paths retire `.deleted`; without it every
     /// delete/restore cycle strands one full base forever, mirrored to iCloud
-    /// (see `MyAppStore.clearDeleteMarkers`).
+    /// (see `MiniAppStore.clearDeleteMarkers`).
     public static func dropRecords(_ appId: UUID, reasons: Set<SnapshotReason>) {
         let all = metas(appId)
         let losers = all.filter { reasons.contains($0.reason) }
@@ -503,7 +503,7 @@ public enum SnapshotStore {
 
     // MARK: - IO helpers
 
-    private static func stateJSON(_ app: MyApp) -> AnyJSON? {
+    private static func stateJSON(_ app: MiniApp) -> AnyJSON? {
         guard let data = try? JSONEncoder().encode(app) else { return nil }
         return try? JSONDecoder().decode(AnyJSON.self, from: data)
     }

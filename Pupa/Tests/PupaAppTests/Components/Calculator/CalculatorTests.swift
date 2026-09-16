@@ -10,23 +10,23 @@ import Testing
 @Suite("Calculator component")
 struct CalculatorTests {
 
-    private func freshStore() -> (MyAppStore, UUID) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApp = MyApp(name: "T", iconSystemName: "function", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([myApp], myApp.id))
-        store.addComponent(kind: "calculator", name: "Calc", iconSystemName: "function", myAppId: myApp.id)
-        return (store, myApp.id)
+    private func freshStore() -> (MiniAppStore, UUID) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApp = MiniApp(name: "T", iconSystemName: "function", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([miniApp], miniApp.id))
+        store.addComponent(kind: "calculator", name: "Calc", iconSystemName: "function", miniAppId: miniApp.id)
+        return (store, miniApp.id)
     }
 
-    private func calc(_ store: MyAppStore, _ id: UUID) -> CalculatorData? {
-        for comp in store.myApps.first(where: { $0.id == id })?.components ?? [] {
+    private func calc(_ store: MiniAppStore, _ id: UUID) -> CalculatorData? {
+        for comp in store.miniApps.first(where: { $0.id == id })?.components ?? [] {
             if case .calculator(let c) = comp.body { return c }
         }
         return nil
     }
 
-    private func components(_ store: MyAppStore, _ id: UUID) -> [Component] {
-        store.myApps.first(where: { $0.id == id })?.components ?? []
+    private func components(_ store: MiniAppStore, _ id: UUID) -> [Component] {
+        store.miniApps.first(where: { $0.id == id })?.components ?? []
     }
 
     // MARK: - Codec
@@ -98,8 +98,8 @@ struct CalculatorTests {
     @Test("addCalcRow slug-dedupes keys and returns the resolved key")
     func addAndDedupe() {
         let (store, id) = freshStore()
-        let k1 = store.addCalcRow(name: "Monthly Spend", kind: .variable(value: 1, control: .plain), myAppId: id)
-        let k2 = store.addCalcRow(name: "Monthly Spend", kind: .variable(value: 2, control: .plain), myAppId: id)
+        let k1 = store.addCalcRow(name: "Monthly Spend", kind: .variable(value: 1, control: .plain), miniAppId: id)
+        let k2 = store.addCalcRow(name: "Monthly Spend", kind: .variable(value: 2, control: .plain), miniAppId: id)
         #expect(k1 == "monthly_spend")
         #expect(k2 == "monthly_spend_2")
         #expect(calc(store, id)?.rows.count == 2)
@@ -108,32 +108,32 @@ struct CalculatorTests {
     @Test("patchCalcRow edits name without touching the key; removeCalcRow drops it")
     func patchRemove() {
         let (store, id) = freshStore()
-        let key = store.addCalcRow(name: "Rate", kind: .variable(value: 1, control: .plain), myAppId: id)!
-        var patch = MyAppStore.CalcRowPatch()
+        let key = store.addCalcRow(name: "Rate", kind: .variable(value: 1, control: .plain), miniAppId: id)!
+        var patch = MiniAppStore.CalcRowPatch()
         patch.name = "Interest rate"
         patch.unit = "%"
-        #expect(store.patchCalcRow(key: key, patch: patch, myAppId: id))
+        #expect(store.patchCalcRow(key: key, patch: patch, miniAppId: id))
         let row = calc(store, id)?.rows.first
         #expect(row?.key == "rate")          // key immutable
         #expect(row?.name == "Interest rate")
         #expect(row?.unit == "%")
-        #expect(store.removeCalcRow(key: key, myAppId: id))
+        #expect(store.removeCalcRow(key: key, miniAppId: id))
         #expect(calc(store, id)?.rows.isEmpty == true)
-        #expect(store.removeCalcRow(key: "nope", myAppId: id) == false)
+        #expect(store.removeCalcRow(key: "nope", miniAppId: id) == false)
     }
 
     @Test("setCalculatorVariable updates a variable value and is a no-op when unchanged")
     func setVariable() {
         let (store, id) = freshStore()
-        let key = store.addCalcRow(name: "P", kind: .variable(value: 100, control: .slider(min: 0, max: 200, step: 1)), myAppId: id)!
-        #expect(store.setCalculatorVariable(key: key, value: 150, myAppId: id))
+        let key = store.addCalcRow(name: "P", kind: .variable(value: 100, control: .slider(min: 0, max: 200, step: 1)), miniAppId: id)!
+        #expect(store.setCalculatorVariable(key: key, value: 150, miniAppId: id))
         if case .variable(let v, let control)? = calc(store, id)?.rows.first?.kind {
             #expect(v == 150)
             #expect(control == .slider(min: 0, max: 200, step: 1)) // control preserved
         } else {
             Issue.record("expected a variable row")
         }
-        #expect(store.setCalculatorVariable(key: key, value: 150, myAppId: id) == false) // unchanged
+        #expect(store.setCalculatorVariable(key: key, value: 150, miniAppId: id) == false) // unchanged
     }
 
     // MARK: - Resolver integration
@@ -141,11 +141,11 @@ struct CalculatorTests {
     @Test("mortgage scenario: variable rows drive a formula row")
     func mortgageResolve() {
         let (store, id) = freshStore()
-        store.addCalcRow(key: "principal", name: "Principal", kind: .variable(value: 300_000, control: .plain), myAppId: id)
-        store.addCalcRow(key: "r", name: "Monthly rate", kind: .variable(value: 0.06 / 12, control: .plain), myAppId: id)
-        store.addCalcRow(key: "n", name: "Payments", kind: .variable(value: 360, control: .plain), myAppId: id)
+        store.addCalcRow(key: "principal", name: "Principal", kind: .variable(value: 300_000, control: .plain), miniAppId: id)
+        store.addCalcRow(key: "r", name: "Monthly rate", kind: .variable(value: 0.06 / 12, control: .plain), miniAppId: id)
+        store.addCalcRow(key: "n", name: "Payments", kind: .variable(value: 360, control: .plain), miniAppId: id)
         store.addCalcRow(key: "payment", name: "Monthly payment",
-                         kind: .formula(expression: "principal * r / (1 - (1+r)^(-n))"), myAppId: id)
+                         kind: .formula(expression: "principal * r / (1 - (1+r)^(-n))"), miniAppId: id)
 
         let resolved = CalculatorResolver.resolve(calc(store, id)!, components: components(store, id))
         let payment = resolved.result(forKey: "payment")
@@ -153,7 +153,7 @@ struct CalculatorTests {
         #expect((payment?.value ?? 0) > 1797 && (payment?.value ?? 0) < 1799)
 
         // Tuning the principal moves the downstream payment up.
-        store.setCalculatorVariable(key: "principal", value: 600_000, myAppId: id)
+        store.setCalculatorVariable(key: "principal", value: 600_000, miniAppId: id)
         let after = CalculatorResolver.resolve(calc(store, id)!, components: components(store, id))
         #expect((after.result(forKey: "payment")?.value ?? 0) > 3500)
     }
@@ -162,23 +162,23 @@ struct CalculatorTests {
     func restaurantShare() {
         let (store, id) = freshStore()
         // A source expense tracker.
-        store.addComponent(kind: "tracker", name: "Expenses", iconSystemName: "list.bullet", myAppId: id)
+        store.addComponent(kind: "tracker", name: "Expenses", iconSystemName: "list.bullet", miniAppId: id)
         store.setTracker(title: "Expenses",
                          fields: [FieldDef(name: "amount", type: .number), FieldDef(name: "cuisine", type: .text)],
-                         myAppId: id)
-        store.addItem(["amount": "20", "cuisine": "African"], myAppId: id)
-        store.addItem(["amount": "30", "cuisine": "African"], myAppId: id)
-        store.addItem(["amount": "50", "cuisine": "Italian"], myAppId: id)
-        let trackerId = store.myApps.first(where: { $0.id == id })!.components.first(where: {
+                         miniAppId: id)
+        store.addItem(["amount": "20", "cuisine": "African"], miniAppId: id)
+        store.addItem(["amount": "30", "cuisine": "African"], miniAppId: id)
+        store.addItem(["amount": "50", "cuisine": "Italian"], miniAppId: id)
+        let trackerId = store.miniApps.first(where: { $0.id == id })!.components.first(where: {
             if case .tracker = $0.body { return true }; return false
         })!.id
 
         store.addCalcRow(key: "total", name: "Total",
-                         kind: .aggregate(AggregateSpec(sourceComponentId: trackerId, fieldName: "amount", reduce: .sum)), myAppId: id)
+                         kind: .aggregate(AggregateSpec(sourceComponentId: trackerId, fieldName: "amount", reduce: .sum)), miniAppId: id)
         store.addCalcRow(key: "african", name: "African",
-                         kind: .aggregate(AggregateSpec(sourceComponentId: trackerId, fieldName: "amount", reduce: .sum, filter: ["cuisine": "African"])), myAppId: id)
+                         kind: .aggregate(AggregateSpec(sourceComponentId: trackerId, fieldName: "amount", reduce: .sum, filter: ["cuisine": "African"])), miniAppId: id)
         store.addCalcRow(key: "african_share", name: "African share", unit: "%",
-                         kind: .formula(expression: "african / total * 100"), myAppId: id)
+                         kind: .formula(expression: "african / total * 100"), miniAppId: id)
 
         let resolved = CalculatorResolver.resolve(calc(store, id)!, components: components(store, id))
         #expect(resolved.result(forKey: "total")?.value == 100)
@@ -189,18 +189,18 @@ struct CalculatorTests {
     @Test("deleting the source tracker yields brokenRef, not a crash")
     func brokenRef() {
         let (store, id) = freshStore()
-        store.addComponent(kind: "tracker", name: "Expenses", iconSystemName: "list.bullet", myAppId: id)
-        store.setTracker(title: "Expenses", fields: [FieldDef(name: "amount", type: .number)], myAppId: id)
-        store.addItem(["amount": "20"], myAppId: id)
-        let trackerId = store.myApps.first(where: { $0.id == id })!.components.first(where: {
+        store.addComponent(kind: "tracker", name: "Expenses", iconSystemName: "list.bullet", miniAppId: id)
+        store.setTracker(title: "Expenses", fields: [FieldDef(name: "amount", type: .number)], miniAppId: id)
+        store.addItem(["amount": "20"], miniAppId: id)
+        let trackerId = store.miniApps.first(where: { $0.id == id })!.components.first(where: {
             if case .tracker = $0.body { return true }; return false
         })!.id
         store.addCalcRow(key: "total", name: "Total",
-                         kind: .aggregate(AggregateSpec(sourceComponentId: trackerId, fieldName: "amount", reduce: .sum)), myAppId: id)
-        store.addCalcRow(key: "doubled", name: "Doubled", kind: .formula(expression: "total * 2"), myAppId: id)
+                         kind: .aggregate(AggregateSpec(sourceComponentId: trackerId, fieldName: "amount", reduce: .sum)), miniAppId: id)
+        store.addCalcRow(key: "doubled", name: "Doubled", kind: .formula(expression: "total * 2"), miniAppId: id)
 
         // Remove the source tracker.
-        store.removeComponent(componentId: trackerId, myAppId: id)
+        store.removeComponent(componentId: trackerId, miniAppId: id)
         let resolved = CalculatorResolver.resolve(calc(store, id)!, components: components(store, id))
         #expect(resolved.result(forKey: "total")?.status == .brokenRef)
         #expect(resolved.result(forKey: "total")?.value == nil)
@@ -211,9 +211,9 @@ struct CalculatorTests {
     @Test("a formula cycle is flagged, acyclic rows still resolve")
     func cycle() {
         let (store, id) = freshStore()
-        store.addCalcRow(key: "a", name: "A", kind: .formula(expression: "b + 1"), myAppId: id)
-        store.addCalcRow(key: "b", name: "B", kind: .formula(expression: "a + 1"), myAppId: id)
-        store.addCalcRow(key: "c", name: "C", kind: .variable(value: 42, control: .plain), myAppId: id)
+        store.addCalcRow(key: "a", name: "A", kind: .formula(expression: "b + 1"), miniAppId: id)
+        store.addCalcRow(key: "b", name: "B", kind: .formula(expression: "a + 1"), miniAppId: id)
+        store.addCalcRow(key: "c", name: "C", kind: .variable(value: 42, control: .plain), miniAppId: id)
 
         let resolved = CalculatorResolver.resolve(calc(store, id)!, components: components(store, id))
         #expect(resolved.result(forKey: "a")?.status == .cycle)
@@ -224,13 +224,13 @@ struct CalculatorTests {
     @Test("list sweep varies one variable, holds others, reads the target each step")
     func listSweep() {
         let (store, id) = freshStore()
-        store.addCalcRow(key: "principal", name: "Principal", kind: .variable(value: 1000, control: .plain), myAppId: id)
-        store.addCalcRow(key: "rate", name: "Rate", kind: .variable(value: 0, control: .plain), myAppId: id)
+        store.addCalcRow(key: "principal", name: "Principal", kind: .variable(value: 1000, control: .plain), miniAppId: id)
+        store.addCalcRow(key: "rate", name: "Rate", kind: .variable(value: 0, control: .plain), miniAppId: id)
         // interest = principal * rate
-        store.addCalcRow(key: "interest", name: "Interest", kind: .formula(expression: "principal * rate"), myAppId: id)
+        store.addCalcRow(key: "interest", name: "Interest", kind: .formula(expression: "principal * rate"), miniAppId: id)
         // Sweep rate 0 → 0.2 step 0.1, read interest. principal stays 1000.
         store.addCalcRow(key: "curve", name: "Curve",
-                         kind: .list(.sweep(variableKey: "rate", from: 0, to: 0.2, step: 0.1, targetKey: "interest")), myAppId: id)
+                         kind: .list(.sweep(variableKey: "rate", from: 0, to: 0.2, step: 0.1, targetKey: "interest")), miniAppId: id)
 
         let resolved = CalculatorResolver.resolve(calc(store, id)!, components: components(store, id))
         let list = resolved.result(forKey: "curve")?.list
@@ -250,10 +250,10 @@ struct CalculatorTests {
     @Test("a scalar formula referencing a list key resolves to brokenRef")
     func formulaOnListIsBroken() {
         let (store, id) = freshStore()
-        store.addCalcRow(key: "x", name: "X", kind: .variable(value: 1, control: .plain), myAppId: id)
+        store.addCalcRow(key: "x", name: "X", kind: .variable(value: 1, control: .plain), miniAppId: id)
         store.addCalcRow(key: "lst", name: "List",
-                         kind: .list(.sweep(variableKey: "x", from: 1, to: 3, step: 1, targetKey: "x")), myAppId: id)
-        store.addCalcRow(key: "bad", name: "Bad", kind: .formula(expression: "lst + 1"), myAppId: id)
+                         kind: .list(.sweep(variableKey: "x", from: 1, to: 3, step: 1, targetKey: "x")), miniAppId: id)
+        store.addCalcRow(key: "bad", name: "Bad", kind: .formula(expression: "lst + 1"), miniAppId: id)
         let resolved = CalculatorResolver.resolve(calc(store, id)!, components: components(store, id))
         #expect(resolved.result(forKey: "bad")?.status == .brokenRef)
     }
@@ -261,16 +261,16 @@ struct CalculatorTests {
     @Test("list trackerColumn pulls a raw per-item array")
     func listTrackerColumn() {
         let (store, id) = freshStore()
-        store.addComponent(kind: "tracker", name: "Readings", iconSystemName: "list.bullet", myAppId: id)
-        store.setTracker(title: "Readings", fields: [FieldDef(name: "value", type: .number)], myAppId: id)
-        store.addItem(["value": "5"], myAppId: id)
-        store.addItem(["value": "8"], myAppId: id)
-        store.addItem(["value": "x"], myAppId: id)   // non-numeric → skipped
-        let trackerId = store.myApps.first(where: { $0.id == id })!.components.first(where: {
+        store.addComponent(kind: "tracker", name: "Readings", iconSystemName: "list.bullet", miniAppId: id)
+        store.setTracker(title: "Readings", fields: [FieldDef(name: "value", type: .number)], miniAppId: id)
+        store.addItem(["value": "5"], miniAppId: id)
+        store.addItem(["value": "8"], miniAppId: id)
+        store.addItem(["value": "x"], miniAppId: id)   // non-numeric → skipped
+        let trackerId = store.miniApps.first(where: { $0.id == id })!.components.first(where: {
             if case .tracker = $0.body { return true }; return false
         })!.id
         store.addCalcRow(key: "col", name: "Col",
-                         kind: .list(.trackerColumn(sourceComponentId: trackerId, valueField: "value", labelField: nil, filter: [:])), myAppId: id)
+                         kind: .list(.trackerColumn(sourceComponentId: trackerId, valueField: "value", labelField: nil, filter: [:])), miniAppId: id)
         let resolved = CalculatorResolver.resolve(calc(store, id)!, components: components(store, id))
         #expect(resolved.result(forKey: "col")?.list?.map(\.y) == [5, 8])
     }
@@ -278,8 +278,8 @@ struct CalculatorTests {
     @Test("division by zero in a formula is flagged")
     func divByZero() {
         let (store, id) = freshStore()
-        store.addCalcRow(key: "x", name: "X", kind: .variable(value: 0, control: .plain), myAppId: id)
-        store.addCalcRow(key: "y", name: "Y", kind: .formula(expression: "1 / x"), myAppId: id)
+        store.addCalcRow(key: "x", name: "X", kind: .variable(value: 0, control: .plain), miniAppId: id)
+        store.addCalcRow(key: "y", name: "Y", kind: .formula(expression: "1 / x"), miniAppId: id)
         let resolved = CalculatorResolver.resolve(calc(store, id)!, components: components(store, id))
         #expect(resolved.result(forKey: "y")?.status == .divisionByZero)
     }
@@ -310,14 +310,14 @@ struct CalculatorTests {
 
     /// Seed a houses tracker with `price` / `rate` fields; return (storeId,
     /// trackerComponentId, [itemIds]).
-    private func houses(_ store: MyAppStore, _ id: UUID, _ rows: [[String: String]]) -> (String, [UUID]) {
-        store.addComponent(kind: "tracker", name: "Houses", iconSystemName: "house", myAppId: id)
+    private func houses(_ store: MiniAppStore, _ id: UUID, _ rows: [[String: String]]) -> (String, [UUID]) {
+        store.addComponent(kind: "tracker", name: "Houses", iconSystemName: "house", miniAppId: id)
         store.setTracker(title: "Houses",
                          fields: [FieldDef(name: "name", type: .text), FieldDef(name: "price", type: .number), FieldDef(name: "rate", type: .number)],
-                         myAppId: id)
+                         miniAppId: id)
         var ids: [UUID] = []
-        for r in rows { if let itemId = store.addItem(r, myAppId: id) { ids.append(itemId) } }
-        let trackerId = store.myApps.first(where: { $0.id == id })!.components.first(where: {
+        for r in rows { if let itemId = store.addItem(r, miniAppId: id) { ids.append(itemId) } }
+        let trackerId = store.miniApps.first(where: { $0.id == id })!.components.first(where: {
             if case .tracker = $0.body { return true }; return false
         })!.id
         return (trackerId, ids)
@@ -328,8 +328,8 @@ struct CalculatorTests {
         let (store, id) = freshStore()
         let (trackerId, ids) = houses(store, id, [["name": "A", "price": "500000", "rate": "6.5"]])
         store.addCalcRow(key: "price", name: "Price",
-                         kind: .linkedField(LinkedFieldSpec(ref: ComponentItemRef(componentId: trackerId, itemId: ids[0]), fieldName: "price")), myAppId: id)
-        store.addCalcRow(key: "half", name: "Half", kind: .formula(expression: "price / 2"), myAppId: id)
+                         kind: .linkedField(LinkedFieldSpec(ref: ComponentItemRef(componentId: trackerId, itemId: ids[0]), fieldName: "price")), miniAppId: id)
+        store.addCalcRow(key: "half", name: "Half", kind: .formula(expression: "price / 2"), miniAppId: id)
 
         let resolved = CalculatorResolver.resolve(calc(store, id)!, components: components(store, id))
         #expect(resolved.result(forKey: "price")?.value == 500000)
@@ -340,8 +340,8 @@ struct CalculatorTests {
     func linkedFieldUnlinked() {
         let (store, id) = freshStore()
         store.addCalcRow(key: "price", name: "Price",
-                         kind: .linkedField(LinkedFieldSpec(ref: nil, fieldName: "price")), myAppId: id)
-        store.addCalcRow(key: "half", name: "Half", kind: .formula(expression: "price / 2"), myAppId: id)
+                         kind: .linkedField(LinkedFieldSpec(ref: nil, fieldName: "price")), miniAppId: id)
+        store.addCalcRow(key: "half", name: "Half", kind: .formula(expression: "price / 2"), miniAppId: id)
         let resolved = CalculatorResolver.resolve(calc(store, id)!, components: components(store, id))
         #expect(resolved.result(forKey: "price")?.status == .brokenRef)
         #expect(resolved.result(forKey: "price")?.value == nil)
@@ -353,7 +353,7 @@ struct CalculatorTests {
         let (store, id) = freshStore()
         let (trackerId, ids) = houses(store, id, [["name": "A", "price": "500000"]])
         store.addCalcRow(key: "label", name: "Label",
-                         kind: .linkedField(LinkedFieldSpec(ref: ComponentItemRef(componentId: trackerId, itemId: ids[0]), fieldName: "name")), myAppId: id)
+                         kind: .linkedField(LinkedFieldSpec(ref: ComponentItemRef(componentId: trackerId, itemId: ids[0]), fieldName: "name")), miniAppId: id)
         let resolved = CalculatorResolver.resolve(calc(store, id)!, components: components(store, id))
         #expect(resolved.result(forKey: "label")?.status == .nonNumeric)
     }
@@ -366,10 +366,10 @@ struct CalculatorTests {
             ["name": "B", "price": "400000"],
         ])
         store.addCalcRow(key: "price", name: "Price",
-                         kind: .linkedField(LinkedFieldSpec(ref: ComponentItemRef(componentId: trackerId, itemId: ids[0]), fieldName: "price")), myAppId: id)
+                         kind: .linkedField(LinkedFieldSpec(ref: ComponentItemRef(componentId: trackerId, itemId: ids[0]), fieldName: "price")), miniAppId: id)
         #expect(CalculatorResolver.resolve(calc(store, id)!, components: components(store, id)).result(forKey: "price")?.value == 500000)
         // Swap to house B.
-        #expect(store.setCalcRowLinkedRef(key: "price", ref: ComponentItemRef(componentId: trackerId, itemId: ids[1]), myAppId: id))
+        #expect(store.setCalcRowLinkedRef(key: "price", ref: ComponentItemRef(componentId: trackerId, itemId: ids[1]), miniAppId: id))
         #expect(CalculatorResolver.resolve(calc(store, id)!, components: components(store, id)).result(forKey: "price")?.value == 400000)
     }
 
@@ -383,12 +383,12 @@ struct CalculatorTests {
         ])
         func ref(_ i: Int) -> ComponentItemRef { ComponentItemRef(componentId: trackerId, itemId: ids[i]) }
         // Two linkedField rows on the SAME (house A) ref so both follow the swap.
-        store.addCalcRow(key: "price", name: "Price", kind: .linkedField(LinkedFieldSpec(ref: ref(0), fieldName: "price")), myAppId: id)
-        store.addCalcRow(key: "rate", name: "Rate", kind: .linkedField(LinkedFieldSpec(ref: ref(0), fieldName: "rate")), myAppId: id)
+        store.addCalcRow(key: "price", name: "Price", kind: .linkedField(LinkedFieldSpec(ref: ref(0), fieldName: "price")), miniAppId: id)
+        store.addCalcRow(key: "rate", name: "Rate", kind: .linkedField(LinkedFieldSpec(ref: ref(0), fieldName: "rate")), miniAppId: id)
         // metric = price + rate (rate is constant 6 here, so metric tracks price).
-        store.addCalcRow(key: "metric", name: "Metric", kind: .formula(expression: "price + rate"), myAppId: id)
+        store.addCalcRow(key: "metric", name: "Metric", kind: .formula(expression: "price + rate"), miniAppId: id)
         store.addCalcRow(key: "compare", name: "Compare",
-                         kind: .list(.linkedCompare(refs: [ref(0), ref(1), ref(2)], targetKey: "metric", linkedRowKey: "price")), myAppId: id)
+                         kind: .list(.linkedCompare(refs: [ref(0), ref(1), ref(2)], targetKey: "metric", linkedRowKey: "price")), miniAppId: id)
 
         let resolved = CalculatorResolver.resolve(calc(store, id)!, components: components(store, id))
         let list = resolved.result(forKey: "compare")?.list
@@ -407,12 +407,12 @@ struct CalculatorTests {
             ["name": "B", "price": "400000"],
         ])
         func ref(_ i: Int) -> ComponentItemRef { ComponentItemRef(componentId: trackerId, itemId: ids[i]) }
-        store.addCalcRow(key: "price", name: "Price", kind: .linkedField(LinkedFieldSpec(ref: ref(0), fieldName: "price")), myAppId: id)
+        store.addCalcRow(key: "price", name: "Price", kind: .linkedField(LinkedFieldSpec(ref: ref(0), fieldName: "price")), miniAppId: id)
         store.addCalcRow(key: "compare", name: "Compare",
-                         kind: .list(.linkedCompare(refs: [ref(0), ref(1)], targetKey: "price", linkedRowKey: "price")), myAppId: id)
+                         kind: .list(.linkedCompare(refs: [ref(0), ref(1)], targetKey: "price", linkedRowKey: "price")), miniAppId: id)
 
         // Delete house A.
-        store.removeItem(id: ids[0], myAppId: id, componentId: trackerId)
+        store.removeItem(id: ids[0], miniAppId: id, componentId: trackerId)
 
         let data = calc(store, id)!
         if case .linkedField(let spec) = data.rows.first(where: { $0.key == "price" })!.kind {
@@ -446,14 +446,14 @@ struct CalculatorTests {
         ])
         func ref(_ i: Int) -> ComponentItemRef { ComponentItemRef(componentId: trackerId, itemId: ids[i]) }
         // Two linked rows on house A, a sweep variable `t`, a target formula.
-        store.addCalcRow(key: "price", name: "Price", kind: .linkedField(LinkedFieldSpec(ref: ref(0), fieldName: "price")), myAppId: id)
-        store.addCalcRow(key: "rate", name: "Rate", kind: .linkedField(LinkedFieldSpec(ref: ref(0), fieldName: "rate")), myAppId: id)
-        store.addCalcRow(key: "t", name: "T", kind: .variable(value: 1, control: .plain), myAppId: id)
+        store.addCalcRow(key: "price", name: "Price", kind: .linkedField(LinkedFieldSpec(ref: ref(0), fieldName: "price")), miniAppId: id)
+        store.addCalcRow(key: "rate", name: "Rate", kind: .linkedField(LinkedFieldSpec(ref: ref(0), fieldName: "rate")), miniAppId: id)
+        store.addCalcRow(key: "t", name: "T", kind: .variable(value: 1, control: .plain), miniAppId: id)
         // target = price * t (so each house's curve scales with its price).
-        store.addCalcRow(key: "target", name: "Target", kind: .formula(expression: "price * t"), myAppId: id)
+        store.addCalcRow(key: "target", name: "Target", kind: .formula(expression: "price * t"), miniAppId: id)
         store.addCalcRow(key: "curve_by_house", name: "By house",
                          kind: .list(.linkedSweep(refs: [ref(0), ref(1), ref(2)], linkedRowKey: "price",
-                                                  variableKey: "t", from: 1, to: 3, step: 1, targetKey: "target")), myAppId: id)
+                                                  variableKey: "t", from: 1, to: 3, step: 1, targetKey: "target")), miniAppId: id)
 
         let resolved = CalculatorResolver.resolve(calc(store, id)!, components: components(store, id))
         let series = resolved.result(forKey: "curve_by_house")?.series
@@ -486,10 +486,10 @@ struct CalculatorTests {
             ["name": "B", "price": "400000"],
         ])
         func ref(_ i: Int) -> ComponentItemRef { ComponentItemRef(componentId: trackerId, itemId: ids[i]) }
-        store.addCalcRow(key: "price", name: "Price", kind: .linkedField(LinkedFieldSpec(ref: ref(0), fieldName: "price")), myAppId: id)
-        store.addCalcRow(key: "rate", name: "Rate", kind: .linkedField(LinkedFieldSpec(ref: ref(0), fieldName: "rate")), myAppId: id)
+        store.addCalcRow(key: "price", name: "Price", kind: .linkedField(LinkedFieldSpec(ref: ref(0), fieldName: "price")), miniAppId: id)
+        store.addCalcRow(key: "rate", name: "Rate", kind: .linkedField(LinkedFieldSpec(ref: ref(0), fieldName: "rate")), miniAppId: id)
 
-        let n = store.setAllCalcRowLinks(to: ref(1), myAppId: id)
+        let n = store.setAllCalcRowLinks(to: ref(1), miniAppId: id)
         #expect(n == 2)                                       // both rows repointed
         let data = calc(store, id)!
         for key in ["price", "rate"] {
@@ -498,6 +498,6 @@ struct CalculatorTests {
             } else { Issue.record("\(key) should be linkedField") }
         }
         // Idempotent: a second call to the same item repoints nothing.
-        #expect(store.setAllCalcRowLinks(to: ref(1), myAppId: id) == 0)
+        #expect(store.setAllCalcRowLinks(to: ref(1), miniAppId: id) == 0)
     }
 }

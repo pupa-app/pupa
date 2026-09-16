@@ -12,7 +12,7 @@ import Observation
 /// 2. **Once-per-transition dedupe** — the same `transitionId` inside a short
 ///    window fires once; a genuine later re-entry past the window fires again.
 /// 3. **Self-mutation** — reaction mutations carry `actor == .agent`, which
-///    never emits a `CanvasEvent` (gated in `MyAppStore`), so a reaction can
+///    never emits a `CanvasEvent` (gated in `MiniAppStore`), so a reaction can
 ///    never re-trigger its own rule. No dedicated `.automation` tag in v1.
 @MainActor
 @Observable
@@ -63,7 +63,7 @@ public final class RuleEngine {
     }
 
     /// Ingest one event, matching it against `rules`. Rules are passed in
-    /// (loaded fresh from the event's MyApp bundle) so the engine stays
+    /// (loaded fresh from the event's MiniApp bundle) so the engine stays
     /// decoupled from disk. First matching, unlocked, non-deduped rule per
     /// event is dispatched.
     public func ingest(_ event: CanvasEvent, rules: [AutomationRule]) {

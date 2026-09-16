@@ -7,7 +7,7 @@ import os
 ///
 /// The local tree is always the store of record — the app reads and writes it
 /// directly and never blocks on iCloud — so turning iCloud off in iOS Settings
-/// can't hide MyApps or strand offline edits (pupa#110 follow-up). When iCloud
+/// can't hide MiniApps or strand offline edits (pupa#110 follow-up). When iCloud
 /// is available, `reconcile()` converges the two trees.
 ///
 /// **Merge is baseline-aware (3-way), not naive newest-wins.** A persisted
@@ -44,7 +44,7 @@ public actor StorageMirror {
     /// push the local `state/index.json` up or let it win a conflict — a
     /// not-yet-adopted device must never overwrite the real roster in iCloud.
     /// Static + lock-protected because `converge` is `static` (also driven
-    /// directly by tests). Reset by `MyAppStore.clearStorage` for test isolation.
+    /// directly by tests). Reset by `MiniAppStore.clearStorage` for test isolation.
     private static let provisioningLock = OSAllocatedUnfairLock<Bool>(initialState: false)
     public static var provisioning: Bool {
         get { provisioningLock.withLock { $0 } }
@@ -69,7 +69,7 @@ public actor StorageMirror {
     /// Quiesce: cancel any armed debounced reconcile and wait for an in-flight
     /// pass to finish. After this returns, no mirror write scheduled before the
     /// call can land. Tests call it at suite-isolation points
-    /// (`MyAppStore.clearStorage`) and before tearing down `cloudMirrorOverride`.
+    /// (`MiniAppStore.clearStorage`) and before tearing down `cloudMirrorOverride`.
     nonisolated public func drain() async {
         let task = pending.withLock { t -> Task<Void, Never>? in
             defer { t = nil }

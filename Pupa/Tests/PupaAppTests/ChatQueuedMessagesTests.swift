@@ -16,14 +16,14 @@ import AGUIKit
 struct ChatQueuedMessagesTests {
 
     private func makeViewModel() -> ChatViewModel {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
         let memory = MemoryStore(
             rootOverride: URL(fileURLWithPath: NSTemporaryDirectory())
                 .appendingPathComponent("pupa-tests-\(UUID().uuidString)")
         )
-        let scope: ChatScope = .myApp(a.id)
+        let scope: ChatScope = .miniApp(a.id)
         return ChatViewModel(
             store: store,
             memory: memory,

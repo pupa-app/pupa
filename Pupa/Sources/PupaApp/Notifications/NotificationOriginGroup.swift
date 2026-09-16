@@ -6,32 +6,32 @@ struct NotificationOriginGroup: Identifiable {
     let id: String
     let title: String
     let icon: String
-    /// Nil for the non-myApp sections, which take the secondary colour.
+    /// Nil for the non-miniApp sections, which take the secondary colour.
     let tint: Color?
     let rows: [NotificationRecord]
 
-    /// Bucket `records` by Origin: myApps first, alphabetical, then the
+    /// Bucket `records` by Origin: miniApps first, alphabetical, then the
     /// orchestrator, the user, and anything unattributed. Empty buckets are
-    /// dropped. `resolve` supplies a myApp's display bits; nil means it was
+    /// dropped. `resolve` supplies a miniApp's display bits; nil means it was
     /// deleted since scheduling.
     static func grouped(
         _ records: [NotificationRecord],
         resolve: (UUID) -> (name: String, icon: String, tint: Color)?
     ) -> [NotificationOriginGroup] {
-        var byMyApp: [UUID: [NotificationRecord]] = [:]
+        var byMiniApp: [UUID: [NotificationRecord]] = [:]
         var orchestrator: [NotificationRecord] = []
         var user: [NotificationRecord] = []
         var unknown: [NotificationRecord] = []
         for r in records {
             switch r.origin {
-            case .myApp(let id): byMyApp[id, default: []].append(r)
+            case .miniApp(let id): byMiniApp[id, default: []].append(r)
             case .orchestrator: orchestrator.append(r)
             case .user: user.append(r)
             case .unknown: unknown.append(r)
             }
         }
 
-        var groups = byMyApp.map { id, rows -> NotificationOriginGroup in
+        var groups = byMiniApp.map { id, rows -> NotificationOriginGroup in
             let app = resolve(id)
             return NotificationOriginGroup(
                 id: id.uuidString,
@@ -41,7 +41,7 @@ struct NotificationOriginGroup: Identifiable {
                 rows: rows
             )
         }
-        // Two myApps can share a name, and `sort` isn't stable — without the
+        // Two miniApps can share a name, and `sort` isn't stable — without the
         // id tiebreak equal-titled sections swap places between redraws.
         groups.sort {
             let order = $0.title.localizedCaseInsensitiveCompare($1.title)

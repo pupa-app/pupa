@@ -38,7 +38,9 @@ enum PupaCtl {
                        answer 401 without one. Never written to the Keychain.
       --trim BYTES     cap text deltas when recording, so a fixture fits in a
                        UI test's launch environment (default 4096; 0 = off)
-      --type KIND      MyApp type to seed on a fresh root (default tracker)
+      --type KIND      MiniApp type to seed on a fresh root (default tracker)
+      --orchestrator   send turns to the orchestrator instead of the seeded MiniApp
+      --miniapp-id ID  open a specific MiniApp from the storage root
       --new-session    wipe the root first
       --json           machine-readable report
       --no-wire        omit the per-round wire summary
@@ -171,7 +173,9 @@ enum PupaCtl {
             typeId: options.typeId,
             reset: options.newSession,
             token: options.token,
-            harnessID: options.harness)
+            harnessID: options.harness,
+            orchestrator: options.orchestrator,
+            selectedMiniAppId: options.selectedMiniAppId)
     }
 
     /// A plain session for a live backend. Cert pinning is a settings concern
@@ -222,7 +226,9 @@ enum PupaCtl {
         var send: String?
         var harness = ProcessInfo.processInfo.environment["PUPA_CTL_HARNESS"]
         var token = ProcessInfo.processInfo.environment["PUPA_CTL_TOKEN"]
-        var typeId = MyAppType.tracker.id
+        var typeId = MiniAppType.tracker.id
+        var orchestrator = false
+        var selectedMiniAppId: UUID?
         var trim = 4096
         var newSession = false
         var json = false
@@ -246,6 +252,8 @@ enum PupaCtl {
                 case "--send": send = value()
                 case "--token": token = value()
                 case "--type": if let v = value() { typeId = v }
+                case "--orchestrator": orchestrator = true
+                case "--miniapp-id": if let v = value() { selectedMiniAppId = UUID(uuidString: v) }
                 case "--trim": if let v = value(), let n = Int(v) { trim = n }
                 case "--timeout": if let v = value(), let n = TimeInterval(v) { timeout = n }
                 case "--new-session": newSession = true

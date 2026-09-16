@@ -32,7 +32,7 @@ public struct AgentPayload: Sendable {
 
 /// Determines what an agent can do and how its payload is assembled.
 ///
-/// Each concrete agent kind — orchestrator, MyApp, Slack — provides one
+/// Each concrete agent kind — orchestrator, MiniApp, Slack — provides one
 /// conformance.  `payload(for:store:)` is the only required method;
 /// `toolsExposedTo` and `canInvoke` layer on A2A access-control.
 ///
@@ -42,9 +42,9 @@ public struct AgentPayload: Sendable {
 /// 3. Add a case to `AgentDispatcher.policy(for:)`.
 public protocol AgentPolicy: Sendable {
     /// Build the `AgentPayload` for one agent turn.
-    /// Runs on MainActor so it can read `store.myApps`.
+    /// Runs on MainActor so it can read `store.miniApps`.
     @MainActor
-    func payload(for scope: ChatScope, store: MyAppStore) async -> AgentPayload
+    func payload(for scope: ChatScope, store: MiniAppStore) async -> AgentPayload
 
     /// Tools exposed to `caller` in an A2A invocation.
     /// Returns `nil` when `caller == nil` (user-facing; no A2A restriction).

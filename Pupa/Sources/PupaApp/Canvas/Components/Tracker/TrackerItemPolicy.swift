@@ -1,7 +1,7 @@
 import Foundation
 
 /// Per-kind guardrails for `TrackerItem`. Registered in `ItemPolicyRegistry`
-/// at app bootstrap so `MyAppStore.linkItems` and cascade routing can consult
+/// at app bootstrap so `MiniAppStore.linkItems` and cascade routing can consult
 /// it uniformly once Phases 3–4 complete the full migration.
 public struct TrackerItemPolicy: ItemPolicy {
     public typealias ItemType = TrackerItem

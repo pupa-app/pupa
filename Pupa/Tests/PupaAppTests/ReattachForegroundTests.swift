@@ -29,16 +29,16 @@ struct ReattachForegroundTests {
             .appendingPathComponent("pupa-tests-\(UUID().uuidString)"))
     }
 
-    private func makeStore(_ count: Int = 2) -> (store: MyAppStore, ids: [UUID]) {
-        MyAppTypeRegistry.shared.registerBuiltins()
+    private func makeStore(_ count: Int = 2) -> (store: MiniAppStore, ids: [UUID]) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
         let apps = (0..<count).map {
-            MyApp(name: "MyApp \($0)", iconSystemName: "circle", typeId: MyAppType.tracker.id)
+            MiniApp(name: "MiniApp \($0)", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
         }
-        return (MyAppStore(initial: (apps, apps[0].id)), apps.map(\.id))
+        return (MiniAppStore(initial: (apps, apps[0].id)), apps.map(\.id))
     }
 
     private func makeVM(
-        store: MyAppStore,
+        store: MiniAppStore,
         scope: ChatScope,
         backend: URL,
         session: URLSession = .shared
@@ -55,7 +55,7 @@ struct ReattachForegroundTests {
         )
     }
 
-    private func makeCoordinator(store: MyAppStore, backend: URL) -> ChatSessionCoordinator {
+    private func makeCoordinator(store: MiniAppStore, backend: URL) -> ChatSessionCoordinator {
         ChatSessionCoordinator(store: store, memory: makeMemory(), settings: SettingsStore(backendURL: backend))
     }
 
@@ -73,7 +73,7 @@ struct ReattachForegroundTests {
     @Test("reattachIfNeeded is a no-op on a fresh session — no error, no stream")
     func reattach_freshVM_noOp() {
         let (store, ids) = makeStore(1)
-        let vm = makeVM(store: store, scope: .myApp(ids[0]), backend: refused)
+        let vm = makeVM(store: store, scope: .miniApp(ids[0]), backend: refused)
 
         #expect(vm.connectionIssue == nil)
         #expect(vm.isStreaming == false)
@@ -87,7 +87,7 @@ struct ReattachForegroundTests {
     @Test("reattachIfNeeded on a session whose last turn errored clears the error and drives recovery")
     func reattach_afterFailedSend_fires() async {
         let (store, ids) = makeStore(1)
-        let vm = makeVM(store: store, scope: .myApp(ids[0]), backend: refused)
+        let vm = makeVM(store: store, scope: .miniApp(ids[0]), backend: refused)
 
         vm.send("hi")  // POST to a refused port → turn surfaces a connectionIssue
         let armed = await awaitUntil { vm.connectionIssue != nil && vm.isStreaming == false }
@@ -146,7 +146,7 @@ struct ReattachForegroundTests {
         let (store, ids) = makeStore(1)
         // 192.0.2.1 blackholes connect → the POST hangs, keeping the stream live.
         let vm = makeVM(
-            store: store, scope: .myApp(ids[0]),
+            store: store, scope: .miniApp(ids[0]),
             backend: URL(string: "http://192.0.2.1/")!,
             session: URLSession(configuration: cfg)
         )
@@ -168,8 +168,8 @@ struct ReattachForegroundTests {
     func coordinator_fanOut() async {
         let (store, ids) = makeStore(2)
         let coord = makeCoordinator(store: store, backend: refused)
-        let a = coord.session(for: .myApp(ids[0]))
-        let b = coord.session(for: .myApp(ids[1]))  // fresh — never sent
+        let a = coord.session(for: .miniApp(ids[0]))
+        let b = coord.session(for: .miniApp(ids[1]))  // fresh — never sent
 
         a.send("hi")
         #expect(await awaitUntil { a.connectionIssue != nil && a.isStreaming == false })
@@ -187,8 +187,8 @@ struct ReattachForegroundTests {
     func coordinator_multipleChats() async {
         let (store, ids) = makeStore(2)
         let coord = makeCoordinator(store: store, backend: refused)
-        let a = coord.session(for: .myApp(ids[0]))
-        let b = coord.session(for: .myApp(ids[1]))
+        let a = coord.session(for: .miniApp(ids[0]))
+        let b = coord.session(for: .miniApp(ids[1]))
 
         a.send("one")
         b.send("two")

@@ -7,12 +7,12 @@ import AGUIKit
 @Suite("ChecklistItem — Phase 4 migration")
 struct ChecklistItemPolicyTests {
 
-    private func makeStore() -> (store: MyAppStore, id: UUID) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApp = MyApp(name: "C", iconSystemName: "checklist", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([myApp], myApp.id))
-        store.setChecklist(title: "Test", myAppId: myApp.id)
-        return (store, myApp.id)
+    private func makeStore() -> (store: MiniAppStore, id: UUID) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApp = MiniApp(name: "C", iconSystemName: "checklist", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([miniApp], miniApp.id))
+        store.setChecklist(title: "Test", miniAppId: miniApp.id)
+        return (store, miniApp.id)
     }
 
     private func makeItem(text: String = "Buy milk") -> ChecklistItem {
@@ -92,7 +92,7 @@ struct ChecklistItemPolicyTests {
 
     @Test("ChecklistItemPolicy is registered after registerBuiltins")
     func policyRegistered() {
-        MyAppTypeRegistry.shared.registerBuiltins()
+        MiniAppTypeRegistry.shared.registerBuiltins()
         #expect(ItemPolicyRegistry.shared.isRegistered(forKind: "checklist"))
     }
 
@@ -140,10 +140,10 @@ struct ChecklistItemPolicyTests {
     @Test("patchChecklistItem deduplicates linkedItems via Item protocol method")
     func patchDeduplicatesLinkedItems() {
         let (store, id) = makeStore()
-        let itemId = store.addChecklistItem(text: "Task", myAppId: id)!
+        let itemId = store.addChecklistItem(text: "Task", miniAppId: id)!
         let ref = ComponentItemRef(componentId: "tracker-1", itemId: UUID())
-        let patch = MyAppStore.ChecklistItemPatch(linkedItems: [ref, ref, ref])
-        let after = store.patchChecklistItem(id: itemId, patch: patch, myAppId: id)
+        let patch = MiniAppStore.ChecklistItemPatch(linkedItems: [ref, ref, ref])
+        let after = store.patchChecklistItem(id: itemId, patch: patch, miniAppId: id)
         #expect(after?.linkedItems.count == 1)
     }
 
@@ -152,8 +152,8 @@ struct ChecklistItemPolicyTests {
     @Test("addChecklistItem emits .added event with .user actor by default")
     func addEventEmitsUserEvent() {
         let (store, id) = makeStore()
-        _ = store.addChecklistItem(text: "Task", myAppId: id)
-        let events = store.itemEventLog.events(forMyApp: id)
+        _ = store.addChecklistItem(text: "Task", miniAppId: id)
+        let events = store.itemEventLog.events(forMiniApp: id)
         #expect(events.count == 1)
         #expect(events[0].kind == .added)
         #expect(events[0].actor == .user)
@@ -162,8 +162,8 @@ struct ChecklistItemPolicyTests {
     @Test("addChecklistItem emits .added event with .agent actor when passed")
     func addEventEmitsAgentEvent() {
         let (store, id) = makeStore()
-        _ = store.addChecklistItem(text: "Task", myAppId: id, actor: .agent(toolName: "addChecklistItem"))
-        let events = store.itemEventLog.events(forMyApp: id)
+        _ = store.addChecklistItem(text: "Task", miniAppId: id, actor: .agent(toolName: "addChecklistItem"))
+        let events = store.itemEventLog.events(forMiniApp: id)
         #expect(events.count == 1)
         #expect(events[0].kind == .added)
         #expect(events[0].actor == .agent(toolName: "addChecklistItem"))
@@ -172,9 +172,9 @@ struct ChecklistItemPolicyTests {
     @Test("toggleChecklistItem emits .patched event")
     func toggleEmitsPatchedEvent() {
         let (store, id) = makeStore()
-        let itemId = store.addChecklistItem(text: "Task", myAppId: id, actor: .agent(toolName: "addChecklistItem"))!
-        _ = store.toggleChecklistItem(id: itemId, myAppId: id, actor: .agent(toolName: "toggleChecklistItem"))
-        let events = store.itemEventLog.events(forMyApp: id)
+        let itemId = store.addChecklistItem(text: "Task", miniAppId: id, actor: .agent(toolName: "addChecklistItem"))!
+        _ = store.toggleChecklistItem(id: itemId, miniAppId: id, actor: .agent(toolName: "toggleChecklistItem"))
+        let events = store.itemEventLog.events(forMiniApp: id)
         #expect(events.last?.kind == .patched)
         #expect(events.last?.actor == .agent(toolName: "toggleChecklistItem"))
     }
@@ -182,9 +182,9 @@ struct ChecklistItemPolicyTests {
     @Test("removeChecklistItem emits .removed event")
     func removeEventEmitsEvent() {
         let (store, id) = makeStore()
-        let itemId = store.addChecklistItem(text: "Task", myAppId: id, actor: .agent(toolName: "addChecklistItem"))!
-        _ = store.removeChecklistItem(id: itemId, myAppId: id, actor: .agent(toolName: "removeChecklistItem"))
-        let events = store.itemEventLog.events(forMyApp: id)
+        let itemId = store.addChecklistItem(text: "Task", miniAppId: id, actor: .agent(toolName: "addChecklistItem"))!
+        _ = store.removeChecklistItem(id: itemId, miniAppId: id, actor: .agent(toolName: "removeChecklistItem"))
+        let events = store.itemEventLog.events(forMiniApp: id)
         let kinds = events.map(\.kind)
         #expect(kinds.contains(.added))
         #expect(kinds.contains(.removed))
@@ -194,27 +194,27 @@ struct ChecklistItemPolicyTests {
     @Test("patchChecklistItem emits .patched event")
     func patchEventEmitsEvent() {
         let (store, id) = makeStore()
-        let itemId = store.addChecklistItem(text: "Task", myAppId: id, actor: .agent(toolName: "addChecklistItem"))!
-        let patch = MyAppStore.ChecklistItemPatch(text: "Updated task")
-        _ = store.patchChecklistItem(id: itemId, patch: patch, myAppId: id, actor: .agent(toolName: "patchChecklistItem"))
-        let events = store.itemEventLog.events(forMyApp: id)
+        let itemId = store.addChecklistItem(text: "Task", miniAppId: id, actor: .agent(toolName: "addChecklistItem"))!
+        let patch = MiniAppStore.ChecklistItemPatch(text: "Updated task")
+        _ = store.patchChecklistItem(id: itemId, patch: patch, miniAppId: id, actor: .agent(toolName: "patchChecklistItem"))
+        let events = store.itemEventLog.events(forMiniApp: id)
         #expect(events.last?.kind == .patched)
         #expect(events.last?.actor == .agent(toolName: "patchChecklistItem"))
     }
 
-    @Test("checklist events are scoped per myApp — two myApps don't mix")
-    func eventsPerMyApp() {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "checklist", typeId: MyAppType.tracker.id)
-        let b = MyApp(name: "B", iconSystemName: "checklist", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a, b], a.id))
-        store.setChecklist(title: "A", myAppId: a.id)
-        store.setChecklist(title: "B", myAppId: b.id)
-        _ = store.addChecklistItem(text: "from A", myAppId: a.id)
-        _ = store.addChecklistItem(text: "from B", myAppId: b.id)
-        _ = store.addChecklistItem(text: "from A again", myAppId: a.id)
-        #expect(store.itemEventLog.events(forMyApp: a.id).count == 2)
-        #expect(store.itemEventLog.events(forMyApp: b.id).count == 1)
+    @Test("checklist events are scoped per miniApp — two miniApps don't mix")
+    func eventsPerMiniApp() {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "checklist", typeId: MiniAppType.tracker.id)
+        let b = MiniApp(name: "B", iconSystemName: "checklist", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a, b], a.id))
+        store.setChecklist(title: "A", miniAppId: a.id)
+        store.setChecklist(title: "B", miniAppId: b.id)
+        _ = store.addChecklistItem(text: "from A", miniAppId: a.id)
+        _ = store.addChecklistItem(text: "from B", miniAppId: b.id)
+        _ = store.addChecklistItem(text: "from A again", miniAppId: a.id)
+        #expect(store.itemEventLog.events(forMiniApp: a.id).count == 2)
+        #expect(store.itemEventLog.events(forMiniApp: b.id).count == 1)
     }
 
 }

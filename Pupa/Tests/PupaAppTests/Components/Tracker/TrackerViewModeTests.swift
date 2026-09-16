@@ -10,17 +10,17 @@ import AGUIKit
 @Suite("Tracker view mode")
 struct TrackerViewModeTests {
 
-    private func makeStore(fields: [FieldDef]) -> (store: MyAppStore, id: UUID) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApp = MyApp(name: "T", iconSystemName: "list.bullet.rectangle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([myApp], myApp.id))
-        store.setTracker(title: "Test", fields: fields, myAppId: myApp.id)
-        return (store, myApp.id)
+    private func makeStore(fields: [FieldDef]) -> (store: MiniAppStore, id: UUID) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApp = MiniApp(name: "T", iconSystemName: "list.bullet.rectangle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([miniApp], miniApp.id))
+        store.setTracker(title: "Test", fields: fields, miniAppId: miniApp.id)
+        return (store, miniApp.id)
     }
 
-    private func tracker(_ store: MyAppStore, id: UUID) -> TrackerData? {
-        guard let myApp = store.myApps.first(where: { $0.id == id }) else { return nil }
-        if case .tracker(let t) = myApp.canvas { return t }
+    private func tracker(_ store: MiniAppStore, id: UUID) -> TrackerData? {
+        guard let miniApp = store.miniApps.first(where: { $0.id == id }) else { return nil }
+        if case .tracker(let t) = miniApp.canvas { return t }
         return nil
     }
 
@@ -38,14 +38,14 @@ struct TrackerViewModeTests {
         ])
 
         // First switch: into kanban grouping by "status".
-        let first = store.setTrackerViewMode(.kanban, columnField: "status", myAppId: id)
+        let first = store.setTrackerViewMode(.kanban, columnField: "status", miniAppId: id)
         #expect(first?.mode == .kanban)
         #expect(first?.columnField == "status")
         #expect(tracker(store, id: id)?.columnField == "status")
 
         // Second switch: stay in kanban but flip to "priority". This is the
         // path the "Group by" menu drives. Must update store state, not no-op.
-        let second = store.setTrackerViewMode(.kanban, columnField: "priority", myAppId: id)
+        let second = store.setTrackerViewMode(.kanban, columnField: "priority", miniAppId: id)
         #expect(second?.mode == .kanban)
         #expect(second?.columnField == "priority")
         #expect(tracker(store, id: id)?.columnField == "priority")
@@ -64,29 +64,29 @@ struct TrackerViewModeTests {
         ])
 
         // No explicit columnField → auto-picks "status" (first eligible select).
-        let initial = store.setTrackerViewMode(.kanban, myAppId: id)
+        let initial = store.setTrackerViewMode(.kanban, miniAppId: id)
         #expect(initial?.columnField == "status")
         #expect(tracker(store, id: id)?.viewMode == .kanban)
 
         // User explicitly picks "priority" via the Group-by menu.
-        _ = store.setTrackerViewMode(.kanban, columnField: "priority", myAppId: id)
+        _ = store.setTrackerViewMode(.kanban, columnField: "priority", miniAppId: id)
         #expect(tracker(store, id: id)?.columnField == "priority")
 
         // Flip to grid — columnField is retained so the next kanban entry
         // doesn't re-pick the first option.
-        _ = store.setTrackerViewMode(.grid, myAppId: id)
+        _ = store.setTrackerViewMode(.grid, miniAppId: id)
         #expect(tracker(store, id: id)?.viewMode == .grid)
         #expect(tracker(store, id: id)?.columnField == "priority")
 
         // Toolbar toggle back to kanban with no columnField hint — must
         // resume on the previously chosen "priority", not snap to "status".
-        let resumed = store.setTrackerViewMode(.kanban, myAppId: id)
+        let resumed = store.setTrackerViewMode(.kanban, miniAppId: id)
         #expect(resumed?.columnField == "priority")
         #expect(tracker(store, id: id)?.columnField == "priority")
     }
 
     /// End-to-end through the AppTools registry: the `setTrackerViewMode`
-    /// frontend tool routes through `MyAppStore.setTrackerViewMode` and
+    /// frontend tool routes through `MiniAppStore.setTrackerViewMode` and
     /// echoes `{ok, mode, columnField, totalItems}` to the agent. Also
     /// pins the invalid-mode rejection so the agent gets a structured
     /// error rather than a silent no-op for typos like `mode: "kaban"`.
@@ -96,10 +96,10 @@ struct TrackerViewModeTests {
             FieldDef(name: "status", type: .select, options: ["todo", "done"]),
         ])
         // Seed an item so totalItems is non-trivial in the echo.
-        store.addItem(["status": "todo"], myAppId: id)
+        store.addItem(["status": "todo"], miniAppId: id)
 
         let registry = ToolRegistry()
-        AppTools.registerMyAppTools(on: registry, store: store, myAppId: id)
+        AppTools.registerMiniAppTools(on: registry, store: store, miniAppId: id)
 
         guard let tool = registry.resolve("setTrackerViewMode") else {
             Issue.record("setTrackerViewMode not registered")
@@ -136,18 +136,18 @@ struct TrackerViewModeTests {
         let (store, id) = makeStore(fields: [
             FieldDef(name: "status", type: .select, options: ["todo", "done"]),
         ])
-        _ = store.addItem(["status": "todo"], myAppId: id)
-        _ = store.setTrackerViewMode(.kanban, columnField: "status", myAppId: id)
+        _ = store.addItem(["status": "todo"], miniAppId: id)
+        _ = store.setTrackerViewMode(.kanban, columnField: "status", miniAppId: id)
         #expect(tracker(store, id: id)?.shrinkCards == false)
 
-        #expect(store.setTrackerCardsShrunk(true, myAppId: id) == true)
+        #expect(store.setTrackerCardsShrunk(true, miniAppId: id) == true)
         let after = tracker(store, id: id)
         #expect(after?.shrinkCards == true)
         #expect(after?.viewMode == .kanban)
         #expect(after?.columnField == "status")
         #expect(after?.items.count == 1)
 
-        #expect(store.setTrackerCardsShrunk(false, myAppId: id) == true)
+        #expect(store.setTrackerCardsShrunk(false, miniAppId: id) == true)
         #expect(tracker(store, id: id)?.shrinkCards == false)
     }
 
@@ -156,8 +156,8 @@ struct TrackerViewModeTests {
         // Returning false keeps `mutate` from persisting the whole app for a
         // toggle that changed nothing.
         let (store, id) = makeStore(fields: [FieldDef(name: "title", type: .text)])
-        #expect(store.setTrackerCardsShrunk(false, myAppId: id) == false)
-        #expect(store.setTrackerCardsShrunk(true, myAppId: id) == true)
-        #expect(store.setTrackerCardsShrunk(true, myAppId: id) == false)
+        #expect(store.setTrackerCardsShrunk(false, miniAppId: id) == false)
+        #expect(store.setTrackerCardsShrunk(true, miniAppId: id) == true)
+        #expect(store.setTrackerCardsShrunk(true, miniAppId: id) == false)
     }
 }

@@ -250,17 +250,17 @@ public struct QueuedMessage: Identifiable, Equatable, Sendable {
 }
 
 /// What a `ChatViewModel` is bound to for its entire lifetime. Pinned at init
-/// — a session never moves between myApps, so tool dispatch and per-turn
-/// context can target a fixed scope without re-checking `activeMyAppId`.
+/// — a session never moves between miniApps, so tool dispatch and per-turn
+/// context can target a fixed scope without re-checking `activeMiniAppId`.
 /// Switching the visible scope is handled by `ChatSessionCoordinator`
 /// returning a different `ChatViewModel`, not by mutating an existing one.
 public enum ChatScope: Equatable, Hashable, Sendable {
-    case myApp(UUID)
+    case miniApp(UUID)
     case memory
 
-    /// The myApp this chat belongs to, or nil for the orchestrator.
-    public var myAppId: UUID? {
-        if case .myApp(let id) = self { return id }
+    /// The miniApp this chat belongs to, or nil for the orchestrator.
+    public var miniAppId: UUID? {
+        if case .miniApp(let id) = self { return id }
         return nil
     }
 }
@@ -286,7 +286,7 @@ public final class ChatViewModel {
     public static let maxImagesPerMessage = 20
 
     /// Immutable scope binding — set at init, never changes. Determines which
-    /// myApp's canvas (if any) this session's tools mutate and which tool
+    /// miniApp's canvas (if any) this session's tools mutate and which tool
     /// surface is advertised per turn.
     public let pinnedScope: ChatScope
     /// The backend threadId this session is permanently bound to. Set at init
@@ -405,7 +405,7 @@ public final class ChatViewModel {
     public var hasPendingShellApproval: Bool { pendingShellApprovalContinuation != nil }
     /// True while the turn is suspended on *any* human-in-the-loop interrupt
     /// (`ask_user_questions` or `request_shell_approval`). The turn is still in
-    /// flight — `isStreaming` stays true so `busyMyApps`, attach-gating, etc.
+    /// flight — `isStreaming` stays true so `busyMiniApps`, attach-gating, etc.
     /// keep treating it as active — but the *model* is not generating; it is
     /// blocked on the user. The composer reads this to suppress its Stop
     /// affordance: hitting Stop here would cancel the session task and orphan
@@ -469,7 +469,7 @@ public final class ChatViewModel {
     private var sessionAuthHeaders: [String: String]
     /// Whether `loadHistoryIfNeeded()` has already run for this VM.
     private var hasLoadedHistory = false
-    private let store: MyAppStore
+    private let store: MiniAppStore
     private let memory: MemoryStore
     /// Skills discovered under this scope's `pupa/skills/`. Drives the `/`
     /// palette and the model-facing skills context entry. Refreshed via
@@ -535,7 +535,7 @@ public final class ChatViewModel {
     /// buttons that resolve the *current* request.
     public private(set) var pendingShellApprovalBubbleId: String?
     /// Fired on every `isStreaming` transition so the coordinator can update
-    /// its derived `busyMyApps` set without polling.
+    /// its derived `busyMiniApps` set without polling.
     private let onStreamingChange: ((Bool) -> Void)?
     /// Per-session tool-gate activation state. nil for sub-run sessions (which
     /// always get the full legacy tool surface). When non-nil, drives the
@@ -643,7 +643,7 @@ public final class ChatViewModel {
             let scopeString: String = {
                 switch scope {
                 case .memory: return "memory"
-                case .myApp(let id): return "myApp:\(id.uuidString)"
+                case .miniApp(let id): return "miniApp:\(id.uuidString)"
                 }
             }()
 
@@ -685,18 +685,18 @@ public final class ChatViewModel {
         switch pinnedScope {
         case .memory:
             return "Orchestrator"
-        case .myApp(let id):
-            return store.myApps.first(where: { $0.id == id })?.name ?? "MyApp"
+        case .miniApp(let id):
+            return store.miniApps.first(where: { $0.id == id })?.name ?? "MiniApp"
         }
     }
 
     /// Accent color for the active agent — purple for the orchestrator, each
-    /// MyApp's own stable palette slot (same slot as the sidebar dot), so it
+    /// MiniApp's own stable palette slot (same slot as the sidebar dot), so it
     /// never shifts when another app is deleted.
     public var agentColor: Color {
         switch pinnedScope {
         case .memory: return .orchestratorColor
-        case .myApp(let id):
+        case .miniApp(let id):
             return .color(atIndex: store.colorIndex(for: id))
         }
     }
@@ -706,8 +706,8 @@ public final class ChatViewModel {
     /// `toolFilter`) and the `/tools` listing — keeps both in lockstep so
     /// `/tools` shows exactly what the model will see.
     ///
-    /// For myApp scopes, the set is resolved from the live `MyApp.components`
-    /// list: `MyAppType.baseToolNames` always, plus
+    /// For miniApp scopes, the set is resolved from the live `MiniApp.components`
+    /// list: `MiniAppType.baseToolNames` always, plus
     /// `toolNamesByKind[kind]` for each component kind currently on the
     /// canvas, minus any tool whose `coPresenceGates` requirements aren't
     /// met. Recomputing per round (via the async `toolFilter` closure in
@@ -715,7 +715,7 @@ public final class ChatViewModel {
     /// expose the new kind's tools mid-turn.
     static func allowedToolNames(
         scope: ChatScope,
-        store: MyAppStore,
+        store: MiniAppStore,
         toolGateState: ToolGateState
     ) -> Set<String> {
         switch scope {
@@ -723,32 +723,32 @@ public final class ChatViewModel {
             // Memory-mode chat is the orchestrator surface: memory FS +
             // HITL + orchestrator tools. Notifications stay tool-gated —
             // the orchestrator rarely needs to schedule banners.
-            var memResult: Set<String> = MyAppType.memoryToolNames
-                .union(MyAppType.humanInTheLoopToolNames)
-                .union(MyAppType.orchestratorToolNames)
+            var memResult: Set<String> = MiniAppType.memoryToolNames
+                .union(MiniAppType.humanInTheLoopToolNames)
+                .union(MiniAppType.orchestratorToolNames)
             if toolGateState.isNotificationsActivated {
-                memResult.formUnion(MyAppType.notificationToolNames)
+                memResult.formUnion(MiniAppType.notificationToolNames)
             } else {
                 memResult.insert("get_tools_notifications")
             }
             // app_skill_view is always advertised so the orchestrator can load
             // any skill listed in its context (progressive disclosure).
-            memResult.formUnion(MyAppType.skillToolNames)
+            memResult.formUnion(MiniAppType.skillToolNames)
             return memResult
-        case .myApp(let id):
-            guard let myApp = store.myApps.first(where: { $0.id == id }),
-                  let type = MyAppTypeRegistry.shared.resolve(id: myApp.typeId) else {
-                return MyAppType.humanInTheLoopToolNames
+        case .miniApp(let id):
+            guard let miniApp = store.miniApps.first(where: { $0.id == id }),
+                  let type = MiniAppTypeRegistry.shared.resolve(id: miniApp.typeId) else {
+                return MiniAppType.humanInTheLoopToolNames
             }
-            let kinds = Set(myApp.components.map(\.kindString))
+            let kinds = Set(miniApp.components.map(\.kindString))
 
             // Tool-gated surface: base tools + HITL are always visible.
             // Component-kind tools, memory tools, and notifications are
             // hidden until the agent calls the matching get_tools_* gate.
             var result: Set<String> = type.baseToolNames
-                .union(MyAppType.humanInTheLoopToolNames)
+                .union(MiniAppType.humanInTheLoopToolNames)
             if toolGateState.isNotificationsActivated {
-                result.formUnion(MyAppType.notificationToolNames)
+                result.formUnion(MiniAppType.notificationToolNames)
             } else {
                 result.insert("get_tools_notifications")
             }
@@ -774,32 +774,32 @@ public final class ChatViewModel {
                 }
             }
 
-            // get_tools_memories is always advertised because every myApp has
+            // get_tools_memories is always advertised because every miniApp has
             // at minimum an AGENTS.md in its memory root, so memory access is
             // universally relevant — this is intentional, not an oversight.
             if toolGateState.isMemoriesActivated {
-                result.formUnion(MyAppType.memoryToolNames)
+                result.formUnion(MiniAppType.memoryToolNames)
             } else {
                 result.insert("get_tools_memories")
             }
 
             // app_skill_view is always advertised (like get_tools_memories):
             // skills are universally relevant and the list is cheap.
-            result.formUnion(MyAppType.skillToolNames)
+            result.formUnion(MiniAppType.skillToolNames)
 
             // invoke_agent is always advertised so the agent can delegate to
             // any subagent listed in its context (like app_skill_view).
-            result.formUnion(MyAppType.subagentToolNames)
+            result.formUnion(MiniAppType.subagentToolNames)
 
             return result
         }
     }
 
-    /// Prompt fragment forwarded to the agent for a myApp scope, gated on
+    /// Prompt fragment forwarded to the agent for a miniApp scope, gated on
     /// which component kinds currently exist on the canvas. `nil` for
-    /// scopes / typeIds without a registered `MyAppType`.
-    static func activeSystemPromptFragment(myApp: MyApp, type: MyAppType) -> String {
-        let kinds = Set(myApp.components.map(\.kindString))
+    /// scopes / typeIds without a registered `MiniAppType`.
+    static func activeSystemPromptFragment(miniApp: MiniApp, type: MiniAppType) -> String {
+        let kinds = Set(miniApp.components.map(\.kindString))
         return type.resolvedSystemPromptFragment(kindsPresent: kinds)
     }
 
@@ -867,7 +867,7 @@ public final class ChatViewModel {
 
     /// Bucket the advertised frontend descriptors by component so `/tools`
     /// can render headed sections instead of one flat alphabetical list.
-    /// Groups are derived from `MyAppType` (`baseToolNames`, `toolNamesByKind`,
+    /// Groups are derived from `MiniAppType` (`baseToolNames`, `toolNamesByKind`,
     /// `memoryToolNames`, `notificationToolNames`, `orchestratorToolNames`) —
     /// no tool-name lists are duplicated here. Each descriptor lands in the
     /// first matching group, so a base-tool name doesn't double-print under
@@ -877,14 +877,14 @@ public final class ChatViewModel {
     static func groupFrontendTools(
         descriptors: [ToolDescriptor],
         scope: ChatScope,
-        store: MyAppStore
+        store: MiniAppStore
     ) -> [ToolGroup] {
         var canvasNames: Set<String> = []
         var kindGroups: [(label: String, names: Set<String>)] = []
         var toolGateNames: Set<String> = []
-        if case .myApp(let id) = scope,
-           let myApp = store.myApps.first(where: { $0.id == id }),
-           let type = MyAppTypeRegistry.shared.resolve(id: myApp.typeId) {
+        if case .miniApp(let id) = scope,
+           let miniApp = store.miniApps.first(where: { $0.id == id }),
+           let type = MiniAppTypeRegistry.shared.resolve(id: miniApp.typeId) {
             canvasNames = type.baseToolNames
             // Render kind groups in a stable order independent of dictionary
             // iteration; only kinds the type actually declares show up.
@@ -905,7 +905,7 @@ public final class ChatViewModel {
             }
             toolGateNames.insert("get_tools_memories")
         }
-        // `get_tools_notifications` exists in every scope (memory + myApp)
+        // `get_tools_notifications` exists in every scope (memory + miniApp)
         // since notifications are app-global.
         toolGateNames.insert("get_tools_notifications")
 
@@ -913,12 +913,12 @@ public final class ChatViewModel {
             (label: "Canvas", names: canvasNames),
         ] + kindGroups + [
             (label: "Tool Gates", names: toolGateNames),
-            (label: "Memory", names: MyAppType.memoryToolNames),
-            (label: "Skills", names: MyAppType.skillToolNames),
-            (label: "Subagents", names: MyAppType.subagentToolNames),
-            (label: "Notifications", names: MyAppType.notificationToolNames),
-            (label: "Orchestrator", names: MyAppType.orchestratorToolNames),
-            (label: "Human-in-the-loop", names: MyAppType.humanInTheLoopToolNames),
+            (label: "Memory", names: MiniAppType.memoryToolNames),
+            (label: "Skills", names: MiniAppType.skillToolNames),
+            (label: "Subagents", names: MiniAppType.subagentToolNames),
+            (label: "Notifications", names: MiniAppType.notificationToolNames),
+            (label: "Orchestrator", names: MiniAppType.orchestratorToolNames),
+            (label: "Human-in-the-loop", names: MiniAppType.humanInTheLoopToolNames),
         ]
 
         var assigned: Set<String> = []
@@ -990,7 +990,7 @@ public final class ChatViewModel {
     }
 
     public init(
-        store: MyAppStore,
+        store: MiniAppStore,
         memory: MemoryStore,
         settings: SettingsStore,
         registry: ToolRegistry,
@@ -1162,7 +1162,7 @@ public final class ChatViewModel {
             // Recompute on every round so the kind-gated tool surface grows
             // mid-turn the instant the agent's `addComponent` call adds a
             // component of a new kind (and shrinks when the last one is
-            // removed). MainActor hop reads the live `MyAppStore`.
+            // removed). MainActor hop reads the live `MiniAppStore`.
             toolFilter: currentToolFilter(),
             state: { [settings, store] in
                 await Self.stateJSON(settings: settings, scope: scope, store: store)
@@ -1974,38 +1974,38 @@ public final class ChatViewModel {
     /// — the chat send path (`forwardedPropsJSON`) and the header chip's
     /// resting selection (`ConversationPager`) both call this so they can't
     /// drift. Precedence:
-    /// 1. per-thread pin (`MyAppStore.threadLLM`) — set from the header chip;
-    /// 2. per-agent default for the scope: `MyAppStore.myAppLLM(for: id)` for
-    ///    `.myApp`, `SettingsStore.orchestratorLLM()` for `.memory` (the
-    ///    orchestrator has no MyApp parent, so its selection is global);
+    /// 1. per-thread pin (`MiniAppStore.threadLLM`) — set from the header chip;
+    /// 2. per-agent default for the scope: `MiniAppStore.miniAppLLM(for: id)` for
+    ///    `.miniApp`, `SettingsStore.orchestratorLLM()` for `.memory` (the
+    ///    orchestrator has no MiniApp parent, so its selection is global);
     /// 3. `nil` → caller falls back to the backend's env-configured default.
     @MainActor
     static func effectiveLLM(
         scope: ChatScope,
         threadId: String,
-        store: MyAppStore,
+        store: MiniAppStore,
         settings: SettingsStore
     ) -> (provider: String, model: String)? {
         if let pin = store.threadLLM(threadId: threadId, for: scope) { return pin }
         switch scope {
-        case .myApp(let id): return store.myAppLLM(for: id)
+        case .miniApp(let id): return store.miniAppLLM(for: id)
         case .memory:        return settings.orchestratorLLM()
         }
     }
 
     /// Resolve the extended-thinking level for a turn. Precedence mirrors
     /// `effectiveLLM` minus the thread pin (threads don't pin thinking):
-    /// per-agent default for the scope (`MyAppStore.myAppThinking` for `.myApp`,
+    /// per-agent default for the scope (`MiniAppStore.miniAppThinking` for `.miniApp`,
     /// `SettingsStore.orchestratorThinking` for `.memory`), else `nil` → the
     /// backend's default thinking config applies.
     @MainActor
     static func effectiveThinking(
         scope: ChatScope,
-        store: MyAppStore,
+        store: MiniAppStore,
         settings: SettingsStore
     ) -> String? {
         switch scope {
-        case .myApp(let id): return store.myAppThinking(for: id)
+        case .miniApp(let id): return store.miniAppThinking(for: id)
         case .memory:        return settings.orchestratorThinking
         }
     }
@@ -2020,7 +2020,7 @@ public final class ChatViewModel {
     static func forwardedPropsJSON(
         scope: ChatScope,
         threadId: String,
-        store: MyAppStore,
+        store: MiniAppStore,
         settings: SettingsStore
     ) -> AnyJSON {
         var llm: [String: AnyJSON] = [:]
@@ -2042,35 +2042,35 @@ public final class ChatViewModel {
     private static func stateJSON(
         settings: SettingsStore,
         scope: ChatScope,
-        store: MyAppStore
+        store: MiniAppStore
     ) async -> AnyJSON {
         await MainActor.run {
             // Union the global Settings → Tools set with the per-agent disabled
-            // set for the active scope (main agent → per-MyApp; orchestrator →
+            // set for the active scope (main agent → per-MiniApp; orchestrator →
             // global orchestrator override). Per-agent is additive, never an
-            // override — see `MyAppStore.myAppDisabledTools`.
+            // override — see `MiniAppStore.miniAppDisabledTools`.
             var disabledSet = settings.disabledBackendTools
             switch scope {
-            case .myApp(let id): disabledSet.formUnion(store.myAppDisabledTools(for: id))
+            case .miniApp(let id): disabledSet.formUnion(store.miniAppDisabledTools(for: id))
             case .memory:        disabledSet.formUnion(settings.orchestratorDisabledTools)
             }
             let disabled = disabledSet.sorted().map { AnyJSON.string($0) }
             var entries: [String: AnyJSON] = ["disabled_tools": .array(disabled)]
             // Resolve shellApprovalDisabled through the settings hierarchy:
-            // per-myApp override (if any) beats the global toggle.
-            let myAppSettings: [UUID: [String: SettingValue]]
+            // per-miniApp override (if any) beats the global toggle.
+            let miniAppSettings: [UUID: [String: SettingValue]]
             let resolveScope: SettingsScope
-            if case .myApp(let id) = scope,
-               let myApp = store.myApp(withId: id) {
-                myAppSettings = [id: myApp.settings]
-                resolveScope = .myApp(id)
+            if case .miniApp(let id) = scope,
+               let miniApp = store.miniApp(withId: id) {
+                miniAppSettings = [id: miniApp.settings]
+                resolveScope = .miniApp(id)
             } else {
-                myAppSettings = [:]
+                miniAppSettings = [:]
                 resolveScope = .global
             }
             let effective = EffectiveSettings(
                 globalSource: GlobalSettingsSource(shellApprovalDisabled: settings.shellApprovalDisabled),
-                myAppSettings: myAppSettings
+                miniAppSettings: miniAppSettings
             )
             if effective.resolve(ShellApprovalDisabledKey.self, at: resolveScope) {
                 entries["shell_approval_disabled"] = .bool(true)
@@ -2095,7 +2095,7 @@ public final class ChatViewModel {
     // MARK: - Context
 
     private static func contextEntries(
-        store: MyAppStore,
+        store: MiniAppStore,
         memory: MemoryStore,
         scope: ChatScope,
         focusedPath: String,
@@ -2114,27 +2114,27 @@ public final class ChatViewModel {
 
             switch scope {
             case .memory:
-                // Snapshot the myApps sidebar so the orchestrator can resolve
-                // user-mentioned myApp names without an extra `listMyApps`
-                // round trip. `listMyApps` is still registered for when the
+                // Snapshot the miniApps sidebar so the orchestrator can resolve
+                // user-mentioned miniApp names without an extra `listMiniApps`
+                // round trip. `listMiniApps` is still registered for when the
                 // model wants a deterministic, fresh read mid-turn. Archived
                 // apps are agent-off, so they're excluded here too — matching
-                // the sidebar and `listMyApps`.
-                let myAppsSnapshot: [[String: String]] = store.visibleMyApps.map { myApp in
+                // the sidebar and `listMiniApps`.
+                let miniAppsSnapshot: [[String: String]] = store.visibleMiniApps.map { miniApp in
                     [
-                        "id": myApp.id.uuidString,
-                        "typeId": myApp.typeId,
-                        "name": myApp.name,
-                        "iconSystemName": myApp.iconSystemName,
+                        "id": miniApp.id.uuidString,
+                        "typeId": miniApp.typeId,
+                        "name": miniApp.name,
+                        "iconSystemName": miniApp.iconSystemName,
                     ]
                 }
-                // No `memoryFolder`, same as the myApp payload below: this store
+                // No `memoryFolder`, same as the miniApp payload below: this store
                 // is chroot'd to `orchestrator/`, so naming the folder invites
                 // the agent to nest a second one inside its own root.
                 let modePayload: [String: AnyJSON] = [
                     "mode": .string("memory"),
                     "focusedFile": .string(focusedPath),
-                    "myApps": .array(myAppsSnapshot.map { dict in
+                    "miniApps": .array(miniAppsSnapshot.map { dict in
                         .object(dict.mapValues { .string($0) })
                     }),
                 ]
@@ -2149,25 +2149,25 @@ public final class ChatViewModel {
                     ),
                 ] + skillsEntry
 
-            case .myApp(let id):
-                guard let myApp = store.myApps.first(where: { $0.id == id }) else {
-                    // MyApp removed mid-stream. Fall back to memories-only
+            case .miniApp(let id):
+                guard let miniApp = store.miniApps.first(where: { $0.id == id }) else {
+                    // MiniApp removed mid-stream. Fall back to memories-only
                     // context so the agent at least sees a coherent payload.
                     return [memoriesEntry]
                 }
-                let summary = CanvasSummary.build(myApp: myApp, previewTracker: previewTracker)
+                let summary = CanvasSummary.build(miniApp: miniApp, previewTracker: previewTracker)
                 let canvasJSON = summary.toJSONString()
-                // System prompt via MyAppPolicy — reads the app's own
+                // System prompt via MiniAppPolicy — reads the app's own
                 // `pupa/AGENTS.md`; falls back to the type-fragment description.
-                let typeDescription = MyAppPolicy(myAppId: id).buildSystemPrompt(
-                    myApp: myApp, memory: memory
+                let typeDescription = MiniAppPolicy(miniAppId: id).buildSystemPrompt(
+                    miniApp: miniApp, memory: memory
                 )
                 // No `memoryFolder`: the agent's store is chroot'd to this app's
                 // root, so every memory path it uses is already relative to that
                 // root. Naming a folder here only invites a wrong prefix.
                 let typePayload: [String: String] = [
-                    "typeId": myApp.typeId,
-                    "myAppName": myApp.name,
+                    "typeId": miniApp.typeId,
+                    "miniAppName": miniApp.name,
                 ]
                 return [
                     AgentContextEntry(
@@ -2181,7 +2181,7 @@ public final class ChatViewModel {
         }
     }
 
-    /// The subagents context entry for a MyApp scope's `AgentStore`. Always
+    /// The subagents context entry for a MiniApp scope's `AgentStore`. Always
     /// present so the agent knows it can delegate to (and create) subagents,
     /// even with none defined yet. `value` lists each subagent's name +
     /// description + when_to_use (progressive disclosure); the persona body
@@ -2204,7 +2204,7 @@ public final class ChatViewModel {
                 + "reply. CREATE one: writeMemoryFile to `pupa/agents/<slug>/AGENTS.md` — `<slug>` "
                 + "becomes its invoke name. Optional YAML frontmatter above the persona body: "
                 + "`name`, `description` (what + when to delegate), `when_to_use`, `tools` "
-                + "(comma-separated allowlist; omit to inherit this myApp's surface), "
+                + "(comma-separated allowlist; omit to inherit this miniApp's surface), "
                 + "`disabled_tools`, `model`, `provider`. Only names + descriptions ride context; "
                 + "the persona loads when the subagent runs.",
             encoding: ["agents": payload],
@@ -2217,7 +2217,7 @@ public final class ChatViewModel {
     /// CREATE them (write a `pupa/skills/<name>/SKILL.md`), even when the
     /// catalogue is empty. `value` lists only model-visible skills (name +
     /// when_to_use); bodies load on demand (progressive disclosure). Shared by
-    /// the orchestrator/myApp chat paths and the sub-run / Slack paths in
+    /// the orchestrator/miniApp chat paths and the sub-run / Slack paths in
     /// `ChatSessionCoordinator`.
     @MainActor
     static func skillsContextEntry(_ skillStore: SkillStore) -> AgentContextEntry {

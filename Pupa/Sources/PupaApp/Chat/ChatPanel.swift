@@ -18,7 +18,7 @@ public struct AgentPickerEntry: Identifiable {
     public var id: String {
         switch scope {
         case .memory: return "orchestrator"
-        case .myApp(let id): return id.uuidString
+        case .miniApp(let id): return id.uuidString
         }
     }
 }
@@ -1007,7 +1007,7 @@ public struct ChatPanel: View {
 ///
 /// `Markdown(String)` runs cmark **inside its initializer** — i.e. inside
 /// `body`, on every evaluation. `ChatOverlay` has no Equatable gate, so an
-/// unrelated `AppView` state write (opening the drawer, picking a MyApp)
+/// unrelated `AppView` state write (opening the drawer, picking a MiniApp)
 /// re-parsed every rendered bubble in the transcript. Keyed by bubble id and
 /// invalidated by content hash, so a streaming bubble replaces its own entry
 /// rather than growing the table.

@@ -4,7 +4,7 @@ import AGUIKit
 /// The tracker kind's `ComponentModule` — the single registration point for
 /// tracker. Reference implementation for issue #162: a contributor mirrors this
 /// per new shape (own folder + one module + one register line in
-/// `MyAppTypeRegistry.registerBuiltins`).
+/// `MiniAppTypeRegistry.registerBuiltins`).
 ///
 /// Each accessor does its own single-case unwrap on `CanvasApp` instead of the
 /// central exhaustive switch, so this module owns only the `.tracker` arm.
@@ -16,7 +16,7 @@ public struct TrackerModule: ComponentModule {
     public let defaultIcon = "list.bullet.rectangle"
 
     /// The tracker kind's tools + prompt prose + catalog blurb. Owned here;
-    /// `MyAppType.tracker.kinds` assembles from this (and the other modules'
+    /// `MiniAppType.tracker.kinds` assembles from this (and the other modules'
     /// `kindSpec`) at load — the module is the single source of truth.
     public nonisolated static let kindSpec = ComponentKindSpec(
         tools: [
@@ -54,13 +54,13 @@ public struct TrackerModule: ComponentModule {
     public var linkPickerEmptyHint: String { "No items in this tracker yet" }
     public func linkableItems(
         in component: Component,
-        store: MyAppStore,
-        myAppId: UUID
+        store: MiniAppStore,
+        miniAppId: UUID
     ) -> [(id: UUID, displayName: String)] {
         guard case .tracker(let t) = component.body else { return [] }
         return t.items.map { item in
             let name = store.displayNameForTrackerItem(
-                componentId: component.id, itemId: item.id, myAppId: myAppId)
+                componentId: component.id, itemId: item.id, miniAppId: miniAppId)
                 ?? "Item \(item.id.uuidString.prefix(6))"
             return (item.id, name)
         }
@@ -85,25 +85,25 @@ public struct TrackerModule: ComponentModule {
 
     public func makeView(
         component: Component,
-        store: MyAppStore,
-        myAppId: UUID,
+        store: MiniAppStore,
+        miniAppId: UUID,
         coordinator: ChatSessionCoordinator?
     ) -> AnyView {
         guard case .tracker(let data) = component.body else { return AnyView(EmptyView()) }
         switch data.viewMode {
         case .grid:
             return AnyView(TrackerView(
-                store: store, data: data, myAppId: myAppId, componentId: component.id))
+                store: store, data: data, miniAppId: miniAppId, componentId: component.id))
         case .kanban:
             return AnyView(KanbanView(
-                store: store, data: data, myAppId: myAppId, componentId: component.id))
+                store: store, data: data, miniAppId: miniAppId, componentId: component.id))
         }
     }
 
     public func registerTools(on registry: ToolRegistry, context: ComponentToolContext) {
         AppTools.registerTrackerTools(
-            on: registry, store: context.store, myAppId: context.myAppId)
+            on: registry, store: context.store, miniAppId: context.miniAppId)
         AppTools.registerTrackerDiscoveryTools(
-            on: registry, store: context.store, myAppId: context.myAppId)
+            on: registry, store: context.store, miniAppId: context.miniAppId)
     }
 }

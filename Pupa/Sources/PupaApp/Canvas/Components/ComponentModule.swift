@@ -3,24 +3,24 @@ import AGUIKit
 
 /// Everything a session's tool registration needs, in one bag. A
 /// `ComponentModule` reads only the slots its kind uses (tracker: `store` +
-/// `myAppId`; slack: also `memory` + `slack`). Mirrors the argument list of
-/// `AppTools.registerMyAppTools` so a module's `registerTools` is a thin
+/// `miniAppId`; slack: also `memory` + `slack`). Mirrors the argument list of
+/// `AppTools.registerMiniAppTools` so a module's `registerTools` is a thin
 /// forward to the existing `AppTools.register<Kind>Tools`.
 @MainActor
 public struct ComponentToolContext {
-    public let store: MyAppStore
-    public let myAppId: UUID
+    public let store: MiniAppStore
+    public let miniAppId: UUID
     public let memory: MemoryStore?
     public let slack: AppTools.SlackToolContext?
 
     public init(
-        store: MyAppStore,
-        myAppId: UUID,
+        store: MiniAppStore,
+        miniAppId: UUID,
         memory: MemoryStore? = nil,
         slack: AppTools.SlackToolContext? = nil
     ) {
         self.store = store
-        self.myAppId = myAppId
+        self.miniAppId = miniAppId
         self.memory = memory
         self.slack = slack
     }
@@ -28,10 +28,10 @@ public struct ComponentToolContext {
 
 /// One self-registering canvas component kind. Collapses the per-kind
 /// registration that used to be smeared across `CanvasView`, `CanvasSummary`,
-/// `CanvasState`, `AppTools`, `MyAppType`, and three separate registries into a
+/// `CanvasState`, `AppTools`, `MiniAppType`, and three separate registries into a
 /// single type a contributor writes once. Mirrors `ItemPolicyRegistry` /
 /// `ComponentExportRegistry`: `@MainActor`, keyed by the lowercase `kind`
-/// string, registered at bootstrap in `MyAppTypeRegistry.registerBuiltins()`.
+/// string, registered at bootstrap in `MiniAppTypeRegistry.registerBuiltins()`.
 ///
 /// The `CanvasApp` Codable enum stays the persistence discriminator (the Tier 1
 /// boundary) — each module does its own single-case unwrap
@@ -42,7 +42,7 @@ public protocol ComponentModule: Sendable {
     /// Lowercase kind string, matching `CanvasApp.kindString` (`"tracker"`).
     var kind: String { get }
     /// Tools + prompt prose + catalog blurb for this kind (was a
-    /// `MyAppType.kinds[…]` literal).
+    /// `MiniAppType.kinds[…]` literal).
     var kindSpec: ComponentKindSpec { get }
     /// SF Symbol seeded onto a freshly added component (was
     /// `AppTools.defaultIcon(forKind:)`).
@@ -61,8 +61,8 @@ public protocol ComponentModule: Sendable {
     /// kinds ignore it.
     func makeView(
         component: Component,
-        store: MyAppStore,
-        myAppId: UUID,
+        store: MiniAppStore,
+        miniAppId: UUID,
         coordinator: ChatSessionCoordinator?
     ) -> AnyView
 
@@ -71,12 +71,12 @@ public protocol ComponentModule: Sendable {
     /// `false` for slack / calculator / chart. Defaults to `false`.
     var isLinkable: Bool { get }
     /// This component's link-bearing items as `(id, displayName)` pairs for the
-    /// `ComponentItemPickerSheet`. `store` + `myAppId` let tracker resolve a
+    /// `ComponentItemPickerSheet`. `store` + `miniAppId` let tracker resolve a
     /// row's display name from its field schema. Empty for non-linkable kinds.
     func linkableItems(
         in component: Component,
-        store: MyAppStore,
-        myAppId: UUID
+        store: MiniAppStore,
+        miniAppId: UUID
     ) -> [(id: UUID, displayName: String)]
     /// Empty-state line the link picker shows when a linkable component has no
     /// items yet (e.g. "No events on this calendar yet").
@@ -99,8 +99,8 @@ public extension ComponentModule {
     var isLinkable: Bool { false }
     func linkableItems(
         in component: Component,
-        store: MyAppStore,
-        myAppId: UUID
+        store: MiniAppStore,
+        miniAppId: UUID
     ) -> [(id: UUID, displayName: String)] { [] }
     var linkPickerEmptyHint: String { "Nothing to link here" }
 }
@@ -110,7 +110,7 @@ public extension ComponentModule {
 /// `CanvasState.emptyBody`, `AppTools.defaultIcon`) look up instead of
 /// switching on the enum. Mirrors `ItemPolicyRegistry` /
 /// `ComponentExportRegistry`; populated at bootstrap in
-/// `MyAppTypeRegistry.registerBuiltins()`.
+/// `MiniAppTypeRegistry.registerBuiltins()`.
 @MainActor
 public final class ComponentRegistry {
     public static let shared = ComponentRegistry()
@@ -149,7 +149,7 @@ public final class ComponentRegistry {
             preconditionFailure(
                 "Component kinds \(missing.sorted()) are in supportedComponentKinds "
                 + "but have no ComponentModule. Register one in "
-                + "MyAppTypeRegistry.registerBuiltins().")
+                + "MiniAppTypeRegistry.registerBuiltins().")
         }
     }
 }

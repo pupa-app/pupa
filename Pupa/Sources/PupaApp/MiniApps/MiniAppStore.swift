@@ -1,0 +1,4691 @@
+import Foundation
+import Observation
+
+/// Top-level store for the user's miniapps. Replaces the old singleton
+/// `CanvasState` — every canvas mutation routes through here against the
+/// active miniapp.
+///
+/// Persistence is **per-file** under the active storage root's `state/`
+/// folder (`PupaStorage`): one `apps/<uuid>.json` per MiniApp plus an
+/// `index.json` (active id, order, orchestrator threads, audit log). One
+/// mutation rewrites only the touched file, so iCloud syncs minimal traffic
+/// and per-app snapshots stay cheap. On first launch under a fresh install
+/// (no `state/`), `load()` seeds the pre-populated "Daily Briefing"
+/// workspace via `DailyBriefingExample.make()` — a working demo of the
+/// full canvas instead of an empty placeholder. Users can add any example
+/// any time from Settings → Examples. The spaces→miniapps rename in project
+/// `0.0.26` is a clean break with no migration of older
+/// `pupa.spaces.v1` / `pupa.canvas.v1` data.
+/// The component refactor (project `0.0.31`) is backward-compatible at the
+/// `MiniApp` Codable layer — old single-`canvas` blobs are migrated on first
+/// decode into a one-element `components` array.
+@MainActor
+@Observable
+public final class MiniAppStore {
+    /// Per-app encoded-blob hashes; lets `persist()` skip unchanged files so
+    /// only the mutated MiniApp re-syncs.
+    private var lastAppHash: [UUID: Int] = [:]
+    private var lastIndexHash: Int?
+
+    public private(set) var miniApps: [MiniApp]
+    public private(set) var activeMiniAppId: UUID
+    /// The global memory store, wired by `AppView` at startup. Used by the
+    /// snapshot / history views to read across every scope. Unset in
+    /// previews/tests that never touch memories.
+    @ObservationIgnored public var globalMemory: MemoryStore?
+    /// Provider of the per-scope chat-storage cap in bytes (from
+    /// `SettingsStore.effectiveThreadCapBytes`), wired by `AppView`. `nil` — or a
+    /// `nil` return — means no cap, so no chats are ever auto-deleted. A closure
+    /// so this store stays decoupled from `SettingsStore`.
+    @ObservationIgnored public var threadCapBytes: (() -> Int?)? = nil
+    /// Typed canvas-domain event stream — the trigger side of bundle
+    /// automations (issue #209). Fed from the single mutation choke-point;
+    /// wired to `RuleEngine` by `AppView`. A closure so the store stays
+    /// decoupled from the automation layer. Only user-actor moves emit (the
+    /// self-mutation guard: agent/reaction moves never re-trigger a rule).
+    @ObservationIgnored public var onCanvasEvent: (@MainActor (CanvasEvent) -> Void)? = nil
+    /// Thread list for the Orchestrator (memory-scope) chat. Always non-empty.
+    public private(set) var memoryThreads: [ChatThread]
+    /// The threadId of the currently-selected Orchestrator conversation.
+    public private(set) var memoryCurrentThreadId: String
+    /// Append-only change feed of item mutations. Persisted in `index.json`;
+    /// live-observable so the History sheet updates. Captions the timeline;
+    /// state is restored from `SnapshotStore`, not replayed from this.
+    public private(set) var itemEventLog = ItemEventLog()
+    /// UI-only folder grouping of each MiniApp's component tiles, keyed by MiniApp
+    /// `id.uuidString`. Presentational — persisted in `index.json`, never in a
+    /// `MiniApp`/`Component` body, so the agent (`getCanvasState`) and marketplace
+    /// exports never see it. See `ComponentFolderLayout`.
+    public private(set) var componentFolders: [String: ComponentFolderLayout] = [:]
+    /// UI-only folder grouping of the MiniApps sidebar. Same reasoning as
+    /// `componentFolders` one level up: persisted in `index.json`, never in a
+    /// `MiniApp` body, so no tool and no marketplace export can see it.
+    /// See `MiniAppFolderLayout`.
+    public private(set) var miniAppFolders = MiniAppFolderLayout()
+    /// Coalesces bursts of edits into one debounced `SnapshotStore` capture
+    /// per MiniApp, keyed by app id.
+    private var pendingSnapshotTasks: [UUID: Task<Void, Never>] = [:]
+    /// Bumped by `clearStorage()`. Armed debounced snapshot tasks capture the
+    /// epoch when scheduled and skip their write if storage was cleared in
+    /// between — a late capture can never resurrect files under a fresh root,
+    /// even from a store instance a test kept alive.
+    private static var storageEpoch = 0
+    /// Snapshot debounce window. Test hook: shrink so regression tests
+    /// don't sleep 2.5s.
+    static var snapshotDebounceNanos: UInt64 = 2_500_000_000
+    /// How long `finishProvisioning()` waits for the first iCloud pull before
+    /// deciding the cloud is empty. Test hook: shrink so the empty-cloud case
+    /// doesn't burn the full wait.
+    static var provisioningTimeout: Duration = .seconds(7)
+
+    /// True while this install is provisioning: the local store was empty at
+    /// launch but iCloud is active, so we await the first pull instead of
+    /// seeding-and-pushing a default roster (which would clobber real apps on
+    /// other devices — the reported data-loss bug). Gates `persist()`. Stays
+    /// set for the whole wait, including the background retry: the placeholder
+    /// must not reach disk while a real roster is still inbound.
+    public private(set) var isProvisioning = false
+    /// Items under `state/` iCloud hasn't materialized yet. Non-zero means the
+    /// roster on screen is still incomplete — `load()` skips an app whose body
+    /// hasn't landed, with nothing else to show for it.
+    public private(set) var pendingCloudDownloads = 0
+    /// True while `beginAwaitingCloudRoster`'s background poll runs: the cloud
+    /// holds a roster this device couldn't pull inside the provisioning window.
+    public private(set) var awaitingCloudRoster = false
+    /// The background adoption retry, so it's never started twice.
+    @ObservationIgnored private(set) var cloudRosterRetry: Task<Void, Never>?
+    /// The seeded roster standing in for a cloud roster we never pulled. Empty
+    /// once one is adopted, or once the cloud proves empty and the seed becomes
+    /// this install's own.
+    ///
+    /// Outlives `isProvisioning` on the give-up path, which resumes writes so
+    /// the user isn't frozen. `load()` takes existence from app bodies, so
+    /// persisting the stand-in makes it a real app that unions in *beside* the
+    /// real roster when that lands — a duplicate "Daily Briefing" on every
+    /// device, with a fresh UUID each launch. See `persist()`.
+    private var unadoptedPlaceholderIds: Set<UUID> = []
+
+    /// Nothing the user does in the roster on screen can be saved: `persist()`
+    /// skips the stand-in's bodies, and skips everything while provisioning.
+    public var isRosterUnsaved: Bool { !unadoptedPlaceholderIds.isEmpty }
+
+    /// What the unsaved-roster banner should say, or nil for no banner.
+    public enum RosterWarning: Sendable, Equatable {
+        /// A roster is known to be in iCloud and still being pulled.
+        case restoring
+        /// The pull gave up. Offers a retry.
+        case unreachable
+    }
+
+    /// The banner state, so the view doesn't re-derive it from three flags.
+    ///
+    /// Nil for the opening `finishProvisioning` window even though the stand-in
+    /// is unsaved there: that wait ends in an adopted roster on the common
+    /// path, so warning would flag every successful cold restore as a failure.
+    public var rosterWarning: RosterWarning? {
+        guard isRosterUnsaved else { return nil }
+        if awaitingCloudRoster { return .restoring }
+        return isProvisioning ? nil : .unreachable
+    }
+
+    /// App ids this user deleted on THIS device. Lets `reloadFromDisk` tell an
+    /// intentional local delete from an app that vanished via a bad sync merge
+    /// (the latter raises the restore banner). Consumed as removals are handled.
+    private var userInitiatedRemovals: Set<UUID> = []
+    /// Set when an incoming sync removed MiniApps this user did NOT delete. Drives
+    /// a dismissible restore banner; nil when there's nothing to advise about.
+    public private(set) var pendingSyncRemoval: SyncRemovalNotice?
+
+    /// MiniApps an incoming sync removed without this user's action, surfaced by
+    /// the restore banner. `names` parallels `ids` for display.
+    public struct SyncRemovalNotice: Equatable, Sendable {
+        public let ids: [UUID]
+        public let names: [String]
+    }
+
+    /// Set when a sync took memory files from apps that are still in the roster.
+    /// Drives its own dismissible recover banner; nil when there's nothing to
+    /// advise about.
+    public private(set) var pendingMemoryLoss: MemoryLossNotice?
+
+    /// Skills / subagents a sync removed from live MiniApps, surfaced by the
+    /// recover banner. `names` parallels `ids`; `fileCount` is every memory file
+    /// recovery would bring back, which is more than the lost units alone when a
+    /// whole subtree went.
+    public struct MemoryLossNotice: Equatable, Sendable {
+        public let ids: [UUID]
+        public let names: [String]
+        public let fileCount: Int
+    }
+
+    public init(initial: ([MiniApp], UUID)? = nil) {
+        if let initial {
+            self.miniApps = initial.0
+            self.activeMiniAppId = initial.1
+            let first = ChatThread()
+            self.memoryThreads = [first]
+            self.memoryCurrentThreadId = first.id
+            // Injected apps carry no stored color slots — freeze them now so
+            // colors are stable and `nextColorIndex()` doesn't collide.
+            backfillColorIndices()
+        } else {
+            let loaded = Self.load()
+            self.miniApps = loaded.miniApps
+            self.activeMiniAppId = loaded.activeId
+            self.memoryThreads = loaded.memoryThreads
+            self.memoryCurrentThreadId = loaded.memoryCurrentThreadId
+            self.itemEventLog = loaded.itemEventLog
+            self.componentFolders = loaded.componentFolders
+            self.miniAppFolders = loaded.miniAppFolders
+            // Seed disk on fresh install; otherwise prime hashes so the first
+            // mutation only writes the app that actually changed. On fresh
+            // install also ship default skills into the seeded app (app-birth
+            // is the only time we seed — see `DefaultSkills`).
+            if loaded.fromDisk {
+                primeHashes()
+                if loaded.needsIndexMigration {
+                    lastIndexHash = nil
+                    persistIndex()
+                }
+                // Freeze legacy apps' current colors into stored slots so future
+                // deletions stop sliding them. Persist only if it changed anything.
+                if backfillColorIndices() { persist() }
+                // Drop app files the index doesn't reference — `persist()` only
+                // deletes files it saw during its own session, so orphans
+                // accumulate forever otherwise. Only when the index was
+                // actually read: on the fresh-install fallback (missing or
+                // corrupt index) existing app files are potential recovery
+                // material, not orphans.
+                Self.sweepOrphanAppFiles(keeping: Set(miniApps.map(\.id)))
+                Self.gcTombstones()
+            } else if PupaStorage.iCloudActive {
+                // Local store is empty but iCloud is active — it may just be
+                // awaiting the first sync. Do NOT seed-and-push a default (that
+                // clobbers real apps on every device — the reported wipe). Hold
+                // the in-memory placeholder; `AppView` drives
+                // `finishProvisioning()` to adopt the real roster, or seed once
+                // only if the cloud is genuinely empty.
+                isProvisioning = true
+                StorageMirror.provisioning = true
+                // Remember exactly which apps are the stand-in, so a later
+                // give-up can keep them off disk while still letting anything
+                // the user creates from here persist normally.
+                unadoptedPlaceholderIds = Set(miniApps.map(\.id))
+            } else {
+                // Genuinely fresh: iCloud off, or already established with no
+                // cloud data. Seed the default roster now and mark this install.
+                backfillColorIndices()
+                for app in miniApps { seedBirthFiles(for: app) }
+                persist()
+                PupaStorage.markRosterEstablished()
+            }
+        }
+    }
+
+    // MARK: - Active miniApp
+
+    public var activeMiniApp: MiniApp {
+        miniApps.first(where: { $0.id == activeMiniAppId }) ?? miniApps[0]
+    }
+
+    /// Look up any miniApp by id. Returns `nil` if not found.
+    public func miniApp(withId id: UUID) -> MiniApp? {
+        miniApps.first(where: { $0.id == id })
+    }
+
+    /// Persist a per-MiniApp settings override. Pass `nil` to clear the key.
+    public func setMiniAppSetting<K: SettingsKey>(
+        _ key: K.Type,
+        value: K.Value?,
+        for miniAppId: UUID
+    ) where K.Value == Bool {
+        guard let idx = miniApps.firstIndex(where: { $0.id == miniAppId }) else { return }
+        if let value {
+            miniApps[idx].settings[K.name] = .bool(value)
+        } else {
+            miniApps[idx].settings.removeValue(forKey: K.name)
+        }
+        persist()
+    }
+
+    /// Persist a per-MiniApp settings override for a `String`-valued key. Pass `nil` to clear.
+    public func setMiniAppSetting<K: SettingsKey>(
+        _ key: K.Type,
+        value: K.Value?,
+        for miniAppId: UUID
+    ) where K.Value == String {
+        guard let idx = miniApps.firstIndex(where: { $0.id == miniAppId }) else { return }
+        if let value, !value.isEmpty {
+            miniApps[idx].settings[K.name] = .string(value)
+        } else {
+            miniApps[idx].settings.removeValue(forKey: K.name)
+        }
+        persist()
+    }
+
+    // MARK: - Per-agent LLM selection
+
+    /// Storage key for the per-MiniApp LLM provider ("bedrock" | "anthropic" | …).
+    /// Paired with `LLMModelSettingsKey` — both must be present for the
+    /// override to apply; either alone is treated as "no override" by the
+    /// reader. Stored under `MiniApp.settings`.
+    public static let llmProviderSettingsKey = "llm.provider"
+    /// Storage key for the per-MiniApp LLM logical model id (e.g. "claude-sonnet-4-6").
+    public static let llmModelSettingsKey = "llm.model"
+    /// Storage key for "may this app fetch remote images". Absent → yes; the
+    /// importer writes `false`. See `MiniApp.allowsRemoteImages`.
+    /// `nonisolated` because `MiniApp` (a plain struct) reads it.
+    public nonisolated static let remoteImagesSettingsKey = "media.remoteImages"
+
+    /// Allow (or stop) this app fetching images from the network. Imported
+    /// apps start off; this is what the placeholder's "Load images" button
+    /// calls. See `MiniApp.allowsRemoteImages`.
+    public func setRemoteImages(_ allowed: Bool, for miniAppId: UUID) {
+        guard let idx = miniApps.firstIndex(where: { $0.id == miniAppId }) else { return }
+        miniApps[idx].settings[Self.remoteImagesSettingsKey] = .bool(allowed)
+        persist()
+    }
+
+    /// Write (or clear) the per-MiniApp LLM override atomically. Pass `nil` for
+    /// either field to clear both — the pair only ever applies together.
+    public func setMiniAppLLM(provider: String?, model: String?, for miniAppId: UUID) {
+        guard let idx = miniApps.firstIndex(where: { $0.id == miniAppId }) else { return }
+        if let provider, let model, !provider.isEmpty, !model.isEmpty {
+            miniApps[idx].settings[Self.llmProviderSettingsKey] = .string(provider)
+            miniApps[idx].settings[Self.llmModelSettingsKey] = .string(model)
+        } else {
+            miniApps[idx].settings.removeValue(forKey: Self.llmProviderSettingsKey)
+            miniApps[idx].settings.removeValue(forKey: Self.llmModelSettingsKey)
+        }
+        persist()
+    }
+
+    /// Read the per-MiniApp LLM override. Returns `nil` when either field is
+    /// missing — callers should fall back to the backend's env default.
+    public func miniAppLLM(for miniAppId: UUID) -> (provider: String, model: String)? {
+        guard let miniApp = miniApps.first(where: { $0.id == miniAppId }) else { return nil }
+        guard case .string(let provider) = miniApp.settings[Self.llmProviderSettingsKey],
+              case .string(let model) = miniApp.settings[Self.llmModelSettingsKey] else { return nil }
+        return (provider, model)
+    }
+
+    /// Storage key for the per-MiniApp extended-thinking level (e.g. "auto"/"off"/
+    /// "low"). Independent of the model pair — thinking can be set without an
+    /// explicit model override. Stored under `MiniApp.settings`.
+    public static let llmThinkingSettingsKey = "llm.thinking"
+
+    /// Write (or clear) the per-MiniApp thinking level. Pass `nil`/empty to clear.
+    public func setMiniAppThinking(_ level: String?, for miniAppId: UUID) {
+        guard let idx = miniApps.firstIndex(where: { $0.id == miniAppId }) else { return }
+        if let level, !level.isEmpty {
+            miniApps[idx].settings[Self.llmThinkingSettingsKey] = .string(level)
+        } else {
+            miniApps[idx].settings.removeValue(forKey: Self.llmThinkingSettingsKey)
+        }
+        persist()
+    }
+
+    /// Read the per-MiniApp thinking level, or `nil` when unset (backend default).
+    public func miniAppThinking(for miniAppId: UUID) -> String? {
+        guard let miniApp = miniApps.first(where: { $0.id == miniAppId }),
+              case .string(let level) = miniApp.settings[Self.llmThinkingSettingsKey] else { return nil }
+        return level
+    }
+
+    /// Clear any per-MiniApp thinking override whose level is not in `validLevels`
+    /// — used to drop a stale level after the active harness's advertised set
+    /// changes (e.g. it dropped "high"), so the send path stops shipping a value
+    /// the picker already renders as "Default". Callers must pass a NON-EMPTY set
+    /// (an empty set means the harness advertises nothing / is unreachable, where
+    /// clearing would wrongly wipe a still-valid override). Returns true if any
+    /// key was removed (so the caller can avoid a needless persist).
+    @discardableResult
+    public func clearThinkingLevels(notIn validLevels: Set<String>) -> Bool {
+        guard !validLevels.isEmpty else { return false }
+        var changed = false
+        for idx in miniApps.indices {
+            if case .string(let level) = miniApps[idx].settings[Self.llmThinkingSettingsKey],
+               !validLevels.contains(level) {
+                miniApps[idx].settings.removeValue(forKey: Self.llmThinkingSettingsKey)
+                changed = true
+            }
+        }
+        if changed { persist() }
+        return changed
+    }
+
+    // MARK: - Per-agent disabled tools
+
+    /// Storage key for the main agent's per-MiniApp disabled tool names. Stored
+    /// under `MiniApp.settings` as a `.stringArray`. Unioned with the global
+    /// `disabledBackendTools` set at send time — never an override.
+    public static let disabledToolsSettingsKey = "tools.disabled"
+
+    /// Write (or clear) the main agent's per-MiniApp disabled tool set. Empty
+    /// clears the key.
+    public func setMiniAppDisabledTools(_ names: Set<String>, for miniAppId: UUID) {
+        guard let idx = miniApps.firstIndex(where: { $0.id == miniAppId }) else { return }
+        let expanded = MiniAppType.expandedDisabledToolNames(names)
+        if expanded.isEmpty {
+            miniApps[idx].settings.removeValue(forKey: Self.disabledToolsSettingsKey)
+        } else {
+            miniApps[idx].settings[Self.disabledToolsSettingsKey] = .stringArray(expanded.sorted())
+        }
+        persist()
+    }
+
+    /// Read the main agent's per-MiniApp disabled tool set. Empty when unset.
+    public func miniAppDisabledTools(for miniAppId: UUID) -> Set<String> {
+        guard let miniApp = miniApps.first(where: { $0.id == miniAppId }),
+              case .stringArray(let names) = miniApp.settings[Self.disabledToolsSettingsKey] else { return [] }
+        return MiniAppType.expandedDisabledToolNames(Set(names))
+    }
+
+    public func setActive(_ id: UUID) {
+        guard miniApps.contains(where: { $0.id == id }), id != activeMiniAppId else { return }
+        activeMiniAppId = id
+        // Index-only: nothing but the active pointer changed.
+        persistIndex()
+    }
+
+    /// Palette slot for a miniApp's accent color, resolved via
+    /// `Color.color(atIndex:)`. Returns the app's own stored `colorIndex` so
+    /// the color is stable: deleting another app never shifts it. Legacy apps
+    /// saved before the field existed are backfilled at load (`backfillColorIndices`),
+    /// so the creation-order fallback below is only a transient safety net.
+    public func colorIndex(for miniAppId: UUID) -> Int {
+        if let stored = miniApps.first(where: { $0.id == miniAppId })?.colorIndex {
+            return stored
+        }
+        return miniApps.sorted { $0.createdAt < $1.createdAt }
+            .firstIndex(where: { $0.id == miniAppId }) ?? 0
+    }
+
+    /// Next free palette slot for a newly created app: one past the highest
+    /// slot in use, so a new app never reuses a live app's color and never
+    /// depends on the current app count (which deletions would shift).
+    private func nextColorIndex() -> Int {
+        (miniApps.compactMap { $0.colorIndex }.max() ?? -1) + 1
+    }
+
+    /// One-time migration: freeze each legacy app's current creation-order
+    /// color into its stored `colorIndex`, so upgrading preserves the colors
+    /// on screen and future deletions stop sliding them. No-op once every app
+    /// has a stored slot. Returns whether anything changed.
+    @discardableResult
+    private func backfillColorIndices() -> Bool {
+        guard miniApps.contains(where: { $0.colorIndex == nil }) else { return false }
+        let order = miniApps.sorted { $0.createdAt < $1.createdAt }.map(\.id)
+        for (slot, id) in order.enumerated() {
+            guard let idx = miniApps.firstIndex(where: { $0.id == id }),
+                  miniApps[idx].colorIndex == nil else { continue }
+            miniApps[idx].colorIndex = slot
+        }
+        return true
+    }
+
+    /// Set a miniApp's accent color to an explicit palette slot (the color is
+    /// user-choosable). Wraps within the palette via `Color.color(atIndex:)`.
+    public func setColorIndex(_ index: Int, for miniAppId: UUID) {
+        guard let idx = miniApps.firstIndex(where: { $0.id == miniAppId }),
+              miniApps[idx].colorIndex != index else { return }
+        miniApps[idx].colorIndex = index
+        persist()
+    }
+
+    /// Change a miniApp's sidebar icon to any SF Symbol name. Trimmed; an empty
+    /// value is ignored so the app keeps its current icon rather than rendering
+    /// a blank slot. The icon, unlike the name, has no memory-folder coupling,
+    /// so this is a plain in-place mutation.
+    public func setIconSystemName(_ iconSystemName: String, for miniAppId: UUID) {
+        let trimmed = iconSystemName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let idx = miniApps.firstIndex(where: { $0.id == miniAppId }),
+              miniApps[idx].iconSystemName != trimmed else { return }
+        miniApps[idx].iconSystemName = trimmed
+        persist()
+    }
+
+    // MARK: - Lifecycle
+
+
+    /// One-time, at-birth seeding for a freshly created/restored app: the
+    /// universal default skills plus (when the name matches an example) its
+    /// persona AGENTS.md. Never run on plain launches, so user edits and
+    /// deletions of these files survive. The chat coordinator rescans the
+    /// global sidebar on the next app-scoped write, so no `globalMemory` here.
+    private func seedBirthFiles(for app: MiniApp) {
+        DefaultSkills.seed(appId: app.id)
+        GuideSkills.seed(appId: app.id)
+        ExampleRegistry.seedAgentsMd(forAppNamed: app.name, id: app.id)
+    }
+
+    @discardableResult
+    public func addMiniApp(typeId: String, name: String, iconSystemName: String) -> UUID {
+        let miniApp = MiniApp(
+            name: name.isEmpty ? "New miniapp" : name,
+            iconSystemName: iconSystemName,
+            typeId: typeId,
+            colorIndex: nextColorIndex()
+        )
+        miniApps.append(miniApp)
+        seedBirthFiles(for: miniApp)
+        activeMiniAppId = miniApp.id
+        persist()
+        return miniApp.id
+    }
+
+    public func renameMiniApp(_ id: UUID, to newName: String) {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let idx = miniApps.firstIndex(where: { $0.id == id }) else { return }
+        guard miniApps[idx].name != trimmed else { return }
+        // Memories are keyed on the immutable app id, so a rename moves nothing.
+        miniApps[idx].name = trimmed
+        persist()
+    }
+
+    public func removeMiniApp(_ id: UUID) {
+        guard miniApps.count > 1, let idx = miniApps.firstIndex(where: { $0.id == id }) else { return }
+        // Reap the deleted app's per-thread transcript caches before it leaves
+        // the roster — `persist()` no longer has the body to enumerate.
+        TranscriptCache.delete(miniApps[idx].threads.map(\.id))
+        FrontendDispatchJournalStore.delete(miniApps[idx].threads.map(\.id))
+        // Restore point BEFORE the body goes — what Settings ▸ Recently deleted
+        // restores from. Synchronous, unlike the debounced `scheduleSnapshot`
+        // everywhere else: it must be durable before the body and the tombstone,
+        // at the cost of a hitch on the delete tap for a chat-heavy app.
+        SnapshotStore.record(miniApps[idx], reason: .deleted)
+        let deletedName = miniApps[idx].name
+        miniApps.remove(at: idx)
+        // Drop the sidebar-folder assignment with the app, pruning a folder
+        // that empties as a result. Unlike archiving, a delete is final.
+        miniAppFolders.assignments.removeValue(forKey: id.uuidString)
+        pruneMiniAppFolders()
+        // Remember this was a deliberate local delete so a later `reloadFromDisk`
+        // doesn't mistake the resulting roster shrink for a bad sync merge.
+        userInitiatedRemovals.insert(id)
+        // Durable, mirrored delete marker — survives relaunch and suppresses the
+        // body on every device, so a not-yet-synced copy can't resurrect it.
+        Self.writeTombstone(id, name: deletedName)
+        if activeMiniAppId == id {
+            activeMiniAppId = miniApps[0].id
+        }
+        persist()
+    }
+
+    /// MiniApps shown in the sidebar and every agent-facing list — everything
+    /// that isn't archived.
+    public var visibleMiniApps: [MiniApp] { miniApps.filter { !$0.isArchived } }
+
+    /// Archived (hidden) MiniApps, surfaced only in Settings → Archive.
+    public var archivedMiniApps: [MiniApp] { miniApps.filter { $0.isArchived } }
+
+    /// Archive or unarchive a MiniApp. Archiving hides it from the sidebar and
+    /// every agent-facing list and locks all its components (read-only);
+    /// unarchiving only un-hides it — the lock stays on, so a restored app is
+    /// re-editable via the home lock toggle. Archiving the active app repoints
+    /// `activeMiniAppId` to the first still-visible app.
+    public func setMiniAppArchived(_ id: UUID, _ archived: Bool) {
+        guard let idx = miniApps.firstIndex(where: { $0.id == id }),
+              miniApps[idx].isArchived != archived else { return }
+        miniApps[idx].isArchived = archived
+        if archived {
+            setAllComponentsLocked(locked: true, miniAppId: id)
+            if activeMiniAppId == id, let next = visibleMiniApps.first {
+                activeMiniAppId = next.id
+            }
+        }
+        persist()
+    }
+
+    /// Re-insert the seeded "Job Search & Apply" workspace if the user
+    /// has deleted it. If a MiniApp with `JobSearchExample.name` is already
+    /// present, just makes it the active one — no duplicate is inserted.
+    /// Wired into Settings → Examples → "Restore example MiniApp".
+    @discardableResult
+    public func restoreExampleMiniApp() -> UUID {
+        restoreExample(JobSearchExample.self)
+    }
+
+    /// Generic restore for any `ExampleMiniApp` conformance. Looks up an
+    /// existing MiniApp by name (idempotent — no duplicate if already present)
+    /// or builds a fresh one via `example.make()` and appends it.
+    @discardableResult
+    public func restoreExample(_ example: any ExampleMiniApp.Type) -> UUID {
+        if let existing = miniApps.first(where: { $0.name == example.name }) {
+            if activeMiniAppId != existing.id {
+                activeMiniAppId = existing.id
+                persist()
+            }
+            return existing.id
+        }
+        var miniApp = example.make()
+        if miniApp.colorIndex == nil { miniApp.colorIndex = nextColorIndex() }
+        miniApps.append(miniApp)
+        seedBirthFiles(for: miniApp)
+        activeMiniAppId = miniApp.id
+        persist()
+        return miniApp.id
+    }
+
+    /// Insert a fully-formed `MiniApp` produced by `MiniAppImporter` (marketplace
+    /// import). Unlike `restoreExample` this performs no by-name idempotency:
+    /// the importer has already reassigned the `id` and resolved name/slug
+    /// collisions, so the app is appended verbatim and made active. Memories
+    /// are written separately by the importer. Returns the inserted id.
+    @discardableResult
+    public func importMiniApp(_ miniApp: MiniApp) -> UUID {
+        var miniApp = miniApp
+        if miniApp.colorIndex == nil { miniApp.colorIndex = nextColorIndex() }
+        // Re-importing a previously-deleted id is a deliberate un-delete — clear
+        // its markers or union-load would suppress it again on relaunch. No
+        // No memory recovery: the importer writes the bundle's own memories, and
+        // recovering over them would mix in a previous install's files.
+        Self.clearDeleteMarkers(miniApp.id)
+        miniApps.append(miniApp)
+        activeMiniAppId = miniApp.id
+        persist()
+        return miniApp.id
+    }
+
+    // MARK: - Thread management
+
+    public func threads(for scope: ChatScope) -> [ChatThread] {
+        switch scope {
+        case .memory: return memoryThreads
+        case .miniApp(let id): return miniApps.first(where: { $0.id == id })?.threads ?? []
+        }
+    }
+
+    public func currentThreadId(for scope: ChatScope) -> String {
+        switch scope {
+        case .memory: return memoryCurrentThreadId
+        case .miniApp(let id): return miniApps.first(where: { $0.id == id })?.currentThreadId ?? UUID().uuidString
+        }
+    }
+
+    public func setCurrentThread(_ threadId: String, for scope: ChatScope) {
+        switch scope {
+        case .memory:
+            guard memoryThreads.contains(where: { $0.id == threadId }) else { return }
+            memoryCurrentThreadId = threadId
+        case .miniApp(let id):
+            guard let idx = miniApps.firstIndex(where: { $0.id == id }),
+                  miniApps[idx].threads.contains(where: { $0.id == threadId }) else { return }
+            miniApps[idx].currentThreadId = threadId
+        }
+        persist()
+    }
+
+    /// Append a fresh `ChatThread`, make it current, persist, and return its id.
+    @discardableResult
+    public func addThread(for scope: ChatScope) -> String {
+        let thread = ChatThread()
+        switch scope {
+        case .memory:
+            memoryThreads.append(thread)
+            memoryCurrentThreadId = thread.id
+        case .miniApp(let id):
+            guard let idx = miniApps.firstIndex(where: { $0.id == id }) else { return thread.id }
+            miniApps[idx].threads.append(thread)
+            miniApps[idx].currentThreadId = thread.id
+        }
+        // A new chat may push the scope over the storage cap — evict oldest.
+        enforceThreadCap(for: scope)
+        persist()
+        return thread.id
+    }
+
+    /// Set the title of a thread once — no-op if the thread already has a non-empty title.
+    public func setThreadTitle(_ title: String, threadId: String, for scope: ChatScope) {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        switch scope {
+        case .memory:
+            guard let idx = memoryThreads.firstIndex(where: { $0.id == threadId }),
+                  memoryThreads[idx].title.isEmpty else { return }
+            memoryThreads[idx].title = trimmed
+        case .miniApp(let id):
+            guard let mIdx = miniApps.firstIndex(where: { $0.id == id }),
+                  let tIdx = miniApps[mIdx].threads.firstIndex(where: { $0.id == threadId }),
+                  miniApps[mIdx].threads[tIdx].title.isEmpty else { return }
+            miniApps[mIdx].threads[tIdx].title = trimmed
+        }
+        persist()
+    }
+
+    /// Write (or clear) a thread's per-thread LLM override atomically. Pass
+    /// `nil` for either field to clear both — the pair only ever applies
+    /// together. A cleared thread re-inherits its scope's default. Locates the
+    /// thread in `memoryThreads` / `miniApps[…].threads` like `setThreadTitle`.
+    public func setThreadLLM(provider: String?, model: String?, threadId: String, for scope: ChatScope) {
+        let pair: (String, String)? = {
+            if let provider, let model, !provider.isEmpty, !model.isEmpty { return (provider, model) }
+            return nil
+        }()
+        switch scope {
+        case .memory:
+            guard let idx = memoryThreads.firstIndex(where: { $0.id == threadId }) else { return }
+            memoryThreads[idx].llmProvider = pair?.0
+            memoryThreads[idx].llmModel = pair?.1
+        case .miniApp(let id):
+            guard let mIdx = miniApps.firstIndex(where: { $0.id == id }),
+                  let tIdx = miniApps[mIdx].threads.firstIndex(where: { $0.id == threadId }) else { return }
+            miniApps[mIdx].threads[tIdx].llmProvider = pair?.0
+            miniApps[mIdx].threads[tIdx].llmModel = pair?.1
+        }
+        persist()
+    }
+
+    /// Read a thread's per-thread LLM override. Returns `nil` when either field
+    /// is missing — callers fall back to the scope default, then the backend
+    /// env default.
+    public func threadLLM(threadId: String, for scope: ChatScope) -> (provider: String, model: String)? {
+        let thread: ChatThread?
+        switch scope {
+        case .memory:
+            thread = memoryThreads.first(where: { $0.id == threadId })
+        case .miniApp(let id):
+            thread = miniApps.first(where: { $0.id == id })?.threads.first(where: { $0.id == threadId })
+        }
+        guard let provider = thread?.llmProvider, let model = thread?.llmModel else { return nil }
+        return (provider, model)
+    }
+
+    /// Remove a thread. Picks a neighbour as current. Never leaves a scope with
+    /// zero threads — auto-creates one if the last thread is removed.
+    public func removeThread(_ threadId: String, for scope: ChatScope) {
+        switch scope {
+        case .memory:
+            memoryThreads.removeAll(where: { $0.id == threadId })
+            if memoryThreads.isEmpty { memoryThreads = [ChatThread()] }
+            if !memoryThreads.contains(where: { $0.id == memoryCurrentThreadId }) {
+                memoryCurrentThreadId = memoryThreads.last!.id
+            }
+        case .miniApp(let id):
+            guard let idx = miniApps.firstIndex(where: { $0.id == id }) else { return }
+            miniApps[idx].threads.removeAll(where: { $0.id == threadId })
+            if miniApps[idx].threads.isEmpty { miniApps[idx].threads = [ChatThread()] }
+            if !miniApps[idx].threads.contains(where: { $0.id == miniApps[idx].currentThreadId }) {
+                miniApps[idx].currentThreadId = miniApps[idx].threads.last!.id
+            }
+        }
+        TranscriptCache.delete(threadId)
+        FrontendDispatchJournalStore.delete(threadId)
+        persist()
+    }
+
+    // MARK: - Chat storage cap
+
+    /// Encoded byte size of one thread's persisted metadata — the unit the
+    /// per-MiniApp chat-storage cap measures. Same deterministic encoder as
+    /// `persist()`. Internal for tests.
+    static func threadEncodedSize(_ thread: ChatThread) -> Int {
+        (try? stateEncoder().encode(thread))?.count ?? 0
+    }
+
+    /// Keep only the newest chats in `threads` that fit `capBytes`, dropping the
+    /// OLDEST (front of the array — array order is the app's notion of age, and
+    /// unlike `createdAt` it's robust to ties and cross-device merge skew). The
+    /// newest thread and the `current` thread are always kept, so a scope is
+    /// never emptied and the visible chat is never deleted. Survivors keep their
+    /// original order. Internal for tests.
+    ///
+    /// The cap is a best-effort proxy, not an exact byte budget: the two
+    /// force-kept threads can push the result past `capBytes`, the per-thread
+    /// running sum omits the JSON array separators the whole-list fast path
+    /// counts, and the real on-disk footprint is the shared `index.json` (all
+    /// scopes in one blob), not any single scope's `threads` array.
+    static func threadsWithinCap(_ threads: [ChatThread], current: String, capBytes: Int) -> [ChatThread] {
+        guard threads.count > 1 else { return threads }
+        // Fast path: the whole list already fits.
+        if let whole = try? stateEncoder().encode(threads), whole.count <= capBytes { return threads }
+        var keep = Set<Int>()
+        var running = 0
+        for i in threads.indices.reversed() {
+            let mustKeep = i == threads.count - 1 || threads[i].id == current
+            let size = threadEncodedSize(threads[i])
+            if mustKeep || running + size <= capBytes {
+                keep.insert(i)
+                running += size
+            }
+        }
+        return threads.enumerated().filter { keep.contains($0.offset) }.map(\.element)
+    }
+
+    /// Evict the oldest chats in `scope` until it fits `threadCapBytes()`.
+    /// No-op when no cap is set. Does NOT persist — callers do. Returns whether
+    /// it actually dropped any thread, so callers can skip a no-op persist.
+    @discardableResult
+    private func enforceThreadCap(for scope: ChatScope) -> Bool {
+        guard let capBytes = threadCapBytes?(), capBytes > 0 else { return false }
+        switch scope {
+        case .memory:
+            let kept = Self.threadsWithinCap(memoryThreads, current: memoryCurrentThreadId, capBytes: capBytes)
+            guard kept.count != memoryThreads.count else { return false }
+            TranscriptCache.delete(Self.droppedIds(memoryThreads, kept: kept))
+            FrontendDispatchJournalStore.delete(Self.droppedIds(memoryThreads, kept: kept))
+            memoryThreads = kept
+            return true
+        case .miniApp(let id):
+            guard let idx = miniApps.firstIndex(where: { $0.id == id }) else { return false }
+            let kept = Self.threadsWithinCap(miniApps[idx].threads, current: miniApps[idx].currentThreadId, capBytes: capBytes)
+            guard kept.count != miniApps[idx].threads.count else { return false }
+            TranscriptCache.delete(Self.droppedIds(miniApps[idx].threads, kept: kept))
+            FrontendDispatchJournalStore.delete(Self.droppedIds(miniApps[idx].threads, kept: kept))
+            miniApps[idx].threads = kept
+            return true
+        }
+    }
+
+    /// Ids present in `before` but not `kept` — the threads an eviction dropped.
+    private nonisolated static func droppedIds(_ before: [ChatThread], kept: [ChatThread]) -> Set<String> {
+        Set(before.map(\.id)).subtracting(kept.map(\.id))
+    }
+
+    /// Apply the chat-storage cap to every scope. Persists only if a scope
+    /// actually shrank, so an at-launch prune that evicts nothing writes no file
+    /// (and doesn't churn iCloud). Called when the cap setting changes and at
+    /// launch.
+    public func pruneAllThreads() {
+        var changed = enforceThreadCap(for: .memory)
+        // Not `||` — that would short-circuit and skip later apps once `changed`.
+        for app in miniApps where enforceThreadCap(for: .miniApp(app.id)) { changed = true }
+        if changed { persist() }
+    }
+
+    // MARK: - Component lifecycle
+
+    /// Append a new component to `miniAppId`. Two effects worth calling out:
+    ///
+    /// - **Empty placeholders are collapsed.** Any pre-existing component
+    ///   whose body is `.empty` (most commonly the kindless seed dropped
+    ///   in by `MiniApp.init`) is removed before the new one is appended.
+    ///   That's the contract that lets a fresh MiniApp present "no
+    ///   kind-specific tools yet" via the gated tool filter — when the
+    ///   agent calls `addComponent`, the placeholder doesn't stick around
+    ///   to muddy the sidebar alongside the new typed component.
+    /// - **Body is seeded with an empty typed canvas matching `kind`** so
+    ///   `Component.kindString` reflects the requested kind immediately —
+    ///   the kind-gated tool surface (e.g. `renderCalendar`,
+    ///   `addCalendarEvent`) is then advertised on the very next agent
+    ///   round, before a render tool has been called. The kind-specific
+    ///   render tool later replaces the body with a populated canvas.
+    ///
+    /// Unknown kinds fall back to `.empty` (won't contribute to the gated
+    /// surface). Returns the generated stable id (e.g. `"calendar-2"`).
+    @discardableResult
+    public func addComponent(
+        kind: String,
+        name: String,
+        iconSystemName: String,
+        miniAppId: UUID? = nil
+    ) -> String? {
+        let target = miniAppId ?? activeMiniAppId
+        guard let idx = miniApps.firstIndex(where: { $0.id == target }) else { return nil }
+        // Drop any empty placeholders. The default seed lives here until
+        // the first real component is added; collapsing it keeps the
+        // sidebar tidy and lets id allocation start cleanly at
+        // `<kind>-1`.
+        miniApps[idx].components.removeAll {
+            if case .empty = $0.body { return true }
+            return false
+        }
+        let prefix = kind
+        var n = 1
+        let existing = Set(miniApps[idx].components.map(\.id))
+        while existing.contains("\(prefix)-\(n)") { n += 1 }
+        let id = "\(prefix)-\(n)"
+        let component = Component(
+            id: id,
+            name: name.isEmpty ? kind.capitalized : name,
+            iconSystemName: iconSystemName,
+            body: CanvasApp.emptyBody(forKind: kind)
+        )
+        miniApps[idx].components.append(component)
+        miniApps[idx].activeComponentId = id
+        persist()
+        emitItemEvent(miniAppId: target, componentId: id, kind: .added, actor: .user)
+        return id
+    }
+
+
+    /// Remove a component from `miniAppId`. Refuses if it would leave the
+    /// MiniApp with zero components — a MiniApp must always have at least one
+    /// child row in the sidebar.
+    @discardableResult
+    public func removeComponent(componentId: String, miniAppId: UUID? = nil) -> Bool {
+        let target = miniAppId ?? activeMiniAppId
+        guard let mIdx = miniApps.firstIndex(where: { $0.id == target }) else { return false }
+        guard miniApps[mIdx].components.count > 1,
+              let cIdx = miniApps[mIdx].components.firstIndex(where: { $0.id == componentId })
+        else { return false }
+        guard !refuseIfLocked(mIdx, cIdx) else { return false }
+        miniApps[mIdx].components.remove(at: cIdx)
+        if miniApps[mIdx].activeComponentId == componentId {
+            miniApps[mIdx].activeComponentId = miniApps[mIdx].components.first?.id
+        }
+        // Drop the deleted component's folder assignment; auto-dissolve a
+        // now-empty folder. (In-memory only — persist() below writes it.)
+        dropFolderAssignment(componentId: componentId, miniAppId: target)
+        persist()
+        emitItemEvent(miniAppId: target, componentId: componentId, kind: .removed, actor: .user)
+        return true
+    }
+
+    // MARK: - Component folders (UI-only)
+
+    /// The folder layout for `miniAppId`, or an empty layout if none. Read-side
+    /// helper for the home-page grid.
+    public func componentFolderLayout(forMiniApp miniAppId: UUID) -> ComponentFolderLayout {
+        componentFolders[miniAppId.uuidString] ?? ComponentFolderLayout()
+    }
+
+    /// Drop-tile-onto-tile: group `a` and `b`. If `b` already lives in a
+    /// folder, add `a` to it; otherwise create a "New Folder" holding both.
+    /// No-op when the two are the same tile.
+    public func combineComponentsIntoFolder(_ a: String, _ b: String, miniAppId: UUID) {
+        guard a != b else { return }
+        let key = miniAppId.uuidString
+        var layout = componentFolders[key] ?? ComponentFolderLayout()
+        if let existing = layout.assignments[b] {
+            layout.assignments[a] = existing
+        } else {
+            let folder = ComponentFolder(id: UUID().uuidString, name: "New Folder")
+            layout.folders.append(folder)
+            layout.assignments[a] = folder.id
+            layout.assignments[b] = folder.id
+        }
+        componentFolders[key] = layout
+        pruneEmptyFolders(miniAppId: miniAppId)
+        persist()
+    }
+
+    /// Assign `componentId` to `folderId`, or move it out with `nil`. Prunes a
+    /// folder that empties as a result.
+    public func setComponentFolder(componentId: String, folderId: String?, miniAppId: UUID) {
+        let key = miniAppId.uuidString
+        var layout = componentFolders[key] ?? ComponentFolderLayout()
+        if let folderId, layout.folders.contains(where: { $0.id == folderId }) {
+            layout.assignments[componentId] = folderId
+        } else {
+            layout.assignments.removeValue(forKey: componentId)
+        }
+        componentFolders[key] = layout
+        pruneEmptyFolders(miniAppId: miniAppId)
+        persist()
+    }
+
+    /// Rename a folder. No-op if the folder or MiniApp is unknown.
+    public func renameComponentFolder(folderId: String, name: String, miniAppId: UUID) {
+        let key = miniAppId.uuidString
+        guard var layout = componentFolders[key],
+              let fIdx = layout.folders.firstIndex(where: { $0.id == folderId }) else { return }
+        layout.folders[fIdx].name = name
+        componentFolders[key] = layout
+        persist()
+    }
+
+    /// Delete a folder; its children return to the top level.
+    public func removeComponentFolder(folderId: String, miniAppId: UUID) {
+        let key = miniAppId.uuidString
+        guard var layout = componentFolders[key] else { return }
+        layout.folders.removeAll { $0.id == folderId }
+        layout.assignments = layout.assignments.filter { $0.value != folderId }
+        componentFolders[key] = normalized(layout)
+        persist()
+    }
+
+    /// Remove a single component's assignment in-memory (no persist). Used by
+    /// `removeComponent`, which persists once afterward.
+    private func dropFolderAssignment(componentId: String, miniAppId: UUID) {
+        let key = miniAppId.uuidString
+        guard var layout = componentFolders[key], layout.assignments[componentId] != nil else { return }
+        layout.assignments.removeValue(forKey: componentId)
+        componentFolders[key] = normalized(layout)
+    }
+
+    /// Drop folders with no members and persist the pruned layout.
+    private func pruneEmptyFolders(miniAppId: UUID) {
+        let key = miniAppId.uuidString
+        guard let layout = componentFolders[key] else { return }
+        componentFolders[key] = normalized(layout)
+    }
+
+    /// Remove empty folders and clear the whole entry when nothing remains, so
+    /// an app with no folders holds no dictionary key.
+    private func normalized(_ layout: ComponentFolderLayout) -> ComponentFolderLayout? {
+        var out = layout
+        let live = Set(out.assignments.values)
+        out.folders.removeAll { !live.contains($0.id) }
+        return (out.folders.isEmpty && out.assignments.isEmpty) ? nil : out
+    }
+
+    // MARK: - MiniApp folders (UI-only)
+
+    /// Create a folder holding `miniAppId` and return its id. Folders are always
+    /// born with a member, so `prunedMiniAppFolders` can never see a
+    /// user-created empty one.
+    @discardableResult
+    public func createMiniAppFolder(name: String, containing miniAppId: UUID) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let folder = MiniAppFolder(id: UUID().uuidString,
+                                 name: trimmed.isEmpty ? "New Folder" : trimmed)
+        miniAppFolders.folders.append(folder)
+        miniAppFolders.assignments[miniAppId.uuidString] = folder.id
+        pruneMiniAppFolders()
+        persist()
+        return folder.id
+    }
+
+    /// Assign `miniAppId` to `folderId`, or move it out with `nil`. An unknown
+    /// `folderId` also moves it out. Prunes a folder that empties as a result.
+    public func setMiniAppFolder(miniAppId: UUID, folderId: String?) {
+        if let folderId, miniAppFolders.folders.contains(where: { $0.id == folderId }) {
+            miniAppFolders.assignments[miniAppId.uuidString] = folderId
+        } else {
+            miniAppFolders.assignments.removeValue(forKey: miniAppId.uuidString)
+        }
+        pruneMiniAppFolders()
+        persist()
+    }
+
+    /// Rename a folder. No-op if the folder is unknown or the name is blank.
+    public func renameMiniAppFolder(folderId: String, name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let idx = miniAppFolders.folders.firstIndex(where: { $0.id == folderId })
+        else { return }
+        miniAppFolders.folders[idx].name = trimmed
+        persist()
+    }
+
+    /// Delete a folder; its MiniApps return to the top level.
+    public func removeMiniAppFolder(folderId: String) {
+        miniAppFolders.folders.removeAll { $0.id == folderId }
+        miniAppFolders.assignments = miniAppFolders.assignments.filter { $0.value != folderId }
+        pruneMiniAppFolders()
+        persist()
+    }
+
+    /// Drop folders with no members, and assignments naming a folder that is
+    /// gone. Archived apps keep their assignment — hiding is the sidebar's job,
+    /// so unarchiving restores an app to the folder it left.
+    private func pruneMiniAppFolders() {
+        let known = Set(miniAppFolders.folders.map(\.id))
+        miniAppFolders.assignments = miniAppFolders.assignments.filter { known.contains($0.value) }
+        let live = Set(miniAppFolders.assignments.values)
+        miniAppFolders.folders.removeAll { !live.contains($0.id) }
+    }
+
+    /// Make `componentId` the active component of `miniAppId`. The active
+    /// component drives the canvas view and the `canvas` accessor on `MiniApp`.
+    @discardableResult
+    public func setActiveComponent(componentId: String, miniAppId: UUID? = nil) -> Bool {
+        let target = miniAppId ?? activeMiniAppId
+        guard let mIdx = miniApps.firstIndex(where: { $0.id == target }),
+              miniApps[mIdx].components.contains(where: { $0.id == componentId }) else { return false }
+        miniApps[mIdx].activeComponentId = componentId
+        persist()
+        return true
+    }
+
+    /// Rename a component (sidebar child row label). No effect on body.
+    @discardableResult
+    public func renameComponent(componentId: String, to newName: String, miniAppId: UUID? = nil) -> Bool {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        let target = miniAppId ?? activeMiniAppId
+        guard let mIdx = miniApps.firstIndex(where: { $0.id == target }),
+              let cIdx = miniApps[mIdx].components.firstIndex(where: { $0.id == componentId })
+        else { return false }
+        guard miniApps[mIdx].components[cIdx].name != trimmed else { return false }
+        miniApps[mIdx].components[cIdx].name = trimmed
+        persist()
+        return true
+    }
+
+    /// Edit a component's mutable metadata in place — `name`, `iconSystemName`,
+    /// and the LLM-facing `summary` (the "what this is for" description). The
+    /// component `id` and `body` (its data) are untouched, so this never loses
+    /// content the way delete-and-re-add would. Each argument is optional:
+    /// `nil` leaves that field alone; a value sets it (an all-whitespace `name`
+    /// or `iconSystemName` is ignored, an all-whitespace `summary` clears it,
+    /// matching `setComponentSummary`). Returns `true` iff anything changed.
+    @discardableResult
+    public func updateComponentMeta(
+        componentId: String,
+        name: String? = nil,
+        iconSystemName: String? = nil,
+        summary: String? = nil,
+        miniAppId: UUID? = nil
+    ) -> Bool {
+        let target = miniAppId ?? activeMiniAppId
+        guard let mIdx = miniApps.firstIndex(where: { $0.id == target }),
+              let cIdx = miniApps[mIdx].components.firstIndex(where: { $0.id == componentId })
+        else { return false }
+
+        var changed = false
+        if let name {
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty, miniApps[mIdx].components[cIdx].name != trimmed {
+                miniApps[mIdx].components[cIdx].name = trimmed
+                changed = true
+            }
+        }
+        if let iconSystemName {
+            let trimmed = iconSystemName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty, miniApps[mIdx].components[cIdx].iconSystemName != trimmed {
+                miniApps[mIdx].components[cIdx].iconSystemName = trimmed
+                changed = true
+            }
+        }
+        if let summary {
+            let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+            let next: String? = trimmed.isEmpty ? nil : trimmed
+            if miniApps[mIdx].components[cIdx].summary != next {
+                miniApps[mIdx].components[cIdx].summary = next
+                changed = true
+            }
+        }
+        if changed { persist() }
+        return changed
+    }
+
+    /// Set or clear the LLM-authored content `summary` for a component
+    /// (the slot surfaced in the canvas state context entry every turn).
+    /// Targets a component by kind using the same selection rule as
+    /// `mutate(_:kind:_:)`: prefers the active component if it matches
+    /// the kind, else the first component of that kind. Passing `nil`
+    /// (or an all-whitespace string) clears the existing summary.
+    @discardableResult
+    public func setComponentSummary(
+        forKind kind: String,
+        summary: String?,
+        miniAppId: UUID? = nil,
+        componentId: String? = nil
+    ) -> Bool {
+        let target = miniAppId ?? activeMiniAppId
+        guard let mIdx = miniApps.firstIndex(where: { $0.id == target }) else { return false }
+        let m = miniApps[mIdx]
+        let cIdx: Int?
+        if let componentId {
+            // Explicit target wins — set the note on exactly this component.
+            cIdx = m.components.firstIndex(where: { $0.id == componentId })
+        } else if let matching = m.components.firstIndex(where: { $0.kindString == kind }) {
+            // No id: first component of the kind. Never the active/view
+            // component — a write must not depend on what's on screen.
+            cIdx = matching
+        } else {
+            cIdx = nil
+        }
+        guard let cIdx else { return false }
+        let trimmed = summary?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let next = (trimmed?.isEmpty == false) ? trimmed : nil
+        guard miniApps[mIdx].components[cIdx].summary != next else { return false }
+        miniApps[mIdx].components[cIdx].summary = next
+        persist()
+        return true
+    }
+
+    // MARK: - Canvas mutators
+    //
+    // Every tool handler registered via `AppTools.registerMiniAppTools` closes
+    // over a fixed `miniAppId` at session-construction time and threads it
+    // through these mutators, so concurrent streams in different miniApps
+    // never race on `activeMiniAppId`. Callers that genuinely want "the
+    // currently visible miniApp" (e.g. UI affordances on the canvas) omit
+    // `miniAppId:` and fall back to `activeMiniAppId` via the helper below.
+    //
+    // Tracker mutators route through `mutate(_, kind: "tracker", _)`; the
+    // store finds the first tracker component in the MiniApp (preferring the
+    // active one if it's a tracker). Calendar mutators do the same with
+    // `kind: "calendar"`. This keeps tools that operate on "the tracker" /
+    // "the calendar" working symmetrically regardless of which component
+    // the user is currently viewing.
+
+    public func reset(miniAppId: UUID? = nil) {
+        mutate(miniAppId, kind: nil) { canvas in
+            if case .empty = canvas { return false }
+            canvas = .empty
+            return true
+        }
+    }
+
+    public func setTracker(
+        title: String,
+        fields: [FieldDef],
+        miniAppId: UUID? = nil,
+        componentId: String? = nil
+    ) {
+        let body: (inout CanvasApp) -> Bool = { canvas in
+            canvas = .tracker(TrackerData(title: title, fields: fields))
+            return true
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, body)
+        } else {
+            mutate(miniAppId, kind: "tracker", body)
+        }
+    }
+
+    /// Append a new item with a freshly-generated `id`. Returns the new id so
+    /// the tool-call echo can surface it back to the agent (the agent then
+    /// refers to the item by id on subsequent calls, which is stable across
+    /// filter / reorder / hide-show shuffles in a way that array indices are
+    /// not).
+    @discardableResult
+    public func addItem(
+        _ values: [String: String],
+        miniAppId: UUID? = nil,
+        componentId: String? = nil,
+        actor: ItemEventActor = .user
+    ) -> UUID? {
+        let item = TrackerItem(id: UUID(), values: values)
+        let compId = componentId ?? trackerComponentId(miniAppId: miniAppId)
+        var added: UUID?
+        let body: (inout CanvasApp) -> Bool = { canvas in
+            guard case .tracker(var t) = canvas else { return false }
+            t.items.append(item)
+            canvas = .tracker(t)
+            added = item.id
+            return true
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, body)
+        } else {
+            mutate(miniAppId, kind: "tracker", body)
+        }
+        if added != nil, let compId {
+            emitItemEvent(miniAppId: miniAppId, componentId: compId, kind: .added, actor: actor,
+                          itemId: item.id)
+        }
+        return added
+    }
+
+    @discardableResult
+    public func removeItem(
+        id: UUID,
+        miniAppId: UUID? = nil,
+        componentId: String? = nil,
+        actor: ItemEventActor = .user
+    ) -> Bool {
+        // When a specific componentId is supplied, scope both the mutate
+        // and the cascade to it; otherwise fall back to kind-preference.
+        let resolvedCompId: String? = componentId ?? trackerComponentId(miniAppId: miniAppId)
+        var ok = false
+        let body: (inout CanvasApp) -> Bool = { canvas in
+            guard case .tracker(var t) = canvas,
+                  let idx = t.items.firstIndex(where: { $0.id == id }) else { return false }
+            t.items.remove(at: idx)
+            canvas = .tracker(t)
+            ok = true
+            return true
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, body)
+        } else {
+            mutate(miniAppId, kind: "tracker", body)
+        }
+        // Drop any inbound refs to the removed item from every
+        // link-bearing component in this MiniApp, so calendar / checklist
+        // pills don't dangle.
+        if ok, let compId = resolvedCompId {
+            cascadeRemoveRefs(
+                toComponentId: compId,
+                itemId: id,
+                miniAppId: miniAppId
+            )
+            emitItemEvent(miniAppId: miniAppId, componentId: compId, kind: .removed, actor: actor,
+                          itemId: id)
+        }
+        return ok
+    }
+
+    public func removeItem(at index: Int, miniAppId: UUID? = nil, actor: ItemEventActor = .user) {
+        let trackerComponentId = trackerComponentId(miniAppId: miniAppId)
+        var removedItem: TrackerItem?
+        mutate(miniAppId, kind: "tracker") { canvas in
+            guard case .tracker(var t) = canvas, t.items.indices.contains(index) else { return false }
+            removedItem = t.items[index]
+            t.items.remove(at: index)
+            canvas = .tracker(t)
+            return true
+        }
+        if let removedItem, let compId = trackerComponentId {
+            cascadeRemoveRefs(
+                toComponentId: compId,
+                itemId: removedItem.id,
+                miniAppId: miniAppId
+            )
+            emitItemEvent(miniAppId: miniAppId, componentId: compId, kind: .removed, actor: actor,
+                          itemId: removedItem.id)
+        }
+    }
+
+    @discardableResult
+    public func patchItem(
+        id: UUID,
+        with patch: [String: String],
+        miniAppId: UUID? = nil,
+        componentId: String? = nil,
+        actor: ItemEventActor = .user
+    ) -> Bool {
+        let resolvedCompId = componentId ?? trackerComponentId(miniAppId: miniAppId)
+        var ok = false
+        // Captured inside the choke-point for the canvas-event stream: every
+        // `.select` field this patch actually changed, with its before/after
+        // value. Deliberately NOT scoped to `t.columnField` — the kanban
+        // group-by is view state, and an automation must fire on the field it
+        // watches whichever way the board happens to be grouped.
+        var moves: [(field: String, from: String?, to: String?)] = []
+        var itemTitle = ""
+        var itemValues: [String: String] = [:]
+        let body: (inout CanvasApp) -> Bool = { canvas in
+            guard case .tracker(var t) = canvas,
+                  let idx = t.items.firstIndex(where: { $0.id == id }) else { return false }
+            let selectFields = Set(t.fields.filter { $0.type == .select }.map(\.name))
+            let before = t.items[idx].values
+            for (k, v) in patch { t.items[idx].values[k] = v }
+            let after = t.items[idx].values
+            moves = patch.keys
+                .filter { selectFields.contains($0) && before[$0] != after[$0] }
+                .sorted()   // deterministic emission order for a multi-field patch
+                .map { (field: $0, from: before[$0], to: after[$0]) }
+            itemTitle = t.items[idx].displayName
+            itemValues = after
+            canvas = .tracker(t)
+            ok = true
+            return true
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, body)
+        } else {
+            mutate(miniAppId, kind: "tracker", body)
+        }
+        if ok, let compId = resolvedCompId {
+            emitItemEvent(miniAppId: miniAppId, componentId: compId, kind: .patched, actor: actor,
+                          itemId: id)
+            emitCanvasMoves(actor: actor, miniAppId: miniAppId, componentId: compId, itemId: id,
+                            itemTitle: itemTitle, values: itemValues, moves: moves)
+        }
+        return ok
+    }
+
+    /// Emit one `item.moved` canvas event per `.select` field a *user* edit
+    /// changed — inline in a card, in the edit sheet, or by dragging a kanban
+    /// lane; all three land here. Self-mutation guard: agent/reaction moves
+    /// (`actor == .agent`) never emit, so a reaction can't re-trigger its rule.
+    private func emitCanvasMoves(
+        actor: ItemEventActor,
+        miniAppId: UUID?,
+        componentId: String,
+        itemId: UUID,
+        itemTitle: String,
+        values: [String: String],
+        moves: [(field: String, from: String?, to: String?)]
+    ) {
+        guard case .user = actor, let emit = onCanvasEvent else { return }
+        for move in moves {
+            emit(CanvasEvent(
+                type: .itemMoved,
+                miniAppId: miniAppId ?? activeMiniAppId,
+                componentId: componentId,
+                itemId: itemId,
+                itemTitle: itemTitle,
+                values: values,
+                field: move.field,
+                fromColumn: move.from,
+                toColumn: move.to
+            ))
+        }
+    }
+
+    public func patchItem(at index: Int, with patch: [String: String], miniAppId: UUID? = nil, actor: ItemEventActor = .user) {
+        let compId = trackerComponentId(miniAppId: miniAppId)
+        var prior: TrackerItem?
+        mutate(miniAppId, kind: "tracker") { canvas in
+            guard case .tracker(var t) = canvas, t.items.indices.contains(index) else { return false }
+            prior = t.items[index]
+            for (k, v) in patch { t.items[index].values[k] = v }
+            canvas = .tracker(t)
+            return true
+        }
+        if let compId {
+            emitItemEvent(miniAppId: miniAppId, componentId: compId, kind: .patched, actor: actor,
+                          itemId: prior?.id)
+        }
+    }
+
+    /// Replace a tracker item's `linkedItems` wholesale. Used by the
+    /// tracker-row link sheet on save; the agent uses the generic
+    /// `linkItem` / `unlinkItem` tools (or `patchTrackerItems` if a
+    /// `linkedItems` field is added there later) instead.
+    @discardableResult
+    public func setTrackerItemLinkedItems(
+        id: UUID,
+        refs: [ComponentItemRef],
+        miniAppId: UUID? = nil,
+        componentId: String? = nil
+    ) -> Bool {
+        var ok = false
+        let body: (inout CanvasApp) -> Bool = { canvas in
+            guard case .tracker(var t) = canvas,
+                  let idx = t.items.firstIndex(where: { $0.id == id }) else { return false }
+            let original = t.items[idx].linkedItems
+            t.items[idx].linkedItems = refs
+            t.items[idx].deduplicateLinkedItems()
+            guard t.items[idx].linkedItems != original else { return false }
+            canvas = .tracker(t)
+            ok = true
+            return true
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, body)
+        } else {
+            mutate(miniAppId, kind: "tracker", body)
+        }
+        return ok
+    }
+
+    public func setFilter(field: String, value: String, miniAppId: UUID? = nil, componentId: String? = nil) {
+        mutate(miniAppId, kind: "tracker", componentId: componentId) { canvas in
+            guard case .tracker(var t) = canvas else { return false }
+            if value.isEmpty { t.filter.removeValue(forKey: field) } else { t.filter[field] = value }
+            canvas = .tracker(t)
+            return true
+        }
+    }
+
+    @discardableResult
+    public func addFieldOption(fieldName: String, option: String, miniAppId: UUID? = nil, componentId: String? = nil) -> Bool {
+        var ok = false
+        mutate(miniAppId, kind: "tracker", componentId: componentId) { canvas in
+            guard case .tracker(var t) = canvas,
+                  let idx = t.fields.firstIndex(where: { $0.name == fieldName }),
+                  t.fields[idx].type == .select else { return false }
+            var opts = t.fields[idx].options ?? []
+            if !opts.contains(option) { opts.append(option) }
+            t.fields[idx].options = opts
+            canvas = .tracker(t)
+            ok = true
+            return true
+        }
+        return ok
+    }
+
+    @discardableResult
+    public func removeFieldOption(fieldName: String, option: String, miniAppId: UUID? = nil, componentId: String? = nil) -> Bool {
+        var ok = false
+        mutate(miniAppId, kind: "tracker", componentId: componentId) { canvas in
+            guard case .tracker(var t) = canvas,
+                  let idx = t.fields.firstIndex(where: { $0.name == fieldName }),
+                  let opts = t.fields[idx].options else { return false }
+            t.fields[idx].options = opts.filter { $0 != option }
+            canvas = .tracker(t)
+            ok = true
+            return true
+        }
+        return ok
+    }
+
+    // MARK: - Field-schema mutators
+    //
+    // These never touch `items` (or only re-key item entries on rename).
+    // `addField` / `reorderFields` / `setFieldHidden` leave item data
+    // entirely untouched — items are sparse dicts that tolerate any field
+    // list. `renameField` is the one mutator that walks items, atomically
+    // moving values[from] → values[to] so no item data is orphaned.
+
+    /// Field-schema mutation failed because of one of these reasons. Tools
+    /// surface this back to the agent in the echo so it can correct its call.
+    public enum FieldMutationError: String, Error, Sendable {
+        case notTracker
+        case duplicateName
+        case unknownField
+        case unknownDestination
+        case invalidOrder
+    }
+
+    @discardableResult
+    public func addField(_ field: FieldDef, miniAppId: UUID? = nil, componentId: String? = nil) -> FieldMutationError? {
+        var err: FieldMutationError?
+        mutate(miniAppId, kind: "tracker", componentId: componentId) { canvas in
+            guard case .tracker(var t) = canvas else { err = .notTracker; return false }
+            guard !t.fields.contains(where: { $0.name == field.name }) else {
+                err = .duplicateName
+                return false
+            }
+            t.fields.append(field)
+            canvas = .tracker(t)
+            return true
+        }
+        return err
+    }
+
+    /// Result of a rename. `migratedItems` is the number of items whose value
+    /// dict actually contained the old key (and was therefore re-keyed); the
+    /// other items survive untouched because their dicts had no entry for the
+    /// renamed field. `remappedFilter` / `remappedColumnField` say whether the
+    /// rename cascaded into `TrackerData.filter` or `columnField`.
+    public struct FieldRenameResult: Sendable {
+        public var migratedItems: Int
+        public var remappedFilter: Bool
+        public var remappedColumnField: Bool
+    }
+
+    /// Atomically rename a field. Updates `FieldDef.name`, re-keys every
+    /// item's value dict (`values[from]` → `values[to]`), remaps the matching
+    /// `filter` entry if any, and remaps `columnField` if it pointed at the
+    /// renamed field. Rejects if `to` already exists on another field, since
+    /// that would silently merge item values.
+    public func renameField(
+        from oldName: String,
+        to newName: String,
+        miniAppId: UUID? = nil,
+        componentId: String? = nil
+    ) -> Result<FieldRenameResult, FieldMutationError> {
+        var outcome: Result<FieldRenameResult, FieldMutationError> = .failure(.notTracker)
+        mutate(miniAppId, kind: "tracker", componentId: componentId) { canvas in
+            guard case .tracker(var t) = canvas else { outcome = .failure(.notTracker); return false }
+            guard let idx = t.fields.firstIndex(where: { $0.name == oldName }) else {
+                outcome = .failure(.unknownField)
+                return false
+            }
+            guard newName == oldName || !t.fields.contains(where: { $0.name == newName }) else {
+                outcome = .failure(.duplicateName)
+                return false
+            }
+            if newName == oldName {
+                outcome = .success(FieldRenameResult(
+                    migratedItems: 0,
+                    remappedFilter: false,
+                    remappedColumnField: false
+                ))
+                return false
+            }
+            t.fields[idx].name = newName
+            var migrated = 0
+            for i in t.items.indices {
+                if let value = t.items[i].values.removeValue(forKey: oldName) {
+                    t.items[i].values[newName] = value
+                    migrated += 1
+                }
+            }
+            var remappedFilter = false
+            if let filterValue = t.filter.removeValue(forKey: oldName) {
+                t.filter[newName] = filterValue
+                remappedFilter = true
+            }
+            var remappedColumnField = false
+            if t.columnField == oldName {
+                t.columnField = newName
+                remappedColumnField = true
+            }
+            canvas = .tracker(t)
+            outcome = .success(FieldRenameResult(
+                migratedItems: migrated,
+                remappedFilter: remappedFilter,
+                remappedColumnField: remappedColumnField
+            ))
+            return true
+        }
+        return outcome
+    }
+
+    /// Reorder `fields` so they appear in the order given. `order` must be a
+    /// permutation of the existing field names — any mismatch (length,
+    /// duplicate, unknown name) rejects without mutating. Items are not
+    /// touched.
+    @discardableResult
+    public func reorderFields(_ order: [String], miniAppId: UUID? = nil, componentId: String? = nil) -> FieldMutationError? {
+        var err: FieldMutationError?
+        mutate(miniAppId, kind: "tracker", componentId: componentId) { canvas in
+            guard case .tracker(var t) = canvas else { err = .notTracker; return false }
+            let existing = Set(t.fields.map(\.name))
+            guard order.count == t.fields.count,
+                  Set(order) == existing,
+                  order.count == existing.count else {
+                err = .invalidOrder
+                return false
+            }
+            let byName = Dictionary(uniqueKeysWithValues: t.fields.map { ($0.name, $0) })
+            t.fields = order.compactMap { byName[$0] }
+            canvas = .tracker(t)
+            return true
+        }
+        return err
+    }
+
+    /// Result of toggling field visibility. `droppedFilterValue` is the
+    /// previous filter value if the field had an active filter that was
+    /// cleared on hide (otherwise nil — a hidden filter would silently keep
+    /// hiding items from the visible view, which is confusing).
+    public struct FieldHideResult: Sendable {
+        public var hidden: Bool
+        public var droppedFilterValue: String?
+    }
+
+    @discardableResult
+    public func setFieldHidden(
+        name: String,
+        hidden: Bool,
+        miniAppId: UUID? = nil,
+        componentId: String? = nil
+    ) -> Result<FieldHideResult, FieldMutationError> {
+        var outcome: Result<FieldHideResult, FieldMutationError> = .failure(.notTracker)
+        mutate(miniAppId, kind: "tracker", componentId: componentId) { canvas in
+            guard case .tracker(var t) = canvas else { outcome = .failure(.notTracker); return false }
+            guard let idx = t.fields.firstIndex(where: { $0.name == name }) else {
+                outcome = .failure(.unknownField)
+                return false
+            }
+            let currentlyHidden = t.fields[idx].hidden ?? false
+            if currentlyHidden == hidden {
+                outcome = .success(FieldHideResult(hidden: hidden, droppedFilterValue: nil))
+                return false
+            }
+            t.fields[idx].hidden = hidden ? true : nil
+            var droppedFilter: String?
+            if hidden, let value = t.filter.removeValue(forKey: name) {
+                droppedFilter = value
+            }
+            canvas = .tracker(t)
+            outcome = .success(FieldHideResult(hidden: hidden, droppedFilterValue: droppedFilter))
+            return true
+        }
+        return outcome
+    }
+
+    /// Switch the active tracker between grid and kanban rendering. Same
+    /// `TrackerData` underneath — only `viewMode` (and `columnField` when
+    /// entering kanban) changes. Returns the resolved `(mode, columnField)`
+    /// so the tool-call echo can show the agent what was actually applied.
+    ///
+    /// Behaviour:
+    /// - Non-tracker canvas → no-op, returns `nil`.
+    /// - `.kanban`: if `columnField` is explicitly passed and refers to a
+    ///   select field, use it; otherwise keep the existing `columnField` when
+    ///   still valid; otherwise auto-pick the first select field with at
+    ///   least one option. `columnField` may resolve to `nil` if no select
+    ///   field exists — the kanban view then renders an empty-state hint.
+    /// - `.grid`: just flips the mode, leaving `columnField` intact so a
+    ///   later toggle restores the user's column choice.
+    @discardableResult
+    public func setTrackerViewMode(
+        _ mode: TrackerViewMode,
+        columnField: String? = nil,
+        miniAppId: UUID? = nil,
+        componentId: String? = nil
+    ) -> (mode: TrackerViewMode, columnField: String?)? {
+        var result: (TrackerViewMode, String?)?
+        mutate(miniAppId, kind: "tracker", componentId: componentId) { canvas in
+            guard case .tracker(var t) = canvas else { return false }
+            let originalMode = t.viewMode
+            let originalColumn = t.columnField
+            let resolved: String?
+            switch mode {
+            case .kanban:
+                if let requested = columnField,
+                   t.fields.contains(where: {
+                       $0.name == requested && $0.type == .select && !($0.hidden ?? false)
+                   }) {
+                    resolved = requested
+                } else if let existing = t.columnField,
+                          t.fields.contains(where: {
+                              $0.name == existing && $0.type == .select && !($0.hidden ?? false)
+                          }) {
+                    resolved = existing
+                } else {
+                    resolved = t.fields.first(where: {
+                        $0.type == .select && !($0.options ?? []).isEmpty && !($0.hidden ?? false)
+                    })?.name
+                }
+            case .grid:
+                resolved = t.columnField
+            }
+            t.viewMode = mode
+            t.columnField = resolved
+            result = (mode, resolved)
+            let changed = (originalMode != mode) || (originalColumn != resolved)
+            canvas = .tracker(t)
+            return changed
+        }
+        return result
+    }
+
+    /// Toggle the tracker's one-line card rendering. View-only preference —
+    /// no `ItemEvent`, no frontend tool, same treatment as `setTrackerViewMode`.
+    /// Returns `true` when the flag actually changed.
+    @discardableResult
+    public func setTrackerCardsShrunk(
+        _ shrunk: Bool,
+        miniAppId: UUID? = nil,
+        componentId: String? = nil
+    ) -> Bool {
+        var changed = false
+        mutate(miniAppId, kind: "tracker", componentId: componentId) { canvas in
+            guard case .tracker(var t) = canvas, t.shrinkCards != shrunk else { return false }
+            t.shrinkCards = shrunk
+            canvas = .tracker(t)
+            changed = true
+            return true
+        }
+        return changed
+    }
+
+    // MARK: - Calendar mutators
+
+    /// Replace the calendar body of the first calendar component in
+    /// `miniAppId` (preferring the active component when it's a calendar).
+    /// Destructive — wipes any existing events.
+    public func setCalendar(title: String, events: [CalendarEvent] = [], miniAppId: UUID? = nil, componentId: String? = nil) {
+        let body: (inout CanvasApp) -> Bool = { canvas in
+            canvas = .calendar(CalendarData(title: title, events: events))
+            return true
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, body)
+        } else {
+            mutate(miniAppId, kind: "calendar", body)
+        }
+    }
+
+    @discardableResult
+    public func addCalendarEvent(_ event: CalendarEvent, miniAppId: UUID? = nil, componentId: String? = nil, actor: ItemEventActor = .user) -> UUID? {
+        let compId = componentId ?? calendarComponentId(miniAppId: miniAppId)
+        var added: UUID?
+        let body: (inout CanvasApp) -> Bool = { canvas in
+            guard case .calendar(var c) = canvas else { return false }
+            c.events.append(event)
+            canvas = .calendar(c)
+            added = event.id
+            return true
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, body)
+        } else {
+            mutate(miniAppId, kind: "calendar", body)
+        }
+        if added != nil, let compId {
+            emitItemEvent(miniAppId: miniAppId, componentId: compId, kind: .added, actor: actor,
+                          itemId: event.id)
+        }
+        return added
+    }
+
+    @discardableResult
+    public func removeCalendarEvent(
+        id: UUID,
+        miniAppId: UUID? = nil,
+        componentId: String? = nil,
+        actor: ItemEventActor = .user
+    ) -> CalendarEvent? {
+        let resolvedCompId: String? = componentId ?? calendarComponentId(miniAppId: miniAppId)
+        var removed: CalendarEvent?
+        let body: (inout CanvasApp) -> Bool = { canvas in
+            guard case .calendar(var c) = canvas,
+                  let idx = c.events.firstIndex(where: { $0.id == id }) else { return false }
+            removed = c.events.remove(at: idx)
+            canvas = .calendar(c)
+            return true
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, body)
+        } else {
+            mutate(miniAppId, kind: "calendar", body)
+        }
+        if removed != nil, let compId = resolvedCompId {
+            cascadeRemoveRefs(
+                toComponentId: compId,
+                itemId: id,
+                miniAppId: miniAppId
+            )
+            emitItemEvent(miniAppId: miniAppId, componentId: compId, kind: .removed, actor: actor,
+                          itemId: id)
+        }
+        return removed
+    }
+
+    /// Switch the active calendar between list and month rendering.
+    /// Returns the resolved mode so the tool-call echo can show what was
+    /// applied. Non-calendar canvas → no-op, returns `nil`.
+    @discardableResult
+    public func setCalendarViewMode(_ mode: CalendarViewMode, miniAppId: UUID? = nil, componentId: String? = nil) -> CalendarViewMode? {
+        var result: CalendarViewMode?
+        mutate(miniAppId, kind: "calendar", componentId: componentId) { canvas in
+            guard case .calendar(var c) = canvas else { return false }
+            let changed = c.viewMode != mode
+            c.viewMode = mode
+            canvas = .calendar(c)
+            result = mode
+            return changed
+        }
+        return result
+    }
+
+    public struct CalendarEventPatch: Sendable {
+        public var title: String?
+        public var start: String?
+        public var end: String??     // double-optional: nil = unchanged, .some(nil) = clear
+        public var location: String??
+        public var notes: String??
+        public var linkedItems: [ComponentItemRef]?
+    }
+
+    @discardableResult
+    public func patchCalendarEvent(
+        id: UUID,
+        patch: CalendarEventPatch,
+        miniAppId: UUID? = nil,
+        componentId: String? = nil,
+        actor: ItemEventActor = .user
+    ) -> CalendarEvent? {
+        let resolvedCompId = componentId ?? calendarComponentId(miniAppId: miniAppId)
+        var after: CalendarEvent?
+        let body: (inout CanvasApp) -> Bool = { canvas in
+            guard case .calendar(var c) = canvas,
+                  let idx = c.events.firstIndex(where: { $0.id == id }) else { return false }
+            if let v = patch.title { c.events[idx].title = v }
+            if let v = patch.start { c.events[idx].start = v }
+            if let v = patch.end { c.events[idx].end = v }
+            if let v = patch.location { c.events[idx].location = v }
+            if let v = patch.notes { c.events[idx].notes = v }
+            if let v = patch.linkedItems {
+                c.events[idx].linkedItems = v
+                c.events[idx].deduplicateLinkedItems()
+            }
+            after = c.events[idx]
+            canvas = .calendar(c)
+            return true
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, body)
+        } else {
+            mutate(miniAppId, kind: "calendar", body)
+        }
+        if after != nil, let compId = resolvedCompId {
+            emitItemEvent(miniAppId: miniAppId, componentId: compId, kind: .patched, actor: actor,
+                          itemId: id)
+        }
+        return after
+    }
+
+    // MARK: - Calendar ⇄ tracker linking
+
+    /// Display name for a tracker item, used by the calendar's linked-item
+    /// pills. Picks the first non-empty value from `displayField` (if the
+    /// caller hinted one), else the first visible text field, else falls
+    /// back to a short id stub. Trailing whitespace stripped.
+    public func displayNameForTrackerItem(
+        componentId: String,
+        itemId: UUID,
+        miniAppId: UUID? = nil
+    ) -> String? {
+        let target = miniAppId ?? activeMiniAppId
+        guard let miniApp = miniApps.first(where: { $0.id == target }),
+              let comp = miniApp.components.first(where: { $0.id == componentId }),
+              case .tracker(let t) = comp.body,
+              let item = t.items.first(where: { $0.id == itemId }) else { return nil }
+        // First visible text field with a non-empty value.
+        for field in t.visibleFields where field.type == .text {
+            if let v = item.values[field.name]?.nonEmpty { return v }
+        }
+        // Anything visible with a value, as a fallback.
+        for field in t.visibleFields {
+            if let v = item.values[field.name]?.nonEmpty { return v }
+        }
+        return nil
+    }
+
+    /// Tracker component's sidebar-visible name (`comp.name`) for a given
+    /// ref. Used in linked-item pill tooltips / picker rows.
+    public func componentName(_ componentId: String, miniAppId: UUID? = nil) -> String? {
+        let target = miniAppId ?? activeMiniAppId
+        return miniApps.first(where: { $0.id == target })?
+            .components.first(where: { $0.id == componentId })?.name
+    }
+
+    /// Attach a tracker item to a calendar event. No-op if the ref is
+    /// already in the event's `linkedItems`, the event doesn't exist, or
+    /// the calendar component is missing. Returns the updated link count
+    /// on success.
+    /// Replace a calendar event's `linkedItems` wholesale. Used by
+    /// `patchCalendarEvent` when the agent supplies a `linkedItems`
+    /// patch.
+    @discardableResult
+    public func setCalendarEventLinkedItems(
+        eventId: UUID,
+        refs: [ComponentItemRef],
+        miniAppId: UUID? = nil
+    ) -> Bool {
+        var ok = false
+        mutate(miniAppId, kind: "calendar") { canvas in
+            guard case .calendar(var cal) = canvas,
+                  let idx = cal.events.firstIndex(where: { $0.id == eventId }) else { return false }
+            // De-duplicate while preserving order so the agent can send
+            // a list with accidental repeats and still get a sane result.
+            var seen = Set<ComponentItemRef>()
+            let deduped = refs.filter { seen.insert($0).inserted }
+            guard cal.events[idx].linkedItems != deduped else { return false }
+            cal.events[idx].linkedItems = deduped
+            canvas = .calendar(cal)
+            ok = true
+            return true
+        }
+        return ok
+    }
+
+    /// Internal: id of the first tracker component in `miniAppId` (or
+    /// active component if it's a tracker). Used by the item-delete
+    /// sweep to figure out which `componentId` to scan calendar links
+    /// against.
+    private func trackerComponentId(miniAppId: UUID?) -> String? {
+        let target = miniAppId ?? activeMiniAppId
+        guard let miniApp = miniApps.first(where: { $0.id == target }) else { return nil }
+        if let activeId = miniApp.activeComponentId,
+           let comp = miniApp.components.first(where: { $0.id == activeId }),
+           case .tracker = comp.body { return comp.id }
+        return miniApp.components.first(where: {
+            if case .tracker = $0.body { return true }
+            return false
+        })?.id
+    }
+
+    // MARK: - Deterministic write-target resolution
+    //
+    // Component *writes* must not depend on which component the user
+    // happens to be viewing. The active component is a pure view concept;
+    // it is never consulted below. Callers either name a `componentId`
+    // explicitly (honoured exactly, or failed loudly) or omit it — in
+    // which case the target is only unambiguous when the MiniApp holds
+    // exactly one component of that kind. Ambiguity (several same-kind
+    // components, no id) is surfaced to the agent as an error rather than
+    // silently guessed. This is what stops two writes (e.g. columns and
+    // rows) from landing on different components. Applies to every kind
+    // (tracker / calendar / checklist / chart / slack), not just trackers.
+
+    /// Outcome of resolving a write target. `.failure` carries an
+    /// agent-facing message the tool layer echoes back verbatim.
+    public enum WriteTargetResolution {
+        case resolved(String)
+        case failure(String)
+    }
+
+    /// Retained name for tracker-era call sites and tests.
+    public typealias TrackerTargetResolution = WriteTargetResolution
+
+    private func components(ofKind kind: String, in m: MiniApp) -> [Component] {
+        m.components.filter { $0.kindString == kind }
+    }
+
+    /// Resolve the target for an *item / body* write (add / patch /
+    /// remove / replace) to a component of `kind`. The component must
+    /// already be that kind. Never consults the active/view component.
+    public func resolveWriteTarget(
+        kind: String,
+        componentId: String?,
+        miniAppId: UUID? = nil
+    ) -> WriteTargetResolution {
+        let target = miniAppId ?? activeMiniAppId
+        guard let m = miniApps.first(where: { $0.id == target }) else {
+            return .failure("no active miniApp to write to")
+        }
+        if let componentId {
+            guard let comp = m.components.first(where: { $0.id == componentId }) else {
+                return .failure("no component with id '\(componentId)' in this miniApp\(existingSuffix(kind: kind, in: m))")
+            }
+            guard comp.kindString == kind else {
+                return .failure("component '\(componentId)' is a \(comp.kindString), not a \(kind)")
+            }
+            return .resolved(componentId)
+        }
+        let cs = components(ofKind: kind, in: m)
+        switch cs.count {
+        case 0:
+            return .failure("this miniApp has no \(kind) yet — create one with addComponent(kind: \"\(kind)\") first")
+        case 1:
+            return .resolved(cs[0].id)
+        default:
+            let ids = cs.map { "'\($0.id)' (\($0.name))" }.joined(separator: ", ")
+            return .failure("this miniApp has \(cs.count) \(kind) components: \(ids). Pass componentId to choose which one to write to.")
+        }
+    }
+
+    /// Resolve the target for a *render* (full body replace) to a
+    /// component of `kind`. Same rules as `resolveWriteTarget`, except a
+    /// lone empty seed component is an acceptable target too — rendering
+    /// converts it into `kind`, preserving the "just render on a fresh
+    /// app" bootstrap without hijacking an arbitrary empty component once
+    /// components of that kind already exist.
+    public func resolveRenderTarget(
+        kind: String,
+        componentId: String?,
+        miniAppId: UUID? = nil
+    ) -> WriteTargetResolution {
+        let target = miniAppId ?? activeMiniAppId
+        guard let m = miniApps.first(where: { $0.id == target }) else {
+            return .failure("no active miniApp to write to")
+        }
+        if let componentId {
+            guard let comp = m.components.first(where: { $0.id == componentId }) else {
+                return .failure("no component with id '\(componentId)' in this miniApp\(existingSuffix(kind: kind, in: m))")
+            }
+            guard comp.kindString == kind || comp.kindString == "empty" else {
+                return .failure("component '\(componentId)' is a \(comp.kindString); a \(kind) render only targets a \(kind) or an empty component")
+            }
+            return .resolved(componentId)
+        }
+        let cs = components(ofKind: kind, in: m)
+        if cs.count == 1 { return .resolved(cs[0].id) }
+        if cs.isEmpty {
+            let empties = components(ofKind: "empty", in: m)
+            if empties.count == 1 { return .resolved(empties[0].id) }
+            if empties.isEmpty {
+                return .failure("this miniApp has no \(kind) or empty component to render into — add one with addComponent(kind: \"\(kind)\") first")
+            }
+            let ids = empties.map { "'\($0.id)'" }.joined(separator: ", ")
+            return .failure("this miniApp has \(empties.count) empty components: \(ids). Pass componentId to choose which one to render into.")
+        }
+        let ids = cs.map { "'\($0.id)' (\($0.name))" }.joined(separator: ", ")
+        return .failure("this miniApp has \(cs.count) \(kind) components: \(ids). Pass componentId to choose which one to render.")
+    }
+
+    private func existingSuffix(kind: String, in m: MiniApp) -> String {
+        let cs = components(ofKind: kind, in: m)
+        guard !cs.isEmpty else { return "" }
+        let ids = cs.map { "'\($0.id)'" }.joined(separator: ", ")
+        return ". Existing \(kind) components: \(ids)"
+    }
+
+    /// Tracker-specific wrappers preserved for existing call sites/tests.
+    public func resolveTrackerWriteTarget(
+        componentId: String?,
+        miniAppId: UUID? = nil
+    ) -> WriteTargetResolution {
+        resolveWriteTarget(kind: "tracker", componentId: componentId, miniAppId: miniAppId)
+    }
+
+    public func resolveTrackerRenderTarget(
+        componentId: String?,
+        miniAppId: UUID? = nil
+    ) -> WriteTargetResolution {
+        resolveRenderTarget(kind: "tracker", componentId: componentId, miniAppId: miniAppId)
+    }
+
+    /// Internal: id of the first calendar component in `miniAppId` (or
+    /// active component if it's a calendar). Used by the event-delete
+    /// sweep to figure out which `componentId` to scan inbound refs
+    /// against.
+    private func calendarComponentId(miniAppId: UUID?) -> String? {
+        let target = miniAppId ?? activeMiniAppId
+        guard let miniApp = miniApps.first(where: { $0.id == target }) else { return nil }
+        if let activeId = miniApp.activeComponentId,
+           let comp = miniApp.components.first(where: { $0.id == activeId }),
+           case .calendar = comp.body { return comp.id }
+        return miniApp.components.first(where: {
+            if case .calendar = $0.body { return true }
+            return false
+        })?.id
+    }
+
+    /// Walk every link-bearing component in `miniAppId` and drop refs
+    /// pointing at `(componentId, itemId)`. Called after a tracker item,
+    /// calendar event, or checklist item is removed so the inline pills
+    /// rendered by other components don't dangle. Source items keep their
+    /// own title / text / start / notes — only the matching pill
+    /// disappears. As of project `0.0.41`, every kind that can hold
+    /// `linkedItems` (tracker rows + calendar events + checklist rows)
+    /// is swept here, so a removed item drops both inbound refs from
+    /// other components AND inbound refs from rows in the same kind
+    /// (e.g. tracker row → tracker row in the same tracker).
+    private func cascadeRemoveRefs(
+        toComponentId componentId: String,
+        itemId: UUID,
+        miniAppId: UUID?
+    ) {
+        let target = miniAppId ?? activeMiniAppId
+        guard let mIdx = miniApps.firstIndex(where: { $0.id == target }) else { return }
+        var dirty = false
+        for cIdx in miniApps[mIdx].components.indices {
+            let before = miniApps[mIdx].components[cIdx].body
+            // Sweep every ref kind (linkedItems graph + calculator spec refs)
+            // through the unified ref model: keep all components, drop only the
+            // deleted item. Single source of truth shared with the exporter.
+            miniApps[mIdx].components[cIdx].body.remapReferences(
+                keepComponent: { _ in true },
+                keepItem: { !($0.componentId == componentId && $0.itemId == itemId) }
+            )
+            if miniApps[mIdx].components[cIdx].body != before { dirty = true }
+        }
+        if dirty { persist() }
+    }
+
+    // MARK: - Checklist mutators
+
+    /// Replace the checklist body of the first checklist component in
+    /// `miniAppId` (preferring the active component when it's a checklist).
+    /// Destructive — wipes any existing items.
+    public func setChecklist(title: String, items: [ChecklistItem] = [], miniAppId: UUID? = nil, componentId: String? = nil) {
+        let body: (inout CanvasApp) -> Bool = { canvas in
+            canvas = .checklist(ChecklistData(title: title, items: items))
+            return true
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, body)
+        } else {
+            mutate(miniAppId, kind: "checklist", body)
+        }
+    }
+
+    /// Append a new checklist item. Returns its stable id so the tool
+    /// echo can hand it back to the agent.
+    @discardableResult
+    public func addChecklistItem(
+        text: String,
+        done: Bool = false,
+        miniAppId: UUID? = nil,
+        componentId: String? = nil,
+        actor: ItemEventActor = .user
+    ) -> UUID? {
+        let compId = componentId ?? checklistComponentId(miniAppId: miniAppId)
+        let item = ChecklistItem(text: text, done: done)
+        var added: UUID?
+        let body: (inout CanvasApp) -> Bool = { canvas in
+            guard case .checklist(var cl) = canvas else { return false }
+            cl.items.append(item)
+            canvas = .checklist(cl)
+            added = item.id
+            return true
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, body)
+        } else {
+            mutate(miniAppId, kind: "checklist", body)
+        }
+        if added != nil, let compId {
+            emitItemEvent(miniAppId: miniAppId, componentId: compId, kind: .added, actor: actor,
+                          itemId: item.id)
+        }
+        return added
+    }
+
+    /// Flip the `done` flag of a checklist item. Returns the new value,
+    /// or nil if the item isn't found.
+    @discardableResult
+    public func toggleChecklistItem(id: UUID, miniAppId: UUID? = nil, componentId: String? = nil, actor: ItemEventActor = .user) -> Bool? {
+        let compId = componentId ?? checklistComponentId(miniAppId: miniAppId)
+        var newValue: Bool?
+        let body: (inout CanvasApp) -> Bool = { canvas in
+            guard case .checklist(var cl) = canvas,
+                  let idx = cl.items.firstIndex(where: { $0.id == id }) else { return false }
+            cl.items[idx].done.toggle()
+            newValue = cl.items[idx].done
+            canvas = .checklist(cl)
+            return true
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, body)
+        } else {
+            mutate(miniAppId, kind: "checklist", body)
+        }
+        if newValue != nil, let compId {
+            emitItemEvent(miniAppId: miniAppId, componentId: compId, kind: .patched, actor: actor,
+                          itemId: id)
+        }
+        return newValue
+    }
+
+    /// Set the `done` flag explicitly. Used by the SwiftUI checkbox
+    /// binding so a tap idempotently sets the target state rather than
+    /// toggling (avoids races between the binding read and the write).
+    @discardableResult
+    public func setChecklistItemDone(id: UUID, done: Bool, miniAppId: UUID? = nil, componentId: String? = nil) -> Bool {
+        var ok = false
+        mutate(miniAppId, kind: "checklist", componentId: componentId) { canvas in
+            guard case .checklist(var cl) = canvas,
+                  let idx = cl.items.firstIndex(where: { $0.id == id }),
+                  cl.items[idx].done != done else { return false }
+            cl.items[idx].done = done
+            canvas = .checklist(cl)
+            ok = true
+            return true
+        }
+        return ok
+    }
+
+    public struct ChecklistItemPatch: Sendable {
+        public var text: String?
+        public var done: Bool?
+        public var linkedItems: [ComponentItemRef]?
+
+        public init(
+            text: String? = nil,
+            done: Bool? = nil,
+            linkedItems: [ComponentItemRef]? = nil
+        ) {
+            self.text = text
+            self.done = done
+            self.linkedItems = linkedItems
+        }
+    }
+
+    @discardableResult
+    public func patchChecklistItem(
+        id: UUID,
+        patch: ChecklistItemPatch,
+        miniAppId: UUID? = nil,
+        componentId: String? = nil,
+        actor: ItemEventActor = .user
+    ) -> ChecklistItem? {
+        let resolvedCompId = componentId ?? checklistComponentId(miniAppId: miniAppId)
+        var after: ChecklistItem?
+        let body: (inout CanvasApp) -> Bool = { canvas in
+            guard case .checklist(var cl) = canvas,
+                  let idx = cl.items.firstIndex(where: { $0.id == id }) else { return false }
+            if let v = patch.text { cl.items[idx].text = v }
+            if let v = patch.done { cl.items[idx].done = v }
+            if let v = patch.linkedItems {
+                cl.items[idx].linkedItems = v
+                cl.items[idx].deduplicateLinkedItems()
+            }
+            after = cl.items[idx]
+            canvas = .checklist(cl)
+            return true
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, body)
+        } else {
+            mutate(miniAppId, kind: "checklist", body)
+        }
+        if after != nil, let compId = resolvedCompId {
+            emitItemEvent(miniAppId: miniAppId, componentId: compId, kind: .patched, actor: actor,
+                          itemId: id)
+        }
+        return after
+    }
+
+    @discardableResult
+    public func removeChecklistItem(
+        id: UUID,
+        miniAppId: UUID? = nil,
+        componentId: String? = nil,
+        actor: ItemEventActor = .user
+    ) -> ChecklistItem? {
+        let resolvedCompId: String? = componentId ?? checklistComponentId(miniAppId: miniAppId)
+        var removed: ChecklistItem?
+        let body: (inout CanvasApp) -> Bool = { canvas in
+            guard case .checklist(var cl) = canvas,
+                  let idx = cl.items.firstIndex(where: { $0.id == id }) else { return false }
+            removed = cl.items.remove(at: idx)
+            canvas = .checklist(cl)
+            return true
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, body)
+        } else {
+            mutate(miniAppId, kind: "checklist", body)
+        }
+        if removed != nil, let compId = resolvedCompId {
+            cascadeRemoveRefs(toComponentId: compId, itemId: id, miniAppId: miniAppId)
+            emitItemEvent(miniAppId: miniAppId, componentId: compId, kind: .removed, actor: actor,
+                          itemId: id)
+        }
+        return removed
+    }
+
+    /// Internal: id of the first checklist component in `miniAppId` (or
+    /// active component if it's a checklist). Mirrors the calendar /
+    /// tracker helpers.
+    private func checklistComponentId(miniAppId: UUID?) -> String? {
+        let target = miniAppId ?? activeMiniAppId
+        guard let miniApp = miniApps.first(where: { $0.id == target }) else { return nil }
+        if let activeId = miniApp.activeComponentId,
+           let comp = miniApp.components.first(where: { $0.id == activeId }),
+           case .checklist = comp.body { return comp.id }
+        return miniApp.components.first(where: {
+            if case .checklist = $0.body { return true }
+            return false
+        })?.id
+    }
+
+    // MARK: - Calculator mutators
+    //
+    // Mirror the checklist mutators: kind-routed via `mutate(_:kind:"calculator")`
+    // (or `byComponentId` for a targeted call), `@discardableResult`, persist
+    // only on change. Calc-row edits emit an `ItemEvent` for the History
+    // sheet but carry no inverse — calculator rows aren't in the undo graph
+    // yet (Phase 1), so they show as non-reversible entries. The UI tuning
+    // path (`setCalculatorVariable`) deliberately emits NO event: a slider
+    // drag would otherwise flood the log, exactly as `setChecklistItemDone`
+    // stays silent next to `toggleChecklistItem`.
+
+    /// Replace the calculator body of the first calculator component in
+    /// `miniAppId` (preferring the active component when it's a calculator).
+    /// Destructive — wipes any existing rows.
+    public func setCalculator(title: String, rows: [CalcRow] = [], miniAppId: UUID? = nil, componentId: String? = nil) {
+        mutate(miniAppId, kind: "calculator", componentId: componentId) { canvas in
+            canvas = .calculator(CalculatorData(title: title, rows: rows))
+            return true
+        }
+    }
+
+    /// Patch payload for `patchCalcRow`. Double-optional `unit` / `format`
+    /// distinguish "unchanged" (nil) from "clear" (`.some(nil)`). `kind`
+    /// replaces the whole row kind (variable ⇄ aggregate ⇄ formula).
+    public struct CalcRowPatch: Sendable {
+        public var name: String?
+        public var unit: String??
+        public var format: String??
+        public var kind: CalcRowKind?
+
+        public init(
+            name: String? = nil,
+            unit: String?? = nil,
+            format: String?? = nil,
+            kind: CalcRowKind? = nil
+        ) {
+            self.name = name
+            self.unit = unit
+            self.format = format
+            self.kind = kind
+        }
+    }
+
+    /// Append a calc row. The stable `key` formulas reference is slugified
+    /// from `key` (or `name` when `key` is omitted) and de-duplicated
+    /// against existing keys (`spend`, `spend_2`, …) so it's always a unique
+    /// identifier. Returns the resolved key, or nil if there's no calculator
+    /// component in this MiniApp.
+    @discardableResult
+    public func addCalcRow(
+        key: String? = nil,
+        name: String,
+        unit: String? = nil,
+        format: String? = nil,
+        kind: CalcRowKind,
+        miniAppId: UUID? = nil,
+        componentId: String? = nil,
+        actor: ItemEventActor = .user
+    ) -> String? {
+        let compId = componentId ?? calculatorComponentId(miniAppId: miniAppId)
+        var resolvedKey: String?
+        var rowId: UUID?
+        mutate(miniAppId, kind: "calculator", componentId: componentId) { canvas in
+            guard case .calculator(var c) = canvas else { return false }
+            let base = Self.slugify(key?.nonEmpty ?? name)
+            let unique = Self.dedupeSlug(base, existing: Set(c.rows.map(\.key)))
+            let row = CalcRow(
+                key: unique,
+                name: name.nonEmpty ?? unique,
+                unit: unit,
+                format: format,
+                kind: kind
+            )
+            c.rows.append(row)
+            canvas = .calculator(c)
+            resolvedKey = unique
+            rowId = row.id
+            return true
+        }
+        if let resolvedKey, let compId, let rowId {
+            _ = resolvedKey
+            emitItemEvent(miniAppId: miniAppId, componentId: compId, kind: .added, actor: actor, itemId: rowId)
+        }
+        return resolvedKey
+    }
+
+    /// Remove a calc row by its stable `key`. Returns true if a row was
+    /// removed. Note: existing formulas that referenced the removed key
+    /// then resolve to `brokenRef` — handled live by `CalculatorResolver`,
+    /// not by rewriting other rows here.
+    @discardableResult
+    public func removeCalcRow(key: String, miniAppId: UUID? = nil, componentId: String? = nil, actor: ItemEventActor = .user) -> Bool {
+        let compId = componentId ?? calculatorComponentId(miniAppId: miniAppId)
+        var removedId: UUID?
+        mutate(miniAppId, kind: "calculator", componentId: componentId) { canvas in
+            guard case .calculator(var c) = canvas,
+                  let idx = c.rows.firstIndex(where: { $0.key == key }) else { return false }
+            removedId = c.rows[idx].id
+            c.rows.remove(at: idx)
+            canvas = .calculator(c)
+            return true
+        }
+        if let removedId, let compId {
+            emitItemEvent(miniAppId: miniAppId, componentId: compId, kind: .removed, actor: actor, itemId: removedId)
+        }
+        return removedId != nil
+    }
+
+    /// Edit a calc row by `key`. Only fields present in `patch` change;
+    /// the `key` itself is immutable so formulas never break under a patch.
+    @discardableResult
+    public func patchCalcRow(
+        key: String,
+        patch: CalcRowPatch,
+        miniAppId: UUID? = nil,
+        componentId: String? = nil,
+        actor: ItemEventActor = .user
+    ) -> Bool {
+        let compId = componentId ?? calculatorComponentId(miniAppId: miniAppId)
+        var patchedId: UUID?
+        mutate(miniAppId, kind: "calculator", componentId: componentId) { canvas in
+            guard case .calculator(var c) = canvas,
+                  let idx = c.rows.firstIndex(where: { $0.key == key }) else { return false }
+            if let v = patch.name { c.rows[idx].name = v }
+            if let v = patch.unit { c.rows[idx].unit = v }
+            if let v = patch.format { c.rows[idx].format = v }
+            if let v = patch.kind { c.rows[idx].kind = v }
+            patchedId = c.rows[idx].id
+            canvas = .calculator(c)
+            return true
+        }
+        if let patchedId, let compId {
+            emitItemEvent(miniAppId: miniAppId, componentId: compId, kind: .patched, actor: actor, itemId: patchedId)
+        }
+        return patchedId != nil
+    }
+
+    /// Set a `variable` row's value from the UI tuning control (slider /
+    /// stepper / field). No-op (and no event) if the row isn't a variable
+    /// or the value is unchanged — keeps live slider drags off the History
+    /// log and out of `persist()` churn when nothing moved.
+    @discardableResult
+    public func setCalculatorVariable(
+        key: String,
+        value: Double,
+        miniAppId: UUID? = nil,
+        componentId: String? = nil
+    ) -> Bool {
+        var ok = false
+        let body: (inout CanvasApp) -> Bool = { canvas in
+            guard case .calculator(var c) = canvas,
+                  let idx = c.rows.firstIndex(where: { $0.key == key }),
+                  case .variable(let current, let control) = c.rows[idx].kind,
+                  current != value else { return false }
+            c.rows[idx].kind = .variable(value: value, control: control)
+            canvas = .calculator(c)
+            ok = true
+            return true
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, body)
+        } else {
+            mutate(miniAppId, kind: "calculator", body)
+        }
+        return ok
+    }
+
+    /// Set (or clear) the linked tracker item a `linkedField` row pulls from.
+    /// This is the "swap the house" mutator — backing both the row's link pill
+    /// and the `setCalcRowLink` tool. No-op (no event) if the row isn't a
+    /// `linkedField` or the ref is unchanged. `ref == nil` clears the link
+    /// (the row then resolves to `brokenRef`).
+    @discardableResult
+    public func setCalcRowLinkedRef(
+        key: String,
+        ref: ComponentItemRef?,
+        miniAppId: UUID? = nil,
+        componentId: String? = nil,
+        actor: ItemEventActor = .user
+    ) -> Bool {
+        let compId = componentId ?? calculatorComponentId(miniAppId: miniAppId)
+        var patchedId: UUID?
+        let body: (inout CanvasApp) -> Bool = { canvas in
+            guard case .calculator(var c) = canvas,
+                  let idx = c.rows.firstIndex(where: { $0.key == key }),
+                  case .linkedField(var spec) = c.rows[idx].kind,
+                  spec.ref != ref else { return false }
+            spec.ref = ref
+            c.rows[idx].kind = .linkedField(spec)
+            patchedId = c.rows[idx].id
+            canvas = .calculator(c)
+            return true
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, body)
+        } else {
+            mutate(miniAppId, kind: "calculator", body)
+        }
+        if let patchedId, let compId {
+            emitItemEvent(miniAppId: miniAppId, componentId: compId, kind: .patched, actor: actor, itemId: patchedId)
+        }
+        return patchedId != nil
+    }
+
+    /// Point EVERY `linkedField` row at one tracker item at once — the "pick
+    /// the source, the whole model follows" selector backing the calculator's
+    /// single-source dropdown. Only repoints rows that target the SAME tracker
+    /// as `ref` (matching `componentId`, or rows whose ref is currently nil),
+    /// so a calculator mixing two trackers stays coherent. Emits no item event
+    /// (like `setCalculatorVariable`) so flipping the dropdown doesn't flood
+    /// History. Returns the number of rows repointed.
+    @discardableResult
+    public func setAllCalcRowLinks(
+        to ref: ComponentItemRef,
+        miniAppId: UUID? = nil,
+        componentId: String? = nil
+    ) -> Int {
+        var count = 0
+        let body: (inout CanvasApp) -> Bool = { canvas in
+            guard case .calculator(var c) = canvas else { return false }
+            var changed = false
+            for idx in c.rows.indices {
+                guard case .linkedField(var spec) = c.rows[idx].kind else { continue }
+                // Leave rows bound to a different tracker untouched.
+                if let existing = spec.ref, existing.componentId != ref.componentId { continue }
+                if spec.ref == ref { continue }
+                spec.ref = ref
+                c.rows[idx].kind = .linkedField(spec)
+                changed = true
+                count += 1
+            }
+            guard changed else { return false }
+            canvas = .calculator(c)
+            return true
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, body)
+        } else {
+            mutate(miniAppId, kind: "calculator", body)
+        }
+        return count
+    }
+
+    /// Internal: id of the first calculator component in `miniAppId` (or the
+    /// active component if it's a calculator). Mirrors the tracker /
+    /// calendar / checklist helpers; used by the calculator tools when no
+    /// explicit `componentId` is passed.
+    public func calculatorComponentId(miniAppId: UUID? = nil) -> String? {
+        let target = miniAppId ?? activeMiniAppId
+        guard let miniApp = miniApps.first(where: { $0.id == target }) else { return nil }
+        if let activeId = miniApp.activeComponentId,
+           let comp = miniApp.components.first(where: { $0.id == activeId }),
+           case .calculator = comp.body { return comp.id }
+        return miniApp.components.first(where: {
+            if case .calculator = $0.body { return true }
+            return false
+        })?.id
+    }
+
+    // MARK: - Chart mutators
+    //
+    // Mirror the calculator mutators: kind-routed via `mutate(_:kind:"chart")`,
+    // `@discardableResult`, persist only on change. A chart is non-linkable
+    // and single-spec (title + kind + source), so there's no per-item event —
+    // a render / patch is a single component-level edit.
+
+    /// Patch payload for `patchChart`. Each field nil = unchanged. `series`
+    /// replaces the whole series list.
+    public struct ChartPatch: Sendable {
+        public var title: String?
+        public var kind: ChartKind?
+        public var series: [ChartSeriesSpec]?
+
+        public init(title: String? = nil, kind: ChartKind? = nil, series: [ChartSeriesSpec]? = nil) {
+            self.title = title
+            self.kind = kind
+            self.series = series
+        }
+    }
+
+    /// Replace the chart body of the first chart component in `miniAppId`
+    /// (preferring the active component when it's a chart). Destructive —
+    /// overwrites title / kind / series.
+    public func setChart(title: String, kind: ChartKind, series: [ChartSeriesSpec], miniAppId: UUID? = nil, componentId: String? = nil) {
+        let body: (inout CanvasApp) -> Bool = { canvas in
+            canvas = .chart(ChartData(title: title, kind: kind, series: series))
+            return true
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, body)
+        } else {
+            mutate(miniAppId, kind: "chart", body)
+        }
+    }
+
+    /// Patch a chart in place — only fields present in `patch` change.
+    /// Returns true if a chart component was found and edited.
+    @discardableResult
+    public func patchChart(patch: ChartPatch, miniAppId: UUID? = nil, componentId: String? = nil) -> Bool {
+        var ok = false
+        let body: (inout CanvasApp) -> Bool = { canvas in
+            guard case .chart(var c) = canvas else { return false }
+            if let v = patch.title { c.title = v }
+            if let v = patch.kind { c.kind = v }
+            if let v = patch.series { c.series = v }
+            canvas = .chart(c)
+            ok = true
+            return true
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, body)
+        } else {
+            mutate(miniAppId, kind: "chart", body)
+        }
+        return ok
+    }
+
+    /// Append series specs to the chart. Returns the new series count, or nil
+    /// if no chart component exists.
+    @discardableResult
+    public func addChartSeries(_ specs: [ChartSeriesSpec], miniAppId: UUID? = nil, componentId: String? = nil) -> Int? {
+        var count: Int?
+        let body: (inout CanvasApp) -> Bool = { canvas in
+            guard case .chart(var c) = canvas, !specs.isEmpty else { return false }
+            c.series.append(contentsOf: specs)
+            canvas = .chart(c)
+            count = c.series.count
+            return true
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, body)
+        } else {
+            mutate(miniAppId, kind: "chart", body)
+        }
+        return count
+    }
+
+    /// Remove the series at `index` (0-based). Returns true on removal.
+    @discardableResult
+    public func removeChartSeries(index: Int, miniAppId: UUID? = nil, componentId: String? = nil) -> Bool {
+        var ok = false
+        let body: (inout CanvasApp) -> Bool = { canvas in
+            guard case .chart(var c) = canvas, c.series.indices.contains(index) else { return false }
+            c.series.remove(at: index)
+            canvas = .chart(c)
+            ok = true
+            return true
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, body)
+        } else {
+            mutate(miniAppId, kind: "chart", body)
+        }
+        return ok
+    }
+
+    /// Set just a chart's `kind` (pie ⇄ bar ⇄ line). Returns true on change.
+    @discardableResult
+    public func setChartKind(_ kind: ChartKind, miniAppId: UUID? = nil, componentId: String? = nil) -> Bool {
+        var ok = false
+        let body: (inout CanvasApp) -> Bool = { canvas in
+            guard case .chart(var c) = canvas, c.kind != kind else { return false }
+            c.kind = kind
+            canvas = .chart(c)
+            ok = true
+            return true
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, body)
+        } else {
+            mutate(miniAppId, kind: "chart", body)
+        }
+        return ok
+    }
+
+    /// Id of the first chart component in `miniAppId` (or the active component
+    /// if it's a chart). Mirrors `calculatorComponentId`.
+    public func chartComponentId(miniAppId: UUID? = nil) -> String? {
+        let target = miniAppId ?? activeMiniAppId
+        guard let miniApp = miniApps.first(where: { $0.id == target }) else { return nil }
+        if let activeId = miniApp.activeComponentId,
+           let comp = miniApp.components.first(where: { $0.id == activeId }),
+           case .chart = comp.body { return comp.id }
+        return miniApp.components.first(where: {
+            if case .chart = $0.body { return true }
+            return false
+        })?.id
+    }
+
+    /// Set (or clear, with `nil`) the chart embedded inside the first
+    /// calculator component in `miniAppId`. Returns true on change — lets a
+    /// chart live inside a calculator without a separate chart component.
+    @discardableResult
+    public func setCalculatorInlineChart(_ chart: ChartData?, miniAppId: UUID? = nil) -> Bool {
+        var ok = false
+        mutate(miniAppId, kind: "calculator") { canvas in
+            guard case .calculator(var c) = canvas, c.inlineChart != chart else { return false }
+            c.inlineChart = chart
+            canvas = .calculator(c)
+            ok = true
+            return true
+        }
+        return ok
+    }
+
+    /// Slugify `s` into a valid expression identifier (lowercase, words
+    /// joined by `_`, leading digits kept but the result is never empty).
+    /// Calc-row keys must be valid `ExpressionEngine` identifiers because
+    /// formulas reference them by name. `nonisolated` so the tool layer can
+    /// dedupe keys off the MainActor while parsing tool args.
+    nonisolated static func slugify(_ s: String) -> String {
+        var out = ""
+        var pendingUnderscore = false
+        for ch in s.lowercased() {
+            if ch.isLetter || ch.isNumber {
+                if pendingUnderscore, !out.isEmpty { out.append("_") }
+                pendingUnderscore = false
+                out.append(ch)
+            } else {
+                pendingUnderscore = true
+            }
+        }
+        // A pure-digit slug ("2024") is a valid key but not a valid
+        // identifier; prefix it so formulas can reference it.
+        if let first = out.first, first.isNumber { out = "v_" + out }
+        return out.isEmpty ? "row" : out
+    }
+
+    /// Append `_2`, `_3`, … to `base` until it's unique among `existing`.
+    nonisolated static func dedupeSlug(_ base: String, existing: Set<String>) -> String {
+        guard existing.contains(base) else { return base }
+        var n = 2
+        while existing.contains("\(base)_\(n)") { n += 1 }
+        return "\(base)_\(n)"
+    }
+
+    // MARK: - Slack mutators
+    //
+    // Slack agents are filesystem subagents (`pupa/agents/<slug>/AGENTS.md`);
+    // the roster is not stored in `SlackData`. These mutators therefore take
+    // member/author identifiers as subagent slugs verbatim — validation
+    // against the real roster (via `AgentStore`) is the caller's job.
+
+    /// Append a `SlackChannel` to the Slack body. Returns the generated
+    /// stable id. `memberAgentIds` are subagent slugs, stored as given.
+    @discardableResult
+    public func slackAddChannel(
+        name: String,
+        type: SlackChannelType,
+        memberAgentIds: [String] = [],
+        miniAppId: UUID? = nil,
+        componentId: String? = nil
+    ) -> String? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        var newId: String?
+        let mutator: (inout CanvasApp) -> Bool = { canvas in
+            guard case .slack(var s) = canvas else { return false }
+            let id = Self.nextSlackId(prefix: "channel", existing: s.channels.map(\.id))
+            s.channels.append(SlackChannel(
+                id: id,
+                name: trimmed,
+                type: type,
+                memberAgentIds: memberAgentIds
+            ))
+            if s.activeChannelId == nil {
+                s.activeChannelId = id
+            }
+            canvas = .slack(s)
+            newId = id
+            return true
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, mutator)
+        } else {
+            mutate(miniAppId, kind: "slack", mutator)
+        }
+        return newId
+    }
+
+    /// Add agents (subagent slugs) to a channel's member roster. Idempotent
+    /// — already-present slugs are skipped. Returns true if at least one new
+    /// slug was appended.
+    @discardableResult
+    public func slackAddAgentsToChannel(
+        channelId: String,
+        agentIds: [String],
+        miniAppId: UUID? = nil,
+        componentId: String? = nil
+    ) -> Bool {
+        var changed = false
+        let mutator: (inout CanvasApp) -> Bool = { canvas in
+            guard case .slack(var s) = canvas,
+                  let cIdx = s.channels.firstIndex(where: { $0.id == channelId }) else { return false }
+            var existing = Set(s.channels[cIdx].memberAgentIds)
+            var localChanged = false
+            for id in agentIds where existing.insert(id).inserted {
+                s.channels[cIdx].memberAgentIds.append(id)
+                localChanged = true
+            }
+            if localChanged {
+                canvas = .slack(s)
+                changed = true
+            }
+            return localChanged
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, mutator)
+        } else {
+            mutate(miniAppId, kind: "slack", mutator)
+        }
+        return changed
+    }
+
+    /// Set which channel the user is currently viewing. No-op if the
+    /// channel doesn't exist.
+    @discardableResult
+    public func slackSetActiveChannel(
+        channelId: String,
+        miniAppId: UUID? = nil,
+        componentId: String? = nil
+    ) -> Bool {
+        var changed = false
+        let mutator: (inout CanvasApp) -> Bool = { canvas in
+            guard case .slack(var s) = canvas,
+                  s.channels.contains(where: { $0.id == channelId }) else { return false }
+            if s.activeChannelId != channelId {
+                s.activeChannelId = channelId
+                canvas = .slack(s)
+                changed = true
+                return true
+            }
+            return false
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, mutator)
+        } else {
+            mutate(miniAppId, kind: "slack", mutator)
+        }
+        return changed
+    }
+
+    /// Append a message to a channel. `authorKind = .user` uses
+    /// `"user"` as the conventional authorId; `.agent` expects an
+    /// existing `SlackAgent.id`. Returns the generated message id, or
+    /// nil if the channel doesn't exist.
+    @discardableResult
+    public func slackPostMessage(
+        channelId: String,
+        authorKind: SlackAuthorKind,
+        authorId: String,
+        text: String,
+        mentionedAgentIds: [String] = [],
+        timestamp: Date = Date(),
+        miniAppId: UUID? = nil,
+        componentId: String? = nil
+    ) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        var newId: String?
+        let mutator: (inout CanvasApp) -> Bool = { canvas in
+            guard case .slack(var s) = canvas,
+                  s.channels.contains(where: { $0.id == channelId }) else { return false }
+            let id = UUID().uuidString
+            let msg = SlackMessage(
+                id: id,
+                channelId: channelId,
+                authorKind: authorKind,
+                authorId: authorId,
+                text: trimmed,
+                timestamp: timestamp,
+                mentionedAgentIds: mentionedAgentIds
+            )
+            s.messagesByChannel[channelId, default: []].append(msg)
+            canvas = .slack(s)
+            newId = id
+            return true
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, mutator)
+        } else {
+            mutate(miniAppId, kind: "slack", mutator)
+        }
+        return newId
+    }
+
+    /// Find-or-create a 1-on-1 DM channel with a subagent (`agentId` = its
+    /// slug). A DM is the unique channel whose `type == .dm` and
+    /// `memberAgentIds == [agentId]` — when the user clicks an agent in the
+    /// sidebar we either jump to that channel or create it, named
+    /// `displayName` (the subagent's label). Returns the channel id.
+    @discardableResult
+    public func slackOpenDM(
+        agentId: String,
+        displayName: String,
+        miniAppId: UUID? = nil,
+        componentId: String? = nil
+    ) -> String? {
+        var resolvedId: String?
+        let mutator: (inout CanvasApp) -> Bool = { canvas in
+            guard case .slack(var s) = canvas else { return false }
+            if let existing = s.channels.first(where: {
+                $0.type == .dm && $0.memberAgentIds == [agentId]
+            }) {
+                resolvedId = existing.id
+                return false
+            }
+            let id = Self.nextSlackId(prefix: "channel", existing: s.channels.map(\.id))
+            s.channels.append(SlackChannel(
+                id: id,
+                name: displayName,
+                type: .dm,
+                memberAgentIds: [agentId]
+            ))
+            canvas = .slack(s)
+            resolvedId = id
+            return true
+        }
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, mutator)
+        } else {
+            mutate(miniAppId, kind: "slack", mutator)
+        }
+        return resolvedId
+    }
+
+    /// Resolve the active / first-found Slack component id for `miniAppId`.
+    /// Mirrors `trackerComponentId` etc. and is what the (forthcoming)
+    /// Slack tools use when an explicit `componentId` isn't passed.
+    public func slackComponentId(miniAppId: UUID? = nil) -> String? {
+        let target = miniAppId ?? activeMiniAppId
+        guard let miniApp = miniApps.first(where: { $0.id == target }) else { return nil }
+        if let activeId = miniApp.activeComponentId,
+           let comp = miniApp.components.first(where: { $0.id == activeId }),
+           case .slack = comp.body { return comp.id }
+        return miniApp.components.first(where: {
+            if case .slack = $0.body { return true }
+            return false
+        })?.id
+    }
+
+    /// Allocate the next `<prefix>-N` id not already in `existing`.
+    /// Mirrors the convention used by `addComponent` for the per-kind
+    /// `tracker-N`, `calendar-N`, `checklist-N` id scheme.
+    private static func nextSlackId(prefix: String, existing: [String]) -> String {
+        let set = Set(existing)
+        var n = 1
+        while set.contains("\(prefix)-\(n)") { n += 1 }
+        return "\(prefix)-\(n)"
+    }
+
+    // MARK: - Universal item-to-item linking
+
+    /// Result of `linkItems` / `unlinkItems`. Distinguishes "ref already
+    /// present" / "ref absent" no-ops from "source / target doesn't
+    /// exist" / "true self-reference" errors so the tool echo can show
+    /// the agent why nothing changed.
+    public enum LinkMutationError: String, Error, Sendable {
+        /// `sourceComponentId` resolves to no component, or the
+        /// component isn't link-bearing (`.empty`).
+        case unknownSource
+        /// `sourceItemId` doesn't match any item in the resolved source
+        /// component.
+        case unknownSourceItem
+        /// `targetComponentId` resolves to no component.
+        case unknownTarget
+        /// `targetItemId` doesn't match any item in the resolved target
+        /// component.
+        case unknownTargetItem
+        /// Source and target are the same `(componentId, itemId)`. A
+        /// row linking to itself adds no information; rejected. Other
+        /// self-component links (different row in the same component)
+        /// are allowed.
+        case selfReference
+        /// The source component is locked; mutation refused.
+        case locked
+    }
+
+    /// Attach a ref from one item (`sourceComponentId`, `sourceItemId`)
+    /// to another (`targetComponentId`, `targetItemId`). Source and
+    /// target may belong to the same component (e.g. tracker row →
+    /// another tracker row for parent / dependency relationships) — only
+    /// a literal self-ref where source and target are the same id is
+    /// rejected. Idempotent: a ref that's already in `linkedItems`
+    /// no-ops and reports the unchanged count. Returns the updated link
+    /// count, or a `LinkMutationError` describing why nothing changed.
+    @discardableResult
+    public func linkItems(
+        sourceComponentId: String,
+        sourceItemId: UUID,
+        targetComponentId: String,
+        targetItemId: UUID,
+        miniAppId: UUID? = nil
+    ) -> Result<Int, LinkMutationError> {
+        let target = miniAppId ?? activeMiniAppId
+        guard let mIdx = miniApps.firstIndex(where: { $0.id == target }) else {
+            return .failure(.unknownSource)
+        }
+        // True self-ref check first — no point hitting the store if the
+        // call is nonsensical.
+        if sourceComponentId == targetComponentId, sourceItemId == targetItemId {
+            return .failure(.selfReference)
+        }
+        // Target must exist before we mutate the source — keeps
+        // `linkedItems` arrays clean of refs the resolver can't render.
+        guard let targetComp = miniApps[mIdx].components.first(where: { $0.id == targetComponentId }) else {
+            return .failure(.unknownTarget)
+        }
+        guard itemExists(in: targetComp, itemId: targetItemId) else {
+            return .failure(.unknownTargetItem)
+        }
+        // Source component lookup + targeted mutation.
+        guard let cIdx = miniApps[mIdx].components.firstIndex(where: { $0.id == sourceComponentId }) else {
+            return .failure(.unknownSource)
+        }
+        guard !refuseIfLocked(mIdx, cIdx) else { return .failure(.locked)
+        }
+        let ref = ComponentItemRef(componentId: targetComponentId, itemId: targetItemId)
+        var result: Result<Int, LinkMutationError> = .failure(.unknownSourceItem)
+        var bodyVal = miniApps[mIdx].components[cIdx].body
+        switch bodyVal {
+        case .tracker(var t):
+            guard let iIdx = t.items.firstIndex(where: { $0.id == sourceItemId }) else {
+                return .failure(.unknownSourceItem)
+            }
+            if t.items[iIdx].linkedItems.contains(ref) {
+                result = .success(t.items[iIdx].linkedItems.count)
+                return result
+            }
+            t.items[iIdx].linkedItems.append(ref)
+            bodyVal = .tracker(t)
+            result = .success(t.items[iIdx].linkedItems.count)
+        case .calendar(var cal):
+            guard let eIdx = cal.events.firstIndex(where: { $0.id == sourceItemId }) else {
+                return .failure(.unknownSourceItem)
+            }
+            if cal.events[eIdx].linkedItems.contains(ref) {
+                result = .success(cal.events[eIdx].linkedItems.count)
+                return result
+            }
+            cal.events[eIdx].linkedItems.append(ref)
+            bodyVal = .calendar(cal)
+            result = .success(cal.events[eIdx].linkedItems.count)
+        case .checklist(var cl):
+            guard let iIdx = cl.items.firstIndex(where: { $0.id == sourceItemId }) else {
+                return .failure(.unknownSourceItem)
+            }
+            if cl.items[iIdx].linkedItems.contains(ref) {
+                result = .success(cl.items[iIdx].linkedItems.count)
+                return result
+            }
+            cl.items[iIdx].linkedItems.append(ref)
+            bodyVal = .checklist(cl)
+            result = .success(cl.items[iIdx].linkedItems.count)
+        case .slack, .empty, .calculator, .chart:
+            return .failure(.unknownSource)
+        }
+        miniApps[mIdx].components[cIdx].body = bodyVal
+        persist()
+        emitItemEvent(miniAppId: target, componentId: sourceComponentId, kind: .linked, actor: .user,
+                      itemId: sourceItemId)
+        return result
+    }
+
+    /// Remove a ref from `(sourceComponentId, sourceItemId)`'s
+    /// `linkedItems`. Returns the updated link count, or a
+    /// `LinkMutationError` if source / target isn't found. Removing a
+    /// ref that wasn't present succeeds with the unchanged count
+    /// (idempotent).
+    @discardableResult
+    public func unlinkItems(
+        sourceComponentId: String,
+        sourceItemId: UUID,
+        targetComponentId: String,
+        targetItemId: UUID,
+        miniAppId: UUID? = nil
+    ) -> Result<Int, LinkMutationError> {
+        let target = miniAppId ?? activeMiniAppId
+        guard let mIdx = miniApps.firstIndex(where: { $0.id == target }) else {
+            return .failure(.unknownSource)
+        }
+        guard let cIdx = miniApps[mIdx].components.firstIndex(where: { $0.id == sourceComponentId }) else {
+            return .failure(.unknownSource)
+        }
+        guard !refuseIfLocked(mIdx, cIdx) else { return .failure(.locked) }
+        var result: Result<Int, LinkMutationError> = .failure(.unknownSourceItem)
+        var bodyVal = miniApps[mIdx].components[cIdx].body
+        var changed = false
+        switch bodyVal {
+        case .tracker(var t):
+            guard let iIdx = t.items.firstIndex(where: { $0.id == sourceItemId }) else {
+                return .failure(.unknownSourceItem)
+            }
+            let before = t.items[iIdx].linkedItems.count
+            t.items[iIdx].linkedItems.removeAll(where: {
+                $0.componentId == targetComponentId && $0.itemId == targetItemId
+            })
+            changed = before != t.items[iIdx].linkedItems.count
+            if changed { bodyVal = .tracker(t) }
+            result = .success(t.items[iIdx].linkedItems.count)
+        case .calendar(var cal):
+            guard let eIdx = cal.events.firstIndex(where: { $0.id == sourceItemId }) else {
+                return .failure(.unknownSourceItem)
+            }
+            let before = cal.events[eIdx].linkedItems.count
+            cal.events[eIdx].linkedItems.removeAll(where: {
+                $0.componentId == targetComponentId && $0.itemId == targetItemId
+            })
+            changed = before != cal.events[eIdx].linkedItems.count
+            if changed { bodyVal = .calendar(cal) }
+            result = .success(cal.events[eIdx].linkedItems.count)
+        case .checklist(var cl):
+            guard let iIdx = cl.items.firstIndex(where: { $0.id == sourceItemId }) else {
+                return .failure(.unknownSourceItem)
+            }
+            let before = cl.items[iIdx].linkedItems.count
+            cl.items[iIdx].linkedItems.removeAll(where: {
+                $0.componentId == targetComponentId && $0.itemId == targetItemId
+            })
+            changed = before != cl.items[iIdx].linkedItems.count
+            if changed { bodyVal = .checklist(cl) }
+            result = .success(cl.items[iIdx].linkedItems.count)
+        case .slack, .empty, .calculator, .chart:
+            return .failure(.unknownSource)
+        }
+        if changed {
+            miniApps[mIdx].components[cIdx].body = bodyVal
+            persist()
+            emitItemEvent(miniAppId: target, componentId: sourceComponentId, kind: .unlinked, actor: .user,
+                          itemId: sourceItemId)
+        }
+        return result
+    }
+
+    /// Internal: does `comp` contain an item with id `itemId`? Used by
+    /// `linkItems` to validate the target before mutating the source so
+    /// dangling refs can't enter `linkedItems` via the tool path. The
+    /// view-layer resolver `displayNameForRefTarget` still handles
+    /// dangling refs (rendering "(deleted)") for refs that became stale
+    /// after a target was removed.
+    private func itemExists(in comp: Component, itemId: UUID) -> Bool {
+        switch comp.body {
+        case .tracker(let t): return t.items.contains(where: { $0.id == itemId })
+        case .calendar(let cal): return cal.events.contains(where: { $0.id == itemId })
+        case .checklist(let cl): return cl.items.contains(where: { $0.id == itemId })
+        case .slack, .empty, .calculator, .chart: return false
+        }
+    }
+
+    /// Display name for a checklist item, used by inline pills that
+    /// reference one. Trims whitespace and falls back to a stub when the
+    /// item text is empty.
+    public func displayNameForChecklistItem(
+        componentId: String,
+        itemId: UUID,
+        miniAppId: UUID? = nil
+    ) -> String? {
+        let target = miniAppId ?? activeMiniAppId
+        guard let miniApp = miniApps.first(where: { $0.id == target }),
+              let comp = miniApp.components.first(where: { $0.id == componentId }),
+              case .checklist(let cl) = comp.body,
+              let item = cl.items.first(where: { $0.id == itemId }) else { return nil }
+        return item.text.nonEmpty ?? "(empty item)"
+    }
+
+    /// Display name for a calendar event, used by inline pills that
+    /// reference one (today: from a checklist item's `linkedItems`).
+    /// Returns the event's `title` (trimmed), or nil if no event matches
+    /// — the pill then renders as "(deleted)".
+    public func displayNameForCalendarEvent(
+        componentId: String,
+        eventId: UUID,
+        miniAppId: UUID? = nil
+    ) -> String? {
+        let target = miniAppId ?? activeMiniAppId
+        guard let miniApp = miniApps.first(where: { $0.id == target }),
+              let comp = miniApp.components.first(where: { $0.id == componentId }),
+              case .calendar(let cal) = comp.body,
+              let event = cal.events.first(where: { $0.id == eventId }) else { return nil }
+        return event.title.nonEmpty ?? "(untitled event)"
+    }
+
+    /// Dispatch a `(componentId, itemId)` ref to the right per-kind
+    /// resolver based on the target component's body. Used by inline-pill
+    /// renderers that can reference either a tracker item or a calendar
+    /// event without caring which.
+    public func displayNameForRefTarget(
+        componentId: String,
+        itemId: UUID,
+        miniAppId: UUID? = nil
+    ) -> String? {
+        let target = miniAppId ?? activeMiniAppId
+        guard let miniApp = miniApps.first(where: { $0.id == target }),
+              let comp = miniApp.components.first(where: { $0.id == componentId }) else { return nil }
+        switch comp.body {
+        case .tracker:
+            return displayNameForTrackerItem(componentId: componentId, itemId: itemId, miniAppId: miniAppId)
+        case .calendar:
+            return displayNameForCalendarEvent(componentId: componentId, eventId: itemId, miniAppId: miniAppId)
+        case .checklist:
+            return displayNameForChecklistItem(componentId: componentId, itemId: itemId, miniAppId: miniAppId)
+        case .slack, .empty, .calculator, .chart:
+            return nil
+        }
+    }
+
+    /// Kind string of a component by id, useful for inline-pill renderers
+    /// that want to show a per-kind glyph or fall back to a generic one.
+    public func componentKind(_ componentId: String, miniAppId: UUID? = nil) -> String? {
+        let target = miniAppId ?? activeMiniAppId
+        return miniApps.first(where: { $0.id == target })?
+            .components.first(where: { $0.id == componentId })?
+            .kindString
+    }
+
+    // MARK: - Change summary
+
+    /// Human-readable one-line label for a change-feed event. Snapshots are
+    /// the restore unit now, so this is a lightweight timeline caption
+    /// (verb + component-kind noun), not a reversible descriptor.
+    public func changeSummary(for event: ItemEvent) -> String {
+        let verb: String
+        switch event.kind {
+        case .added: verb = "Added"
+        case .patched: verb = "Updated"
+        case .removed: verb = "Removed"
+        case .linked: return "Linked items"
+        case .unlinked: return "Unlinked items"
+        case .restored: return "Restored an earlier version"
+        case .locked: return "Locked a component"
+        case .unlocked: return "Unlocked a component"
+        }
+        let noun: String
+        switch componentKind(event.componentId, miniAppId: event.miniAppId) {
+        case "tracker": noun = "row"
+        case "calendar": noun = "event"
+        case "checklist", "slack": noun = "item"
+        default: noun = event.itemId == nil ? "component" : "item"
+        }
+        return "\(verb) \(noun)"
+    }
+
+    // MARK: - Event log
+
+    #if DEBUG
+    func appendEventForTesting(_ event: ItemEvent) {
+        itemEventLog.append(event)
+    }
+    #endif
+
+    private func emitItemEvent(
+        miniAppId: UUID?,
+        componentId: String,
+        kind: ItemEventKind,
+        actor: ItemEventActor,
+        itemId: UUID? = nil
+    ) {
+        let target = miniAppId ?? activeMiniAppId
+        let threadId = miniApps.first(where: { $0.id == target })?.currentThreadId
+        itemEventLog.append(ItemEvent(
+            miniAppId: target,
+            componentId: componentId,
+            kind: kind,
+            actor: actor,
+            itemId: itemId,
+            threadId: threadId
+        ))
+    }
+
+    // MARK: - Persistence
+
+    /// Mutate the body of one component inside `miniAppId`. Component
+    /// selection rules:
+    ///
+    /// - If `kind` is given, target the first component whose body matches
+    ///   that kind, preferring the active component when it matches. Empty
+    ///   (uninitialised) components are accepted as fallbacks so constructor
+    ///   mutators (`setTracker`, `setCalendar`) can initialise a freshly
+    ///   added empty component on first render — once the body has been
+    ///   replaced with a typed canvas, subsequent kind-matching mutators see
+    ///   the same component and re-use it directly.
+    /// - If `kind` is nil, target the active component (or first, as fallback).
+    private func mutate(
+        _ miniAppId: UUID?,
+        kind: String?,
+        _ body: (inout CanvasApp) -> Bool
+    ) {
+        let target = miniAppId ?? activeMiniAppId
+        guard let mIdx = miniApps.firstIndex(where: { $0.id == target }) else { return }
+        let m = miniApps[mIdx]
+
+        let cIdx: Int?
+        if let kind {
+            // First existing component of that kind, else first empty
+            // component to initialise. The active/view component is never
+            // consulted — a kind-routed write must not depend on what the
+            // user happens to be looking at. (Agent-facing write tools
+            // resolve an explicit id up front via `resolveWriteTarget`; this
+            // fallback only serves the view/filter mutators that still route
+            // by kind, and only when the target is unambiguous.)
+            if let matching = m.components.firstIndex(where: { $0.kindString == kind }) {
+                cIdx = matching
+            } else {
+                cIdx = m.components.firstIndex(where: { $0.kindString == "empty" })
+            }
+        } else if let activeId = m.activeComponentId,
+                  let active = m.components.firstIndex(where: { $0.id == activeId }) {
+            cIdx = active
+        } else {
+            cIdx = m.components.isEmpty ? nil : 0
+        }
+
+        guard let cIdx else { return }
+        guard !refuseIfLocked(mIdx, cIdx) else { return }
+        var bodyVal = miniApps[mIdx].components[cIdx].body
+        let changed = body(&bodyVal)
+        guard changed else { return }
+        miniApps[mIdx].components[cIdx].body = bodyVal
+        persist()
+    }
+
+    /// Mutate a specific component by id, bypassing the kind-preference
+    /// resolution that `mutate(_:kind:_:)` uses. Needed for cross-component
+    /// edits (e.g. tapping a linked-item pill that points at a tracker
+    /// other than the currently active one).
+    private func mutate(
+        miniAppId: UUID?,
+        byComponentId componentId: String,
+        _ body: (inout CanvasApp) -> Bool
+    ) {
+        let target = miniAppId ?? activeMiniAppId
+        guard let mIdx = miniApps.firstIndex(where: { $0.id == target }) else { return }
+        guard let cIdx = miniApps[mIdx].components.firstIndex(where: { $0.id == componentId }) else { return }
+        guard !refuseIfLocked(mIdx, cIdx) else { return }
+        var bodyVal = miniApps[mIdx].components[cIdx].body
+        let changed = body(&bodyVal)
+        guard changed else { return }
+        miniApps[mIdx].components[cIdx].body = bodyVal
+        persist()
+    }
+
+    /// Route a kind-scoped mutation to an explicit component when
+    /// `componentId` is given, else fall back to the kind resolver (first
+    /// component of the kind — never the active/view component). Central
+    /// helper for the view / filter / field-schema mutators that accept an
+    /// optional explicit target.
+    private func mutate(
+        _ miniAppId: UUID?,
+        kind: String,
+        componentId: String?,
+        _ body: (inout CanvasApp) -> Bool
+    ) {
+        if let componentId {
+            mutate(miniAppId: miniAppId, byComponentId: componentId, body)
+        } else {
+            mutate(miniAppId, kind: kind, body)
+        }
+    }
+
+    // MARK: - Component lock
+
+    /// Set on any mutation refused because its target component is locked.
+    /// The tool layer reads this to surface a "locked" result to the agent
+    /// (see `AppTools`); reset it before each tool handler runs.
+    public private(set) var lastWriteBlockedByLock = false
+
+    public func resetLockFlag() { lastWriteBlockedByLock = false }
+
+    /// True (and records the block) when component `cIdx` of app `mIdx` is
+    /// locked — the single write backstop shared by both `mutate` variants
+    /// and the structural (remove / link) guards.
+    private func refuseIfLocked(_ mIdx: Int, _ cIdx: Int) -> Bool {
+        guard miniApps[mIdx].components[cIdx].isLocked else { return false }
+        lastWriteBlockedByLock = true
+        return true
+    }
+
+    /// Whether a component is locked. `componentId` nil → the app's active
+    /// component. Used by the lock toggle UI and view-layer edit gating.
+    public func isComponentLocked(componentId: String? = nil, miniAppId: UUID? = nil) -> Bool {
+        let target = miniAppId ?? activeMiniAppId
+        guard let m = miniApps.first(where: { $0.id == target }) else { return false }
+        let cid = componentId ?? m.activeComponentId
+        return m.components.first(where: { $0.id == cid })?.isLocked ?? false
+    }
+
+    /// Lock or unlock a component. Edits the flag directly (never gated — this
+    /// is the unlock path), persists, and captions the change feed.
+    @discardableResult
+    public func setComponentLocked(componentId: String, locked: Bool, miniAppId: UUID? = nil) -> Bool {
+        let target = miniAppId ?? activeMiniAppId
+        guard let mIdx = miniApps.firstIndex(where: { $0.id == target }),
+              let cIdx = miniApps[mIdx].components.firstIndex(where: { $0.id == componentId }),
+              miniApps[mIdx].components[cIdx].isLocked != locked
+        else { return false }
+        miniApps[mIdx].components[cIdx].isLocked = locked
+        persist()
+        emitItemEvent(miniAppId: target, componentId: componentId,
+                      kind: locked ? .locked : .unlocked, actor: .user)
+        return true
+    }
+
+    /// Lock or unlock every component of a MiniApp at once (the MiniApp-level
+    /// lock surfaced on the home page). Returns false when nothing changed.
+    @discardableResult
+    public func setAllComponentsLocked(locked: Bool, miniAppId: UUID? = nil) -> Bool {
+        let target = miniAppId ?? activeMiniAppId
+        guard let mIdx = miniApps.firstIndex(where: { $0.id == target }) else { return false }
+        var changed = false
+        for i in miniApps[mIdx].components.indices where miniApps[mIdx].components[i].isLocked != locked {
+            miniApps[mIdx].components[i].isLocked = locked
+            changed = true
+        }
+        guard changed else { return false }
+        persist()
+        emitItemEvent(miniAppId: target, componentId: miniApps[mIdx].components.first?.id ?? "",
+                      kind: locked ? .locked : .unlocked, actor: .user)
+        return true
+    }
+
+    /// Whether every component of a MiniApp is locked (drives the home
+    /// lock toggle's state). False for a MiniApp with no components.
+    public func areAllComponentsLocked(miniAppId: UUID? = nil) -> Bool {
+        let target = miniAppId ?? activeMiniAppId
+        guard let m = miniApps.first(where: { $0.id == target }), !m.components.isEmpty else { return false }
+        return m.components.allSatisfy { $0.isLocked }
+    }
+
+    // MARK: - Memory lock
+
+    /// Whether a MiniApp's memory subtree is locked (read-only). Drives the
+    /// Memories page lock toggle and the agent-facing memory-write backstop.
+    public func isMemoryLocked(miniAppId: UUID? = nil) -> Bool {
+        let target = miniAppId ?? activeMiniAppId
+        return miniApps.first(where: { $0.id == target })?.isMemoryLocked ?? false
+    }
+
+    /// Lock or unlock a MiniApp's whole memory subtree. Returns false when
+    /// nothing changed. Persists; the flag is read live by scoped memory
+    /// stores' `writeGuard`, so a running agent's next write is refused too.
+    @discardableResult
+    public func setMemoryLocked(_ locked: Bool, miniAppId: UUID? = nil) -> Bool {
+        let target = miniAppId ?? activeMiniAppId
+        guard let mIdx = miniApps.firstIndex(where: { $0.id == target }),
+              miniApps[mIdx].isMemoryLocked != locked else { return false }
+        miniApps[mIdx].isMemoryLocked = locked
+        persist()
+        return true
+    }
+
+    /// Whether a global-root memory `path` (e.g. `"<app-uuid>/notes/a.md"`)
+    /// falls under a locked MiniApp — the leading segment is the app's memory
+    /// folder, its id. Wired into the global (sidebar) `MemoryStore.writeGuard`
+    /// so the Memories UI refuses edits to a locked app just like the agent's
+    /// scoped store does. `orchestrator/` doesn't parse as a uuid, and has no
+    /// lock to honour.
+    public func isMemoryLocked(forRootPath path: String) -> Bool {
+        // Parse the segment once rather than formatting every app's id per call
+        // — this runs before every mutating op on the sidebar store.
+        guard let folder = path.split(separator: "/").first,
+              let id = UUID(uuidString: String(folder)) else { return false }
+        return miniApps.contains { $0.isMemoryLocked && $0.id == id }
+    }
+
+    // MARK: - Per-file persistence
+
+    private nonisolated static var stateRoot: URL { PupaStorage.stateRoot }
+    private nonisolated static var appsDir: URL { stateRoot.appendingPathComponent("apps", isDirectory: true) }
+    private nonisolated static var indexURL: URL { stateRoot.appendingPathComponent("index.json") }
+    private nonisolated static func appURL(_ id: UUID) -> URL {
+        appsDir.appendingPathComponent("\(id.uuidString).json")
+    }
+
+    /// UUIDs of every `apps/<uuid>.json` body currently on disk, regardless of
+    /// whether the index lists it. Backs union-load's disk-existence recovery.
+    private nonisolated static func diskAppIds() -> Set<UUID> {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: appsDir.path) else { return [] }
+        return Set(names.compactMap { name in
+            name.hasSuffix(".json") ? UUID(uuidString: String(name.dropLast(".json".count))) : nil
+        })
+    }
+
+    // MARK: - Deletion tombstones
+
+    /// A durable, mirrored "this app id is deleted" marker. Lives under
+    /// `state/tombstones/<uuid>.json` so it syncs like an app body. Union-load
+    /// subtracts tombstoned ids; the orphan sweep reaps their bodies.
+    private struct Tombstone: Codable {
+        var id: UUID
+        var deletedAt: Date
+        /// Display name, so Settings → Recently deleted can label the row
+        /// without reconstructing the whole app from its snapshot chain.
+        /// Optional: tombstones written before this existed still decode.
+        var name: String?
+        /// Set by a permanent delete. The marker stays — the delete must keep
+        /// propagating — but nothing survives to restore from, so the app stops
+        /// being listed under Recently deleted.
+        var purged: Bool?
+    }
+
+    private nonisolated static var tombstonesDir: URL {
+        stateRoot.appendingPathComponent("tombstones", isDirectory: true)
+    }
+    private nonisolated static func tombstoneURL(_ id: UUID) -> URL {
+        tombstonesDir.appendingPathComponent("\(id.uuidString).json")
+    }
+
+    /// Local-only twin of a tombstone: a MiniApp an incoming sync removed without
+    /// this user's action (`noteSurpriseRemovals`). Same `Tombstone` payload, so
+    /// it lists, restores and GCs exactly like a real delete.
+    ///
+    /// Lives OUTSIDE `state/` — like `conflicts/`, deliberately **not** mirrored.
+    /// The removal may be a bad merge rather than a delete, and a device that
+    /// still holds the body must stay free to push it back; a mirrored marker
+    /// would propagate the loss and suppress that recovery.
+    nonisolated static var lostDir: URL {
+        PupaStorage.activeRoot.appendingPathComponent("lost", isDirectory: true)
+    }
+    private nonisolated static func lostURL(_ id: UUID) -> URL {
+        lostDir.appendingPathComponent("\(id.uuidString).json")
+    }
+
+    /// Where `id`'s delete marker lives: the mirrored tombstone when there is
+    /// one, else the local-only lost marker. Read/purge go through this so both
+    /// kinds behave identically everywhere but on the wire.
+    private nonisolated static func markerURL(_ id: UUID) -> URL {
+        let stone = tombstoneURL(id)
+        return FileManager.default.fileExists(atPath: stone.path) ? stone : lostURL(id)
+    }
+
+    /// Record `id` as lost to a sync this user didn't initiate. Local-only —
+    /// see `lostDir`. Callers pair it with a `.deleted` snapshot, which is what
+    /// the restore actually resolves from.
+    nonisolated static func writeLostMarker(_ id: UUID, name: String? = nil, at now: Date = Date()) {
+        let marker = Tombstone(id: id, deletedAt: now, name: name)
+        guard let data = try? stateEncoder().encode(marker) else { return }
+        try? CloudDocument.write(data, to: lostURL(id))
+    }
+
+    /// Record `id` as deleted. Durable + mirrored, so the delete survives a
+    /// relaunch and reaches every device. Re-deleting just refreshes `deletedAt`.
+    nonisolated static func writeTombstone(_ id: UUID, name: String? = nil, at now: Date = Date()) {
+        let tombstone = Tombstone(id: id, deletedAt: now, name: name)
+        guard let data = try? stateEncoder().encode(tombstone) else { return }
+        try? CloudDocument.write(data, to: tombstoneURL(id))
+    }
+
+    /// A MiniApp this user deleted, still listed while its tombstone lives.
+    public struct DeletedMiniApp: Identifiable, Sendable, Equatable {
+        public let id: UUID
+        public let name: String
+        /// Nil when the tombstone didn't decode (corrupt / half-written); the
+        /// row omits the date rather than inventing one.
+        public let deletedAt: Date?
+        /// False for a pre-0.0.240 delete, which captured nothing. The row says
+        /// so instead of offering a Restore that can't work.
+        public let isRestorable: Bool
+        /// True when a sync removed it rather than the user — the row says so,
+        /// since "Deleted" would be a lie about something nobody deleted.
+        public let wasSyncRemoved: Bool
+    }
+
+    /// Restore tombstoned `id` from the best source available: the newest
+    /// snapshot that resolves, else the body file. `metas` skips records whose
+    /// header won't decode, so a corrupt newest one falls through to an older.
+    ///
+    /// The body fallback matters for a tombstone arriving from another device:
+    /// it suppresses the local body at once, but the deleting device's
+    /// `.deleted` snapshot syncs separately and may not have landed.
+    nonisolated static func restorableApp(_ id: UUID) -> MiniApp? {
+        for meta in SnapshotStore.metas(id) {
+            if let app = SnapshotStore.restoredApp(id, id: meta.id) { return app }
+        }
+        guard let data = CloudDocument.read(appURL(id)) else { return nil }
+        return try? JSONDecoder().decode(MiniApp.self, from: data)
+    }
+
+    /// Whether anything survives to restore tombstoned `id` from — one `stat`
+    /// per source, so a listing costs app *count* rather than app size.
+    ///
+    /// A record whose header lists but whose chain won't resolve reads as
+    /// restorable here; the tap then hits the view's "Couldn't restore" alert,
+    /// which already covers the same race from a sweep landing mid-scan.
+    nonisolated static func hasRestoreSource(_ id: UUID) -> Bool {
+        SnapshotStore.hasHistory(id)
+            || FileManager.default.fileExists(atPath: appURL(id).path)
+    }
+
+    /// Marked ids still worth listing — tombstoned and sync-lost alike, minus
+    /// the ones a permanent delete purged. One tiny decode each — no
+    /// restore-source probe.
+    private nonisolated static func listableTombstoneIds() -> Set<UUID> {
+        diskTombstoneIds().union(diskLostIds()).filter { !isPurged($0) }
+    }
+
+    /// Whether the user permanently deleted marked `id`.
+    private nonisolated static func isPurged(_ id: UUID) -> Bool {
+        CloudDocument.read(markerURL(id))
+            .flatMap { try? JSONDecoder().decode(Tombstone.self, from: $0) }?.purged == true
+    }
+
+    /// Whether anything is listable — the gate on the Settings ▸ Recently
+    /// deleted row. No restore-source probe, so it's safe to re-run on
+    /// navigation.
+    public nonisolated static func hasTombstones() -> Bool {
+        !listableTombstoneIds().isEmpty
+    }
+
+    /// Marked MiniApps, newest first — what Settings ▸ Recently deleted lists,
+    /// until `gcTombstones` reaps the marker at 180 days. Covers both a real
+    /// delete (tombstone) and a sync removal this user never asked for
+    /// (`lostDir`), so a dismissed restore banner is never the last chance.
+    ///
+    /// Reads each marker and probes for its restore source — call on appear,
+    /// never from a view's `body`. Use `hasTombstones()` for presence alone.
+    public nonisolated static func deletedMiniApps() -> [DeletedMiniApp] {
+        let dec = JSONDecoder()
+        let tombstoned = diskTombstoneIds()
+        var out: [DeletedMiniApp] = []
+        for id in listableTombstoneIds() {
+            let stone = CloudDocument.read(markerURL(id)).flatMap { try? dec.decode(Tombstone.self, from: $0) }
+            let isRestorable = hasRestoreSource(id)
+            // Legacy tombstones carry no name — recover it from the restore
+            // source. The only case where this listing pays for a full resolve.
+            let label = stone?.name
+                ?? (isRestorable ? restorableApp(id)?.name : nil)
+                ?? "Deleted app"
+            out.append(DeletedMiniApp(
+                id: id,
+                name: label,
+                deletedAt: stone?.deletedAt,
+                isRestorable: isRestorable,
+                wasSyncRemoved: !tombstoned.contains(id)
+            ))
+        }
+        // Undated (corrupt tombstone) sorts last rather than jumping to the top.
+        return out.sorted { ($0.deletedAt ?? .distantPast) > ($1.deletedAt ?? .distantPast) }
+    }
+
+    /// Permanently delete marked `id`: drop every restore source — history,
+    /// the user's pins, and the body — and mark it purged so it leaves
+    /// Settings ▸ Recently deleted (and Pinned snapshots with it).
+    ///
+    /// The marker itself stays until its TTL: it's the only thing stopping a
+    /// device that hasn't synced the purge from re-pushing the body. A sync-lost
+    /// app is purged in place, in `lostDir` — this must not mint the mirrored
+    /// tombstone that `noteSurpriseRemovals` deliberately withheld.
+    public nonisolated static func purgeDeletedMiniApp(_ id: UUID) {
+        SnapshotStore.deleteAll(id)
+        CloudDocument.delete(appURL(id))
+        // Re-write rather than patch: keeps `deletedAt` (so GC's age check is
+        // unchanged) and the name, and mints both if the marker didn't decode.
+        let url = markerURL(id)
+        let old = CloudDocument.read(url)
+            .flatMap { try? JSONDecoder().decode(Tombstone.self, from: $0) }
+        let stone = Tombstone(id: id, deletedAt: old?.deletedAt ?? Date(), name: old?.name, purged: true)
+        guard let data = try? stateEncoder().encode(stone) else { return }
+        try? CloudDocument.write(data, to: url)
+    }
+
+    /// Bring a deleted MiniApp back. Returns false when it's already in the roster
+    /// or nothing survives to restore from (see `restorableApp`).
+    ///
+    /// The body is persisted **before** the tombstone goes, so a device syncing
+    /// mid-restore can't see a tombstone-free id with no body and re-suppress it
+    /// on the next union-load. Refused while provisioning, where `persist()` is
+    /// a no-op: clearing the tombstone would then lose the app from the roster
+    /// and this list both.
+    @discardableResult
+    public func restoreDeletedMiniApp(_ id: UUID) -> Bool {
+        guard !isProvisioning,
+              !miniApps.contains(where: { $0.id == id }),
+              var app = Self.restorableApp(id)
+        else { return false }
+        // Un-hide it: an app archived at the time of the delete would otherwise
+        // restore straight into Settings ▸ Archive — the row vanishes from this
+        // list and the app appears nowhere the user was looking.
+        app.isArchived = false
+        miniApps.append(app)
+        backfillColorIndices()
+        persist()
+        // Retire the markers that just did their job — before `record` below,
+        // so the new `.restored` never diffs off a record on its way out. Also
+        // brings back the memory files, if a sync took them.
+        Self.clearDeleteMarkers(id, recoveringMemories: true)
+        // No longer a delete this user made: a later sync that drops the id is
+        // now a surprise and must raise the notice.
+        userInitiatedRemovals.remove(id)
+        // Drop the debounced `.edit` `persist()` just queued — `.restored`
+        // below covers the same state, and both would show in History.
+        pendingSnapshotTasks[id]?.cancel()
+        pendingSnapshotTasks[id] = nil
+        SnapshotStore.record(app, reason: .restored)
+        return true
+    }
+
+    // MARK: - Memory recovery
+
+    /// Tolerance around the loss instant, both ways. The anchor is only
+    /// approximate: subtrees converge in order, so the memory tree can be
+    /// quarantined a beat after the app body, and a fallback anchor
+    /// (`deletedAt`) is the time the removal was *noticed*, not made.
+    nonisolated static let memoryRecoverySlack: TimeInterval = 5 * 60
+
+    /// `id`'s delete / lost marker, if it decodes.
+    private nonisolated static func deleteMarker(_ id: UUID) -> Tombstone? {
+        CloudDocument.read(markerURL(id))
+            .flatMap { try? JSONDecoder().decode(Tombstone.self, from: $0) }
+    }
+
+    /// When `id`'s data was lost — the cutoff recovery runs from. The mirror
+    /// quarantines the app body in the same pass it unlinks the memory tree, so
+    /// that copy's preservation time *is* the loss. A user's own delete
+    /// quarantines nothing (the body stays on disk): fall back to the marker.
+    private nonisolated static func lossTime(_ id: UUID, marker: Tombstone?, root: URL) -> Date? {
+        let anchor = StorageMirror.preservationTime(
+            ofPath: "state/apps/\(id.uuidString).json", localRoot: root) ?? marker?.deletedAt
+        return anchor?.addingTimeInterval(-memoryRecoverySlack)
+    }
+
+    /// Re-materialize memory files the app lost to a sync-driven local delete —
+    /// the `pupa/agents/<slug>/AGENTS.md` and `pupa/skills/<name>/SKILL.md`
+    /// bodies that otherwise come back as empty folders (#251). `MiniApp` carries
+    /// no memory files, so no snapshot can hold them.
+    ///
+    /// Quarantine can't tell a bad sync from a file deliberately deleted on
+    /// another device, so three guards: scoped to this app's folder, never
+    /// overwrites a path still on disk, and only copies preserved from
+    /// `lossTime` on. Nothing survives past `StorageMirror.conflictMaxAge`.
+    /// There is no bound on the late side — the eviction guard can defer a
+    /// memory `.deleteLocal` to a much later pass and it is still the same loss
+    /// — so a file dropped elsewhere while the app sits in Recently deleted
+    /// does come back with it.
+    ///
+    /// Memory is keyed on the app's immutable id, so the removed app and the
+    /// revived one address the same folder — read and write sides always agree.
+    private nonisolated static func recoverMemoryFiles(_ id: UUID, for marker: Tombstone?) {
+        let root = PupaStorage.activeRoot
+        guard let since = lossTime(id, marker: marker, root: root) else { return }
+        let prefix = "memories/\(MemoryStore.miniAppFolder(miniAppId: id))"
+        for (rel, src) in StorageMirror.preservedFiles(
+            underPrefix: prefix, since: since, localRoot: root) {
+            let dst = root.appendingPathComponent(rel)
+            guard !FileManager.default.fileExists(atPath: dst.path),
+                  let data = CloudDocument.read(src) else { continue }
+            try? CloudDocument.write(data, to: dst)
+        }
+        // The loss is repaired — the body is back from its snapshot and the
+        // memory tree with it. Drop the body's quarantine so a later removal of
+        // the same app doesn't anchor on this one and reopen the window across
+        // everything in between.
+        StorageMirror.dropPreserved(path: "state/apps/\(id.uuidString).json", localRoot: root)
+    }
+
+    /// Drop `id`'s tombstone. Call whenever an app with that id legitimately
+    /// comes back (restore a pinned snapshot, re-import a bundle) — an un-delete
+    /// must clear the marker, else union-load re-suppresses it and the sweep
+    /// reaps its body on the next relaunch.
+    ///
+    /// On an un-delete path call `clearDeleteMarkers` instead — clearing the
+    /// tombstone alone strands the `.deleted` restore point it was holding.
+    nonisolated static func clearTombstone(_ id: UUID) {
+        CloudDocument.delete(tombstoneURL(id))
+    }
+
+    /// Retire `id`'s durable delete markers: the tombstone AND the `.deleted`
+    /// restore point it was holding. Every un-delete path goes through here.
+    ///
+    /// The two must go together. `.deleted` records are exempt from the snapshot
+    /// TTL *and* the cap (`SnapshotStore.survivesDeletion`), so the only thing
+    /// that collects one is `gcTombstones` — reached via the very tombstone
+    /// this clears. Clearing alone strands a full base (the whole serialized
+    /// MiniApp, chats included) permanently, mirrored to iCloud.
+    ///
+    /// Pass `recoveringMemories` on an un-delete that should also bring back the
+    /// memory files a sync took with it (`recoverMemoryFiles`). It lives here
+    /// because the marker it reads is the one this clears: doing it at the call
+    /// site is an ordering the next un-delete path can silently get wrong. False
+    /// for an app whose body simply reappeared, which brings its own memories
+    /// back with it.
+    ///
+    /// Callers resolve what they're restoring BEFORE, and record any new
+    /// snapshot AFTER, so nothing reads or diffs off a record on its way out.
+    nonisolated static func clearDeleteMarkers(_ id: UUID, recoveringMemories: Bool = false) {
+        // Read before the clear: the marker carries the removal time the
+        // recovery window falls back on.
+        let marker = recoveringMemories ? deleteMarker(id) : nil
+        clearTombstone(id)
+        CloudDocument.delete(lostURL(id))
+        SnapshotStore.dropRecords(id, reasons: [.deleted])
+        if recoveringMemories { recoverMemoryFiles(id, for: marker) }
+    }
+
+    /// UUIDs of every `tombstones/<uuid>.json` on disk. Ids come from filenames
+    /// (no decode) so even a half-written tombstone still suppresses its app.
+    private nonisolated static func diskTombstoneIds() -> Set<UUID> {
+        markerIds(in: tombstonesDir)
+    }
+
+    /// UUIDs of every local-only lost marker. Never fed to `load()`'s
+    /// suppression: a body that comes back must resurrect, not stay hidden.
+    private nonisolated static func diskLostIds() -> Set<UUID> {
+        markerIds(in: lostDir)
+    }
+
+    private nonisolated static func markerIds(in dir: URL) -> Set<UUID> {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else { return [] }
+        return Set(names.compactMap { name in
+            name.hasSuffix(".json") ? UUID(uuidString: String(name.dropLast(".json".count))) : nil
+        })
+    }
+
+    /// `index.json` — everything that isn't a single MiniApp body.
+    private struct IndexFile: Codable {
+        var order: [UUID]
+        var activeId: UUID
+        var memoryThreads: [ChatThread]
+        var memoryCurrentThreadId: String
+        var itemEventLog: ItemEventLog?
+        /// UI-only component folder layout, keyed by MiniApp `id.uuidString`.
+        /// Optional so legacy `index.json` without it still decodes.
+        var componentFolders: [String: ComponentFolderLayout]?
+        /// UI-only sidebar folder layout. Optional for the same reason.
+        var miniAppFolders: MiniAppFolderLayout?
+        /// Read-only key from pre-rename indexes. Never set on new writes.
+        var myAppFolders: MiniAppFolderLayout? = nil
+    }
+
+    /// Encoder for persisted state. `.sortedKeys` makes the bytes
+    /// deterministic — Foundation's default key order can differ between
+    /// encodes of the same value, which would fail the dirty-hash skip and
+    /// rewrite (re-upload) every unchanged app file.
+    private nonisolated static func stateEncoder() -> JSONEncoder {
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.sortedKeys]
+        return enc
+    }
+
+    /// Write only the files whose encoded bytes changed; delete files for
+    /// removed apps. Writes are plain atomic via `CloudDocument` (no main-thread
+    /// file coordination); each schedules a background `StorageMirror` pass.
+    private func persist() {
+        // While provisioning we hold an in-memory placeholder roster that must
+        // never reach disk or the mirror — otherwise it races the first iCloud
+        // pull and can clobber the real apps. `finishProvisioning()` clears the
+        // flag before its own definitive write.
+        guard !isProvisioning else { return }
+        // After a give-up, writes resume with the stand-in roster still on
+        // screen. It stays off disk (see `unadoptedPlaceholderIds`); apps the
+        // user made since are real intent and persist normally.
+        let unadopted = unadoptedPlaceholderIds
+        let enc = Self.stateEncoder()
+        var live = Set<UUID>()
+        for app in miniApps {
+            live.insert(app.id)
+            guard !unadopted.contains(app.id) else { continue }
+            guard let data = try? enc.encode(app) else { continue }
+            let h = data.hashValue
+            if lastAppHash[app.id] == h { continue }
+            try? CloudDocument.write(data, to: Self.appURL(app.id))
+            lastAppHash[app.id] = h
+            // Coalesce this edit into a debounced snapshot for History.
+            scheduleSnapshot(app.id)
+        }
+        for gone in Set(lastAppHash.keys).subtracting(live) {
+            CloudDocument.delete(Self.appURL(gone))
+            // Keep the user's permanent pins so they survive deletion — surfaced
+            // in Settings ▸ Pinned snapshots for restore/export.
+            SnapshotStore.deleteNonPinned(gone)
+            pendingSnapshotTasks[gone]?.cancel()
+            pendingSnapshotTasks[gone] = nil
+            lastAppHash[gone] = nil
+        }
+        // The index still gets written, minus the stand-in. It has to be:
+        // `load()` only reaches its union-of-disk-bodies recovery *inside* the
+        // "index decoded" branch, so skipping the write would hide apps the
+        // user made here until a roster arrives.
+        writeIndex(enc, unadopted: unadopted)
+    }
+
+    /// Write `index.json` only.
+    ///
+    /// `setActive` moves the active-app pointer, which lives in the index — no
+    /// app body changes. Going through `persist()` re-encoded **every** app to
+    /// discover exactly that, and it showed up as roughly half the synchronous
+    /// work of picking a MiniApp from the sidebar once a roster gets real.
+    private func persistIndex() {
+        guard !isProvisioning else { return }
+        writeIndex(Self.stateEncoder(), unadopted: unadoptedPlaceholderIds)
+    }
+
+    private func writeIndex(_ enc: JSONEncoder, unadopted: Set<UUID>) {
+        let index = IndexFile(
+            order: miniApps.map(\.id).filter { !unadopted.contains($0) },
+            activeId: activeMiniAppId,
+            memoryThreads: memoryThreads,
+            memoryCurrentThreadId: memoryCurrentThreadId,
+            itemEventLog: itemEventLog,
+            componentFolders: componentFolders,
+            miniAppFolders: miniAppFolders
+        )
+        if let data = try? enc.encode(index), data.hashValue != lastIndexHash {
+            try? CloudDocument.write(data, to: Self.indexURL)
+            lastIndexHash = data.hashValue
+        }
+    }
+
+    /// Delete `apps/<UUID>.json` files not in `keeping` whose modification
+    /// date is older than `minAge`. Age-gated because an iCloud merge can land
+    /// an app file *before* the index that references it — a week-old orphan
+    /// is garbage, a fresh one may be a sync in flight. Non-UUID / non-JSON
+    /// files are never touched. Returns the number of files deleted.
+    @discardableResult
+    nonisolated static func sweepOrphanAppFiles(
+        keeping live: Set<UUID>,
+        minAge: TimeInterval = 7 * 24 * 3600,
+        now: Date = Date()
+    ) -> Int {
+        let fm = FileManager.default
+        guard let names = try? fm.contentsOfDirectory(atPath: appsDir.path) else { return 0 }
+        let tombstoned = diskTombstoneIds()
+        var deleted = 0
+        for name in names {
+            guard name.hasSuffix(".json"),
+                  let id = UUID(uuidString: String(name.dropLast(".json".count))),
+                  !live.contains(id) else { continue }
+            let url = appsDir.appendingPathComponent(name)
+            // A tombstoned body is a confirmed delete, not roster material —
+            // reap it regardless of decodability or age so the delete propagates
+            // (this is how an arriving tombstone reaps the second device's copy).
+            if tombstoned.contains(id) {
+                // Capture it on the way out when nothing else holds this app:
+                // the deleting device recorded its own in `removeMiniApp`, but a
+                // device that only received the tombstone has this body as its
+                // sole restore material until that snapshot syncs. `hasHistory`
+                // first — on the launch path the common answer costs a `stat`
+                // rather than a listing plus a header decode per record.
+                // …unless the user purged it: a permanent delete must not be
+                // undone by a body arriving from a device that hasn't synced it.
+                if !isPurged(id),
+                   !SnapshotStore.hasHistory(id) || SnapshotStore.head(id) == nil,
+                   let data = CloudDocument.read(url),
+                   let app = try? JSONDecoder().decode(MiniApp.self, from: data) {
+                    SnapshotStore.record(app, reason: .deleted)
+                }
+                CloudDocument.delete(url)
+                deleted += 1
+                continue
+            }
+            // Never delete a file that still decodes as a real MiniApp body: a
+            // stale/lost index can de-list an app without deleting it, and that
+            // body is recovery material (union-load restores it), not an orphan.
+            // Only genuine junk (undecodable / partial) ages out.
+            if let data = CloudDocument.read(url),
+               (try? JSONDecoder().decode(MiniApp.self, from: data)) != nil { continue }
+            guard let mtime = (try? fm.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date,
+                  now.timeIntervalSince(mtime) > minAge else { continue }
+            CloudDocument.delete(url)
+            deleted += 1
+        }
+        return deleted
+    }
+
+    /// Drop tombstones older than `ttl`. Tiny files, but unbounded otherwise.
+    /// The TTL is generous so a tombstone always outlives an un-synced stale
+    /// body (bodies sweep at 7 days). Returns the number GC'd.
+    ///
+    /// Age comes from the decoded `deletedAt`; a tombstone that won't decode
+    /// (corrupt / half-written) falls back to the file's mtime, so it can't
+    /// suppress its app forever — it still ages out and GC's.
+    @discardableResult
+    nonisolated static func gcTombstones(
+        ttl: TimeInterval = 180 * 24 * 3600,
+        now: Date = Date()
+    ) -> Int {
+        let fm = FileManager.default
+        let dec = JSONDecoder()
+        var gcd = 0
+        var reaped = Set<UUID>()
+        // Both marker kinds age out on the same clock — a sync-lost app is
+        // listed and restorable for exactly as long as a deleted one.
+        for dir in [tombstonesDir, lostDir] {
+            guard let names = try? fm.contentsOfDirectory(atPath: dir.path) else { continue }
+            for name in names where name.hasSuffix(".json") {
+                let url = dir.appendingPathComponent(name)
+                let deletedAt: Date? = CloudDocument.read(url)
+                    .flatMap { try? dec.decode(Tombstone.self, from: $0) }?.deletedAt
+                    ?? (try? fm.attributesOfItem(atPath: url.path)[.modificationDate]) as? Date
+                guard let deletedAt, now.timeIntervalSince(deletedAt) > ttl else { continue }
+                CloudDocument.delete(url)
+                if let id = UUID(uuidString: String(name.dropLast(".json".count))) { reaped.insert(id) }
+                gcd += 1
+            }
+        }
+        // The app can never be listed under Recently deleted again, so drop the
+        // restore point the marker was holding. `keeping: [.pinned]` is the
+        // point — the default set preserves `.deleted` too, which would orphan
+        // it here forever. Only once BOTH markers are gone: an id can carry a
+        // lost marker and a later-arriving tombstone at the same time.
+        let surviving = diskTombstoneIds().union(diskLostIds())
+        for id in reaped.subtracting(surviving) {
+            SnapshotStore.deleteNonPinned(id, keeping: [.pinned])
+        }
+        return gcd
+    }
+
+    /// Fill the dirty-hash caches from current state without writing, so the
+    /// next mutation only re-encodes/uploads the file that changed.
+    private func primeHashes() {
+        let enc = Self.stateEncoder()
+        for app in miniApps {
+            if let data = try? enc.encode(app) { lastAppHash[app.id] = data.hashValue }
+        }
+        let index = IndexFile(
+            order: miniApps.map(\.id), activeId: activeMiniAppId,
+            memoryThreads: memoryThreads, memoryCurrentThreadId: memoryCurrentThreadId,
+            itemEventLog: itemEventLog, componentFolders: componentFolders,
+            miniAppFolders: miniAppFolders)
+        lastIndexHash = (try? enc.encode(index))?.hashValue
+    }
+
+    private struct Loaded {
+        var miniApps: [MiniApp]
+        var activeId: UUID
+        var memoryThreads: [ChatThread]
+        var memoryCurrentThreadId: String
+        var itemEventLog: ItemEventLog
+        var componentFolders: [String: ComponentFolderLayout]
+        var miniAppFolders: MiniAppFolderLayout
+        var fromDisk: Bool
+        var needsIndexMigration: Bool = false
+    }
+
+    /// If a MiniApp's `currentThreadId` no longer names an existing thread (e.g.
+    /// the storage cap pruned it on another device), re-point it to the newest
+    /// surviving thread. Mirrors `removeThread`'s guard.
+    private nonisolated static func repointingCurrent(_ app: MiniApp) -> MiniApp {
+        guard !app.threads.isEmpty,
+              !app.threads.contains(where: { $0.id == app.currentThreadId }) else { return app }
+        var copy = app
+        copy.currentThreadId = app.threads.last!.id
+        return copy
+    }
+
+    private nonisolated static func load() -> Loaded {
+        let dec = JSONDecoder()
+        if let data = CloudDocument.read(indexURL),
+           let index = try? dec.decode(IndexFile.self, from: data) {
+            // Roster membership = the UNION of the index's `order` and every
+            // decodable app body on disk. The index gives ORDER; the disk gives
+            // EXISTENCE. A stale/shrunk index (a bad merge, a seed pushed over
+            // real data) can de-list an app but can no longer HIDE it — which
+            // then let the 7-day orphan sweep delete it (the reinstall wipe).
+            // A genuine delete removes the body file too, so a deleted app is
+            // absent from disk here and never resurrects.
+            let tombstoned = diskTombstoneIds()
+            var seen = Set<UUID>()
+            var apps: [MiniApp] = []
+            for id in index.order {                       // index order first; tolerate missing/corrupt
+                guard !tombstoned.contains(id) else { continue }   // deleted → never load
+                guard seen.insert(id).inserted else { continue }
+                if let d = CloudDocument.read(appURL(id)), let app = try? dec.decode(MiniApp.self, from: d) {
+                    apps.append(app)
+                }
+            }
+            // Recover any on-disk body the index omitted (minus tombstoned),
+            // appended id-sorted so the roster is deterministic across launches.
+            for id in diskAppIds().subtracting(seen).subtracting(tombstoned).sorted(by: { $0.uuidString < $1.uuidString }) {
+                if let d = CloudDocument.read(appURL(id)), let app = try? dec.decode(MiniApp.self, from: d) {
+                    apps.append(app)
+                }
+            }
+            if !apps.isEmpty {
+                let active = apps.contains(where: { $0.id == index.activeId }) ? index.activeId : apps[0].id
+                var log = index.itemEventLog ?? ItemEventLog()
+                log.prune()
+                // A thread that is current on this device may have been pruned
+                // by the storage cap on another device before syncing here.
+                // Re-point any dangling current to the newest surviving thread
+                // so the UI never opens a dead/empty conversation.
+                let repointed = apps.map(repointingCurrent)
+                let memCurrent = index.memoryThreads.contains(where: { $0.id == index.memoryCurrentThreadId })
+                    ? index.memoryCurrentThreadId
+                    : (index.memoryThreads.last?.id ?? index.memoryCurrentThreadId)
+                return Loaded(miniApps: repointed, activeId: active, memoryThreads: index.memoryThreads,
+                              memoryCurrentThreadId: memCurrent,
+                              itemEventLog: log,
+                              componentFolders: index.componentFolders ?? [:],
+                              miniAppFolders: index.miniAppFolders ?? index.myAppFolders ?? MiniAppFolderLayout(),
+                              fromDisk: true,
+                              needsIndexMigration: index.myAppFolders != nil)
+            }
+        }
+
+        // Fresh install: seed the first two examples from the registry, the
+        // first of them active. One app made the MiniApps list look like a
+        // detail of the app rather than the thing you collect, and the tour
+        // opens on that list. Every other example is restorable from Settings.
+        // The caller writes this to disk via `persist()`.
+        let seeded = ExampleRegistry.all.prefix(ExampleRegistry.freshInstallSeedCount).map { $0.make() }
+        let miniApps = seeded.isEmpty ? [DailyBriefingExample.make()] : seeded
+        let miniApp = miniApps[0]
+        let firstThread = ChatThread()
+        return Loaded(miniApps: miniApps, activeId: miniApp.id,
+                      memoryThreads: [firstThread], memoryCurrentThreadId: firstThread.id,
+                      itemEventLog: ItemEventLog(), componentFolders: [:],
+                      miniAppFolders: MiniAppFolderLayout(), fromDisk: false)
+    }
+
+    /// Reload all state from disk and republish. Called by the iCloud watcher
+    /// when a remote edit lands so the UI reflects the other device.
+    ///
+    /// Before overwriting local state we (1) checkpoint any dirty in-memory
+    /// MiniApp that hasn't been persisted, and (2) capture + resolve any iCloud
+    /// `NSFileVersion` conflicts — snapshotting every side so no offline edit
+    /// is ever silently lost (issue #82).
+    ///
+    /// The heavy file IO — the whole-tree conflict scan and the coordinated
+    /// reads of `index.json` + every app file — runs **off the main actor**
+    /// (pupa#110): during an initial iCloud download the watcher fires this
+    /// repeatedly, and doing that IO on main stampeded the UI thread. Only the
+    /// in-memory dirty check (before) and the republish (after) touch main
+    /// state. The watcher keeps `NSMetadataQuery` updates suppressed until this
+    /// returns, so reloads can't overlap.
+    public func reloadFromDisk() async {
+        let enc = Self.stateEncoder()
+        // Not while provisioning: checkpointing the in-memory placeholder writes
+        // exactly what the guard exists to prevent, and a watcher pass can land
+        // here at any point in the (now much longer) wait.
+        if !isProvisioning {
+            for app in miniApps where (try? enc.encode(app))?.hashValue != lastAppHash[app.id] {
+                SnapshotStore.record(app, reason: .preReload)
+            }
+        }
+        let loaded = await Task.detached(priority: .utility) { [self] in
+            resolveConflictsCapturingSnapshots()
+            return Self.load()
+        }.value
+        guard loaded.fromDisk else { return }
+        noteSurpriseRemovals(incoming: loaded.miniApps)
+        adopt(loaded)
+        // After `adopt`: the scan is per live app, so it needs the roster the
+        // sync just handed us, not the one it replaced.
+        noteMemoryLosses()
+    }
+
+    /// Republish loaded state onto the main-actor store and re-prime the
+    /// dirty-hash caches. Shared by `reloadFromDisk` and `finishProvisioning`.
+    private func adopt(_ loaded: Loaded) {
+        // A real roster replaces the stand-in wholesale — nothing is held back
+        // any more, so `persist()` may write the index again.
+        unadoptedPlaceholderIds = []
+        miniApps = loaded.miniApps
+        activeMiniAppId = loaded.activeId
+        memoryThreads = loaded.memoryThreads
+        memoryCurrentThreadId = loaded.memoryCurrentThreadId
+        itemEventLog = loaded.itemEventLog
+        componentFolders = loaded.componentFolders
+        miniAppFolders = loaded.miniAppFolders
+        // A lost app whose body came back (the other device pushed it up again)
+        // is not lost any more — retire its marker so it stops being listed
+        // under Recently deleted alongside the live copy. One listing, normally
+        // empty. No memory recovery: the sync that returned the body returns the
+        // memory tree with it, so there is nothing to recover from quarantine.
+        for id in Self.diskLostIds() where loaded.miniApps.contains(where: { $0.id == id }) {
+            Self.clearDeleteMarkers(id)
+        }
+        lastAppHash.removeAll()
+        primeHashes()
+        if loaded.needsIndexMigration && !isProvisioning {
+            lastIndexHash = nil
+            persistIndex()
+        }
+        // A real roster is here, however it got here — the background retry, or
+        // a CloudWatcher `reloadFromDisk` that beat it. Left armed, the guards
+        // keep `persist()` a no-op and pin `state/index.json` to the cloud side
+        // for nothing, and the retry converges with nothing left to find.
+        if awaitingCloudRoster {
+            cancelCloudRosterRetry()
+            leaveProvisioning()
+        }
+    }
+
+    /// Stop the background retry and clear the state the UI reads from it.
+    private func cancelCloudRosterRetry() {
+        cloudRosterRetry?.cancel()
+        cloudRosterRetry = nil
+        awaitingCloudRoster = false
+        pendingCloudDownloads = 0
+    }
+
+    // MARK: - Provisional restore (seed-race fix)
+
+    /// Complete the provisional restore begun in `init` (see `isProvisioning`).
+    /// Forces the iCloud `state/` subtree to download and converges until the
+    /// real roster lands or a timeout elapses, then either ADOPTS the pulled
+    /// roster or — only if the cloud genuinely holds no roster — seeds the
+    /// default. Never pushes the in-memory placeholder up. Idempotent no-op
+    /// when not provisioning.
+    public func finishProvisioning() async {
+        guard isProvisioning else { return }
+        let deadline = ContinuousClock.now.advanced(by: Self.provisioningTimeout)
+        var loaded = Self.load()
+        while !loaded.fromDisk && ContinuousClock.now < deadline {
+            pendingCloudDownloads = PupaStorage.startDownloadingState()
+            _ = await StorageMirror.shared.reconcile()
+            loaded = Self.load()
+            if loaded.fromDisk { break }
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        if loaded.fromDisk {
+            leaveProvisioning()                  // BEFORE any write, so `persist()` works
+            adopt(loaded)                        // real roster pulled from iCloud
+            PupaStorage.markRosterEstablished()
+        } else if !Self.cloudHasRosterIndex() && !PupaStorage.rosterEstablished {
+            // Cloud holds no roster AND this install has never committed one → a
+            // genuine fresh start. Seed the default and mark it.
+            leaveProvisioning()
+            // No longer a stand-in: the cloud is empty, so this seed IS this
+            // install's roster and must persist.
+            unadoptedPlaceholderIds = []
+            backfillColorIndices()
+            for app in miniApps { seedBirthFiles(for: app) }
+            persist()
+            PupaStorage.markRosterEstablished()
+        } else {
+            // The cloud has (or had) a roster we couldn't pull in the window, so
+            // keep pulling rather than waiting for a CloudWatcher pass that may
+            // never come on a slow link (the "stuck on Daily Briefing" report).
+            //
+            // Deliberately STAYS provisioning: a roster is known to be up there,
+            // so until it's adopted the placeholder must neither reach disk nor
+            // win `state/index.json` in the mirror. Clearing the guard here is
+            // what lets one edit push a one-app roster over the real one.
+            beginAwaitingCloudRoster()
+        }
+    }
+
+    /// Drop the seed-race guards. Both must fall together: `isProvisioning`
+    /// gates local writes, `StorageMirror.provisioning` gates pushing (or
+    /// winning a conflict on) `state/index.json`.
+    private func leaveProvisioning() {
+        isProvisioning = false
+        StorageMirror.provisioning = false
+        // The count describes a wait that is now over — an in-window adopt
+        // never touches the retry state, so nothing else would clear it.
+        pendingCloudDownloads = 0
+    }
+
+    /// Re-arm the roster retry after it gave up — the banner's "Try again".
+    /// No-op while one is already running.
+    ///
+    /// Doesn't re-enter provisioning: apps the user made since must keep
+    /// persisting, and `unadoptedPlaceholderIds` holds the stand-in back anyway.
+    public func retryCloudRoster() {
+        beginAwaitingCloudRoster()
+    }
+
+    /// Keep downloading `state/` and adopt the roster the moment it lands.
+    /// Runs until it succeeds, the deadline passes, or the task is cancelled.
+    ///
+    /// One poll is expensive: `startDownloadingState()` walks the cloud `state/`
+    /// subtree, `reconcile()` scans and hashes both trees, and `load()` decodes
+    /// the index plus every app body — hundreds of passes over the timeout, on a
+    /// device already saturated by the download we're waiting for. So it backs
+    /// off to `maxInterval` and skips the decode when the converge moved
+    /// nothing, and it is `Task.detached` because this type is `@MainActor` and
+    /// an inherited-isolation `Task` would run all of that on the main thread.
+    func beginAwaitingCloudRoster(
+        timeout: Duration = .seconds(600),
+        interval: Duration = .seconds(3),
+        maxInterval: Duration = .seconds(30)
+    ) {
+        guard cloudRosterRetry == nil else { return }
+        awaitingCloudRoster = true
+        cloudRosterRetry = Task.detached(priority: .utility) { [weak self] in
+            let deadline = ContinuousClock.now.advanced(by: timeout)
+            var wait = interval
+            var first = true
+            while !Task.isCancelled && ContinuousClock.now < deadline {
+                let pending = PupaStorage.startDownloadingState()
+                let changed = await StorageMirror.shared.reconcile()
+                // Also decode when nothing is left to download, and on the first
+                // pass: a roster already in the local tree, or one pulled by
+                // someone else's converge, is invisible to `changed` alone.
+                let loaded = (changed || pending == 0 || first) ? Self.load() : nil
+                first = false
+                guard let self else { return }
+                if await self.adoptCloudRoster(loaded, pending: pending) { return }
+                try? await Task.sleep(for: wait)
+                wait = min(wait * 2, maxInterval)
+            }
+            // Gave up (or was cancelled). Left set, the flag has the UI
+            // promising "Restoring your apps…" with nothing running behind it.
+            await self?.finishAwaitingCloudRoster()
+        }
+    }
+
+    /// Publish one poll's result (`nil` when the poll skipped the decode).
+    /// Returns true once the real roster is adopted and the retry can stop.
+    private func adoptCloudRoster(_ loaded: Loaded?, pending: Int) -> Bool {
+        // Only on a change: `@Observable` publishes on write, not on write of a
+        // *different* value, so assigning unconditionally would re-render every
+        // observer of this store once per poll for the whole window.
+        if pending != pendingCloudDownloads { pendingCloudDownloads = pending }
+        guard let loaded, loaded.fromDisk else { return false }
+        leaveProvisioning()                      // the roster is here: writes are safe again
+        adopt(loaded)                            // clears the awaiting state
+        PupaStorage.markRosterEstablished()
+        return true
+    }
+
+    /// The retry stopped without a roster — unblock local writes so the user
+    /// isn't frozen, and drop the waiting state so the UI stops promising a
+    /// restore that isn't running.
+    ///
+    /// Deliberately leaves `StorageMirror.provisioning` set: we never pulled
+    /// the roster we know is up there, so the placeholder index still must not
+    /// win against it. Bodies push normally — the guard covers only
+    /// `state/index.json`. `unadoptedPlaceholderIds` stays set for the matching
+    /// reason on the local side.
+    private func finishAwaitingCloudRoster() {
+        isProvisioning = false
+        cancelCloudRosterRetry()
+    }
+
+    /// Whether the iCloud mirror holds a `state/index.json` in any form
+    /// (materialized or a not-yet-downloaded iOS `.icloud` placeholder). Used to
+    /// tell "genuinely empty cloud → seed" from "roster present but not pulled".
+    private nonisolated static func cloudHasRosterIndex() -> Bool {
+        guard let cloud = PupaStorage.cloudMirrorRoot else { return false }
+        let stateDir = cloud.appendingPathComponent("state", isDirectory: true)
+        let fm = FileManager.default
+        return fm.fileExists(atPath: stateDir.appendingPathComponent("index.json").path)
+            || fm.fileExists(atPath: stateDir.appendingPathComponent(".index.json.icloud").path)
+    }
+
+    // MARK: - Sync-removal advisement
+
+    /// Compare the incoming roster against the live one; if a sync removed apps
+    /// this user did NOT delete, snapshot each (so it's restorable even if it
+    /// was clean) and raise `pendingSyncRemoval`. Suppressed while provisioning
+    /// (the roster is still settling). Consumes matched `userInitiatedRemovals`.
+    private func noteSurpriseRemovals(incoming: [MiniApp]) {
+        guard !isProvisioning else { return }
+        let incomingIds = Set(incoming.map(\.id))
+        let vanished = miniApps.filter { !incomingIds.contains($0.id) }
+        // Surprise = vanished this user did NOT delete (computed before we
+        // consume the deliberate ones from the set below).
+        let surprise = vanished.filter { !userInitiatedRemovals.contains($0.id) }
+        userInitiatedRemovals.subtract(vanished.map(\.id))
+        guard !surprise.isEmpty else { return }
+        let tombstoned = Self.diskTombstoneIds()
+        for app in surprise {
+            // A tombstoned removal is a real delete made elsewhere: it already
+            // lists under Recently deleted, and the deleting device's `.deleted`
+            // record is the restore point. Just guarantee one for an app that
+            // was byte-clean (the dirty-only `.preReload` loop above skipped it).
+            guard !tombstoned.contains(app.id) else {
+                SnapshotStore.record(app, reason: .preReload)
+                continue
+            }
+            // No tombstone: the body vanished under us (a bad merge, a
+            // cloud-side deletion the mirror propagated). The banner is
+            // transient — dismiss it, or relaunch without answering, and the app
+            // would be unreachable. Mark it so Settings ▸ Recently deleted keeps
+            // it, and hold the restore point with `.deleted`, which is exempt
+            // from the snapshot TTL and cap (`SnapshotStore.survivesDeletion`)
+            // and is collected by the very marker this writes.
+            SnapshotStore.record(app, reason: .deleted)
+            Self.writeLostMarker(app.id, name: app.name)
+        }
+        pendingSyncRemoval = SyncRemovalNotice(ids: surprise.map(\.id), names: surprise.map(\.name))
+    }
+
+    /// Restore MiniApps flagged by `pendingSyncRemoval` from their snapshots and
+    /// clear the notice. Re-inserts each (idempotent by id) and persists.
+    public func restoreSyncRemovedApps() {
+        guard let notice = pendingSyncRemoval else { return }
+        for id in notice.ids where !miniApps.contains(where: { $0.id == id }) {
+            if let head = SnapshotStore.head(id),
+               let app = SnapshotStore.restoredApp(id, id: head.id) {
+                // Back in the roster before the markers go, so a crash mid-loop
+                // can't leave the app with neither a restore point nor a row.
+                miniApps.append(app)
+                // User explicitly restored — clear the delete markers (e.g. from
+                // a remote delete) so it isn't re-suppressed on relaunch. After
+                // `restoredApp` above: that may have resolved off the very
+                // `.deleted` record this drops. The same sync that took the app
+                // usually took its memory tree, hence `recoveringMemories`.
+                Self.clearDeleteMarkers(id, recoveringMemories: true)
+            }
+        }
+        pendingSyncRemoval = nil
+        persist()
+    }
+
+    /// Dismiss the restore banner without restoring. Non-destructive: the app
+    /// stays listed under Settings ▸ Recently deleted via the marker
+    /// `noteSurpriseRemovals` wrote, so this is "not now", not "lose it".
+    public func dismissSyncRemoval() { pendingSyncRemoval = nil }
+
+    // MARK: - Memory-loss advisement
+
+    /// Raise `pendingMemoryLoss` when a sync took memory files from apps that
+    /// are still in the roster — the half `recoverMemoryFiles` can't reach,
+    /// since it only runs on an un-delete (#251 follow-up).
+    ///
+    /// **Trigger is a lost *unit*, not a lost file.** A file deleted
+    /// deliberately on another device arrives as the same `.deleteLocal` and is
+    /// quarantined the same way, so firing on any missing file would nag on
+    /// ordinary multi-device use. A whole `pupa/skills/<x>/` or
+    /// `pupa/agents/<x>/` folder with nothing left on disk is the shape that
+    /// isn't ordinary — it's a skill or subagent that stopped loading.
+    ///
+    /// Once one unit has gone, recovery takes everything of that app's still
+    /// missing, so a dropped subtree comes back whole rather than config-only.
+    private func noteMemoryLosses() {
+        guard !isProvisioning else { return }
+        let since = Self.memoryLossSeenAt()
+        let lost = miniApps.compactMap { app -> (MiniApp, [String: URL])? in
+            let missing = Self.missingMemoryFiles(app.id, since: since)
+            guard missing.keys.contains(where: { Self.isLostUnitPath($0, appId: app.id) })
+            else { return nil }
+            return (app, missing)
+        }
+        guard !lost.isEmpty else { return }
+        pendingMemoryLoss = MemoryLossNotice(
+            ids: lost.map(\.0.id), names: lost.map(\.0.name),
+            fileCount: lost.reduce(0) { $0 + $1.1.count })
+    }
+
+    /// Quarantined memory files for `appId` preserved since `since` whose path
+    /// is no longer on disk. A live file always means no loss to report: the
+    /// copy is a conflict loser or a folded twin, not something that went.
+    private nonisolated static func missingMemoryFiles(
+        _ appId: UUID, since: Date
+    ) -> [String: URL] {
+        let root = PupaStorage.activeRoot
+        let prefix = "memories/\(MemoryStore.miniAppFolder(miniAppId: appId))"
+        return StorageMirror.preservedFiles(underPrefix: prefix, since: since, localRoot: root)
+            .filter { !FileManager.default.fileExists(atPath: root.appendingPathComponent($0.key).path) }
+    }
+
+    /// Whether `rel` sits in a `pupa/skills/<x>/` or `pupa/agents/<x>/` folder
+    /// that has no files left on disk — a unit that stopped loading, rather than
+    /// one file of a unit that still works.
+    private nonisolated static func isLostUnitPath(_ rel: String, appId: UUID) -> Bool {
+        let prefix = "memories/\(MemoryStore.miniAppFolder(miniAppId: appId))/"
+        guard rel.hasPrefix(prefix) else { return false }
+        let parts = rel.dropFirst(prefix.count).split(separator: "/").map(String.init)
+        // `pupa/<kind>/<name>/…` — anything shallower isn't a unit.
+        guard parts.count > 3, parts[0] == "pupa",
+              ["skills", "agents"].contains(parts[1]) else { return false }
+        let unit = PupaStorage.activeRoot
+            .appendingPathComponent("\(prefix)pupa/\(parts[1])/\(parts[2])", isDirectory: true)
+        return !FileManager.default.fileExists(atPath: unit.path)
+            || (try? FileManager.default.contentsOfDirectory(atPath: unit.path))?.isEmpty != false
+    }
+
+    /// Re-materialize every memory file the flagged apps are missing, then clear
+    /// the notice. The bytes come from the same quarantine an un-delete reads.
+    public func recoverLostMemoryFiles() {
+        guard let notice = pendingMemoryLoss else { return }
+        let since = Self.memoryLossSeenAt()
+        let root = PupaStorage.activeRoot
+        for id in notice.ids {
+            for (rel, src) in Self.missingMemoryFiles(id, since: since) {
+                guard let data = CloudDocument.read(src) else { continue }
+                try? CloudDocument.write(data, to: root.appendingPathComponent(rel))
+            }
+        }
+        Self.markMemoryLossSeen()
+        pendingMemoryLoss = nil
+    }
+
+    /// Dismiss without recovering. Unlike the sync-removal banner there is no
+    /// list to fall back on, so the dismissal is recorded: the same loss must
+    /// not re-raise on every relaunch. The bytes stay in quarantine until
+    /// `conflictMaxAge`, and a *later* loss raises again.
+    public func dismissMemoryLoss() {
+        Self.markMemoryLossSeen()
+        pendingMemoryLoss = nil
+    }
+
+    /// Local-only watermark: losses preserved at or before it have been shown.
+    /// Outside `state/` — like `lost/`, this is one device's UI history, not
+    /// something to propagate.
+    private nonisolated static var memoryLossSeenURL: URL {
+        PupaStorage.activeRoot.appendingPathComponent("memory-loss-seen.json")
+    }
+
+    private nonisolated static func memoryLossSeenAt() -> Date {
+        CloudDocument.read(memoryLossSeenURL)
+            .flatMap { try? JSONDecoder().decode(Date.self, from: $0) } ?? .distantPast
+    }
+
+    private nonisolated static func markMemoryLossSeen(at now: Date = Date()) {
+        guard let data = try? JSONEncoder().encode(now) else { return }
+        try? CloudDocument.write(data, to: memoryLossSeenURL)
+    }
+
+    // MARK: - Snapshot history
+
+    /// Bumped whenever the on-disk snapshot timeline changes out-of-band
+    /// (pins, restores). `snapshots(forMiniApp:)` reads it, so History views
+    /// observing the store re-read the timeline after a mutation that doesn't
+    /// touch `miniApps`.
+    public private(set) var historyRevision = 0
+
+    /// Debounce a snapshot capture for `appId`, collapsing a burst of edits
+    /// into one history entry.
+    private func scheduleSnapshot(_ appId: UUID) {
+        pendingSnapshotTasks[appId]?.cancel()
+        let epoch = Self.storageEpoch
+        pendingSnapshotTasks[appId] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.snapshotDebounceNanos)
+            guard !Task.isCancelled, Self.storageEpoch == epoch else { return }
+            self?.captureSnapshot(appId, reason: .edit)
+        }
+    }
+
+    private func captureSnapshot(_ appId: UUID, reason: SnapshotReason) {
+        pendingSnapshotTasks[appId] = nil
+        guard let app = miniApps.first(where: { $0.id == appId }) else { return }
+        SnapshotStore.record(app, reason: reason)
+    }
+
+    /// History entries for a MiniApp, newest-first, for the History timeline.
+    public func snapshots(forMiniApp miniAppId: UUID) -> [SnapshotMeta] {
+        _ = historyRevision  // establish observation dependency
+        return SnapshotStore.metas(miniAppId)
+    }
+
+    /// How many permanent pinned snapshots a MiniApp currently has.
+    public func pinnedSnapshotCount(forMiniApp miniAppId: UUID) -> Int {
+        _ = historyRevision
+        return SnapshotStore.pinnedCount(miniAppId)
+    }
+
+    /// Capture a permanent, user-labelled snapshot ("pin") of a MiniApp. Unlike
+    /// automatic `.edit` captures, pins are kept forever (exempt from
+    /// `SnapshotStore.prune`) and can be exported. Returns the new snapshot
+    /// id, or nil if the app is missing.
+    @discardableResult
+    public func takeSnapshot(miniAppId: UUID, label: String) -> UUID? {
+        guard let app = miniApps.first(where: { $0.id == miniAppId }) else { return nil }
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let id = SnapshotStore.record(
+            app, reason: .pinned, label: trimmed.isEmpty ? nil : trimmed)
+        historyRevision += 1
+        return id
+    }
+
+    /// Resolve a pinned snapshot back to its `MiniApp` state so it can be fed to
+    /// the shared export screen (`ExportShareScreen`). Works for deleted-app
+    /// pins too. Returns nil if the snapshot can't be resolved.
+    public func restoredApp(forSnapshot snapshotId: UUID, appId: UUID) -> MiniApp? {
+        _ = historyRevision
+        return SnapshotStore.restoredApp(appId, id: snapshotId)
+    }
+
+    /// One MiniApp's permanent pins, for the Settings ▸ Pinned snapshots page.
+    /// `isLive` is false for a deleted app whose pins were kept — its name and
+    /// icon are then resolved from the newest pin's own state.
+    public struct PinnedSnapshotGroup: Identifiable, Sendable {
+        public let appId: UUID
+        public let appName: String
+        public let iconSystemName: String
+        public let isLive: Bool
+        public let snapshots: [SnapshotMeta]
+        public var id: UUID { appId }
+    }
+
+    /// All permanent pins grouped by MiniApp, newest-first within a group and
+    /// sorted by app name. Includes deleted apps whose pins survived.
+    public func pinnedSnapshotGroups() -> [PinnedSnapshotGroup] {
+        _ = historyRevision
+        var groups: [PinnedSnapshotGroup] = []
+        for appId in SnapshotStore.allAppIds() {
+            let pins = SnapshotStore.pinnedMetas(appId)
+            guard let newest = pins.first else { continue }
+            let live = miniApps.first { $0.id == appId }
+            let name: String
+            let icon: String
+            if let live {
+                name = live.name
+                icon = live.iconSystemName
+            } else if let revived = SnapshotStore.restoredApp(appId, id: newest.id) {
+                name = revived.name
+                icon = revived.iconSystemName
+            } else {
+                name = "Deleted app"
+                icon = "questionmark.app.dashed"
+            }
+            groups.append(PinnedSnapshotGroup(
+                appId: appId, appName: name, iconSystemName: icon,
+                isLive: live != nil, snapshots: pins))
+        }
+        return groups.sorted { $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending }
+    }
+
+    /// Restore a pinned snapshot. If its MiniApp still exists, this is the normal
+    /// append-only restore (git-`revert`). If the app was deleted, the whole
+    /// MiniApp is **revived** from the pin (re-inserted under its original id, so
+    /// its surviving pins stay attached) and selected. Returns the affected
+    /// app's id, or nil if the pin can't be resolved.
+    @discardableResult
+    public func restorePinnedSnapshot(appId: UUID, snapshotId: UUID) -> UUID? {
+        if miniApps.contains(where: { $0.id == appId }) {
+            return restore(miniAppId: appId, snapshotId: snapshotId) ? appId : nil
+        }
+        guard let revived = SnapshotStore.restoredApp(appId, id: snapshotId) else { return nil }
+        // Restoring a pinned snapshot of a deleted app is an un-delete — clear
+        // its markers or union-load re-suppresses it and the sweep reaps the
+        // restored body on the next relaunch. After `restoredApp` above; the pin
+        // itself survives, only `.deleted` is dropped. `revived.name` is the
+        // name at pin time, which recovery bridges to the marker's.
+        Self.clearDeleteMarkers(revived.id, recoveringMemories: true)
+        miniApps.append(revived)
+        activeMiniAppId = revived.id
+        historyRevision += 1
+        persist()
+        return revived.id
+    }
+
+    /// Restore a MiniApp to an earlier snapshot. Non-destructive / append-only
+    /// (git-`revert`, not `git reset`): the current state is checkpointed
+    /// first (so it stays recoverable), then the restored state is applied
+    /// and recorded as the new head. Returns false if the snapshot can't be
+    /// resolved.
+    @discardableResult
+    public func restore(miniAppId: UUID, snapshotId: UUID) -> Bool {
+        guard let idx = miniApps.firstIndex(where: { $0.id == miniAppId }),
+              let restored = SnapshotStore.restoredApp(miniAppId, id: snapshotId)
+        else { return false }
+        // Checkpoint the pre-restore state so the user can jump back to it,
+        // then record the restored state as a strictly-newer head.
+        let now = Date()
+        SnapshotStore.record(miniApps[idx], reason: .edit, now: now)
+        miniApps[idx] = restored
+        SnapshotStore.record(restored, reason: .restored, now: now.addingTimeInterval(0.01))
+        historyRevision += 1
+        persist()
+        emitItemEvent(miniAppId: miniAppId,
+                      componentId: restored.activeComponentId ?? "",
+                      kind: .restored, actor: .user)
+        return true
+    }
+
+    /// Capture + resolve iCloud conflict versions for every app file. Each
+    /// side (current + every unresolved `NSFileVersion`) is snapshotted; the
+    /// live file is resolved to the newest side and lingering versions are
+    /// marked resolved. `nonisolated` — pure file IO over statics, so
+    /// `reloadFromDisk` can run it off the main actor.
+    private nonisolated func resolveConflictsCapturingSnapshots() {
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: Self.appsDir, includingPropertiesForKeys: nil) else { return }
+        for file in files where file.pathExtension == "json" {
+            let versions = CloudDocument.conflictVersions(at: file)
+            guard !versions.isEmpty else { continue }
+            let liveData = CloudDocument.read(file)
+            let liveDate = (try? file.resourceValues(forKeys: [.contentModificationDateKey])
+                .contentModificationDate) ?? .distantPast
+            let alternates: [(data: Data, date: Date)] = versions.compactMap { v in
+                CloudDocument.readVersion(v).map { ($0, v.modificationDate ?? .distantPast) }
+            }
+            if let winner = captureConflict(
+                liveData: liveData, liveDate: liveDate, versions: alternates) {
+                try? CloudDocument.write(winner, to: file)
+            }
+            CloudDocument.resolveConflicts(at: file)
+        }
+    }
+
+    /// Snapshot the live + every conflicting version of one app file and
+    /// return the newest side's data. Pure over its inputs so the
+    /// keep-both + newest-wins logic is unit-testable without `NSFileVersion`.
+    /// `nonisolated` so `resolveConflictsCapturingSnapshots` stays off-main.
+    nonisolated func captureConflict(
+        liveData: Data?, liveDate: Date, versions: [(data: Data, date: Date)]
+    ) -> Data? {
+        let dec = JSONDecoder()
+        if let liveData, let app = try? dec.decode(MiniApp.self, from: liveData) {
+            SnapshotStore.record(app, reason: .conflict)
+        }
+        var winner = liveData
+        var winnerDate = liveDate
+        for (data, date) in versions {
+            if let app = try? dec.decode(MiniApp.self, from: data) {
+                SnapshotStore.record(app, reason: .conflict)
+            }
+            if date > winnerDate { winner = data; winnerDate = date }
+        }
+        return winner
+    }
+
+    #if DEBUG
+    /// Test hook: capture the pending debounced snapshot immediately.
+    func captureSnapshotNowForTesting(_ appId: UUID, reason: SnapshotReason = .edit) {
+        captureSnapshot(appId, reason: reason)
+    }
+    #endif
+
+    /// Wipe `state/` for test isolation, quiescing every background writer
+    /// first: bumps the storage epoch (expires armed snapshot debounces),
+    /// drains the mirror (no in-flight reconcile mid-rm), and removes the
+    /// mirror baseline that lives beside `state/` in the storage root.
+    public static func clearStorage() async {
+        storageEpoch += 1
+        await StorageMirror.shared.drain()
+        try? FileManager.default.removeItem(at: stateRoot)
+        // Lives outside `state/` (never mirrored) — wipe it too, else a lost
+        // marker leaks into the next test's Recently deleted listing.
+        try? FileManager.default.removeItem(at: lostDir)
+        // Same for the other two trees outside `state/`: memory files and the
+        // quarantine they are recovered from. Left behind, one test's memories
+        // satisfy the next test's assertions about its own.
+        try? FileManager.default.removeItem(at: PupaStorage.memoriesRoot)
+        try? FileManager.default.removeItem(
+            at: PupaStorage.activeRoot.appendingPathComponent("conflicts", isDirectory: true))
+        try? FileManager.default.removeItem(at: memoryLossSeenURL)
+        StorageMirror.removeBaseline(localRoot: PupaStorage.activeRoot)
+        // Reset the provisioning fixtures so a "fresh device" test starts truly
+        // fresh and the process-wide guard flag can't leak into a sibling suite.
+        PupaStorage.clearRosterEstablished()
+        StorageMirror.provisioning = false
+    }
+}
+
+extension String {
+    /// `self` if non-empty after trimming whitespace, else `nil`. Used by
+    /// the calendar event resolver so a tracker item's missing or blank
+    /// field falls through to the event's snapshot instead of overriding
+    /// it with an empty string.
+    var nonEmpty: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : self
+    }
+}

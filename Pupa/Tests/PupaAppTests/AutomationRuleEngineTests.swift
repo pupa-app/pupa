@@ -3,7 +3,7 @@ import Testing
 @testable import PupaApp
 
 /// Covers the v1 automation slice (issue #209): JSON config parse, matcher
-/// equality, end-to-end `item.moved` emission from the `MyAppStore`
+/// equality, end-to-end `item.moved` emission from the `MiniAppStore`
 /// choke-point, the in-flight lock, once-per-transition dedupe, the
 /// self-mutation (`actor`) gate, and confirm-bubble vs auto-fire.
 @MainActor
@@ -13,31 +13,31 @@ struct AutomationRuleEngineTests {
     // MARK: - Fixtures
 
     /// A kanban tracker with a `status` select field (Todo/Review/Done) and one
-    /// Todo item. Returns the store, myApp id, component id, and item id.
-    private func kanbanFixture() -> (store: MyAppStore, myAppId: UUID, compId: String, itemId: UUID) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApp = MyApp(name: "T", iconSystemName: "list.bullet.rectangle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([myApp], myApp.id))
+    /// Todo item. Returns the store, miniApp id, component id, and item id.
+    private func kanbanFixture() -> (store: MiniAppStore, miniAppId: UUID, compId: String, itemId: UUID) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApp = MiniApp(name: "T", iconSystemName: "list.bullet.rectangle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([miniApp], miniApp.id))
         let compId = store.addComponent(kind: "tracker", name: "Board", iconSystemName: "square",
-                                         myAppId: myApp.id)!
+                                         miniAppId: miniApp.id)!
         store.setTracker(
             title: "Board",
             fields: [
                 FieldDef(name: "title", type: .text),
                 FieldDef(name: "status", type: .select, options: ["Todo", "Review", "Done"]),
             ],
-            myAppId: myApp.id,
+            miniAppId: miniApp.id,
             componentId: compId
         )
-        _ = store.setTrackerViewMode(.kanban, columnField: "status", myAppId: myApp.id, componentId: compId)
+        _ = store.setTrackerViewMode(.kanban, columnField: "status", miniAppId: miniApp.id, componentId: compId)
         let itemId = store.addItem(["title": "Ship v2", "status": "Todo"],
-                                   myAppId: myApp.id, componentId: compId)!
-        return (store, myApp.id, compId, itemId)
+                                   miniAppId: miniApp.id, componentId: compId)!
+        return (store, miniApp.id, compId, itemId)
     }
 
     private func event(to column: String, from: String? = "Todo", itemId: UUID = UUID(),
                        title: String = "Ship v2", field: String = "status") -> CanvasEvent {
-        CanvasEvent(type: .itemMoved, myAppId: UUID(), componentId: "c", itemId: itemId,
+        CanvasEvent(type: .itemMoved, miniAppId: UUID(), componentId: "c", itemId: itemId,
                     itemTitle: title, values: ["title": title], field: field,
                     fromColumn: from, toColumn: column)
     }
@@ -127,7 +127,7 @@ struct AutomationRuleEngineTests {
         f.store.onCanvasEvent = { engine.ingest($0, rules: [reviewRule()]) }
 
         _ = f.store.patchItem(id: f.itemId, with: ["status": "Review"],
-                              myAppId: f.myAppId, componentId: f.compId)
+                              miniAppId: f.miniAppId, componentId: f.compId)
 
         #expect(engine.pendingProposal != nil)
         #expect(engine.pendingProposal?.prompt == "Review Ship v2.")
@@ -140,7 +140,7 @@ struct AutomationRuleEngineTests {
         f.store.onCanvasEvent = { engine.ingest($0, rules: [reviewRule()]) }
 
         _ = f.store.patchItem(id: f.itemId, with: ["title": "Renamed"],
-                              myAppId: f.myAppId, componentId: f.compId)
+                              miniAppId: f.miniAppId, componentId: f.compId)
 
         #expect(engine.pendingProposal == nil)
     }
@@ -202,12 +202,12 @@ struct AutomationRuleEngineTests {
         f.store.onCanvasEvent = { engine.ingest($0, rules: [reviewRule()]) }
 
         _ = f.store.patchItem(id: f.itemId, with: ["status": "Review"],
-                              myAppId: f.myAppId, componentId: f.compId,
+                              miniAppId: f.miniAppId, componentId: f.compId,
                               actor: .agent(toolName: "patchTrackerItems"))
         #expect(engine.pendingProposal == nil)
 
         _ = f.store.patchItem(id: f.itemId, with: ["status": "Done"],
-                              myAppId: f.myAppId, componentId: f.compId, actor: .user)
+                              miniAppId: f.miniAppId, componentId: f.compId, actor: .user)
         // A user move that changes the column still emits (matcher is Review,
         // so Done won't propose — assert via a Done-matching rule instead).
         let engine2 = RuleEngine()
@@ -216,7 +216,7 @@ struct AutomationRuleEngineTests {
                            action: AutomationAction(startThreadPrompt: "Review {{item.title}}."))
         ]) }
         _ = f.store.patchItem(id: f.itemId, with: ["status": "Review"],
-                              myAppId: f.myAppId, componentId: f.compId, actor: .user)
+                              miniAppId: f.miniAppId, componentId: f.compId, actor: .user)
         #expect(engine2.pendingProposal != nil)
     }
 

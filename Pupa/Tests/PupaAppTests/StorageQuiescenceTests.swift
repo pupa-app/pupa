@@ -4,7 +4,7 @@ import Testing
 
 /// Guards suite isolation on the shared test storage root: background disk
 /// writers (debounced mirror reconciles, snapshot captures) must never leak
-/// past a quiesce point (`StorageMirror.drain()` / `MyAppStore.clearStorage()`)
+/// past a quiesce point (`StorageMirror.drain()` / `MiniAppStore.clearStorage()`)
 /// and fire into a later test's environment.
 @MainActor
 @Suite("Storage quiescence", .serialized)
@@ -14,7 +14,7 @@ struct StorageQuiescenceTests {
 
     @Test("drain() prevents a leaked debounced reconcile from firing into a later cloud override")
     func drainQuiescesPendingReconcile() async throws {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         // Arm: any CloudDocument write schedules a 0.5s reconcile (override nil now).
         try CloudDocument.write(
             Data("x".utf8),
@@ -32,14 +32,14 @@ struct StorageQuiescenceTests {
 
     @Test("clearStorage expires armed snapshot debounces — no late write resurrects state/")
     func lateSnapshotCannotResurrectClearedStorage() async throws {
-        let saved = MyAppStore.snapshotDebounceNanos
-        MyAppStore.snapshotDebounceNanos = 50_000_000         // 50ms
-        defer { MyAppStore.snapshotDebounceNanos = saved }
+        let saved = MiniAppStore.snapshotDebounceNanos
+        MiniAppStore.snapshotDebounceNanos = 50_000_000         // 50ms
+        defer { MiniAppStore.snapshotDebounceNanos = saved }
 
-        await MyAppStore.clearStorage()
-        let store = MyAppStore()                              // kept alive past clear
-        _ = store.addMyApp(typeId: "tracker", name: "Ghost", iconSystemName: "star")
-        await MyAppStore.clearStorage()                       // bumps epoch
+        await MiniAppStore.clearStorage()
+        let store = MiniAppStore()                              // kept alive past clear
+        _ = store.addMiniApp(typeId: "tracker", name: "Ghost", iconSystemName: "star")
+        await MiniAppStore.clearStorage()                       // bumps epoch
         try await Task.sleep(for: .milliseconds(300))         // outlive the debounce
         let snapshots = PupaStorage.stateRoot.appendingPathComponent("snapshots")
         #expect(!FileManager.default.fileExists(atPath: snapshots.path))

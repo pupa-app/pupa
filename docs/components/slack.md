@@ -7,7 +7,7 @@ subagents** — see [Subagents](../architecture.md#subagents) for the primitive.
 
 Agents are **not** stored in the component. They are filesystem subagents
 (`pupa/agents/<slug>/AGENTS.md`) discovered by `AgentStore`; a Slack workspace's
-roster is *all* subagents in the MyApp. The component owns only rooms + history.
+roster is *all* subagents in the MiniApp. The component owns only rooms + history.
 
 Building that roster walks the app's memory dir and parses every agent file, so
 `SlackView.body` reads it **once** and passes `roster` down to every helper —
@@ -26,7 +26,7 @@ each one is what made typing stutter.
 
 No `agents` field. A legacy `agents` key in an old on-disk blob is ignored.
 
-## Mutators ([MyApps/MyAppStore.swift](../../Pupa/Sources/PupaApp/MyApps/MyAppStore.swift))
+## Mutators ([MiniApps/MiniAppStore.swift](../../Pupa/Sources/PupaApp/MiniApps/MiniAppStore.swift))
 
 `slackAddChannel`, `slackAddAgentsToChannel`, `slackSetActiveChannel`,
 `slackPostMessage`, `slackOpenDM(agentId:displayName:)`. Member/author ids are
@@ -53,7 +53,7 @@ or the new-agent UI, which calls `AgentStore.createAgent`) — there is no
 `runSubagent`: it resolves the subagent from `AgentStore`, adds channel-history
 context (`slackInvocationPrompt`), streams live tool-call bubbles through
 `SlackInvoker`, and auto-posts the final reply unless the agent already called
-`slackPostMessage`. Gated by `AgentInvocationGate` under `.subagent(myAppId:slug:)`.
+`slackPostMessage`. Gated by `AgentInvocationGate` under `.subagent(miniAppId:slug:)`.
 
 ## Export
 

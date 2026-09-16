@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import PupaApp
 
-/// Tests for the `MyAppStore.slack*` mutators + `SlackView` pure helpers.
+/// Tests for the `MiniAppStore.slack*` mutators + `SlackView` pure helpers.
 /// Slack agents are filesystem subagents now — channels reference them by
 /// slug, and the store stores member slugs verbatim (roster validation is
 /// the caller's job).
@@ -10,26 +10,26 @@ import Testing
 @Suite("Slack mutators")
 struct SlackMutatorsTests {
 
-    private func freshStore() -> (MyAppStore, UUID) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApp = MyApp(
+    private func freshStore() -> (MiniAppStore, UUID) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApp = MiniApp(
             name: "T",
             iconSystemName: "bubble.left.and.bubble.right",
-            typeId: MyAppType.tracker.id
+            typeId: MiniAppType.tracker.id
         )
-        let store = MyAppStore(initial: ([myApp], myApp.id))
+        let store = MiniAppStore(initial: ([miniApp], miniApp.id))
         store.addComponent(
             kind: "slack",
             name: "Slack",
             iconSystemName: "bubble.left.and.bubble.right",
-            myAppId: myApp.id
+            miniAppId: miniApp.id
         )
-        return (store, myApp.id)
+        return (store, miniApp.id)
     }
 
-    private func slack(_ store: MyAppStore, id: UUID) -> SlackData? {
-        guard let myApp = store.myApps.first(where: { $0.id == id }) else { return nil }
-        for comp in myApp.components {
+    private func slack(_ store: MiniAppStore, id: UUID) -> SlackData? {
+        guard let miniApp = store.miniApps.first(where: { $0.id == id }) else { return nil }
+        for comp in miniApp.components {
             if case .slack(let s) = comp.body { return s }
         }
         return nil
@@ -56,7 +56,7 @@ struct SlackMutatorsTests {
             name: "planning",
             type: .channel,
             memberAgentIds: ["scout", "dev"],
-            myAppId: id
+            miniAppId: id
         )
         #expect(cId == "channel-1")
         let s = slack(store, id: id)
@@ -67,14 +67,14 @@ struct SlackMutatorsTests {
     @Test("slackAddAgentsToChannel is idempotent and appends new slugs")
     func addAgentsToChannel() {
         let (store, id) = freshStore()
-        let cId = store.slackAddChannel(name: "planning", type: .channel, myAppId: id)!
+        let cId = store.slackAddChannel(name: "planning", type: .channel, miniAppId: id)!
 
-        let first = store.slackAddAgentsToChannel(channelId: cId, agentIds: ["scout"], myAppId: id)
+        let first = store.slackAddAgentsToChannel(channelId: cId, agentIds: ["scout"], miniAppId: id)
         #expect(first == true)
         // Idempotent: same slug again is a no-op.
-        let second = store.slackAddAgentsToChannel(channelId: cId, agentIds: ["scout"], myAppId: id)
+        let second = store.slackAddAgentsToChannel(channelId: cId, agentIds: ["scout"], miniAppId: id)
         #expect(second == false)
-        let more = store.slackAddAgentsToChannel(channelId: cId, agentIds: ["dev"], myAppId: id)
+        let more = store.slackAddAgentsToChannel(channelId: cId, agentIds: ["dev"], miniAppId: id)
         #expect(more == true)
         #expect(slack(store, id: id)?.channels.first?.memberAgentIds == ["scout", "dev"])
     }
@@ -82,15 +82,15 @@ struct SlackMutatorsTests {
     @Test("slackSetActiveChannel toggles activeChannelId and rejects unknown ids")
     func setActiveChannel() {
         let (store, id) = freshStore()
-        let c1 = store.slackAddChannel(name: "a", type: .channel, myAppId: id)!
-        let c2 = store.slackAddChannel(name: "b", type: .channel, myAppId: id)!
+        let c1 = store.slackAddChannel(name: "a", type: .channel, miniAppId: id)!
+        let c2 = store.slackAddChannel(name: "b", type: .channel, miniAppId: id)!
         #expect(slack(store, id: id)?.activeChannelId == c1)
 
-        let switched = store.slackSetActiveChannel(channelId: c2, myAppId: id)
+        let switched = store.slackSetActiveChannel(channelId: c2, miniAppId: id)
         #expect(switched == true)
         #expect(slack(store, id: id)?.activeChannelId == c2)
 
-        let bogus = store.slackSetActiveChannel(channelId: "channel-bogus", myAppId: id)
+        let bogus = store.slackSetActiveChannel(channelId: "channel-bogus", miniAppId: id)
         #expect(bogus == false)
         #expect(slack(store, id: id)?.activeChannelId == c2)
     }
@@ -98,9 +98,9 @@ struct SlackMutatorsTests {
     @Test("slackPostMessage appends to messagesByChannel; returns nil for unknown channel")
     func postMessage() {
         let (store, id) = freshStore()
-        let cId = store.slackAddChannel(name: "planning", type: .channel, myAppId: id)!
+        let cId = store.slackAddChannel(name: "planning", type: .channel, miniAppId: id)!
         let msgId = store.slackPostMessage(
-            channelId: cId, authorKind: .user, authorId: "user", text: "kickoff", myAppId: id
+            channelId: cId, authorKind: .user, authorId: "user", text: "kickoff", miniAppId: id
         )
         #expect(msgId != nil)
         let msgs = slack(store, id: id)?.messagesByChannel[cId] ?? []
@@ -109,7 +109,7 @@ struct SlackMutatorsTests {
         #expect(msgs.first?.authorKind == .user)
 
         let bogus = store.slackPostMessage(
-            channelId: "channel-bogus", authorKind: .user, authorId: "user", text: "x", myAppId: id
+            channelId: "channel-bogus", authorKind: .user, authorId: "user", text: "x", miniAppId: id
         )
         #expect(bogus == nil)
     }
@@ -117,9 +117,9 @@ struct SlackMutatorsTests {
     @Test("slackPostMessage rejects empty / whitespace-only text")
     func postMessageEmpty() {
         let (store, id) = freshStore()
-        let cId = store.slackAddChannel(name: "planning", type: .channel, myAppId: id)!
+        let cId = store.slackAddChannel(name: "planning", type: .channel, miniAppId: id)!
         let bad = store.slackPostMessage(
-            channelId: cId, authorKind: .user, authorId: "user", text: "   ", myAppId: id
+            channelId: cId, authorKind: .user, authorId: "user", text: "   ", miniAppId: id
         )
         #expect(bad == nil)
         #expect((slack(store, id: id)?.messagesByChannel[cId] ?? []).isEmpty)
@@ -136,14 +136,14 @@ struct SlackMutatorsTests {
     @Test("slackComponentId resolves active / first slack component")
     func componentResolver() {
         let (store, id) = freshStore()
-        let resolved = store.slackComponentId(myAppId: id)
+        let resolved = store.slackComponentId(miniAppId: id)
         #expect(resolved == "slack-1")
     }
 
     @Test("slackOpenDM creates a DM channel the first time, returns the same one on repeat")
     func openDMIdempotent() {
         let (store, id) = freshStore()
-        let firstDM = store.slackOpenDM(agentId: "marketing", displayName: "Marketing", myAppId: id)
+        let firstDM = store.slackOpenDM(agentId: "marketing", displayName: "Marketing", miniAppId: id)
         #expect(firstDM != nil)
         let s1 = slack(store, id: id)!
         let channel = s1.channels.first { $0.id == firstDM }!
@@ -152,7 +152,7 @@ struct SlackMutatorsTests {
         #expect(channel.name == "Marketing")
 
         // Second call should reuse the same channel — no duplicates.
-        let secondDM = store.slackOpenDM(agentId: "marketing", displayName: "Marketing", myAppId: id)
+        let secondDM = store.slackOpenDM(agentId: "marketing", displayName: "Marketing", miniAppId: id)
         #expect(secondDM == firstDM)
         #expect(slack(store, id: id)?.channels.count == 1)
     }
@@ -160,8 +160,8 @@ struct SlackMutatorsTests {
     @Test("slackOpenDM does NOT match a group DM that happens to contain the agent")
     func openDMNotConfusedByGroupDM() {
         let (store, id) = freshStore()
-        _ = store.slackAddChannel(name: "team", type: .groupDM, memberAgentIds: ["marketing", "dev"], myAppId: id)
-        let dm = store.slackOpenDM(agentId: "marketing", displayName: "Marketing", myAppId: id)
+        _ = store.slackAddChannel(name: "team", type: .groupDM, memberAgentIds: ["marketing", "dev"], miniAppId: id)
+        let dm = store.slackOpenDM(agentId: "marketing", displayName: "Marketing", miniAppId: id)
         let channel = slack(store, id: id)?.channels.first { $0.id == dm }
         #expect(channel?.type == .dm)
         #expect(channel?.memberAgentIds == ["marketing"])

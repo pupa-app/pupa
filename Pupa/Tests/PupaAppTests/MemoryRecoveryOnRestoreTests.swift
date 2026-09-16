@@ -33,7 +33,7 @@ struct MemoryRecoveryOnRestoreTests {
     }
 
     /// Memory folder = the app's immutable id (lowercased uuid).
-    private func folder(_ id: UUID) -> String { MemoryStore.myAppFolder(myAppId: id) }
+    private func folder(_ id: UUID) -> String { MemoryStore.miniAppFolder(miniAppId: id) }
 
     /// Quarantine the app body the way a sync-driven `.deleteLocal` does. Its
     /// preservation time is what recovery anchors the window on.
@@ -48,16 +48,16 @@ struct MemoryRecoveryOnRestoreTests {
 
     @Test("restoring a deleted app re-materializes its quarantined memory files")
     func restoreRecoversMemoryFiles() async throws {
-        await MyAppStore.clearStorage()
-        let store = MyAppStore()
-        let id = store.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
+        await MiniAppStore.clearStorage()
+        let store = MiniAppStore()
+        let id = store.addMiniApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
         let s = folder(id)
-        store.removeMyApp(id)
+        store.removeMiniApp(id)
         // iCloud dropped the memory tree; the mirror quarantined it on the way out.
         quarantine("memories/\(s)/pupa/agents/coach/AGENTS.md", "coach prompt")
         quarantine("memories/\(s)/pupa/skills/warmup/SKILL.md", "warmup skill")
 
-        #expect(store.restoreDeletedMyApp(id))
+        #expect(store.restoreDeletedMiniApp(id))
 
         #expect(memoryBody("\(s)/pupa/agents/coach/AGENTS.md") == "coach prompt")
         #expect(memoryBody("\(s)/pupa/skills/warmup/SKILL.md") == "warmup skill")
@@ -65,31 +65,31 @@ struct MemoryRecoveryOnRestoreTests {
 
     @Test("a sync-lost app recovers its memory files too")
     func syncLostAppRecoversMemoryFiles() async throws {
-        await MyAppStore.clearStorage()
-        let a = MyAppStore()
-        let id = a.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
+        await MiniAppStore.clearStorage()
+        let a = MiniAppStore()
+        let id = a.addMiniApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
         let s = folder(id)
-        let other = MyAppStore()
-        other.removeMyApp(id)
-        MyAppStore.clearDeleteMarkers(id)          // vanished with no tombstone
+        let other = MiniAppStore()
+        other.removeMiniApp(id)
+        MiniAppStore.clearDeleteMarkers(id)          // vanished with no tombstone
         await a.reloadFromDisk()
         quarantine("memories/\(s)/pupa/agents/coach/AGENTS.md", "coach prompt")
 
         a.restoreSyncRemovedApps()
 
-        #expect(a.myApps.contains { $0.id == id })
+        #expect(a.miniApps.contains { $0.id == id })
         #expect(memoryBody("\(s)/pupa/agents/coach/AGENTS.md") == "coach prompt")
     }
 
     @Test("reviving a deleted app from a pinned snapshot recovers its memory files")
     func pinnedReviveRecoversMemoryFiles() async throws {
-        await MyAppStore.clearStorage()
-        let store = MyAppStore()
-        let id = store.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
+        await MiniAppStore.clearStorage()
+        let store = MiniAppStore()
+        let id = store.addMiniApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
         let s = folder(id)
-        #expect(store.takeSnapshot(myAppId: id, label: "v1") != nil)
+        #expect(store.takeSnapshot(miniAppId: id, label: "v1") != nil)
         let pin = try #require(SnapshotStore.pinnedMetas(id).first)
-        store.removeMyApp(id)
+        store.removeMiniApp(id)
         quarantine("memories/\(s)/pupa/agents/coach/AGENTS.md", "coach prompt")
 
         #expect(store.restorePinnedSnapshot(appId: id, snapshotId: pin.id) == id)
@@ -103,35 +103,35 @@ struct MemoryRecoveryOnRestoreTests {
     /// where the revived app actually reads.
     @Test("a pin from before a rename recovers into the revived app's folder")
     func pinnedReviveBridgesARename() async throws {
-        await MyAppStore.clearStorage()
-        let store = MyAppStore()
-        let id = store.addMyApp(typeId: "tracker", name: "Rename before", iconSystemName: "star")
-        #expect(store.takeSnapshot(myAppId: id, label: "v1") != nil)
+        await MiniAppStore.clearStorage()
+        let store = MiniAppStore()
+        let id = store.addMiniApp(typeId: "tracker", name: "Rename before", iconSystemName: "star")
+        #expect(store.takeSnapshot(miniAppId: id, label: "v1") != nil)
         let pin = try #require(SnapshotStore.pinnedMetas(id).first)
-        store.renameMyApp(id, to: "Rename after")
-        store.removeMyApp(id)
+        store.renameMiniApp(id, to: "Rename after")
+        store.removeMiniApp(id)
         // Memory is id-keyed, so rename never moved the folder — recovery lands
         // in the one folder (the app's id) regardless of the name at removal.
         quarantine("memories/\(folder(id))/pupa/agents/coach/AGENTS.md", "coach prompt")
 
         #expect(store.restorePinnedSnapshot(appId: id, snapshotId: pin.id) == id)
 
-        #expect(store.myApps.first { $0.id == id }?.name == "Rename before")
+        #expect(store.miniApps.first { $0.id == id }?.name == "Rename before")
         #expect(memoryBody("\(folder(id))/pupa/agents/coach/AGENTS.md") == "coach prompt")
     }
 
     @Test("recovery never overwrites a memory file that is still on disk")
     func liveFileWins() async throws {
-        await MyAppStore.clearStorage()
-        let store = MyAppStore()
-        let id = store.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
+        await MiniAppStore.clearStorage()
+        let store = MiniAppStore()
+        let id = store.addMiniApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
         let s = folder(id)
-        let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: id))
+        let memory = MemoryStore(rootOverride: MemoryStore.appRoot(miniAppId: id))
         _ = try? memory.writeFile(path: "pupa/skills/warmup/SKILL.md", content: "live")
-        store.removeMyApp(id)
+        store.removeMiniApp(id)
         quarantine("memories/\(s)/pupa/skills/warmup/SKILL.md", "stale quarantined copy")
 
-        #expect(store.restoreDeletedMyApp(id))
+        #expect(store.restoreDeletedMiniApp(id))
 
         #expect(memoryBody("\(s)/pupa/skills/warmup/SKILL.md") == "live")
     }
@@ -141,30 +141,30 @@ struct MemoryRecoveryOnRestoreTests {
     /// the removal comes back.
     @Test("a file quarantined long before the removal is not resurrected")
     func staleQuarantineIsNotResurrected() async throws {
-        await MyAppStore.clearStorage()
-        let store = MyAppStore()
-        let id = store.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
+        await MiniAppStore.clearStorage()
+        let store = MiniAppStore()
+        let id = store.addMiniApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
         let s = folder(id)
-        store.removeMyApp(id)
+        store.removeMiniApp(id)
         quarantine("memories/\(s)/pupa/skills/dropped/SKILL.md", "deliberately deleted",
                    at: Date(timeIntervalSinceNow: -3 * 24 * 3600))
 
-        #expect(store.restoreDeletedMyApp(id))
+        #expect(store.restoreDeletedMiniApp(id))
 
         #expect(memoryBody("\(s)/pupa/skills/dropped/SKILL.md") == nil)
     }
 
     @Test("recovery is scoped to the restored app's own memory folder")
     func otherAppsMemoryIsUntouched() async throws {
-        await MyAppStore.clearStorage()
-        let store = MyAppStore()
-        let id = store.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
-        store.removeMyApp(id)
+        await MiniAppStore.clearStorage()
+        let store = MiniAppStore()
+        let id = store.addMiniApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
+        store.removeMiniApp(id)
         // Some other app's folder (a different id) — recovery must not touch it.
         let other = UUID()
         quarantine("memories/\(folder(other))/pupa/skills/x/SKILL.md", "not mine")
 
-        #expect(store.restoreDeletedMyApp(id))
+        #expect(store.restoreDeletedMiniApp(id))
 
         #expect(memoryBody("\(folder(other))/pupa/skills/x/SKILL.md") == nil)
     }
@@ -177,17 +177,17 @@ struct MemoryRecoveryOnRestoreTests {
     /// files recoverable at all in that case.
     @Test("a loss noticed long after it happened still recovers")
     func lossAnchorBeatsTheNoticeTime() async throws {
-        await MyAppStore.clearStorage()
-        let store = MyAppStore()
-        let id = store.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
+        await MiniAppStore.clearStorage()
+        let store = MiniAppStore()
+        let id = store.addMiniApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
         let s = folder(id)
-        store.removeMyApp(id)                            // marker's `deletedAt` = now
+        store.removeMiniApp(id)                            // marker's `deletedAt` = now
         // The sync that took it ran 40 minutes ago — far outside the slack.
         quarantineBody(id, at: Date(timeIntervalSinceNow: -40 * 60))
         quarantine("memories/\(s)/pupa/skills/warmup/SKILL.md", "warmup skill",
                    at: Date(timeIntervalSinceNow: -40 * 60))
 
-        #expect(store.restoreDeletedMyApp(id))
+        #expect(store.restoreDeletedMiniApp(id))
 
         #expect(memoryBody("\(s)/pupa/skills/warmup/SKILL.md") == "warmup skill")
     }
@@ -197,13 +197,13 @@ struct MemoryRecoveryOnRestoreTests {
     /// loss, resurrecting everything dropped in between.
     @Test("recovery clears the body quarantine it anchored on")
     func recoveryClosesTheLoss() async throws {
-        await MyAppStore.clearStorage()
-        let store = MyAppStore()
-        let id = store.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
-        store.removeMyApp(id)
+        await MiniAppStore.clearStorage()
+        let store = MiniAppStore()
+        let id = store.addMiniApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
+        store.removeMiniApp(id)
         quarantineBody(id, at: Date(timeIntervalSinceNow: -40 * 60))
 
-        #expect(store.restoreDeletedMyApp(id))
+        #expect(store.restoreDeletedMiniApp(id))
 
         #expect(bodyQuarantineTime(id) == nil)
     }

@@ -29,7 +29,7 @@ public extension ComponentExportPolicy {
 
 /// Registry of per-kind export policies. Mirrors `ItemPolicyRegistry`: a
 /// `@MainActor` singleton, keyed by kind string, registered at bootstrap in
-/// `MyAppTypeRegistry.registerBuiltins()`.
+/// `MiniAppTypeRegistry.registerBuiltins()`.
 @MainActor
 public final class ComponentExportRegistry {
     public static let shared = ComponentExportRegistry()
@@ -70,7 +70,7 @@ public final class ComponentExportRegistry {
             preconditionFailure(
                 "Component kinds \(missing.sorted()) are in supportedComponentKinds "
                 + "but have no ComponentExportPolicy. Register one in "
-                + "MyAppTypeRegistry.registerBuiltins().")
+                + "MiniAppTypeRegistry.registerBuiltins().")
         }
     }
 }

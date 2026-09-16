@@ -1,22 +1,22 @@
 import SwiftUI
 
-/// Settings ▸ Recently deleted: MyApps whose delete marker is still on disk
+/// Settings ▸ Recently deleted: MiniApps whose delete marker is still on disk
 /// (180 days, then `gcTombstones` reaps it), restorable from whatever survives
-/// them — see `MyAppStore.restorableApp`. The undo for a removal that is
+/// them — see `MiniAppStore.restorableApp`. The undo for a removal that is
 /// otherwise silent and final: a delete made here or on another device, and an
 /// app a sync took away without asking (the dismissible restore banner).
 struct RecentlyDeletedAppsView: View {
-    let store: MyAppStore
+    let store: MiniAppStore
 
     /// Held in state, not recomputed per `body`: building it reads every
     /// tombstone and probes a restore source for each.
-    @State private var deleted: [MyAppStore.DeletedMyApp] = []
+    @State private var deleted: [MiniAppStore.DeletedMiniApp] = []
     @State private var loaded = false
     /// Set when a Restore we offered didn't take — the source can go away
     /// between the scan and the tap. Doing nothing reads as a broken button.
     @State private var failedToRestore: String?
     /// The row awaiting confirmation of a permanent delete.
-    @State private var pendingPurge: MyAppStore.DeletedMyApp?
+    @State private var pendingPurge: MiniAppStore.DeletedMiniApp?
 
     var body: some View {
         List {
@@ -44,7 +44,7 @@ struct RecentlyDeletedAppsView: View {
         // Off-main: the scan touches the filesystem once per tombstone.
         .task {
             deleted = await Task.detached(priority: .userInitiated) {
-                MyAppStore.deletedMyApps()
+                MiniAppStore.deletedMiniApps()
             }.value
             loaded = true
         }
@@ -76,7 +76,7 @@ struct RecentlyDeletedAppsView: View {
     }
 
     @ViewBuilder
-    private func row(_ app: MyAppStore.DeletedMyApp) -> some View {
+    private func row(_ app: MiniAppStore.DeletedMiniApp) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(app.name)
@@ -101,7 +101,7 @@ struct RecentlyDeletedAppsView: View {
 
     /// "Deleted 3 days ago · no restore point". The date is dropped entirely
     /// when the marker didn't decode — better blank than invented.
-    private func caption(_ app: MyAppStore.DeletedMyApp) -> String {
+    private func caption(_ app: MiniAppStore.DeletedMiniApp) -> String {
         var parts = [app.wasSyncRemoved ? "Removed by sync" : "Deleted"]
         if let at = app.deletedAt {
             parts.append(at.formatted(.relative(presentation: .named)))
@@ -110,8 +110,8 @@ struct RecentlyDeletedAppsView: View {
         return app.isRestorable ? head : "\(head) · no restore point"
     }
 
-    private func restore(_ app: MyAppStore.DeletedMyApp) {
-        guard store.restoreDeletedMyApp(app.id) else {
+    private func restore(_ app: MiniAppStore.DeletedMiniApp) {
+        guard store.restoreDeletedMiniApp(app.id) else {
             failedToRestore = app.name
             return
         }
@@ -119,11 +119,11 @@ struct RecentlyDeletedAppsView: View {
     }
 
     /// Off-main like the scan: this unlinks a snapshot directory.
-    private func purge(_ app: MyAppStore.DeletedMyApp) {
+    private func purge(_ app: MiniAppStore.DeletedMiniApp) {
         pendingPurge = nil
         deleted.removeAll { $0.id == app.id }
         Task.detached(priority: .userInitiated) {
-            MyAppStore.purgeDeletedMyApp(app.id)
+            MiniAppStore.purgeDeletedMiniApp(app.id)
         }
     }
 }

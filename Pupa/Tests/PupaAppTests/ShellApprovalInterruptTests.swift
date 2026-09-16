@@ -53,7 +53,7 @@ struct ShellApprovalInterruptTests {
     @Test("cancel() while parked on a shell-approval interrupt POSTs a deny-resume instead of orphaning the backend interrupt")
     func cancelDuringShellApproval_postsDenyResume_doesNotOrphan() async throws {
         InterruptMockURLProtocol.reset()
-        MyAppTypeRegistry.shared.registerBuiltins()
+        MiniAppTypeRegistry.shared.registerBuiltins()
 
         // The exact heredoc shape from the bug report — a *multiline* command,
         // which also exercises the on_interrupt decode path end to end (the
@@ -69,9 +69,9 @@ struct ShellApprovalInterruptTests {
         echo "appended."
         """
 
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let scope: ChatScope = .myApp(a.id)
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let scope: ChatScope = .miniApp(a.id)
         let registry = ToolRegistry()
         let vm = ChatViewModel(
             store: store,

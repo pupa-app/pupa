@@ -6,7 +6,7 @@ import Foundation
 /// stores read and write `stateRoot` / `memoriesRoot` (under `activeRoot`,
 /// which is local) directly and never block on iCloud, so turning iCloud off
 /// in iOS Settings — which relaunches the app onto whatever root is available
-/// — can't hide MyApps ("app looks lost") or strand offline edits. See
+/// — can't hide MiniApps ("app looks lost") or strand offline edits. See
 /// `StorageMirror`, which converges that local tree with iCloud in the
 /// background when iCloud is available.
 ///
@@ -64,7 +64,7 @@ public enum PupaStorage {
     /// Whether an iCloud mirror is available to sync with this launch.
     public static var iCloudActive: Bool { cloudMirrorRoot != nil }
 
-    /// Durable "this install has committed a definitive MyApp roster" marker.
+    /// Durable "this install has committed a definitive MiniApp roster" marker.
     /// Local-only (lives at `activeRoot`, outside the mirrored `state/`), so it
     /// never syncs. Its purpose: tell "genuinely fresh install" apart from
     /// "local store is momentarily empty while awaiting the first iCloud pull".
@@ -86,7 +86,7 @@ public enum PupaStorage {
         try? Data().write(to: rosterEstablishedURL, options: .atomic)
     }
 
-    /// Clear the marker (test isolation — `MyAppStore.clearStorage`).
+    /// Clear the marker (test isolation — `MiniAppStore.clearStorage`).
     public static func clearRosterEstablished() {
         try? FileManager.default.removeItem(at: rosterEstablishedURL)
     }

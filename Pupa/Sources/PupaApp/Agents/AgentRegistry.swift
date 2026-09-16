@@ -1,8 +1,8 @@
 import Foundation
 
-/// Builds `[AgentDescriptor]` for a MyApp by walking its current state.
+/// Builds `[AgentDescriptor]` for a MiniApp by walking its current state.
 ///
-/// The MyApp main agent is always emitted; each `pupa/agents/<slug>/AGENTS.md`
+/// The MiniApp main agent is always emitted; each `pupa/agents/<slug>/AGENTS.md`
 /// subagent contributes one descriptor (discovered via `AgentStore`).
 ///
 /// ## Extension point
@@ -12,36 +12,41 @@ import Foundation
 /// rendering shape.
 public enum AgentRegistry {
 
-    /// Stable id for the MyApp's main agent (one per app).
-    public static let mainAgentId = "myapp-main"
+    /// Stable id for the MiniApp's main agent (one per app).
+    public static let mainAgentId = "miniapp-main"
+    public static let legacyMainAgentId = "myapp-main"
 
-    /// Stable id for the orchestrator agent (the cross-MyApp meta-agent).
+    public static func canonicalAgentId(_ id: String) -> String {
+        id == legacyMainAgentId ? mainAgentId : id
+    }
+
+    /// Stable id for the orchestrator agent (the cross-MiniApp meta-agent).
     /// There's only one — no scoping needed.
     public static let orchestratorAgentId = "orchestrator"
 
-    /// Build the descriptor id for a subagent: `subagent:<myAppId>:<slug>`.
+    /// Build the descriptor id for a subagent: `subagent:<miniAppId>:<slug>`.
     /// `AgentDetailView` unwinds this to resolve the AGENTS.md to edit.
-    public static func subagentId(myAppId: UUID, slug: String) -> String {
-        "subagent:\(myAppId.uuidString):\(slug)"
+    public static func subagentId(miniAppId: UUID, slug: String) -> String {
+        "subagent:\(miniAppId.uuidString):\(slug)"
     }
 
     @MainActor
     public static func enumerateAgents(
-        myApp: MyApp,
-        store: MyAppStore,
+        miniApp: MiniApp,
+        store: MiniAppStore,
         settings: SettingsStore,
         catalog: ModelCatalogStore
     ) -> [AgentDescriptor] {
         var descriptors: [AgentDescriptor] = []
         // One store for the whole enumeration: each `MemoryStore.init` runs a
         // full recursive scan of the app's memory root, and this ran on the
-        // MyApp-switch path.
-        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myApp.id))
+        // MiniApp-switch path.
+        let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(miniAppId: miniApp.id))
         descriptors.append(buildMainAgent(
-            myApp: myApp, memory: appMemory, store: store, settings: settings, catalog: catalog))
+            miniApp: miniApp, memory: appMemory, store: store, settings: settings, catalog: catalog))
         for subagent in AgentStore(memory: appMemory).agents {
             descriptors.append(buildSubagent(
-                myApp: myApp,
+                miniApp: miniApp,
                 subagent: subagent,
                 store: store,
                 settings: settings,
@@ -51,34 +56,34 @@ public enum AgentRegistry {
         return descriptors
     }
 
-    // MARK: - Main MyApp agent
+    // MARK: - Main MiniApp agent
 
     @MainActor
     private static func buildMainAgent(
-        myApp: MyApp,
+        miniApp: MiniApp,
         memory: MemoryStore,
-        store: MyAppStore,
+        store: MiniAppStore,
         settings: SettingsStore,
         catalog: ModelCatalogStore
     ) -> AgentDescriptor {
-        let promptPath = "\(MemoryStore.pupaFolder(myAppId: myApp.id))/AGENTS.md"
+        let promptPath = "\(MemoryStore.pupaFolder(miniAppId: miniApp.id))/AGENTS.md"
         let promptOnDisk = memory.fileExists(at: MemoryStore.pupaAgentsPath)
         let allowedTools = ChatViewModel.allowedToolNames(
-            scope: .myApp(myApp.id),
+            scope: .miniApp(miniApp.id),
             store: store,
             toolGateState: ToolGateState()
         )
         let toolGroups = groupToolNames(
             allowed: allowedTools,
-            scope: .myApp(myApp.id),
+            scope: .miniApp(miniApp.id),
             store: store
         )
-        let currentSelection = store.myAppLLM(for: myApp.id)
-        let disabled = store.myAppDisabledTools(for: myApp.id)
+        let currentSelection = store.miniAppLLM(for: miniApp.id)
+        let disabled = store.miniAppDisabledTools(for: miniApp.id)
 
         var properties: [AgentProperty] = []
         properties.append(modelProperty(currentSelection: currentSelection, catalog: catalog))
-        if let thinking = thinkingProperty(currentLevel: store.myAppThinking(for: myApp.id), catalog: catalog) {
+        if let thinking = thinkingProperty(currentLevel: store.miniAppThinking(for: miniApp.id), catalog: catalog) {
             properties.append(thinking)
         }
         properties.append(AgentProperty(
@@ -86,11 +91,11 @@ public enum AgentRegistry {
             label: "Prompt",
             value: .link(
                 label: promptPath,
-                destination: .myAppMemoryFile(myApp.id, promptPath)
+                destination: .miniAppMemoryFile(miniApp.id, promptPath)
             ),
             note: promptOnDisk
                 ? nil
-                : "Falls back to the MyAppType fragment — no AGENTS.md on disk yet. Open the link to create one."
+                : "Falls back to the MiniAppType fragment — no AGENTS.md on disk yet. Open the link to create one."
         ))
         properties.append(AgentProperty(
             id: "tools",
@@ -100,15 +105,15 @@ public enum AgentRegistry {
                 groups: toolGroups,
                 disabled: disabled
             ),
-            note: "Resolved from the MyApp type and the components currently on the canvas. Toggle a tool off to hide it from this agent."
+            note: "Resolved from the MiniApp type and the components currently on the canvas. Toggle a tool off to hide it from this agent."
         ))
 
         return AgentDescriptor(
             id: mainAgentId,
-            name: myApp.name,
-            kind: .myApp,
-            iconSystemName: myApp.iconSystemName,
-            myAppId: myApp.id,
+            name: miniApp.name,
+            kind: .miniApp,
+            iconSystemName: miniApp.iconSystemName,
+            miniAppId: miniApp.id,
             subtitle: "Main agent",
             modelSummary: modelSummaryText(currentSelection: currentSelection, catalog: catalog),
             toolSummary: toolSummaryText(allowed: allowedTools.count, disabled: disabled.count),
@@ -119,13 +124,13 @@ public enum AgentRegistry {
     // MARK: - Orchestrator agent
 
     /// Build the orchestrator's `AgentDescriptor`. The orchestrator has no
-    /// `myAppId` — it runs in the `.memory` scope and routes across every
-    /// MyApp via `invokeMyAppAgent`. Tools are resolved the same way the
+    /// `miniAppId` — it runs in the `.memory` scope and routes across every
+    /// MiniApp via `invokeMiniAppAgent`. Tools are resolved the same way the
     /// chat surface does (`allowedToolNames(scope: .memory, …)`); the
     /// prompt link points at `memories/orchestrator/AGENTS.md`.
     @MainActor
     public static func buildOrchestratorAgent(
-        store: MyAppStore,
+        store: MiniAppStore,
         settings: SettingsStore,
         memory: MemoryStore,
         catalog: ModelCatalogStore
@@ -173,8 +178,8 @@ public enum AgentRegistry {
             name: "Orchestrator",
             kind: .orchestrator,
             iconSystemName: "square.stack.3d.up.fill",
-            myAppId: nil,
-            subtitle: "Cross-MyApp meta-agent",
+            miniAppId: nil,
+            subtitle: "Cross-MiniApp meta-agent",
             modelSummary: modelSummaryText(currentSelection: currentSelection, catalog: catalog),
             toolSummary: toolSummaryText(allowed: allowedTools.count, disabled: disabled.count),
             properties: properties
@@ -185,13 +190,13 @@ public enum AgentRegistry {
 
     @MainActor
     private static func buildSubagent(
-        myApp: MyApp,
+        miniApp: MiniApp,
         subagent: Subagent,
-        store: MyAppStore,
+        store: MiniAppStore,
         settings: SettingsStore,
         catalog: ModelCatalogStore
     ) -> AgentDescriptor {
-        let promptPath = "\(MemoryStore.pupaFolder(myAppId: myApp.id))/agents/\(subagent.name)/AGENTS.md"
+        let promptPath = "\(MemoryStore.pupaFolder(miniAppId: miniApp.id))/agents/\(subagent.name)/AGENTS.md"
 
         var properties: [AgentProperty] = []
         if !subagent.description.isEmpty {
@@ -205,12 +210,12 @@ public enum AgentRegistry {
         let agentSelection = subagent.llmSelection
         // The subagent's advertised surface, narrowed by its frontmatter.
         let base = ChatViewModel.allowedToolNames(
-            scope: .myApp(myApp.id),
+            scope: .miniApp(miniApp.id),
             store: store,
             toolGateState: ToolGateState()
         )
         let allowedTools = SubagentPolicy.narrowedTools(base: base, subagent: subagent)
-        let toolGroups = groupToolNames(allowed: allowedTools, scope: .myApp(myApp.id), store: store)
+        let toolGroups = groupToolNames(allowed: allowedTools, scope: .miniApp(miniApp.id), store: store)
         let disabled = Set(subagent.disabledTools ?? [])
 
         properties.append(modelProperty(currentSelection: agentSelection, catalog: catalog))
@@ -219,7 +224,7 @@ public enum AgentRegistry {
             label: "Prompt",
             value: .link(
                 label: promptPath,
-                destination: .myAppMemoryFile(myApp.id, promptPath)
+                destination: .miniAppMemoryFile(miniApp.id, promptPath)
             ),
             note: "Edit this AGENTS.md to change the persona, tools (frontmatter `tools`), or model (`model`/`provider`)."
         ))
@@ -231,15 +236,15 @@ public enum AgentRegistry {
                 groups: toolGroups,
                 disabled: disabled
             ),
-            note: "Resolved from the subagent's frontmatter `tools`/`disabled_tools` over the parent MyApp surface. Toggle a tool off to add it to `disabled_tools`."
+            note: "Resolved from the subagent's frontmatter `tools`/`disabled_tools` over the parent MiniApp surface. Toggle a tool off to add it to `disabled_tools`."
         ))
 
         return AgentDescriptor(
-            id: subagentId(myAppId: myApp.id, slug: subagent.name),
+            id: subagentId(miniAppId: miniApp.id, slug: subagent.name),
             name: subagent.displayName ?? subagent.name,
             kind: .subagent,
             iconSystemName: "person.crop.circle",
-            myAppId: myApp.id,
+            miniAppId: miniApp.id,
             subtitle: subagent.description.isEmpty ? nil : subagent.description,
             modelSummary: modelSummaryText(currentSelection: agentSelection, catalog: catalog),
             toolSummary: toolSummaryText(allowed: allowedTools.count, disabled: disabled.count),
@@ -260,14 +265,14 @@ public enum AgentRegistry {
     private static func groupToolNames(
         allowed: Set<String>,
         scope: ChatScope,
-        store: MyAppStore
+        store: MiniAppStore
     ) -> [AgentPropertySection] {
         var canvasNames: Set<String> = []
         var kindGroups: [(label: String, names: Set<String>)] = []
         var toolGateNames: Set<String> = []
-        if case .myApp(let id) = scope,
-           let myApp = store.myApps.first(where: { $0.id == id }),
-           let type = MyAppTypeRegistry.shared.resolve(id: myApp.typeId) {
+        if case .miniApp(let id) = scope,
+           let miniApp = store.miniApps.first(where: { $0.id == id }),
+           let type = MiniAppTypeRegistry.shared.resolve(id: miniApp.typeId) {
             canvasNames = type.baseToolNames
             let kindOrder = ["tracker", "calendar", "checklist"]
             for kind in kindOrder {
@@ -290,12 +295,12 @@ public enum AgentRegistry {
             (label: "Canvas", names: canvasNames),
         ] + kindGroups + [
             (label: "Tool Gates", names: toolGateNames),
-            (label: "Memory", names: MyAppType.memoryToolNames),
-            (label: "Skills", names: MyAppType.skillToolNames),
-            (label: "Subagents", names: MyAppType.subagentToolNames),
-            (label: "Notifications", names: MyAppType.notificationToolNames),
-            (label: "Orchestrator", names: MyAppType.orchestratorToolNames),
-            (label: "Human-in-the-loop", names: MyAppType.humanInTheLoopToolNames),
+            (label: "Memory", names: MiniAppType.memoryToolNames),
+            (label: "Skills", names: MiniAppType.skillToolNames),
+            (label: "Subagents", names: MiniAppType.subagentToolNames),
+            (label: "Notifications", names: MiniAppType.notificationToolNames),
+            (label: "Orchestrator", names: MiniAppType.orchestratorToolNames),
+            (label: "Human-in-the-loop", names: MiniAppType.humanInTheLoopToolNames),
         ]
 
         var assigned: Set<String> = []

@@ -12,7 +12,7 @@ public struct SlackModule: ComponentModule {
     public let kind = "slack"
     public let defaultIcon = "bubble.left.and.bubble.right"
 
-    /// Owned here; `MyAppType.tracker.kinds` assembles from this at load.
+    /// Owned here; `MiniAppType.tracker.kinds` assembles from this at load.
     public nonisolated static let kindSpec = ComponentKindSpec(
         tools: [
             "slackListAgents",
@@ -59,8 +59,8 @@ public struct SlackModule: ComponentModule {
 
     public func makeView(
         component: Component,
-        store: MyAppStore,
-        myAppId: UUID,
+        store: MiniAppStore,
+        miniAppId: UUID,
         coordinator: ChatSessionCoordinator?
     ) -> AnyView {
         // Slack requires a live coordinator for agent fan-out; without one there
@@ -69,14 +69,14 @@ public struct SlackModule: ComponentModule {
             return AnyView(EmptyView())
         }
         return AnyView(SlackView(
-            store: store, data: data, myAppId: myAppId,
+            store: store, data: data, miniAppId: miniAppId,
             componentId: component.id, coordinator: coordinator))
     }
 
     public func registerTools(on registry: ToolRegistry, context: ComponentToolContext) {
         guard let slack = context.slack else { return }
         AppTools.registerSlackTools(
-            on: registry, store: context.store, myAppId: context.myAppId,
+            on: registry, store: context.store, miniAppId: context.miniAppId,
             memory: context.memory, context: slack)
     }
 }

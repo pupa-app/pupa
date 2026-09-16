@@ -2,28 +2,28 @@ import SwiftUI
 
 /// Checklist component view. A bullet list of `{id, text, done,
 /// linkedItems}` rows the user can tick off, edit inline, link to other
-/// components' items, or delete. All mutations route through `MyAppStore`
+/// components' items, or delete. All mutations route through `MiniAppStore`
 /// so the agent and the UI see the same source of truth. Linked refs
 /// render as inline pills under each row and resolve live via
-/// `MyAppStore.displayNameForRefTarget` — edits to the target component
+/// `MiniAppStore.displayNameForRefTarget` — edits to the target component
 /// propagate without re-render plumbing.
 public struct ChecklistView: View {
-    @Bindable var store: MyAppStore
+    @Bindable var store: MiniAppStore
     let data: ChecklistData
-    let myAppId: UUID
+    let miniAppId: UUID
     /// Component being rendered. Threaded into every mutation (add / toggle
     /// / remove / edit) so writes land on THIS checklist, not the first
-    /// checklist in the myApp (the kind-routed fallback ignores which
+    /// checklist in the miniApp (the kind-routed fallback ignores which
     /// component is on screen).
     let componentId: String?
 
     @State private var draft: String = ""
     @State private var editorTarget: ChecklistItem?
 
-    public init(store: MyAppStore, data: ChecklistData, myAppId: UUID, componentId: String? = nil) {
+    public init(store: MiniAppStore, data: ChecklistData, miniAppId: UUID, componentId: String? = nil) {
         self.store = store
         self.data = data
-        self.myAppId = myAppId
+        self.miniAppId = miniAppId
         self.componentId = componentId
     }
 
@@ -38,7 +38,7 @@ public struct ChecklistView: View {
                     ForEach(data.items) { item in
                         ChecklistRow(
                             store: store,
-                            myAppId: myAppId,
+                            miniAppId: miniAppId,
                             componentId: componentId,
                             item: item,
                             onEdit: { editorTarget = item }
@@ -58,7 +58,7 @@ public struct ChecklistView: View {
         .sheet(item: $editorTarget) { item in
             ChecklistItemEditorSheet(
                 store: store,
-                myAppId: myAppId,
+                miniAppId: miniAppId,
                 item: item,
                 componentId: componentId,
                 onClose: { editorTarget = nil }
@@ -87,7 +87,7 @@ public struct ChecklistView: View {
     private func commitDraft() {
         let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        _ = store.addChecklistItem(text: trimmed, myAppId: myAppId, componentId: componentId)
+        _ = store.addChecklistItem(text: trimmed, miniAppId: miniAppId, componentId: componentId)
         draft = ""
     }
 }
@@ -123,8 +123,8 @@ private struct ChecklistTitleBar: View {
 // MARK: - Row
 
 private struct ChecklistRow: View {
-    @Bindable var store: MyAppStore
-    let myAppId: UUID
+    @Bindable var store: MiniAppStore
+    let miniAppId: UUID
     var componentId: String? = nil
     let item: ChecklistItem
     let onEdit: () -> Void
@@ -132,7 +132,7 @@ private struct ChecklistRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Button {
-                _ = store.setChecklistItemDone(id: item.id, done: !item.done, myAppId: myAppId, componentId: componentId)
+                _ = store.setChecklistItemDone(id: item.id, done: !item.done, miniAppId: miniAppId, componentId: componentId)
             } label: {
                 Image(systemName: item.done ? "checkmark.square.fill" : "square")
                     .font(.title3)
@@ -147,7 +147,7 @@ private struct ChecklistRow: View {
                     .strikethrough(item.done)
                     .foregroundStyle(item.done ? .secondary : .primary)
                 if !item.linkedItems.isEmpty {
-                    LinkedRefsRow(refs: item.linkedItems, store: store, myAppId: myAppId)
+                    LinkedRefsRow(refs: item.linkedItems, store: store, miniAppId: miniAppId)
                 }
             }
             Spacer(minLength: 0)
@@ -159,7 +159,7 @@ private struct ChecklistRow: View {
             .buttonStyle(.plain)
             .help("Edit item")
             Button(role: .destructive) {
-                _ = store.removeChecklistItem(id: item.id, myAppId: myAppId, componentId: componentId)
+                _ = store.removeChecklistItem(id: item.id, miniAppId: miniAppId, componentId: componentId)
             } label: {
                 Image(systemName: "trash")
                     .font(.caption)
@@ -181,8 +181,8 @@ private struct ChecklistRow: View {
 /// the target component's kind.
 private struct LinkedRefsRow: View {
     let refs: [ComponentItemRef]
-    @Bindable var store: MyAppStore
-    let myAppId: UUID
+    @Bindable var store: MiniAppStore
+    let miniAppId: UUID
 
     var body: some View {
         ChecklistFlowLayout(spacing: 4) {
@@ -197,7 +197,7 @@ private struct LinkedRefsRow: View {
         let resolved = store.displayNameForRefTarget(
             componentId: ref.componentId,
             itemId: ref.itemId,
-            myAppId: myAppId
+            miniAppId: miniAppId
         )
         LinkedRefPill(ref: ref, resolvedName: resolved)
     }
@@ -278,8 +278,8 @@ private struct ChecklistEmptyHint: View {
 // MARK: - Edit sheet
 
 struct ChecklistItemEditorSheet: View {
-    @Bindable var store: MyAppStore
-    let myAppId: UUID
+    @Bindable var store: MiniAppStore
+    let miniAppId: UUID
     let item: ChecklistItem
     /// Checklist component the edited item belongs to. Set by the linked-
     /// item popup dispatcher so mutations target the right component even
@@ -300,7 +300,7 @@ struct ChecklistItemEditorSheet: View {
         if let componentId {
             return ComponentItemRef(componentId: componentId, itemId: item.id)
         }
-        guard let comp = store.myApps.first(where: { $0.id == myAppId })?
+        guard let comp = store.miniApps.first(where: { $0.id == miniAppId })?
             .components.first(where: {
                 if case .checklist = $0.body { return true }
                 return false
@@ -339,7 +339,7 @@ struct ChecklistItemEditorSheet: View {
                 } header: {
                     Text("Linked items")
                 } footer: {
-                    Text("Attach any tracker row or calendar event in this MyApp. Each pill shows the live name; edits in the target update it automatically.")
+                    Text("Attach any tracker row or calendar event in this MiniApp. Each pill shows the live name; edits in the target update it automatically.")
                         .font(.caption)
                 }
             }
@@ -367,7 +367,7 @@ struct ChecklistItemEditorSheet: View {
             .sheet(isPresented: $pickerPresented) {
                 ComponentItemPickerSheet(
                     store: store,
-                    myAppId: myAppId,
+                    miniAppId: miniAppId,
                     excludeRef: editingItemRef,
                     alreadyLinked: Set(linkedItems),
                     onPick: { newRefs in
@@ -381,7 +381,7 @@ struct ChecklistItemEditorSheet: View {
                 )
             }
         }
-        .linkedItemPopupHost(store: store, myAppId: myAppId)
+        .linkedItemPopupHost(store: store, miniAppId: miniAppId)
         .onAppear(perform: loadInitial)
     }
 
@@ -390,9 +390,9 @@ struct ChecklistItemEditorSheet: View {
         let resolved = store.displayNameForRefTarget(
             componentId: ref.componentId,
             itemId: ref.itemId,
-            myAppId: myAppId
+            miniAppId: miniAppId
         )
-        let comp = store.componentName(ref.componentId, myAppId: myAppId) ?? ref.componentId
+        let comp = store.componentName(ref.componentId, miniAppId: miniAppId) ?? ref.componentId
         LinkedRefEditorRow(
             ref: ref,
             resolvedName: resolved,
@@ -410,16 +410,16 @@ struct ChecklistItemEditorSheet: View {
     private func commit() {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        var patch = MyAppStore.ChecklistItemPatch()
+        var patch = MiniAppStore.ChecklistItemPatch()
         patch.text = trimmed
         patch.done = done
         patch.linkedItems = linkedItems
-        _ = store.patchChecklistItem(id: item.id, patch: patch, myAppId: myAppId, componentId: componentId)
+        _ = store.patchChecklistItem(id: item.id, patch: patch, miniAppId: miniAppId, componentId: componentId)
         onClose()
     }
 
     private func deleteItem() {
-        _ = store.removeChecklistItem(id: item.id, myAppId: myAppId, componentId: componentId)
+        _ = store.removeChecklistItem(id: item.id, miniAppId: miniAppId, componentId: componentId)
         onClose()
     }
 }

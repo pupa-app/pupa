@@ -11,16 +11,16 @@ import AGUIKit
 @Suite("Chat chart embed")
 struct ChatChartEmbedTests {
 
-    private func freshStore() -> (MyAppStore, UUID) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApp = MyApp(name: "T", iconSystemName: "chart.pie", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([myApp], myApp.id))
-        return (store, myApp.id)
+    private func freshStore() -> (MiniAppStore, UUID) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApp = MiniApp(name: "T", iconSystemName: "chart.pie", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([miniApp], miniApp.id))
+        return (store, miniApp.id)
     }
 
-    private func registry(_ store: MyAppStore, _ id: UUID) -> ToolRegistry {
+    private func registry(_ store: MiniAppStore, _ id: UUID) -> ToolRegistry {
         let r = ToolRegistry()
-        AppTools.registerMyAppTools(on: r, store: store, myAppId: id)
+        AppTools.registerMiniAppTools(on: r, store: store, miniAppId: id)
         return r
     }
 
@@ -84,8 +84,8 @@ struct ChatChartEmbedTests {
                 .appendingPathComponent("pupa-tests-\(UUID().uuidString)")),
             settings: SettingsStore(backendURL: URL(string: "http://localhost:65535/")!),
             registry: ToolRegistry(),
-            scope: .myApp(id),
-            threadId: store.currentThreadId(for: .myApp(id)),
+            scope: .miniApp(id),
+            threadId: store.currentThreadId(for: .miniApp(id)),
             toolGateState: ToolGateState()
         )
         let snapshot = ChatChartSnapshot(title: "Spend", kind: .bar,

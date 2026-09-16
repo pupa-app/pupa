@@ -19,7 +19,7 @@ backend (separate repo) over a single `POST /` SSE stream.
   now**. Source of truth.
 - [docs/adding-a-component.md](docs/adding-a-component.md) — end-to-end
   recipe for landing a new canvas shape.
-- [docs/marketplace.md](docs/marketplace.md) — MyApp export/import bundle
+- [docs/marketplace.md](docs/marketplace.md) — MiniApp export/import bundle
   format, the unified reference model, and the import threat model.
 - [docs/testing.md](docs/testing.md) — the four testing layers, and how an
   agent drives the app headlessly (`make ctl`) against a scripted or live
@@ -28,12 +28,12 @@ backend (separate repo) over a single `POST /` SSE stream.
   playbook for turn recovery (parked frontend-tool dispatch): env knobs to
   shrink the clocks, files + log lines to watch, scenario matrix. For what the
   suite can't reach — real kills, real drops, real clocks.
-- [docs/skills.md](docs/skills.md) — the per-MyApp `pupa/` config folder
+- [docs/skills.md](docs/skills.md) — the per-MiniApp `pupa/` config folder
   (AGENTS.md, subagent prompts) and how skills become slash commands +
   model-loadable playbooks (`app_skill_view`).
 - [docs/templates.md](docs/templates.md) — the realism bar for shipping
   `.pupa` templates: rubric, grounded reference index, and the
-  self-maintaining agent loop. Read before adding an `ExampleMyApp`.
+  self-maintaining agent loop. Read before adding an `ExampleMiniApp`.
 - [AGUIKit/](AGUIKit/) — standalone Swift Package: AG-UI client, tool
   registry, multi-round session loop. No dependency on Pupa.
 - [Pupa/](Pupa/) — the app: SwiftUI views, `@Observable` stores, tool
@@ -86,7 +86,7 @@ to `dev`, fast-forward `main` from `dev` for releases.
   [`AppTools.swift`](Pupa/Sources/PupaApp/Tools/AppTools.swift). The
   backend forwards their JSON-Schema definitions to the model; the client
   executes them. Keep the `addComponent` kind enum in sync with
-  `MyAppType.supportedComponentKinds`.
+  `MiniAppType.supportedComponentKinds`.
 - **Memory files are persistent** (long-term markdown filesystem at
   `~/Library/Application Support/pupa/memories/`); canvas state +
   `threadId` reset on "New session".

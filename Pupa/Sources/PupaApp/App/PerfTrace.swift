@@ -88,7 +88,7 @@ public enum PerfTrace {
     /// recognition was never the problem; the runloop turn the state write
     /// kicks off is, so the harness writes the state directly.
     public enum Drive: String, Sendable {
-        case toggleMyApps, toggleChat, nextApp, tabAgents
+        case toggleMiniApps, toggleChat, nextApp, tabAgents
     }
 
     static let driveNotification = Notification.Name("pupa.perf.drive")
@@ -108,13 +108,13 @@ public enum PerfTrace {
         return Drive(rawValue: raw)
     }
 
-    /// Interaction name for a navigation target: case kind + short MyApp id.
+    /// Interaction name for a navigation target: case kind + short MiniApp id.
     /// The id matters — "first switch to each app" must read as cold per app,
     /// not warm after the first one. Derived by reflection, so new cases need
     /// no upkeep here; only ever called behind `isEnabled`.
     public static func label(_ sel: SidebarSelection) -> String {
         let kind = String(describing: sel).prefix { $0 != "(" }
-        guard let id = sel.myAppId else { return String(kind) }
+        guard let id = sel.miniAppId else { return String(kind) }
         return "\(kind).\(id.uuidString.prefix(8))"
     }
 

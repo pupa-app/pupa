@@ -43,6 +43,24 @@ struct ScenarioHarnessTests {
     ]}
     """
 
+    private static let createMiniAppScript = """
+    {"events":[
+      {"type":"RUN_STARTED","threadId":"t","runId":"r1"},
+      {"type":"TOOL_CALL_START","toolCallId":"call_1","toolCallName":"createMiniApp"},
+      {"type":"TOOL_CALL_ARGS","toolCallId":"call_1","delta":"{\\"typeId\\":\\"tracker\\",\\"name\\":\\"Garden\\"}"},
+      {"type":"TOOL_CALL_END","toolCallId":"call_1"},
+      {"type":"CUSTOM","name":"on_interrupt","value":"{\\"frontend_tool_calls\\":[{\\"id\\":\\"call_1\\",\\"name\\":\\"createMiniApp\\",\\"args\\":{\\"typeId\\":\\"tracker\\",\\"name\\":\\"Garden\\"}}]}"},
+      {"type":"RUN_FINISHED","threadId":"t","runId":"r1"}
+    ]}
+    {"events":[
+      {"type":"RUN_STARTED","threadId":"t","runId":"r2"},
+      {"type":"TEXT_MESSAGE_START","messageId":"m1","role":"assistant"},
+      {"type":"TEXT_MESSAGE_CONTENT","messageId":"m1","delta":"Created Garden."},
+      {"type":"TEXT_MESSAGE_END","messageId":"m1"},
+      {"type":"RUN_FINISHED","threadId":"t","runId":"r2"}
+    ]}
+    """
+
     /// A resume that is accepted and never answered. The real park window is
     /// a race against the backend's own timers; `hang` makes it a state the
     /// test can simply sit in, which is what lets the UI suite kill the app
@@ -109,8 +127,8 @@ struct ScenarioHarnessTests {
 
         // The side effect ran: this is the window where a naive relaunch would
         // run it a second time.
-        let components = scenario.store.myApps
-            .first { $0.id == scenario.myAppId }?.components.count ?? 0
+        let components = scenario.store.miniApps
+            .first { $0.id == scenario.miniAppId }?.components.count ?? 0
         #expect(components > 0, "the frontend tool ran before the resume hung")
 
         #expect(scenario.vm.pendingDispatchAfterSeq != nil,
@@ -136,22 +154,43 @@ struct ScenarioHarnessTests {
             urlSession: ScriptedTransport.session())
         defer { scenario.restoreStorageRoot() }
 
-        let before = scenario.store.myApps.first { $0.id == scenario.myAppId }?.components.count ?? 0
+        let before = scenario.store.miniApps.first { $0.id == scenario.miniAppId }?.components.count ?? 0
         let settled = await scenario.send("add a Books tracker")
         #expect(settled, "turn never settled")
 
         let report = scenario.report()
 
         // The handler ran for real — this is the app's `addComponent`, not a stub.
-        let after = report.myApp?.components.count ?? 0
+        let after = report.miniApp?.components.count ?? 0
         #expect(after == before + 1)
-        #expect(report.myApp?.components.contains { $0.name == "Books" } == true)
+        #expect(report.miniApp?.components.contains { $0.name == "Books" } == true)
 
         // …and every surface the report claims to cover shows it.
         #expect(report.toolCalls.map(\.name) == ["addComponent"])
         #expect(report.toolCalls.first?.state == .done)
         #expect(report.assistantText.contains("Added Books."))
         #expect(report.rounds.count == 2, "park + resume is two rounds")
+    }
+
+    @Test("A scripted orchestrator turn creates a MiniApp that survives reload")
+    func scriptedOrchestratorCreatesMiniApp() async throws {
+        ScriptedTransport.reset()
+        ScriptedTransport.script = try Script.parse(Self.createMiniAppScript)
+        defer { ScriptedTransport.reset() }
+        let root = makeRoot()
+        let scenario = Scenario(root: root, backend: URL(string: "http://scripted.invalid/")!,
+                                urlSession: ScriptedTransport.session(), orchestrator: true)
+        defer { scenario.restoreStorageRoot() }
+        #expect(await scenario.send("create a Garden MiniApp"))
+        #expect(scenario.report().toolCalls.map(\.name) == ["createMiniApp"])
+        let created = try #require(scenario.store.miniApps.first { $0.name == "Garden" })
+        #expect(MiniAppStore().miniApps.contains { $0.name == "Garden" })
+        let opened = Scenario(root: root, backend: URL(string: "http://scripted.invalid/")!,
+                              urlSession: ScriptedTransport.session(), reset: false,
+                              selectedMiniAppId: created.id)
+        defer { opened.restoreStorageRoot() }
+        #expect(opened.scope == .miniApp(created.id))
+        #expect(opened.report().miniApp?.name == "Garden")
     }
 
     /// The journal is what lets a killed app answer a parked turn without

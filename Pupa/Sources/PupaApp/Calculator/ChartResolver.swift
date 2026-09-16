@@ -1,6 +1,6 @@
 import Foundation
 
-/// Resolves a `ChartData` spec to `[ChartSeries]` live, against a MyApp's
+/// Resolves a `ChartData` spec to `[ChartSeries]` live, against a MiniApp's
 /// sibling components. Store-free (takes a `[Component]` pool) so it's
 /// unit-testable with a hand-built list, mirroring `CalculatorResolver`.
 ///

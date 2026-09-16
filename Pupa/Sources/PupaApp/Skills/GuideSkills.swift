@@ -4,7 +4,7 @@ import Foundation
 /// children (`pupa-components`, `pupa-sharing`, `pupa-memory`, `pupa-agents`,
 /// `pupa-system`), bundled under `pupa/plugins/pupa-guide/` so the user's
 /// `pupa/skills/` space stays theirs. Seeded into the orchestrator and every
-/// MyApp; users read them as `/commands`, agents load them via `app_skill_view`.
+/// MiniApp; users read them as `/commands`, agents load them via `app_skill_view`.
 ///
 /// Managed content — the opposite lifecycle of `DefaultSkills`: re-seeded on
 /// **every launch**, overwritten whenever the shipped `version` is newer than
@@ -12,10 +12,10 @@ import Foundation
 /// bump and deletions resurrect; a custom copy needs a different skill name.
 ///
 /// Bodies are user-conceptual only — no implementation internals. The
-/// component-kind list is generated from `MyAppType.kinds` so it can't drift.
+/// component-kind list is generated from `MiniAppType.kinds` so it can't drift.
 enum GuideSkills {
     /// Bump when any guide body changes so existing installs re-seed.
-    static let version = "24"
+    static let version = "25"
 
     /// The plugin folder holding this guide's skills.
     static let pluginDir = "\(MemoryStore.pupaPluginsDir)/pupa-guide"
@@ -68,7 +68,7 @@ enum GuideSkills {
     /// Seed a single app (constructs its own scope-rooted store).
     @MainActor @discardableResult
     static func seed(appId: UUID) -> Bool {
-        seed(into: MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: appId)))
+        seed(into: MemoryStore(rootOverride: MemoryStore.appRoot(miniAppId: appId)))
     }
 
     /// Seed the orchestrator scope.
@@ -82,7 +82,7 @@ enum GuideSkills {
     static func needsWrite(existing: String?) -> Bool {
         guard let existing else { return true }
         let (fields, _) = SkillFrontMatter.parse(existing)
-        return MyAppImporter.isNewer(version, than: fields["version"] ?? "0")
+        return MiniAppImporter.isNewer(version, than: fields["version"] ?? "0")
     }
 
     private static func frontMatter(description: String, whenToUse: String) -> String {
@@ -103,27 +103,27 @@ enum GuideSkills {
         whenToUse: "when the user asks what Pupa is, what it can do, or how its pieces fit together"
     ))
     Pupa builds apps around you: describe what you need in chat and the agent
-    assembles a **myapp** — a canvas of components it edits live while you talk.
+    assembles a **miniapp** — a canvas of components it edits live while you talk.
 
     **Boundaries — who is what**
     - **Orchestrator** — the top-level chat. Creates, renames, archives and
-      deletes myapps and delegates work to their agents. Has its own memories
+      deletes miniapps and delegates work to their agents. Has its own memories
       and skills; no canvas of its own.
     - **Myapp** — one workspace: its own agent, canvas, memories, skills and
       subagents.
-    - **Component** — one shape on a myapp's canvas (tracker, calendar, …).
+    - **Component** — one shape on a miniapp's canvas (tracker, calendar, …).
     - **Item** — one record inside a component (row, event, task…).
-    - **Memories** — each myapp (and the orchestrator) keeps its own
+    - **Memories** — each miniapp (and the orchestrator) keeps its own
       filesystem-like tree of markdown notes and folders living *inside* the
       app — not on the device's file system. Edited by you and the agent
       alike; persists across sessions. Durable context, not records.
 
-    Items can link across components *within one myapp*. Myapps don't share
+    Items can link across components *within one miniapp*. Myapps don't share
     data — an app moves between devices or people as a `.pupa` file.
 
     **Go deeper** (users: type the `/command`; agents: `app_skill_view`)
     - /pupa-components — the shapes a canvas can hold and how they combine
-    - /pupa-sharing — export and install myapps as `.pupa` files
+    - /pupa-sharing — export and install miniapps as `.pupa` files
     - /pupa-memory — memories, sessions, change history, archive
     - /pupa-agents — skills, subagents and slack rooms
     - /pupa-automations — react to canvas events (an item moved) by proposing a chat
@@ -133,20 +133,20 @@ enum GuideSkills {
     /// Kind list generated from the builtin type's `kinds` specs so the guide
     /// tracks the real catalog by construction.
     static func componentsBody() -> String {
-        let kinds = MyAppType.tracker.kinds
+        let kinds = MiniAppType.tracker.kinds
         let kindLines = kinds.keys.sorted()
             .map { "- **\($0)** — \(kinds[$0]?.catalogBlurb ?? $0)" }
             .joined(separator: "\n")
         return """
         \(frontMatter(
-            description: "The component shapes a myapp canvas can hold and how they combine",
+            description: "The component shapes a miniapp canvas can hold and how they combine",
             whenToUse: "when choosing, combining or linking components, or asked what shapes exist"
         ))
-        A myapp's canvas holds components. Available shapes:
+        A miniapp's canvas holds components. Available shapes:
 
         \(kindLines)
 
-        **Combining.** One myapp mixes shapes freely. Items link across
+        **Combining.** One miniapp mixes shapes freely. Items link across
         components — a tracker row to a calendar event, a task to a parent
         record. Calculators and charts read live from other components, and a
         chart can be embedded straight into chat.
@@ -168,10 +168,10 @@ enum GuideSkills {
 
     private static let sharingBody = """
     \(frontMatter(
-        description: "Share and install myapps as .pupa files",
+        description: "Share and install miniapps as .pupa files",
         whenToUse: "when exporting, sharing, importing or installing an app"
     ))
-    A `.pupa` file is an inert snapshot of a myapp: its components, optionally
+    A `.pupa` file is an inert snapshot of a miniapp: its components, optionally
     your records and memories, plus the app's agent instructions and skills.
     No code runs from the file itself.
 
@@ -207,20 +207,20 @@ enum GuideSkills {
     - **Sessions** — "New session" starts a fresh conversation. The canvas
       and memories stay. Past conversations are kept on-device and re-open with
       their full history when you reopen the app — even after a long time away.
-    - **History** — every canvas change is recorded per myapp. Browse the
+    - **History** — every canvas change is recorded per miniapp. Browse the
       History tab and restore any earlier state in one tap. Tap **Take
       snapshot** to pin the current state permanently (kept forever); pinned
       snapshots can be **Export**ed as a `.pupa` file (same share screen as
       Settings, flagged as the pinned version). Pins survive deleting
-      the myapp — find them all in **Settings ▸ Pinned snapshots**, where a
+      the miniapp — find them all in **Settings ▸ Pinned snapshots**, where a
       deleted app can be restored (revived) from a pin.
-    - **Archive** — hide a myapp without deleting it (its data and memories
+    - **Archive** — hide a miniapp without deleting it (its data and memories
       are kept). Browse, restore or delete from Settings ▸ Archive.
-    - **Folders** — tidy the sidebar: a myapp's row menu ▸ Move to Folder puts
+    - **Folders** — tidy the sidebar: a miniapp's row menu ▸ Move to Folder puts
       it in a folder (or a new one); a folder row collapses, renames or
       ungroups. Cosmetic only — folders never travel in a `.pupa` file, and a
-      folder disappears once its last myapp leaves.
-    - **Recently deleted** — deleting a myapp is undoable for 180 days.
+      folder disappears once its last miniapp leaves.
+    - **Recently deleted** — deleting a miniapp is undoable for 180 days.
       Settings ▸ Recently deleted lists them (including ones deleted on another
       device, and ones a sync removed on its own) and restores the last saved
       state — chats, components, and any skills or subagents a sync took with
@@ -229,7 +229,7 @@ enum GuideSkills {
       permanently** — that erases its saved state, pinned snapshots included, on
       every device.
     - **Recovering lost skills** — if a sync takes a skill or subagent from a
-      myapp that is still here, a "Sync removed N memory files" banner offers to
+      miniapp that is still here, a "Sync removed N memory files" banner offers to
       put them back. Recoverable for 30 days.
     """
 
@@ -243,11 +243,11 @@ enum GuideSkills {
       one, or write it yourself in the memory tree under `pupa/skills/`.
     - **Subagents** — named delegates with their own persona and
       instructions. The main agent creates them and hands off focused tasks.
-    - **Orchestrator** — the top-level agent: creates and manages myapps and
+    - **Orchestrator** — the top-level agent: creates and manages miniapps and
       delegates work to each app's agent.
 
     **Slack rooms.** A component with channels, group DMs and DMs. The
-    workspace roster is simply *all* the myapp's subagents — creating a
+    workspace roster is simply *all* the miniapp's subagents — creating a
     subagent adds it to the roster; nothing lives in the component but rooms
     and their transcripts. @-mention an agent (or post in its DM) to wake it:
     it reads the channel's history for context, works with the app's tools,
@@ -266,7 +266,7 @@ enum GuideSkills {
         description: "React to canvas events (an item moved) by proposing a chat — the pupa/automations.json rule format and its guards",
         whenToUse: "when the user wants the app to act automatically on a canvas change, or when authoring or editing automation rules"
     ))
-    An **automation** reacts *inside* a myapp to a canvas event by proposing a
+    An **automation** reacts *inside* a miniapp to a canvas event by proposing a
     chat. Declarative config, no code — rules ride the `.pupa` bundle and only
     ever start a model turn, always behind a confirm bubble unless a rule
     explicitly opts out.

@@ -1,13 +1,13 @@
 import SwiftUI
 
 /// Settings ▸ Pinned snapshots. Every permanent pin the user has taken,
-/// grouped per MyApp. Pins **survive deleting the MyApp** (kept by
+/// grouped per MiniApp. Pins **survive deleting the MiniApp** (kept by
 /// `SnapshotStore.deleteNonPinned`), so a deleted app's milestones still appear
 /// here — flagged "deleted" — and can be **Restore**d (which revives the whole
 /// app) or **Export**ed as a `.pupa` bundle. Reached from Settings when at
 /// least one pin exists.
 struct PinnedSnapshotsView: View {
-    @Bindable var store: MyAppStore
+    @Bindable var store: MiniAppStore
     /// Called with the affected app's id after a restore/revive — the host
     /// selects it and dismisses Settings. Reuses the import selection path.
     var onRestored: ((UUID) -> Void)?
@@ -19,7 +19,7 @@ struct PinnedSnapshotsView: View {
     @State private var expanded: Set<UUID> = []
 
     private struct PendingRestore: Identifiable {
-        let group: MyAppStore.PinnedSnapshotGroup
+        let group: MiniAppStore.PinnedSnapshotGroup
         let snap: SnapshotMeta
         var id: UUID { snap.id }
     }
@@ -30,7 +30,7 @@ struct PinnedSnapshotsView: View {
         return f
     }()
 
-    private var groups: [MyAppStore.PinnedSnapshotGroup] { store.pinnedSnapshotGroups() }
+    private var groups: [MiniAppStore.PinnedSnapshotGroup] { store.pinnedSnapshotGroups() }
 
     var body: some View {
         List {
@@ -39,7 +39,7 @@ struct PinnedSnapshotsView: View {
                     Text("No pinned snapshots yet.")
                         .foregroundStyle(.secondary)
                 } footer: {
-                    Text("Open a MyApp's History and tap Take snapshot to pin a state permanently. Pins are kept forever — even if you delete the app.")
+                    Text("Open a MiniApp's History and tap Take snapshot to pin a state permanently. Pins are kept forever — even if you delete the app.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             } else {
@@ -115,7 +115,7 @@ struct PinnedSnapshotsView: View {
         }
     }
 
-    private func groupLabel(_ group: MyAppStore.PinnedSnapshotGroup) -> some View {
+    private func groupLabel(_ group: MiniAppStore.PinnedSnapshotGroup) -> some View {
         HStack(spacing: 8) {
             Image(systemName: group.iconSystemName)
                 .foregroundStyle(.secondary)
@@ -135,7 +135,7 @@ struct PinnedSnapshotsView: View {
         }
     }
 
-    private func row(group: MyAppStore.PinnedSnapshotGroup, snap: SnapshotMeta) -> some View {
+    private func row(group: MiniAppStore.PinnedSnapshotGroup, snap: SnapshotMeta) -> some View {
         HStack(alignment: .center, spacing: 10) {
             Image(systemName: "pin.fill")
                 .foregroundStyle(.tint)

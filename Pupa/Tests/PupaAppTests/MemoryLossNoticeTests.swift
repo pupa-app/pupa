@@ -32,14 +32,14 @@ struct MemoryLossNoticeTests {
     }
 
     /// Memory folder = the app's immutable id (lowercased uuid).
-    private func folder(_ id: UUID) -> String { MemoryStore.myAppFolder(myAppId: id) }
+    private func folder(_ id: UUID) -> String { MemoryStore.miniAppFolder(miniAppId: id) }
 
     /// A live app whose `pupa/skills/warmup/` was taken by a sync: the folder's
     /// only file is in quarantine and nothing is left on disk under it.
-    private func storeWithLostSkill() async -> (MyAppStore, String) {
-        await MyAppStore.clearStorage()
-        let store = MyAppStore()
-        let id = store.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
+    private func storeWithLostSkill() async -> (MiniAppStore, String) {
+        await MiniAppStore.clearStorage()
+        let store = MiniAppStore()
+        let id = store.addMiniApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
         let s = folder(id)
         quarantine("memories/\(s)/pupa/skills/warmup/SKILL.md", "warmup skill")
         return (store, s)
@@ -72,11 +72,11 @@ struct MemoryLossNoticeTests {
     /// missing file — only on a whole skill / subagent unit going at once.
     @Test("an ordinary cross-device delete inside a live folder stays silent")
     func partialDeleteIsSilent() async throws {
-        await MyAppStore.clearStorage()
-        let store = MyAppStore()
-        let id = store.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
+        await MiniAppStore.clearStorage()
+        let store = MiniAppStore()
+        let id = store.addMiniApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
         let s = folder(id)
-        let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: id))
+        let memory = MemoryStore(rootOverride: MemoryStore.appRoot(miniAppId: id))
         _ = try? memory.writeFile(path: "pupa/skills/warmup/SKILL.md", content: "live")
         // A second file in the same unit went; the unit itself is still there.
         quarantine("memories/\(s)/pupa/skills/warmup/NOTES.md", "deleted elsewhere")
@@ -88,11 +88,11 @@ struct MemoryLossNoticeTests {
 
     @Test("a unit still on disk is not reported lost")
     func liveUnitIsNotLost() async throws {
-        await MyAppStore.clearStorage()
-        let store = MyAppStore()
-        let id = store.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
+        await MiniAppStore.clearStorage()
+        let store = MiniAppStore()
+        let id = store.addMiniApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
         let s = folder(id)
-        let memory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: id))
+        let memory = MemoryStore(rootOverride: MemoryStore.appRoot(miniAppId: id))
         _ = try? memory.writeFile(path: "pupa/skills/warmup/SKILL.md", content: "live")
         quarantine("memories/\(s)/pupa/skills/warmup/SKILL.md", "older losing copy")
 
@@ -132,9 +132,9 @@ struct MemoryLossNoticeTests {
 
     @Test("another app's quarantine is not attributed to this one")
     func noticeIsScopedPerApp() async throws {
-        await MyAppStore.clearStorage()
-        let store = MyAppStore()
-        _ = store.addMyApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
+        await MiniAppStore.clearStorage()
+        let store = MiniAppStore()
+        _ = store.addMiniApp(typeId: "tracker", name: "Fitness", iconSystemName: "star")
         // Some other app's folder (a different id) — never attributed here.
         quarantine("memories/\(folder(UUID()))/pupa/skills/x/SKILL.md", "not mine")
 

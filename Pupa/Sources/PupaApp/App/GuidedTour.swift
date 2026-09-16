@@ -50,9 +50,9 @@ struct TourStep: Identifiable, Equatable {
     /// describing). `nil` leaves no highlight. Resolved to live bounds by
     /// `TourHighlightOverlay` via the `.tourAnchor` tags, never pixel-pinned.
     var highlight: TourHighlight?
-    /// Present the MyApps sheet for this step. The list of workspaces is the
+    /// Present the MiniApps sheet for this step. The list of workspaces is the
     /// one surface the tour used to name without ever showing.
-    var opensMyApps: Bool
+    var opensMiniApps: Bool
     /// Draw the bar's menu open, with these rows lit. `nil` draws no preview.
     /// A SwiftUI `Menu` cannot be opened programmatically, so steps that talk
     /// about what is behind the hamburger show `TourMenuPreview` instead of
@@ -69,7 +69,7 @@ struct TourStep: Identifiable, Equatable {
         opensChat: Bool = false,
         chatPrefill: String? = nil,
         highlight: TourHighlight? = nil,
-        opensMyApps: Bool = false,
+        opensMiniApps: Bool = false,
         menuPreview: Set<BarMenuRow>? = nil
     ) {
         self.id = id
@@ -81,32 +81,32 @@ struct TourStep: Identifiable, Equatable {
         self.opensChat = opensChat
         self.chatPrefill = chatPrefill
         self.highlight = highlight
-        self.opensMyApps = opensMyApps
+        self.opensMiniApps = opensMiniApps
         self.menuPreview = menuPreview
     }
 }
 
 /// All step copy + effects in one place so the tour is easy to edit, reorder,
-/// or localize without touching view code. `steps(activeMyAppId:isPaired:)`
-/// binds the route enums to the live active myApp and adapts the chat copy to
+/// or localize without touching view code. `steps(activeMiniAppId:isPaired:)`
+/// binds the route enums to the live active miniApp and adapts the chat copy to
 /// whether a backend is paired (an unpaired user can't actually send, so the
 /// prompt is framed as a preview rather than a call to action).
 enum TourContent {
-    static func steps(activeMyAppId: UUID, isPaired: Bool) -> [TourStep] {
+    static func steps(activeMiniAppId: UUID, isPaired: Bool) -> [TourStep] {
         [
-            // Opens on the MyApps list, not the canvas: a MyApp is the thing
+            // Opens on the MiniApps list, not the canvas: a MiniApp is the thing
             // you build and use in Pupa, and this is where they live. The tour
             // comes back to this list later, once the bar and the menu that
             // reach it have been walked.
             TourStep(
                 id: "welcome",
                 title: "Welcome to Pupa",
-                body: "These are MyApps: workspaces you and your agent build and use "
+                body: "These are MiniApps: workspaces you and your agent build and use "
                     + "together, each one a canvas the agent can see and edit while you "
                     + "chat. Pupa starts you with a couple. The tour takes a minute or "
                     + "two; tap Next to begin.",
                 placement: .bottom,
-                opensMyApps: true
+                opensMiniApps: true
             ),
 
             // The bar, left to right. Configuration comes after: the app is
@@ -115,32 +115,32 @@ enum TourContent {
                 id: "the-bar",
                 title: "The bar",
                 body: "This is the only bar in the app, and it is how you get everywhere: "
-                    + "Home, Memories, Pupa, and the menu. Whichever MyApp you are in, it "
+                    + "Home, Memories, Pupa, and the menu. Whichever MiniApp you are in, it "
                     + "is the same four. Let's walk it left to right.",
                 placement: .bottom,
-                selection: .myAppHome(activeMyAppId),
+                selection: .miniAppHome(activeMiniAppId),
                 highlight: .bottomBar
             ),
             TourStep(
-                id: "myapp-home",
+                id: "miniapp-home",
                 title: "Home",
-                body: "Home is the MyApp's canvas: a grid of the components it is made of, "
+                body: "Home is the MiniApp's canvas: a grid of the components it is made of, "
                     + "like trackers, calendars and checklists. Tap one to open it. The "
                     + "agent reads and edits these as you chat, and Add puts a new one on "
                     + "the grid.",
                 placement: .bottom,
-                selection: .myAppHome(activeMyAppId),
+                selection: .miniAppHome(activeMiniAppId),
                 highlight: .bottomBarHome
             ),
             TourStep(
-                id: "myapp-memories",
+                id: "miniapp-memories",
                 title: "Memories",
-                body: "Long-term memory for this MyApp: markdown notes the agent writes "
+                body: "Long-term memory for this MiniApp: markdown notes the agent writes "
                     + "and reads back across sessions, so it remembers what matters to you. "
                     + "The pupa folder is the equivalent of a .claude folder, where custom "
                     + "prompts, configurations and skills are managed.",
                 placement: .bottom,
-                selection: .myAppMemories(activeMyAppId),
+                selection: .miniAppMemories(activeMiniAppId),
                 highlight: .bottomBarMemories
             ),
             TourStep(
@@ -153,17 +153,17 @@ enum TourContent {
                         + "explain anything on the canvas. We've parked an example message in "
                         + "the composer to show the idea.",
                 placement: .top,
-                selection: .myAppHome(activeMyAppId),
+                selection: .miniAppHome(activeMiniAppId),
                 opensChat: true,
                 chatPrefill: "Can you prepare my daily briefing while I get my coffee?",
                 highlight: .bottomBarChat
             ),
             TourStep(
-                id: "myapps-threads",
-                title: "MyApps & threads",
-                body: "The dropdown at the top of the chat moves between MyApps, and the "
+                id: "miniapps-threads",
+                title: "MiniApps & threads",
+                body: "The dropdown at the top of the chat moves between MiniApps, and the "
                     + "orchestrator, without leaving the conversation. Under it, the "
-                    + "thread picker: every MyApp keeps its own, and you can start a new "
+                    + "thread picker: every MiniApp keeps its own, and you can start a new "
                     + "one whenever the subject changes.",
                 placement: .top,
                 opensChat: true,
@@ -192,49 +192,49 @@ enum TourContent {
                     + "don't cover lives behind it. Tap it and it opens upward, grouped into "
                     + "three: this app's pages, which workspace you're in, and Settings.",
                 placement: .bottom,
-                selection: .myAppHome(activeMyAppId),
+                selection: .miniAppHome(activeMiniAppId),
                 highlight: .bottomBarMore
             ),
             TourStep(
                 id: "menu-pages",
                 title: "This app's pages",
-                body: "Agents opens the main agent for this MyApp, where you can see the "
+                body: "Agents opens the main agent for this MiniApp, where you can see the "
                     + "tools it can call and open its persona file. History logs every "
                     + "change the agent makes to the canvas.",
                 placement: .top,
-                selection: .myAppHome(activeMyAppId),
+                selection: .miniAppHome(activeMiniAppId),
                 menuPreview: [.agents, .history]
             ),
             TourStep(
                 id: "menu-scope",
                 title: "Moving between workspaces",
-                body: "MyApps lists everything you've built and switches between them. "
+                body: "MiniApps lists everything you've built and switches between them. "
                     + "Orchestrator is the meta-agent that spans all of them. Let's open it.",
                 placement: .top,
-                selection: .myAppHome(activeMyAppId),
-                menuPreview: [.myApps, .orchestrator]
+                selection: .miniAppHome(activeMiniAppId),
+                menuPreview: [.miniApps, .orchestrator]
             ),
             TourStep(
-                id: "myapps-sheet",
-                title: "MyApps",
-                body: "Back to where we started. This is the list of every MyApp you "
+                id: "miniapps-sheet",
+                title: "MiniApps",
+                body: "Back to where we started. This is the list of every MiniApp you "
                     + "have, and the plus is where a new one begins. Swipe a row for its "
                     + "own actions, and tap one to switch to it.",
                 // Bottom, unlike the other sheet steps: this list fills from
                 // the top, and a new user has one row in it. A top card landed
                 // squarely on that single row and made the sheet look empty.
                 placement: .bottom,
-                opensMyApps: true
+                opensMiniApps: true
             ),
             TourStep(
                 id: "orchestrator",
                 title: "Orchestrator",
-                body: "A meta-agent that spans every MyApp. Ask it for cross-app work, even "
-                    + "spinning up a whole new MyApp. We've parked an example you can send.",
+                body: "A meta-agent that spans every MiniApp. Ask it for cross-app work, even "
+                    + "spinning up a whole new MiniApp. We've parked an example you can send.",
                 placement: .top,
                 selection: .orchestrator,
                 opensChat: true,
-                chatPrefill: "Create a new myapp to organise my books"
+                chatPrefill: "Create a new miniapp to organise my books"
             ),
             TourStep(
                 id: "menu-settings",
@@ -271,7 +271,7 @@ enum TourContent {
                 id: "settings-account",
                 title: "Settings · Account",
                 body: "There's no Pupa account. Your Apple ID is the identity, and iCloud "
-                    + "carries your MyApps, memories and settings between devices. This page "
+                    + "carries your MiniApps, memories and settings between devices. This page "
                     + "also links out to [pupa-app.com](https://pupa-app.com) for docs, "
                     + "updates and support.",
                 placement: .bottom,
@@ -280,18 +280,18 @@ enum TourContent {
             ),
             TourStep(
                 id: "settings-manage",
-                title: "Manage MyApps",
+                title: "Manage MiniApps",
                 body: "The second section is housekeeping for the apps you already have: "
                     + "their agents, sharing, pinned snapshots, the archive, and anything "
                     + "you recently deleted. Rows appear here as you need them.",
                 placement: .top,
                 settingsPage: .root,
-                highlight: .settingsManageMyApps
+                highlight: .settingsManageMiniApps
             ),
             TourStep(
-                id: "share-myapp",
-                title: "Share a MyApp",
-                body: "Send any MyApp as a bundle, or import one a friend shared. "
+                id: "share-miniapp",
+                title: "Share a MiniApp",
+                body: "Send any MiniApp as a bundle, or import one a friend shared. "
                     + "Components, agent prompts, and memories all travel with it.",
                 placement: .bottom,
                 settingsPage: .sharing
@@ -302,7 +302,7 @@ enum TourContent {
             TourStep(
                 id: "marketplace",
                 title: "The marketplace",
-                body: "This is where to find the latest official MyApps, kept up to date "
+                body: "This is where to find the latest official MiniApps, kept up to date "
                     + "and ready to install. Start here when you want something real to "
                     + "use rather than something to poke at.",
                 placement: .bottom,
@@ -314,7 +314,7 @@ enum TourContent {
                 title: "Or start with a toy",
                 body: "That's the tour. The examples below are small, self-contained "
                     + "workspaces for getting a feel for Pupa. Tap Restore on any of them "
-                    + "to drop it into your MyApps, then poke around and chat with it.",
+                    + "to drop it into your MiniApps, then poke around and chat with it.",
                 placement: .bottom,
                 settingsPage: .examples,
                 highlight: .settingsExamples
@@ -328,7 +328,7 @@ enum TourContent {
 /// instance holds the step list + current
 /// index and exposes the *desired UI state* for the active step. Host views
 /// reconcile to it declaratively (`AppView.applyTourStep()` for navigation +
-/// the sidebar; `.onChange` on the intent flags in `MyAppSidebarView` /
+/// the sidebar; `.onChange` on the intent flags in `MiniAppSidebarView` /
 /// `SettingsSheet` / `ChatOverlay` / `ChatPanel` for the sheet + chat surfaces).
 ///
 /// The tour drives the app through its stable routing layer, never view
@@ -344,7 +344,7 @@ final class GuidedTourStore {
     /// Index of the active step within `steps`. Bounds-checked by `next`/`back`.
     private(set) var index: Int = 0
     /// The step list for this run — built by `start` from `TourContent` against
-    /// the live active myApp. Empty until the tour starts.
+    /// the live active miniApp. Empty until the tour starts.
     private(set) var steps: [TourStep] = []
 
     /// Intent flags reconciled by host views. `AppView.applyTourStep()` owns
@@ -361,8 +361,8 @@ final class GuidedTourStore {
     var chatAutoSend: String?
     /// The control the active step rings, or `nil`. Read by `TourHighlightOverlay`.
     var wantHighlight: TourHighlight?
-    /// Whether the MyApps sheet should be up. Reconciled by `AppView`.
-    var wantMyAppsOpen: Bool = false
+    /// Whether the MiniApps sheet should be up. Reconciled by `AppView`.
+    var wantMiniAppsOpen: Bool = false
     /// Rows to light in the open-menu preview, or `nil` to draw no preview.
     /// Read by `AppView`, which hosts `TourMenuPreview` over the bar.
     var wantMenuPreview: Set<BarMenuRow>?
@@ -391,10 +391,10 @@ final class GuidedTourStore {
     var desiredSelection: SidebarSelection? { currentStep?.selection }
 
     /// Begin the tour from the first step. Rebuilds the step list against the
-    /// current active myApp + pairing state so the copy and route targets are
+    /// current active miniApp + pairing state so the copy and route targets are
     /// fresh each run (this is also the replay entry point from Settings).
-    func start(activeMyAppId: UUID, isPaired: Bool) {
-        steps = TourContent.steps(activeMyAppId: activeMyAppId, isPaired: isPaired)
+    func start(activeMiniAppId: UUID, isPaired: Bool) {
+        steps = TourContent.steps(activeMiniAppId: activeMiniAppId, isPaired: isPaired)
         guard !steps.isEmpty else { return }
         index = 0
         clearFlags()
@@ -444,7 +444,7 @@ final class GuidedTourStore {
         chatPrefill = nil
         chatAutoSend = nil
         wantHighlight = nil
-        wantMyAppsOpen = false
+        wantMiniAppsOpen = false
         wantMenuPreview = nil
     }
 }

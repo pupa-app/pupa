@@ -149,9 +149,9 @@ struct NotificationRequestTests {
         #expect(obj["seconds"] == .int(42))
     }
 
-    @Test("target with only a model-supplied myAppId parses to nil (id is ignored)")
+    @Test("target with only a model-supplied miniAppId parses to nil (id is ignored)")
     func parsesTargetAppOnly() throws {
-        // A model can't name a target myApp — the owning scope is injected by
+        // A model can't name a target miniApp — the owning scope is injected by
         // `AppTools.scopeNotificationRequest`. With no `componentId` to focus,
         // there is nothing left to parse.
         let id = UUID()
@@ -159,12 +159,12 @@ struct NotificationRequestTests {
             "title": .string("Done"),
             "body": .string("Check it out"),
             "trigger": .object(["kind": .string("now")]),
-            "target": .object(["myAppId": .string(id.uuidString)]),
+            "target": .object(["miniAppId": .string(id.uuidString)]),
         ]))
         #expect(req.target == nil)
     }
 
-    @Test("target keeps componentId but drops any model-supplied myAppId")
+    @Test("target keeps componentId but drops any model-supplied miniAppId")
     func parsesTargetWithComponent() throws {
         let id = UUID()
         let req = try NotificationRequest(fromToolArgs: args([
@@ -172,11 +172,11 @@ struct NotificationRequestTests {
             "body": .string("Check it out"),
             "trigger": .object(["kind": .string("now")]),
             "target": .object([
-                "myAppId": .string(id.uuidString),
+                "miniAppId": .string(id.uuidString),
                 "componentId": .string("tracker-1"),
             ]),
         ]))
-        #expect(req.target?.myAppId == nil)
+        #expect(req.target?.miniAppId == nil)
         #expect(req.target?.componentId == "tracker-1")
     }
 
@@ -196,7 +196,7 @@ struct NotificationRequestTests {
             "title": .string("Hi"),
             "body": .string("There"),
             "trigger": .object(["kind": .string("now")]),
-            "target": .object(["myAppId": .string("not-a-uuid")]),
+            "target": .object(["miniAppId": .string("not-a-uuid")]),
         ]))
         #expect(req.target == nil)
     }
@@ -383,12 +383,12 @@ struct NotificationRequestTests {
             "trigger": .object([
                 "kind": .string("weekly"), "weekday": .int(2), "hour": .int(8), "minute": .int(0),
             ]),
-            "target": .object(["myAppId": .string(id.uuidString), "componentId": .string("tracker-1")]),
+            "target": .object(["miniAppId": .string(id.uuidString), "componentId": .string("tracker-1")]),
             "tapAction": .object(["kind": .string("runAgent"), "prompt": .string("Summarize")]),
         ]))
         guard case .weekly(let wd, _, _) = req.trigger else { Issue.record("expected .weekly"); return }
         #expect(wd == 2)
-        #expect(req.target?.myAppId == nil)   // model-supplied id ignored; injected downstream
+        #expect(req.target?.miniAppId == nil)   // model-supplied id ignored; injected downstream
         #expect(req.target?.componentId == "tracker-1")
         #expect(req.tapAction == .runAgent(prompt: "Summarize"))
     }

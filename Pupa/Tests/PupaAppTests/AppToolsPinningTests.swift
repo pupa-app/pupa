@@ -3,22 +3,22 @@ import Testing
 import AGUIKit
 @testable import PupaApp
 
-/// Tests for the multi-myApp race fix in `AppTools.registerMyAppTools`.
-/// Tools registered for a myApp close over a fixed `myAppId` at construction
+/// Tests for the multi-miniApp race fix in `AppTools.registerMiniAppTools`.
+/// Tools registered for a miniApp close over a fixed `miniAppId` at construction
 /// time and route every mutator through that pinned id — so a tool firing
-/// while the user has switched the visible myApp to a different one still
-/// mutates the myApp the stream was started in. This is the property that
-/// makes per-myApp concurrent streams safe (issue #17).
+/// while the user has switched the visible miniApp to a different one still
+/// mutates the miniApp the stream was started in. This is the property that
+/// makes per-miniApp concurrent streams safe (issue #17).
 @MainActor
-@Suite("AppTools myApp pinning")
+@Suite("AppTools miniApp pinning")
 struct AppToolsPinningTests {
 
-    private func makeStore() -> (store: MyAppStore, a: UUID, b: UUID) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myAppA = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let myAppB = MyApp(name: "B", iconSystemName: "square", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([myAppA, myAppB], myAppA.id))
-        return (store, myAppA.id, myAppB.id)
+    private func makeStore() -> (store: MiniAppStore, a: UUID, b: UUID) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniAppA = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let miniAppB = MiniApp(name: "B", iconSystemName: "square", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([miniAppA, miniAppB], miniAppA.id))
+        return (store, miniAppA.id, miniAppB.id)
     }
 
     private func renderTracker(_ registry: ToolRegistry) async throws {
@@ -47,33 +47,33 @@ struct AppToolsPinningTests {
         ]))
     }
 
-    private func itemCount(_ store: MyAppStore, myAppId: UUID) -> Int {
-        guard let myApp = store.myApps.first(where: { $0.id == myAppId }) else { return -1 }
-        if case .tracker(let t) = myApp.canvas { return t.items.count }
+    private func itemCount(_ store: MiniAppStore, miniAppId: UUID) -> Int {
+        guard let miniApp = store.miniApps.first(where: { $0.id == miniAppId }) else { return -1 }
+        if case .tracker(let t) = miniApp.canvas { return t.items.count }
         return 0
     }
 
-    @Test("Tool pinned to myApp A mutates A even when active myApp is B")
+    @Test("Tool pinned to miniApp A mutates A even when active miniApp is B")
     func toolHonoursPinnedSpaceId() async throws {
         let (store, idA, idB) = makeStore()
         let registry = ToolRegistry()
-        AppTools.registerMyAppTools(on: registry, store: store, myAppId: idA)
+        AppTools.registerMiniAppTools(on: registry, store: store, miniAppId: idA)
 
         try await renderTracker(registry)
         store.setActive(idB)  // user navigates away mid-turn
         try await addItem(registry, note: "from-A-stream")
 
-        #expect(itemCount(store, myAppId: idA) == 1)
-        #expect(itemCount(store, myAppId: idB) == 0)
+        #expect(itemCount(store, miniAppId: idA) == 1)
+        #expect(itemCount(store, miniAppId: idB) == 0)
     }
 
-    @Test("Two registries pinned to different myApps mutate independently")
+    @Test("Two registries pinned to different miniApps mutate independently")
     func twoRegistriesAreIndependent() async throws {
         let (store, idA, idB) = makeStore()
         let regA = ToolRegistry()
         let regB = ToolRegistry()
-        AppTools.registerMyAppTools(on: regA, store: store, myAppId: idA)
-        AppTools.registerMyAppTools(on: regB, store: store, myAppId: idB)
+        AppTools.registerMiniAppTools(on: regA, store: store, miniAppId: idA)
+        AppTools.registerMiniAppTools(on: regB, store: store, miniAppId: idB)
 
         try await renderTracker(regA)
         try await renderTracker(regB)
@@ -81,15 +81,15 @@ struct AppToolsPinningTests {
         try await addItem(regA, note: "a2")
         try await addItem(regB, note: "b1")
 
-        #expect(itemCount(store, myAppId: idA) == 2)
-        #expect(itemCount(store, myAppId: idB) == 1)
+        #expect(itemCount(store, miniAppId: idA) == 2)
+        #expect(itemCount(store, miniAppId: idB) == 1)
     }
 
-    @Test("getCanvasState resolves the pinned myApp's canvas, ignoring active selection")
+    @Test("getCanvasState resolves the pinned miniApp's canvas, ignoring active selection")
     func getCanvasStateReadsPinned() async throws {
         let (store, idA, idB) = makeStore()
         let regA = ToolRegistry()
-        AppTools.registerMyAppTools(on: regA, store: store, myAppId: idA)
+        AppTools.registerMiniAppTools(on: regA, store: store, miniAppId: idA)
 
         try await renderTracker(regA)
         try await addItem(regA, note: "x")
@@ -115,13 +115,13 @@ struct AppToolsPinningTests {
         #expect(items.first?.objectValue?["id"]?.stringValue != nil)
     }
 
-    @Test("clearCanvas only resets the pinned myApp")
+    @Test("clearCanvas only resets the pinned miniApp")
     func clearCanvasIsPinned() async throws {
         let (store, idA, idB) = makeStore()
         let regA = ToolRegistry()
         let regB = ToolRegistry()
-        AppTools.registerMyAppTools(on: regA, store: store, myAppId: idA)
-        AppTools.registerMyAppTools(on: regB, store: store, myAppId: idB)
+        AppTools.registerMiniAppTools(on: regA, store: store, miniAppId: idA)
+        AppTools.registerMiniAppTools(on: regB, store: store, miniAppId: idB)
 
         try await renderTracker(regA)
         try await renderTracker(regB)
@@ -135,23 +135,23 @@ struct AppToolsPinningTests {
         _ = try await clear.handler(.object([:]))
 
         // B is now empty; A is untouched.
-        if case .empty = store.myApps.first(where: { $0.id == idB })?.canvas {
+        if case .empty = store.miniApps.first(where: { $0.id == idB })?.canvas {
             // ok
         } else {
-            Issue.record("myApp B canvas should be .empty after clearCanvas")
+            Issue.record("miniApp B canvas should be .empty after clearCanvas")
         }
-        #expect(itemCount(store, myAppId: idA) == 1)
+        #expect(itemCount(store, miniAppId: idA) == 1)
     }
 
-    @Test("getActiveComponent reports the pinned myApp's focused component")
+    @Test("getActiveComponent reports the pinned miniApp's focused component")
     func getActiveComponentReadsView() async throws {
         let (store, idA, _) = makeStore()
         let regA = ToolRegistry()
-        AppTools.registerMyAppTools(on: regA, store: store, myAppId: idA)
+        AppTools.registerMiniAppTools(on: regA, store: store, miniAppId: idA)
 
         try await renderTracker(regA)
-        let compId = store.myApps.first(where: { $0.id == idA })!.components.first!.id
-        _ = store.setActiveComponent(componentId: compId, myAppId: idA)
+        let compId = store.miniApps.first(where: { $0.id == idA })!.components.first!.id
+        _ = store.setActiveComponent(componentId: compId, miniAppId: idA)
 
         guard let get = regA.resolve("getActiveComponent") else {
             Issue.record("getActiveComponent not registered")

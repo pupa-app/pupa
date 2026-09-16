@@ -3,27 +3,27 @@ import SwiftUI
 /// Calendar component view. Switches between a list and month-grid view
 /// mode (toggled in the header or by the `setCalendarViewMode` tool); tap
 /// an event in either mode to open the edit sheet. All mutations route
-/// through `MyAppStore.patchCalendarEvent` / `addCalendarEvent` /
+/// through `MiniAppStore.patchCalendarEvent` / `addCalendarEvent` /
 /// `removeCalendarEvent`, so the agent and the UI see the same source of
 /// truth.
 public struct CalendarView: View {
-    @Bindable var store: MyAppStore
+    @Bindable var store: MiniAppStore
     let data: CalendarData
-    /// MyApp the calendar lives in. Threaded down so linked-event
-    /// resolution can find sibling tracker components in the same MyApp.
-    let myAppId: UUID
+    /// MiniApp the calendar lives in. Threaded down so linked-event
+    /// resolution can find sibling tracker components in the same MiniApp.
+    let miniAppId: UUID
     /// Component being rendered. Threaded into the view-mode toggle and the
     /// event editor so mutations land on THIS calendar, not the first
-    /// calendar in the myApp (the kind-routed fallback ignores which
+    /// calendar in the miniApp (the kind-routed fallback ignores which
     /// component is on screen).
     let componentId: String?
 
     @State private var editorTarget: EditorTarget?
 
-    public init(store: MyAppStore, data: CalendarData, myAppId: UUID, componentId: String? = nil) {
+    public init(store: MiniAppStore, data: CalendarData, miniAppId: UUID, componentId: String? = nil) {
         self.store = store
         self.data = data
-        self.myAppId = myAppId
+        self.miniAppId = miniAppId
         self.componentId = componentId
     }
 
@@ -41,14 +41,14 @@ public struct CalendarView: View {
                 CalendarListBody(
                     store: store,
                     data: data,
-                    myAppId: myAppId,
+                    miniAppId: miniAppId,
                     onPickEvent: { event in editorTarget = .edit(event) }
                 )
             case .month:
                 CalendarMonthBody(
                     store: store,
                     data: data,
-                    myAppId: myAppId,
+                    miniAppId: miniAppId,
                     onPickEvent: { event in editorTarget = .edit(event) }
                 )
             }
@@ -57,7 +57,7 @@ public struct CalendarView: View {
         .sheet(item: $editorTarget) { target in
             CalendarEventEditorSheet(
                 store: store,
-                myAppId: myAppId,
+                miniAppId: miniAppId,
                 target: target,
                 componentId: componentId,
                 onClose: { editorTarget = nil }
@@ -83,7 +83,7 @@ enum EditorTarget: Identifiable {
 // MARK: - Title bar with view toggle
 
 private struct CalendarTitleBar: View {
-    @Bindable var store: MyAppStore
+    @Bindable var store: MiniAppStore
     let data: CalendarData
     var componentId: String? = nil
     let onAddEvent: () -> Void
@@ -127,9 +127,9 @@ private struct CalendarTitleBar: View {
 // MARK: - List body
 
 private struct CalendarListBody: View {
-    @Bindable var store: MyAppStore
+    @Bindable var store: MiniAppStore
     let data: CalendarData
-    let myAppId: UUID
+    let miniAppId: UUID
     let onPickEvent: (CalendarEvent) -> Void
 
     var body: some View {
@@ -154,7 +154,7 @@ private struct CalendarListBody: View {
             VStack(spacing: 0) {
                 ForEach(group.events) { event in
                     Button(action: { onPickEvent(event) }) {
-                        EventRow(event: event, store: store, myAppId: myAppId)
+                        EventRow(event: event, store: store, miniAppId: miniAppId)
                     }
                     .buttonStyle(.plain)
                     if event.id != group.events.last?.id {
@@ -171,9 +171,9 @@ private struct CalendarListBody: View {
 // MARK: - Month body
 
 private struct CalendarMonthBody: View {
-    @Bindable var store: MyAppStore
+    @Bindable var store: MiniAppStore
     let data: CalendarData
-    let myAppId: UUID
+    let miniAppId: UUID
     let onPickEvent: (CalendarEvent) -> Void
 
     @State private var displayedMonth: Date
@@ -184,14 +184,14 @@ private struct CalendarMonthBody: View {
     /// today the user would see an empty grid when their events sit in a
     /// different month (e.g. seeded last year), which reads as "broken".
     init(
-        store: MyAppStore,
+        store: MiniAppStore,
         data: CalendarData,
-        myAppId: UUID,
+        miniAppId: UUID,
         onPickEvent: @escaping (CalendarEvent) -> Void
     ) {
         self.store = store
         self.data = data
-        self.myAppId = myAppId
+        self.miniAppId = miniAppId
         self.onPickEvent = onPickEvent
         let anchor: Date = {
             let starts = data.events.compactMap { parseEventStart($0.start) }.sorted()
@@ -319,7 +319,7 @@ private struct CalendarMonthBody: View {
                 VStack(spacing: 0) {
                     ForEach(events) { event in
                         Button(action: { onPickEvent(event) }) {
-                            EventRow(event: event, store: store, myAppId: myAppId)
+                            EventRow(event: event, store: store, miniAppId: miniAppId)
                         }
                         .buttonStyle(.plain)
                         if event.id != events.last?.id { Divider() }
@@ -350,8 +350,8 @@ private struct CalendarMonthBody: View {
 
 private struct EventRow: View {
     let event: CalendarEvent
-    @Bindable var store: MyAppStore
-    let myAppId: UUID
+    @Bindable var store: MiniAppStore
+    let miniAppId: UUID
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -369,7 +369,7 @@ private struct EventRow: View {
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if !event.linkedItems.isEmpty {
-                    LinkedItemsRow(refs: event.linkedItems, store: store, myAppId: myAppId)
+                    LinkedItemsRow(refs: event.linkedItems, store: store, miniAppId: miniAppId)
                 }
                 if let location = event.location, !location.isEmpty {
                     HStack(spacing: 4) {
@@ -403,8 +403,8 @@ private struct EventRow: View {
 /// kind. Wraps to multiple lines on small widths via `FlowLayout`.
 private struct LinkedItemsRow: View {
     let refs: [ComponentItemRef]
-    @Bindable var store: MyAppStore
-    let myAppId: UUID
+    @Bindable var store: MiniAppStore
+    let miniAppId: UUID
 
     var body: some View {
         FlowLayout(spacing: 4) {
@@ -419,7 +419,7 @@ private struct LinkedItemsRow: View {
         let resolved = store.displayNameForRefTarget(
             componentId: ref.componentId,
             itemId: ref.itemId,
-            myAppId: myAppId
+            miniAppId: miniAppId
         )
         LinkedRefPill(ref: ref, resolvedName: resolved)
             .frame(maxWidth: 220, alignment: .leading)
@@ -501,8 +501,8 @@ private struct CalendarEmptyHint: View {
 // MARK: - Event editor sheet
 
 struct CalendarEventEditorSheet: View {
-    @Bindable var store: MyAppStore
-    let myAppId: UUID
+    @Bindable var store: MiniAppStore
+    let miniAppId: UUID
     let target: EditorTarget
     /// Calendar component the edited event belongs to. Set by the linked-
     /// item popup dispatcher so mutations target the right component even
@@ -534,7 +534,7 @@ struct CalendarEventEditorSheet: View {
             if let componentId {
                 return ComponentItemRef(componentId: componentId, itemId: event.id)
             }
-            guard let calComp = store.myApps.first(where: { $0.id == myAppId })?
+            guard let calComp = store.miniApps.first(where: { $0.id == miniAppId })?
                 .components.first(where: {
                     if case .calendar = $0.body { return true }
                     return false
@@ -585,7 +585,7 @@ struct CalendarEventEditorSheet: View {
                 } header: {
                     Text("Linked items")
                 } footer: {
-                    Text("Attach any tracker row, calendar event, or checklist row in this MyApp. Each pill shows the live name; edits in the target update it automatically.")
+                    Text("Attach any tracker row, calendar event, or checklist row in this MiniApp. Each pill shows the live name; edits in the target update it automatically.")
                         .font(.caption)
                 }
             }
@@ -615,7 +615,7 @@ struct CalendarEventEditorSheet: View {
             .sheet(isPresented: $pickerPresented) {
                 ComponentItemPickerSheet(
                     store: store,
-                    myAppId: myAppId,
+                    miniAppId: miniAppId,
                     // Hide the event being edited from the picker so it
                     // can never link to itself. .new has no id yet, so
                     // there's nothing to exclude.
@@ -633,7 +633,7 @@ struct CalendarEventEditorSheet: View {
                 )
             }
         }
-        .linkedItemPopupHost(store: store, myAppId: myAppId)
+        .linkedItemPopupHost(store: store, miniAppId: miniAppId)
         .onAppear(perform: loadInitial)
     }
 
@@ -642,9 +642,9 @@ struct CalendarEventEditorSheet: View {
         let resolved = store.displayNameForRefTarget(
             componentId: ref.componentId,
             itemId: ref.itemId,
-            myAppId: myAppId
+            miniAppId: miniAppId
         )
-        let comp = store.componentName(ref.componentId, myAppId: myAppId) ?? ref.componentId
+        let comp = store.componentName(ref.componentId, miniAppId: miniAppId) ?? ref.componentId
         LinkedRefEditorRow(
             ref: ref,
             resolvedName: resolved,
@@ -688,23 +688,23 @@ struct CalendarEventEditorSheet: View {
                 notes: normalisedNotes,
                 linkedItems: linkedItems
             )
-            _ = store.addCalendarEvent(event, myAppId: myAppId, componentId: componentId)
+            _ = store.addCalendarEvent(event, miniAppId: miniAppId, componentId: componentId)
         case .edit(let original):
-            var patch = MyAppStore.CalendarEventPatch()
+            var patch = MiniAppStore.CalendarEventPatch()
             patch.title = trimmedTitle
             patch.start = f.string(from: start)
             patch.end = .some(hasEnd ? f.string(from: end) : nil)
             patch.location = .some(normalisedLoc)
             patch.notes = .some(normalisedNotes)
             patch.linkedItems = linkedItems
-            _ = store.patchCalendarEvent(id: original.id, patch: patch, myAppId: myAppId, componentId: componentId)
+            _ = store.patchCalendarEvent(id: original.id, patch: patch, miniAppId: miniAppId, componentId: componentId)
         }
         onClose()
     }
 
     private func deleteEvent() {
         if case .edit(let event) = target {
-            _ = store.removeCalendarEvent(id: event.id, myAppId: myAppId, componentId: componentId)
+            _ = store.removeCalendarEvent(id: event.id, miniAppId: miniAppId, componentId: componentId)
         }
         onClose()
     }

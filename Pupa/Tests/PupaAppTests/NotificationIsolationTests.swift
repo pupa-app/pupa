@@ -3,17 +3,17 @@ import Testing
 import AGUIKit
 @testable import PupaApp
 
-/// Pins cross-myApp isolation on `sendNotification`. A notification's target is
+/// Pins cross-miniApp isolation on `sendNotification`. A notification's target is
 /// bound to the scope of the agent that scheduled it — never to a value the
-/// model supplies — so one myApp can't open or message another (pupa-backend#72).
+/// model supplies — so one miniApp can't open or message another (pupa-backend#72).
 ///
 /// Two layers are covered:
 ///  - **Parse** (`NotificationRequest.init(fromToolArgs:)`): a model-supplied
-///    `target.myAppId` is ignored; only `componentId` survives.
-///  - **Scope binding** (`AppTools.scopeNotificationRequest`): the owning myApp
+///    `target.miniAppId` is ignored; only `componentId` survives.
+///  - **Scope binding** (`AppTools.scopeNotificationRequest`): the owning miniApp
 ///    is injected, foreground taps included; the orchestrator is left unchanged
 ///    (routed to its own chat at delivery time).
-@Suite("Notification cross-myApp isolation")
+@Suite("Notification cross-miniApp isolation")
 @MainActor
 struct NotificationIsolationTests {
 
@@ -24,40 +24,40 @@ struct NotificationIsolationTests {
         NotificationRequest(title: "hi", body: "there", trigger: .now, target: target, tapAction: tapAction)
     }
 
-    // MARK: - Parse: a model can't name a target myApp
+    // MARK: - Parse: a model can't name a target miniApp
 
-    @Test("a model-supplied target.myAppId is ignored at parse")
-    func parseIgnoresModelMyAppId() throws {
+    @Test("a model-supplied target.miniAppId is ignored at parse")
+    func parseIgnoresModelMiniAppId() throws {
         let args: AnyJSON = .object([
             "title": .string("hi"),
             "body": .string("there"),
             "trigger": .object(["kind": .string("now")]),
             "target": .object([
-                "myAppId": .string(UUID().uuidString),   // a sibling — must be dropped
+                "miniAppId": .string(UUID().uuidString),   // a sibling — must be dropped
                 "componentId": .string("tracker-1"),
             ]),
         ])
         let parsed = try NotificationRequest(fromToolArgs: args)
-        #expect(parsed.target?.myAppId == nil)
+        #expect(parsed.target?.miniAppId == nil)
         #expect(parsed.target?.componentId == "tracker-1")
     }
 
-    // MARK: - Scope binding: the owning myApp is injected
+    // MARK: - Scope binding: the owning miniApp is injected
 
-    @Test("a myApp notification is always bound to its own id — foreground taps too")
+    @Test("a miniApp notification is always bound to its own id — foreground taps too")
     func bindsForegroundToOwner() {
         let owner = UUID()
-        let scoped = AppTools.scopeNotificationRequest(request(tapAction: .foreground), ownerMyAppId: owner)
-        #expect(scoped.target?.myAppId == owner)
+        let scoped = AppTools.scopeNotificationRequest(request(tapAction: .foreground), ownerMiniAppId: owner)
+        #expect(scoped.target?.miniAppId == owner)
     }
 
     @Test("a runAgent tap is bound to the owner, never the active scope")
     func bindsRunAgentToOwner() {
         let owner = UUID()
         let scoped = AppTools.scopeNotificationRequest(
-            request(tapAction: .runAgent(prompt: "do x")), ownerMyAppId: owner
+            request(tapAction: .runAgent(prompt: "do x")), ownerMiniAppId: owner
         )
-        #expect(scoped.target?.myAppId == owner)
+        #expect(scoped.target?.miniAppId == owner)
         #expect(scoped.tapAction == .runAgent(prompt: "do x"))
     }
 
@@ -65,19 +65,19 @@ struct NotificationIsolationTests {
     func bindsPopulateChatToOwner() {
         let owner = UUID()
         let scoped = AppTools.scopeNotificationRequest(
-            request(tapAction: .populateChat(prompt: "draft this")), ownerMyAppId: owner
+            request(tapAction: .populateChat(prompt: "draft this")), ownerMiniAppId: owner
         )
-        #expect(scoped.target?.myAppId == owner)
+        #expect(scoped.target?.miniAppId == owner)
     }
 
-    @Test("a chosen componentId is preserved while the myApp id is injected")
+    @Test("a chosen componentId is preserved while the miniApp id is injected")
     func preservesComponentIdWhileBinding() {
         let owner = UUID()
         let scoped = AppTools.scopeNotificationRequest(
-            request(target: .init(myAppId: nil, componentId: "tracker-1"), tapAction: .runAgent(prompt: "x")),
-            ownerMyAppId: owner
+            request(target: .init(miniAppId: nil, componentId: "tracker-1"), tapAction: .runAgent(prompt: "x")),
+            ownerMiniAppId: owner
         )
-        #expect(scoped.target?.myAppId == owner)
+        #expect(scoped.target?.miniAppId == owner)
         #expect(scoped.target?.componentId == "tracker-1")
     }
 
@@ -86,27 +86,27 @@ struct NotificationIsolationTests {
     @Test("orchestrator scope (nil owner) is returned unchanged")
     func orchestratorUnchanged() {
         let req = request(tapAction: .runAgent(prompt: "x"))
-        let scoped = AppTools.scopeNotificationRequest(req, ownerMyAppId: nil)
+        let scoped = AppTools.scopeNotificationRequest(req, ownerMiniAppId: nil)
         #expect(scoped == req)
-        #expect(scoped.target?.myAppId == nil)
+        #expect(scoped.target?.miniAppId == nil)
     }
 
     // MARK: - Origin: who created it, as opposed to where it links
 
-    @Test("a myApp session credits its own myApp; the orchestrator credits itself")
+    @Test("a miniApp session credits its own miniApp; the orchestrator credits itself")
     func originFollowsScope() {
-        let myAppId = UUID()
-        #expect(AppTools.notificationOrigin(ownerMyAppId: myAppId) == .myApp(myAppId))
-        #expect(AppTools.notificationOrigin(ownerMyAppId: nil) == .orchestrator)
+        let miniAppId = UUID()
+        #expect(AppTools.notificationOrigin(ownerMiniAppId: miniAppId) == .miniApp(miniAppId))
+        #expect(AppTools.notificationOrigin(ownerMiniAppId: nil) == .orchestrator)
     }
 
     @Test("an edit keeps the deep-link target and tap action it was scheduled with")
     func editPreservesRouting() {
-        let myAppId = UUID()
+        let miniAppId = UUID()
         let original = NotificationRequest(
             title: "Stand up", body: "time to move",
             trigger: .daily(hour: 9, minute: 0),
-            target: .init(myAppId: myAppId, componentId: "tracker-1"),
+            target: .init(miniAppId: miniAppId, componentId: "tracker-1"),
             tapAction: .runAgent(prompt: "log it")
         )
 
@@ -116,8 +116,8 @@ struct NotificationIsolationTests {
             preserving: original
         )
 
-        // Retiming must not sever the route back into the owning myApp.
-        #expect(edited.target?.myAppId == myAppId)
+        // Retiming must not sever the route back into the owning miniApp.
+        #expect(edited.target?.miniAppId == miniAppId)
         #expect(edited.target?.componentId == "tracker-1")
         #expect(edited.tapAction == .runAgent(prompt: "log it"))
         #expect(edited.title == "Stretch")
@@ -143,14 +143,14 @@ struct NotificationIsolationTests {
             on: registry,
             coordinator: .shared,
             toolGateState: ToolGateState(),
-            ownerMyAppId: UUID()
+            ownerMiniAppId: UUID()
         )
         let tool = registry.resolve("sendNotification")!
         let args: AnyJSON = .object([
             "title": .string("hi"),
             "body": .string("there"),
             "trigger": .object(["kind": .string("now")]),
-            "target": .object(["myAppId": .string(UUID().uuidString)]),  // ignored, not rejected
+            "target": .object(["miniAppId": .string(UUID().uuidString)]),  // ignored, not rejected
         ])
         let result = try await tool.handler(args)
         // The old reject path is gone; on the test host (no bundle id) scheduling

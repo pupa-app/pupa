@@ -15,20 +15,20 @@ import Testing
 struct LinkedSweepRenderTests {
 
     /// A calculator with a `linkedSweep` row over three houses, plus the
-    /// tracker it links to. Returns the store, the MyApp id and the calculator
+    /// tracker it links to. Returns the store, the MiniApp id and the calculator
     /// component id.
-    private func housesModel() -> (MyAppStore, UUID, String) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApp = MyApp(name: "T", iconSystemName: "house", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([myApp], myApp.id))
-        let id = myApp.id
+    private func housesModel() -> (MiniAppStore, UUID, String) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApp = MiniApp(name: "T", iconSystemName: "house", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([miniApp], miniApp.id))
+        let id = miniApp.id
 
-        store.addComponent(kind: "tracker", name: "Houses", iconSystemName: "house", myAppId: id)
+        store.addComponent(kind: "tracker", name: "Houses", iconSystemName: "house", miniAppId: id)
         store.setTracker(title: "Houses",
                          fields: [FieldDef(name: "name", type: .text), FieldDef(name: "price", type: .number)],
-                         myAppId: id)
+                         miniAppId: id)
         for (name, price) in [("Maple", "100"), ("Oak", "200"), ("Pine", "300")] {
-            store.addItem(["name": name, "price": price], myAppId: id)
+            store.addItem(["name": name, "price": price], miniAppId: id)
         }
         let trackerId = components(store, id).first(where: {
             if case .tracker = $0.body { return true }; return false
@@ -37,27 +37,27 @@ struct LinkedSweepRenderTests {
             ComponentItemRef(componentId: trackerId, itemId: $0.id)
         }
 
-        store.addComponent(kind: "calculator", name: "Calc", iconSystemName: "function", myAppId: id)
+        store.addComponent(kind: "calculator", name: "Calc", iconSystemName: "function", miniAppId: id)
         let calcId = components(store, id).first(where: {
             if case .calculator = $0.body { return true }; return false
         })!.id
         store.addCalcRow(key: "price", name: "Price",
-                         kind: .linkedField(LinkedFieldSpec(ref: refs[0], fieldName: "price")), myAppId: id)
+                         kind: .linkedField(LinkedFieldSpec(ref: refs[0], fieldName: "price")), miniAppId: id)
         store.addCalcRow(key: "year", name: "Year",
-                         kind: .variable(value: 1, control: .slider(min: 1, max: 3, step: 1)), myAppId: id)
+                         kind: .variable(value: 1, control: .slider(min: 1, max: 3, step: 1)), miniAppId: id)
         store.addCalcRow(key: "total", name: "Total",
-                         kind: .formula(expression: "price * year"), myAppId: id)
+                         kind: .formula(expression: "price * year"), miniAppId: id)
         store.addCalcRow(key: "curves", name: "Curve per house",
                          kind: .list(.linkedSweep(refs: refs, linkedRowKey: "price", variableKey: "year",
-                                                  from: 1, to: 3, step: 1, targetKey: "total")), myAppId: id)
+                                                  from: 1, to: 3, step: 1, targetKey: "total")), miniAppId: id)
         return (store, id, calcId)
     }
 
-    private func components(_ store: MyAppStore, _ id: UUID) -> [Component] {
-        store.myApps.first(where: { $0.id == id })?.components ?? []
+    private func components(_ store: MiniAppStore, _ id: UUID) -> [Component] {
+        store.miniApps.first(where: { $0.id == id })?.components ?? []
     }
 
-    private func trackerItems(_ store: MyAppStore, _ id: UUID, _ componentId: String) -> [TrackerItem] {
+    private func trackerItems(_ store: MiniAppStore, _ id: UUID, _ componentId: String) -> [TrackerItem] {
         for c in components(store, id) where c.id == componentId {
             if case .tracker(let t) = c.body { return t.items }
         }
@@ -162,7 +162,7 @@ struct LinkedSweepRenderTests {
         let (store, id, calcId) = housesModel()
         store.addCalcRow(key: "flat", name: "Flat",
                          kind: .list(.sweep(variableKey: "year", from: 1, to: 3, step: 1, targetKey: "total")),
-                         myAppId: id)
+                         miniAppId: id)
         var calc: CalculatorData?
         for c in components(store, id) where c.id == calcId {
             if case .calculator(let d) = c.body { calc = d }
@@ -225,18 +225,18 @@ struct LinkedSweepRenderTests {
     }
 
     /// Two houses that happen to share a display name.
-    private func twoMaplesModel() -> (MyAppStore, UUID, String) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApp = MyApp(name: "T", iconSystemName: "house", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([myApp], myApp.id))
-        let id = myApp.id
+    private func twoMaplesModel() -> (MiniAppStore, UUID, String) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApp = MiniApp(name: "T", iconSystemName: "house", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([miniApp], miniApp.id))
+        let id = miniApp.id
 
-        store.addComponent(kind: "tracker", name: "Houses", iconSystemName: "house", myAppId: id)
+        store.addComponent(kind: "tracker", name: "Houses", iconSystemName: "house", miniAppId: id)
         store.setTracker(title: "Houses",
                          fields: [FieldDef(name: "name", type: .text), FieldDef(name: "price", type: .number)],
-                         myAppId: id)
-        store.addItem(["name": "Maple", "price": "100"], myAppId: id)
-        store.addItem(["name": "Maple", "price": "200"], myAppId: id)
+                         miniAppId: id)
+        store.addItem(["name": "Maple", "price": "100"], miniAppId: id)
+        store.addItem(["name": "Maple", "price": "200"], miniAppId: id)
         let trackerId = components(store, id).first(where: {
             if case .tracker = $0.body { return true }; return false
         })!.id
@@ -244,19 +244,19 @@ struct LinkedSweepRenderTests {
             ComponentItemRef(componentId: trackerId, itemId: $0.id)
         }
 
-        store.addComponent(kind: "calculator", name: "Calc", iconSystemName: "function", myAppId: id)
+        store.addComponent(kind: "calculator", name: "Calc", iconSystemName: "function", miniAppId: id)
         let calcId = components(store, id).first(where: {
             if case .calculator = $0.body { return true }; return false
         })!.id
         store.addCalcRow(key: "price", name: "Price",
-                         kind: .linkedField(LinkedFieldSpec(ref: refs[0], fieldName: "price")), myAppId: id)
+                         kind: .linkedField(LinkedFieldSpec(ref: refs[0], fieldName: "price")), miniAppId: id)
         store.addCalcRow(key: "year", name: "Year",
-                         kind: .variable(value: 1, control: .slider(min: 1, max: 3, step: 1)), myAppId: id)
+                         kind: .variable(value: 1, control: .slider(min: 1, max: 3, step: 1)), miniAppId: id)
         store.addCalcRow(key: "total", name: "Total",
-                         kind: .formula(expression: "price * year"), myAppId: id)
+                         kind: .formula(expression: "price * year"), miniAppId: id)
         store.addCalcRow(key: "curves", name: "Curve per house",
                          kind: .list(.linkedSweep(refs: refs, linkedRowKey: "price", variableKey: "year",
-                                                  from: 1, to: 3, step: 1, targetKey: "total")), myAppId: id)
+                                                  from: 1, to: 3, step: 1, targetKey: "total")), miniAppId: id)
         return (store, id, calcId)
     }
 
@@ -394,17 +394,17 @@ struct LinkedSweepRenderTests {
     }
 
     /// One house, so the linkedSweep resolves to exactly one curve.
-    private func oneHouseModel() -> (MyAppStore, UUID, String) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApp = MyApp(name: "T", iconSystemName: "house", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([myApp], myApp.id))
-        let id = myApp.id
+    private func oneHouseModel() -> (MiniAppStore, UUID, String) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApp = MiniApp(name: "T", iconSystemName: "house", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([miniApp], miniApp.id))
+        let id = miniApp.id
 
-        store.addComponent(kind: "tracker", name: "Houses", iconSystemName: "house", myAppId: id)
+        store.addComponent(kind: "tracker", name: "Houses", iconSystemName: "house", miniAppId: id)
         store.setTracker(title: "Houses",
                          fields: [FieldDef(name: "name", type: .text), FieldDef(name: "price", type: .number)],
-                         myAppId: id)
-        store.addItem(["name": "Maple", "price": "100"], myAppId: id)
+                         miniAppId: id)
+        store.addItem(["name": "Maple", "price": "100"], miniAppId: id)
         let trackerId = components(store, id).first(where: {
             if case .tracker = $0.body { return true }; return false
         })!.id
@@ -412,19 +412,19 @@ struct LinkedSweepRenderTests {
             ComponentItemRef(componentId: trackerId, itemId: $0.id)
         }
 
-        store.addComponent(kind: "calculator", name: "Calc", iconSystemName: "function", myAppId: id)
+        store.addComponent(kind: "calculator", name: "Calc", iconSystemName: "function", miniAppId: id)
         let calcId = components(store, id).first(where: {
             if case .calculator = $0.body { return true }; return false
         })!.id
         store.addCalcRow(key: "price", name: "Price",
-                         kind: .linkedField(LinkedFieldSpec(ref: refs[0], fieldName: "price")), myAppId: id)
+                         kind: .linkedField(LinkedFieldSpec(ref: refs[0], fieldName: "price")), miniAppId: id)
         store.addCalcRow(key: "year", name: "Year",
-                         kind: .variable(value: 1, control: .slider(min: 1, max: 3, step: 1)), myAppId: id)
+                         kind: .variable(value: 1, control: .slider(min: 1, max: 3, step: 1)), miniAppId: id)
         store.addCalcRow(key: "total", name: "Total",
-                         kind: .formula(expression: "price * year"), myAppId: id)
+                         kind: .formula(expression: "price * year"), miniAppId: id)
         store.addCalcRow(key: "curves", name: "Curve per house",
                          kind: .list(.linkedSweep(refs: refs, linkedRowKey: "price", variableKey: "year",
-                                                  from: 1, to: 3, step: 1, targetKey: "total")), myAppId: id)
+                                                  from: 1, to: 3, step: 1, targetKey: "total")), miniAppId: id)
         return (store, id, calcId)
     }
 }

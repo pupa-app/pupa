@@ -112,13 +112,13 @@ enum MarketplaceInstallLink {
     /// file gets.
     ///
     /// Streamed, not buffered whole: the response is capped at
-    /// `MyAppImporter.maxBundleBytes` from the declared `Content-Length` where
+    /// `MiniAppImporter.maxBundleBytes` from the declared `Content-Length` where
     /// there is one, and again while reading for a response that doesn't
     /// declare its size.
     static func fetchBundle(
         _ request: Request,
         using session: URLSession = .shared,
-        maxBytes cap: Int = MyAppImporter.maxBundleBytes
+        maxBytes cap: Int = MiniAppImporter.maxBundleBytes
     ) async throws -> Data {
         var req = URLRequest(url: request.bundleURL)
         req.timeoutInterval = 30

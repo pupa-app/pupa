@@ -1,0 +1,16 @@
+// The orchestrator creates one MiniApp, then reports completion.
+{"events":[
+  {"type":"RUN_STARTED","threadId":"t","runId":"r1"},
+  {"type":"TOOL_CALL_START","toolCallId":"call_1","toolCallName":"createMiniApp"},
+  {"type":"TOOL_CALL_ARGS","toolCallId":"call_1","delta":"{\"typeId\":\"tracker\",\"name\":\"Garden\"}"},
+  {"type":"TOOL_CALL_END","toolCallId":"call_1"},
+  {"type":"CUSTOM","name":"on_interrupt","value":"{\"frontend_tool_calls\":[{\"id\":\"call_1\",\"name\":\"createMiniApp\",\"args\":{\"typeId\":\"tracker\",\"name\":\"Garden\"}}]}"},
+  {"type":"RUN_FINISHED","threadId":"t","runId":"r1"}
+]}
+{"events":[
+  {"type":"RUN_STARTED","threadId":"t","runId":"r2"},
+  {"type":"TEXT_MESSAGE_START","messageId":"m1","role":"assistant"},
+  {"type":"TEXT_MESSAGE_CONTENT","messageId":"m1","delta":"Created Garden."},
+  {"type":"TEXT_MESSAGE_END","messageId":"m1"},
+  {"type":"RUN_FINISHED","threadId":"t","runId":"r2"}
+]}

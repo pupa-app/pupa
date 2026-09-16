@@ -42,7 +42,7 @@ struct AgentLimitsView: View {
             } header: {
                 Text("Agent-to-agent limits")
             } footer: {
-                Text("Guardrails for when one agent delegates to another — the orchestrator fanning out to myApp agents, or a Slack room. Changes take effect on the next agent call.")
+                Text("Guardrails for when one agent delegates to another — the orchestrator fanning out to miniApp agents, or a Slack room. Changes take effect on the next agent call.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

@@ -12,18 +12,18 @@ struct DailyBriefingExampleTests {
 
     @Test("make() returns the five-component briefing workspace")
     func makeSeedHasAllComponents() {
-        let myApp = DailyBriefingExample.make()
-        #expect(myApp.name == DailyBriefingExample.name)
-        #expect(myApp.typeId == "tracker")
-        #expect(myApp.iconSystemName == "sun.horizon")
-        #expect(myApp.activeComponentId == "tracker-2")
-        #expect(myApp.components.map(\.id) == ["tracker-1", "tracker-2", "tracker-3", "chart-1", "calendar-1"])
+        let miniApp = DailyBriefingExample.make()
+        #expect(miniApp.name == DailyBriefingExample.name)
+        #expect(miniApp.typeId == "tracker")
+        #expect(miniApp.iconSystemName == "sun.horizon")
+        #expect(miniApp.activeComponentId == "tracker-2")
+        #expect(miniApp.components.map(\.id) == ["tracker-1", "tracker-2", "tracker-3", "chart-1", "calendar-1"])
     }
 
     @Test("Briefing Sources name a tool per feed and ship Markets Off")
     func sourcesNameToolsAndDegradeMarkets() {
-        let myApp = DailyBriefingExample.make()
-        guard case .tracker(let data) = body(myApp, id: "tracker-1") else {
+        let miniApp = DailyBriefingExample.make()
+        guard case .tracker(let data) = body(miniApp, id: "tracker-1") else {
             Issue.record("tracker-1 missing or wrong kind"); return
         }
         #expect(data.items.count == 6)
@@ -38,9 +38,9 @@ struct DailyBriefingExampleTests {
 
     @Test("Every Today's Briefing section but the focus item links back to a Source")
     func sectionsLinkToSources() {
-        let myApp = DailyBriefingExample.make()
-        let sourceIds = trackerItemIds(myApp, id: "tracker-1")
-        guard case .tracker(let data) = body(myApp, id: "tracker-2") else {
+        let miniApp = DailyBriefingExample.make()
+        let sourceIds = trackerItemIds(miniApp, id: "tracker-1")
+        guard case .tracker(let data) = body(miniApp, id: "tracker-2") else {
             Issue.record("tracker-2 missing or wrong kind"); return
         }
         #expect(data.items.count == 5)
@@ -57,8 +57,8 @@ struct DailyBriefingExampleTests {
 
     @Test("Feed Volume chart sums Briefing History per day")
     func chartSourcesHistory() {
-        let myApp = DailyBriefingExample.make()
-        guard case .chart(let chart) = body(myApp, id: "chart-1") else {
+        let miniApp = DailyBriefingExample.make()
+        guard case .chart(let chart) = body(miniApp, id: "chart-1") else {
             Issue.record("chart-1 missing or wrong kind"); return
         }
         #expect(chart.series.count == 2)
@@ -74,8 +74,8 @@ struct DailyBriefingExampleTests {
 
     @Test("Schedule events are evergreen (no past dates) and include the 7am push")
     func scheduleIsEvergreen() {
-        let myApp = DailyBriefingExample.make()
-        guard case .calendar(let data) = body(myApp, id: "calendar-1") else {
+        let miniApp = DailyBriefingExample.make()
+        guard case .calendar(let data) = body(miniApp, id: "calendar-1") else {
             Issue.record("calendar-1 missing or wrong kind"); return
         }
         #expect(data.events.contains { $0.title == "Daily Briefing" })
@@ -112,29 +112,29 @@ struct DailyBriefingExampleTests {
 
     @Test("Exports + re-imports cleanly with fresh identity")
     func bundleRoundTrips() throws {
-        MyAppTypeRegistry.shared.registerBuiltins()
+        MiniAppTypeRegistry.shared.registerBuiltins()
         let mem = MemoryStore(rootOverride: FileManager.default.temporaryDirectory
             .appendingPathComponent("pupa-briefing-rt-\(UUID().uuidString)", isDirectory: true))
         let app = DailyBriefingExample.make()
-        let store = MyAppStore(initial: ([], UUID()))
-        let opts = MyAppExporter.Options(
+        let store = MiniAppStore(initial: ([], UUID()))
+        let opts = MiniAppExporter.Options(
             selectedComponentIds: Set(app.components.map(\.id)), includeRecords: true, includeMemories: true)
-        let data = try MyAppExporter.makeBundle(app: app, options: opts, memory: mem).encoded()
-        let result = try MyAppImporter.importBundle(data, into: store, memory: mem)
+        let data = try MiniAppExporter.makeBundle(app: app, options: opts, memory: mem).encoded()
+        let result = try MiniAppImporter.importBundle(data, into: store, memory: mem)
 
-        let imported = try #require(store.myApps.first { $0.id == result.myAppId })
+        let imported = try #require(store.miniApps.first { $0.id == result.miniAppId })
         #expect(imported.components.map(\.id) == ["tracker-1", "tracker-2", "tracker-3", "chart-1", "calendar-1"])
         #expect(imported.id != app.id)
     }
 
     // MARK: - Helpers
 
-    private func body(_ myApp: MyApp, id: String) -> CanvasApp? {
-        myApp.components.first(where: { $0.id == id })?.body
+    private func body(_ miniApp: MiniApp, id: String) -> CanvasApp? {
+        miniApp.components.first(where: { $0.id == id })?.body
     }
 
-    private func trackerItemIds(_ myApp: MyApp, id: String) -> Set<UUID> {
-        guard case .tracker(let data) = body(myApp, id: id) else { return [] }
+    private func trackerItemIds(_ miniApp: MiniApp, id: String) -> Set<UUID> {
+        guard case .tracker(let data) = body(miniApp, id: id) else { return [] }
         return Set(data.items.map(\.id))
     }
 }

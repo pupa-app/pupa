@@ -10,13 +10,13 @@ struct ExportFileNamingTests {
 
     @Test("Ordinary names slugify")
     func slugifiesName() {
-        #expect(MyAppExporter.exportBaseName(forAppName: "Habit Tracker") == "habit-tracker")
+        #expect(MiniAppExporter.exportBaseName(forAppName: "Habit Tracker") == "habit-tracker")
     }
 
     @Test("Names that slugify to nothing fall back")
     func fallsBackWhenSlugEmpty() {
         for name in ["🚀🚀", "", "!!!", "   "] {
-            #expect(MyAppExporter.exportBaseName(forAppName: name) == "pupa-app")
+            #expect(MiniAppExporter.exportBaseName(forAppName: name) == "pupa-app")
         }
     }
 }

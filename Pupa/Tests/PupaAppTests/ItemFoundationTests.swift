@@ -179,18 +179,18 @@ struct ItemFoundationTests {
     @Test("append increments count")
     func logAppend() {
         var log = ItemEventLog()
-        let myAppId = UUID()
-        log.append(ItemEvent(myAppId: myAppId, componentId: "tracker-1", kind: .added, actor: .user))
+        let miniAppId = UUID()
+        log.append(ItemEvent(miniAppId: miniAppId, componentId: "tracker-1", kind: .added, actor: .user))
         #expect(log.count == 1)
     }
 
     @Test("bounded eviction keeps only the most recent `cap` events")
     func logBoundedEviction() {
         var log = ItemEventLog(cap: 3)
-        let myAppId = UUID()
+        let miniAppId = UUID()
         for i in 0..<5 {
             log.append(ItemEvent(
-                myAppId: myAppId,
+                miniAppId: miniAppId,
                 componentId: "tracker-\(i)",
                 kind: .added,
                 actor: .user
@@ -201,17 +201,17 @@ struct ItemFoundationTests {
         #expect(log.all.map(\.componentId) == ["tracker-2", "tracker-3", "tracker-4"])
     }
 
-    @Test("events(forMyApp:) filters by myAppId")
-    func logFilterByMyApp() {
+    @Test("events(forMiniApp:) filters by miniAppId")
+    func logFilterByMiniApp() {
         var log = ItemEventLog()
         let id1 = UUID()
         let id2 = UUID()
-        log.append(ItemEvent(myAppId: id1, componentId: "tracker-1", kind: .added, actor: .agent(toolName: "addTrackerItems")))
-        log.append(ItemEvent(myAppId: id2, componentId: "calendar-1", kind: .added, actor: .user))
-        log.append(ItemEvent(myAppId: id1, componentId: "tracker-1", kind: .patched, actor: .agent(toolName: "patchTrackerItems")))
-        #expect(log.events(forMyApp: id1).count == 2)
-        #expect(log.events(forMyApp: id2).count == 1)
-        #expect(log.events(forMyApp: UUID()).count == 0)
+        log.append(ItemEvent(miniAppId: id1, componentId: "tracker-1", kind: .added, actor: .agent(toolName: "addTrackerItems")))
+        log.append(ItemEvent(miniAppId: id2, componentId: "calendar-1", kind: .added, actor: .user))
+        log.append(ItemEvent(miniAppId: id1, componentId: "tracker-1", kind: .patched, actor: .agent(toolName: "patchTrackerItems")))
+        #expect(log.events(forMiniApp: id1).count == 2)
+        #expect(log.events(forMiniApp: id2).count == 1)
+        #expect(log.events(forMiniApp: UUID()).count == 0)
     }
 
     @Test("ItemEventActor.user round-trips through Codable")
@@ -233,7 +233,7 @@ struct ItemFoundationTests {
     @Test("ItemEvent round-trips through Codable")
     func eventCodable() throws {
         let event = ItemEvent(
-            myAppId: UUID(),
+            miniAppId: UUID(),
             componentId: "tracker-1",
             kind: .linked,
             actor: .agent(toolName: "linkItem")

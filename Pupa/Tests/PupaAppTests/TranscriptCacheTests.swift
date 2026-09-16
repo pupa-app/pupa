@@ -27,7 +27,7 @@ final class TranscriptMockURLProtocol: URLProtocol, @unchecked Sendable {
 /// Tests for the on-device transcript cache (`TranscriptCache`) and the
 /// cache-first / never-clobber load path in `ChatViewModel.loadHistoryIfNeeded`.
 ///
-/// Disk-backed: `TestStorage.activate()` + `await MyAppStore.clearStorage()`
+/// Disk-backed: `TestStorage.activate()` + `await MiniAppStore.clearStorage()`
 /// isolate each test to a temp state root, per the shared-root serial rule.
 @MainActor
 @Suite("Transcript cache", .serialized)
@@ -81,7 +81,7 @@ struct TranscriptCacheTests {
 
     @Test("save then load returns the same bubbles; delete clears; unknown id is empty")
     func saveLoadDelete() async {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         let id = "thread-1"
         #expect(TranscriptCache.load(id).isEmpty, "unknown id → empty")
 
@@ -96,7 +96,7 @@ struct TranscriptCacheTests {
 
     @Test("save([]) writes no file — never masks a real backend transcript")
     func saveEmpty_writesNothing() async {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         let id = "empty-thread"
         TranscriptCache.save([], threadId: id)
         #expect(!FileManager.default.fileExists(atPath: TranscriptCache.url(id).path))
@@ -106,7 +106,7 @@ struct TranscriptCacheTests {
 
     @Test("snapshot save/load round-trips cursor + in-flight flag with the bubbles")
     func snapshot_roundTrip() async {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         let id = "snap-thread"
         let bubbles = [ChatBubble(role: .user, text: "q"),
                        ChatBubble(role: .assistant, text: "half a reply")]
@@ -126,7 +126,7 @@ struct TranscriptCacheTests {
 
     @Test("legacy bare-array cache files still load; their snapshot carries no cursor")
     func snapshot_legacyArrayFallback() async throws {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         let id = "legacy-thread"
         let bubbles = [ChatBubble(role: .user, text: "old format")]
         let data = try JSONEncoder().encode(bubbles)
@@ -141,7 +141,7 @@ struct TranscriptCacheTests {
 
     @Test("unknown thread has no snapshot; bubble-only save yields cursor-less snapshot")
     func snapshot_missingAndBubbleOnly() async {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         #expect(TranscriptCache.loadSnapshot("nope") == nil)
 
         TranscriptCache.save([ChatBubble(role: .user, text: "plain")], threadId: "plain-thread")
@@ -152,7 +152,7 @@ struct TranscriptCacheTests {
 
     @Test("snapshot save strips inline image bytes like the legacy save")
     func snapshot_stripsImages() async {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         let id = "snap-img"
         let snap = TranscriptSnapshot(
             bubbles: [ChatBubble(role: .user, text: "pic", imagesData: [Data(count: 2048)])],
@@ -167,13 +167,13 @@ struct TranscriptCacheTests {
 
     @Test("Empty backend response keeps the cached render (never-clobber)")
     func load_emptyBackend_keepsCache() async {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         TranscriptMockURLProtocol.reset() // backend returns []
-        MyAppTypeRegistry.shared.registerBuiltins()
+        MiniAppTypeRegistry.shared.registerBuiltins()
 
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let scope: ChatScope = .myApp(a.id)
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let scope: ChatScope = .miniApp(a.id)
         let tid = store.currentThreadId(for: scope)
         let cached = [ChatBubble(role: .user, text: "remembered"),
                       ChatBubble(role: .assistant, text: "prior reply")]
@@ -194,16 +194,16 @@ struct TranscriptCacheTests {
 
     @Test("Populated backend response overrides the cache (backend wins)")
     func load_populatedBackend_overridesCache() async {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         TranscriptMockURLProtocol.reset()
         TranscriptMockURLProtocol.body = Data("""
         [{"role":"human","content":"from backend","tool_calls":[]}]
         """.utf8)
-        MyAppTypeRegistry.shared.registerBuiltins()
+        MiniAppTypeRegistry.shared.registerBuiltins()
 
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let scope: ChatScope = .myApp(a.id)
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let scope: ChatScope = .miniApp(a.id)
         let tid = store.currentThreadId(for: scope)
         TranscriptCache.save([ChatBubble(role: .user, text: "stale cache")], threadId: tid)
 
@@ -223,29 +223,29 @@ struct TranscriptCacheTests {
 
     @Test("removeThread deletes its transcript cache file")
     func removeThread_deletesCache() async {
-        await MyAppStore.clearStorage()
-        MyAppTypeRegistry.shared.registerBuiltins()
+        await MiniAppStore.clearStorage()
+        MiniAppTypeRegistry.shared.registerBuiltins()
         let t0 = ChatThread(id: "t0"), t1 = ChatThread(id: "t1")
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id,
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id,
                       threads: [t0, t1], currentThreadId: "t1")
-        let store = MyAppStore(initial: ([a], a.id))
+        let store = MiniAppStore(initial: ([a], a.id))
         TranscriptCache.save([ChatBubble(role: .user, text: "x")], threadId: "t0")
 
-        store.removeThread("t0", for: .myApp(a.id))
+        store.removeThread("t0", for: .miniApp(a.id))
 
         #expect(TranscriptCache.load("t0").isEmpty)
     }
 
     @Test("Cap eviction deletes the evicted threads' transcript files")
     func capEviction_deletesCache() async {
-        await MyAppStore.clearStorage()
-        MyAppTypeRegistry.shared.registerBuiltins()
+        await MiniAppStore.clearStorage()
+        MiniAppTypeRegistry.shared.registerBuiltins()
         let base = Date(timeIntervalSince1970: 1_000_000)
         let threads = (0..<4).map { ChatThread(id: "t\($0)", title: "t\($0)",
                                                createdAt: base.addingTimeInterval(Double($0))) }
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id,
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id,
                       threads: threads, currentThreadId: "t3")
-        let store = MyAppStore(initial: ([a], a.id))
+        let store = MiniAppStore(initial: ([a], a.id))
         for t in threads { TranscriptCache.save([ChatBubble(role: .user, text: t.id)], threadId: t.id) }
         store.threadCapBytes = { 1 } // force eviction down to the floor
 
@@ -262,16 +262,16 @@ struct TranscriptCacheTests {
 
     @Test("A local send after cache render is not clobbered by a non-empty backend fetch")
     func load_localSendAfterCache_notClobbered() async {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         TranscriptMockURLProtocol.reset()
         TranscriptMockURLProtocol.body = Data("""
         [{"role":"human","content":"from backend","tool_calls":[]}]
         """.utf8)
-        MyAppTypeRegistry.shared.registerBuiltins()
+        MiniAppTypeRegistry.shared.registerBuiltins()
 
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a], a.id))
-        let scope: ChatScope = .myApp(a.id)
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a], a.id))
+        let scope: ChatScope = .miniApp(a.id)
         let tid = store.currentThreadId(for: scope)
         let cached = [ChatBubble(role: .user, text: "remembered")]
         TranscriptCache.save(cached, threadId: tid)
@@ -301,7 +301,7 @@ struct TranscriptCacheTests {
 
     @Test("save drops inline image bytes so the mirrored file stays bounded")
     func save_stripsImages() async {
-        await MyAppStore.clearStorage()
+        await MiniAppStore.clearStorage()
         let id = "img-thread"
         let withImg = [ChatBubble(role: .user, text: "pic", imagesData: [Data(count: 4096)])]
         TranscriptCache.save(withImg, threadId: id)
@@ -311,18 +311,18 @@ struct TranscriptCacheTests {
         #expect(loaded.first?.imagesData.isEmpty == true, "image bytes stripped from cache")
     }
 
-    @Test("removeMyApp deletes every one of its threads' transcript files")
-    func removeMyApp_deletesAllCaches() async {
-        await MyAppStore.clearStorage()
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let a = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id,
+    @Test("removeMiniApp deletes every one of its threads' transcript files")
+    func removeMiniApp_deletesAllCaches() async {
+        await MiniAppStore.clearStorage()
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let a = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id,
                       threads: [ChatThread(id: "a0"), ChatThread(id: "a1")], currentThreadId: "a1")
-        let b = MyApp(name: "B", iconSystemName: "square", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([a, b], a.id))
+        let b = MiniApp(name: "B", iconSystemName: "square", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([a, b], a.id))
         TranscriptCache.save([ChatBubble(role: .user, text: "x")], threadId: "a0")
         TranscriptCache.save([ChatBubble(role: .user, text: "y")], threadId: "a1")
 
-        store.removeMyApp(a.id)
+        store.removeMiniApp(a.id)
 
         #expect(TranscriptCache.load("a0").isEmpty)
         #expect(TranscriptCache.load("a1").isEmpty)

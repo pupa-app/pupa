@@ -3,7 +3,7 @@ import SwiftUI
 /// Settings ▸ Agents ▸ Threads. Every conversation thread grouped by agent,
 /// one collapsible group each, with token + cost usage per thread.
 struct AgentThreadsView: View {
-    let store: MyAppStore
+    let store: MiniAppStore
     let settings: SettingsStore
     /// Live session owner, for per-thread status dots. Optional so previews /
     /// callers without a coordinator render no badges.
@@ -13,8 +13,8 @@ struct AgentThreadsView: View {
     /// Owned per screen so the fetch only fires for the page you opened.
     @State private var usage = ThreadUsageStore()
 
-    private var sortedApps: [MyApp] {
-        store.myApps.sorted { $0.createdAt < $1.createdAt }
+    private var sortedApps: [MiniApp] {
+        store.miniApps.sorted { $0.createdAt < $1.createdAt }
     }
 
     var body: some View {
@@ -48,7 +48,7 @@ struct AgentThreadsView: View {
     private var threadGroups: [ThreadGroup] {
         var groups = [ThreadGroup(title: "Orchestrator", scope: .memory)]
         for app in sortedApps {
-            groups.append(ThreadGroup(title: app.name, scope: .myApp(app.id)))
+            groups.append(ThreadGroup(title: app.name, scope: .miniApp(app.id)))
         }
         return groups
     }

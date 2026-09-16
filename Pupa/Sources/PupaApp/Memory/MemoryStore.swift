@@ -26,9 +26,9 @@ public final class MemoryStore {
 
     /// Consulted before every mutating call with the target path (relative to
     /// this store's root). Returning `true` throws `MemoryError.locked`; reads
-    /// stay open. Scoped app stores ignore the path and return their MyApp's
+    /// stay open. Scoped app stores ignore the path and return their MiniApp's
     /// `isMemoryLocked`; the global (sidebar) store maps the leading path
-    /// segment to a MyApp. Nil (the default) leaves the store fully writable.
+    /// segment to a MiniApp. Nil (the default) leaves the store fully writable.
     public var writeGuard: ((String) -> Bool)?
 
     public init(rootOverride: URL? = nil) {
@@ -260,17 +260,17 @@ public final class MemoryStore {
     /// excluded (marketplace import threat surface; nothing executes them).
     nonisolated static let writableExtensions: Set<String> = ["md", "json"]
 
-    /// Top-level memory folder for a myApp: its immutable UUID (lowercased).
+    /// Top-level memory folder for a miniApp: its immutable UUID (lowercased).
     /// Keying on the id — never the display-name slug — means the on-disk
     /// location can't move on rename or collide on import. The Memories UI
     /// labels the dir with the live app name.
-    public nonisolated static func myAppFolder(myAppId: UUID) -> String {
-        myAppId.uuidString.lowercased()
+    public nonisolated static func miniAppFolder(miniAppId: UUID) -> String {
+        miniAppId.uuidString.lowercased()
     }
 
     // MARK: `pupa/` config folder
     //
-    // Each scope (myApp or orchestrator) keeps its driving prompts + skills in
+    // Each scope (miniApp or orchestrator) keeps its driving prompts + skills in
     // a visible `pupa/` subfolder, separate from user content at the root.
     // The constants below are *relative* to a scope-rooted `MemoryStore`.
 
@@ -296,31 +296,31 @@ public final class MemoryStore {
     public static func subagentSubfolder(name: String) -> String {
         "\(pupaAgentsDir)/\(slugify(name))"
     }
-    /// Absolute (global-root-relative) `pupa/` folder for a myApp.
-    public static func pupaFolder(myAppId: UUID) -> String {
-        "\(myAppFolder(myAppId: myAppId))/\(pupaFolderName)"
+    /// Absolute (global-root-relative) `pupa/` folder for a miniApp.
+    public static func pupaFolder(miniAppId: UUID) -> String {
+        "\(miniAppFolder(miniAppId: miniAppId))/\(pupaFolderName)"
     }
 
     /// Top-level folder for the orchestrator's memories.
     public nonisolated static func orchestratorFolder() -> String { "orchestrator" }
 
-    /// Absolute URL for a myApp's memory root — used as `rootOverride` when
+    /// Absolute URL for a miniApp's memory root — used as `rootOverride` when
     /// creating a session-scoped `MemoryStore`.
-    public static func appRoot(myAppId: UUID) -> URL {
-        defaultRoot().appendingPathComponent(myAppFolder(myAppId: myAppId), isDirectory: true)
+    public static func appRoot(miniAppId: UUID) -> URL {
+        defaultRoot().appendingPathComponent(miniAppFolder(miniAppId: miniAppId), isDirectory: true)
     }
 
     /// This store's root URL (the override, or the default `…/memories`).
     public var rootURL: URL { root }
 
-    /// A store scoped to one myApp's folder *under this store's root* — so a
+    /// A store scoped to one miniApp's folder *under this store's root* — so a
     /// store with a test `rootOverride` produces a child under the same temp
     /// dir rather than the real Application Support default. Used by the
     /// marketplace export/import. Writes through the child rescan this store
     /// too, so the sidebar/Memories tab refresh without a relaunch.
     public func appScopedStore(forAppId id: UUID) -> MemoryStore {
         let child = MemoryStore(rootOverride: root.appendingPathComponent(
-            Self.myAppFolder(myAppId: id), isDirectory: true))
+            Self.miniAppFolder(miniAppId: id), isDirectory: true))
         child.onDidMutate = { [weak self] in self?.rescan() }
         return child
     }
@@ -513,7 +513,7 @@ public final class MemoryStore {
     ///
     /// The previous shape cost three syscalls per entry — a `contentsOfDirectory`,
     /// then a `fileExists` per child, then an `attributesOfItem` per file —
-    /// which showed up on the MyApp-switch path, where the Agents pane builds
+    /// which showed up on the MiniApp-switch path, where the Agents pane builds
     /// a `MemoryStore` (and so a full recursive scan) inside a view body.
     /// Asking for the resource values up front lets the listing populate them
     /// in bulk, so `resourceValues` below reads what is already cached.
@@ -596,7 +596,7 @@ public final class MemoryStore {
     ///
     /// Exposed because "is this file X?" must be answered the same way here and
     /// by anyone deciding what to do with a file *before* it's written —
-    /// `MyAppImporter` rewrites `pupa/automations.json` on the way in, and a
+    /// `MiniAppImporter` rewrites `pupa/automations.json` on the way in, and a
     /// second, looser opinion about which paths mean that file is a bypass, not
     /// a cosmetic difference.
     nonisolated static func canonicalise(_ path: String) -> String {

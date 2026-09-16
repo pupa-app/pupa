@@ -83,7 +83,7 @@ handlers.
 | Area | What it owns |
 |---|---|
 | [`App/`](../Pupa/Sources/PupaApp/App/) | `RootView` (launch coordinator), `SplashView`, first-install onboarding (`OnboardingFlowView` + slides), `AppView` (root split view), `PupaApp` scene, app icon. |
-| [`MyApps/`](../Pupa/Sources/PupaApp/MyApps/) | `MyApp` model + `MyAppStore` (the single mutation surface), `MyAppType` (kind registry), example apps (Job Search & Apply decodes the embedded marketplace bundle `Resources/job-search-apply.pupa`; the rest are Swift factories), `ItemEventLog` (change feed captioning History). |
+| [`MiniApps/`](../Pupa/Sources/PupaApp/MiniApps/) | `MiniApp` model + `MiniAppStore` (the single mutation surface), `MiniAppType` (kind registry), example apps (Job Search & Apply decodes the embedded marketplace bundle `Resources/job-search-apply.pupa`; the rest are Swift factories), `ItemEventLog` (change feed captioning History). |
 | [`Canvas/`](../Pupa/Sources/PupaApp/Canvas/) | `CanvasState` + the per-shape SwiftUI views (`TrackerView`, `CalendarView`, `ChecklistView`, `KanbanView`, `SlackView`) and the cross-component link picker. |
 | [`Chat/`](../Pupa/Sources/PupaApp/Chat/) | `ChatViewModel`, `ChatSessionCoordinator` (drives `AgentSession`), `ChatPanel` + thread-selector dropdown (`ConversationPager`), slash commands, transcript mapping. The composer attaches up to `ChatViewModel.maxImagesPerMessage` images — from the photo library (multi-select), the camera (`CameraPicker`, iOS), or drag-and-drop — each funnelled through `ImagePreparer` into a `PickedImage` and sent as its own AG-UI image part. |
 | [`Tools/`](../Pupa/Sources/PupaApp/Tools/) | `AppTools.swift` — registers every frontend tool against the `ToolRegistry`. |
@@ -93,51 +93,59 @@ handlers.
 | [`ScreenShare/`](../Pupa/Sources/PupaApp/ScreenShare/) | WebRTC viewer + signalling client for the backend's `/screenshare/ws` broker. |
 | [`Settings/`](../Pupa/Sources/PupaApp/Settings/) | `SettingsStore` (backend URL, API key, disabled tools), `SettingsSheet` + its category screens, `SettingsHubRow`, backend-tools client. |
 
+MiniApp rename keeps app bodies under `state/apps/<UUID>.json`, memories under
+UUID folders, and snapshots under `state/snapshots/<UUID>/`. The store reads old
+`myAppFolders` index data and rewrites it as `miniAppFolders` after loading the
+roster. Import, links, notifications, and orchestrator tools accept legacy
+MyApp identifiers so existing content continues to work.
+`make ctl --orchestrator` drives the same orchestrator tool surface headlessly.
+`make ctl --miniapp-id <UUID>` opens one saved MiniApp in the headless harness.
+
 `AppView` lays this out as a fixed-width `HStack` split (sidebar `Divider`
 detail) on macOS and, on iOS, a **bottom sheet** opened from the bar menu's
-**MyApps** row — the same idiom as Settings and memory notes, rather than the
+**MiniApps** row — the same idiom as Settings and memory notes, rather than the
 left-slide drawer it used to be. There is no toolbar hamburger; the bar's menu
 is the only menu. (macOS deliberately
 avoids `NavigationSplitView`: its sidebar fails to render in the unbundled
 `swift run` PupaDemo binary, leaving an empty column.) The sidebar lists the
-**visible** (non-archived) MyApps as compact, **non-expanding** rows (tap a row
-→ its home; components, memories, and history are reached from the MyApp home +
+**visible** (non-archived) MiniApps as compact, **non-expanding** rows (tap a row
+→ its home; components, memories, and history are reached from the MiniApp home +
 its bottom bar, not the sidebar) and nothing else — no footer, no Orchestrator
 row. The bottom bar's **Menu** is the one place global actions live, the
 Orchestrator among them. A row's long-press menu offers Rename · **Move to
 Folder** · **Archive** · Delete.
 
-**Sidebar folders** group MyApp rows for readability and nothing else.
-`MyAppFolderLayout` (`folders` + `assignments: myAppUUID → folderId`) is
+**Sidebar folders** group MiniApp rows for readability and nothing else.
+`MiniAppFolderLayout` (`folders` + `assignments: miniAppUUID → folderId`) is
 UI-only, one level deep, and lives in `index.json` beside `componentFolders` —
-never on a `MyApp`, so no tool reads it and no marketplace bundle carries it.
+never on a `MiniApp`, so no tool reads it and no marketplace bundle carries it.
 It rides the existing `index.json` mirror, so folders sync across devices;
 expand/collapse is per-device `@AppStorage`. A folder is always created holding
 an app (row menu → Move to Folder → New Folder…) and is pruned the moment its
 last member leaves, so there are no empty folders. Folders render at the
 position of their first visible member, so grouping never reshuffles roster
 order. Archiving is orthogonal: an archived app keeps its assignment but is
-filtered out with `visibleMyApps`, so a folder whose members are all archived
+filtered out with `visibleMiniApps`, so a folder whose members are all archived
 renders nothing and comes back intact on restore.
 
-**Archiving** hides an app: `MyApp.isArchived` (per-app flag, round-tripped
-through `persist()`/`load()`) drops it from `MyAppStore.visibleMyApps` — the
+**Archiving** hides an app: `MiniApp.isArchived` (per-app flag, round-tripped
+through `persist()`/`load()`) drops it from `MiniAppStore.visibleMiniApps` — the
 sidebar, the Orchestrator's "can orchestrate" list, and the agent-facing
-`listMyApps` tool all read that filtered list, so an archived app is
+`listMiniApps` tool all read that filtered list, so an archived app is
 sidebar-hidden **and** agent-off. Archiving also locks all its components
 (read-only) via `setAllComponentsLocked`; unarchiving un-hides it but leaves
 the lock on. Archived apps are browsed/restored/deleted from **Settings →
 Archive** (`ArchivedAppsView`). Memories are keyed on the app id and untouched
 — they ride along, hidden with the app and back on restore. The Orchestrator opens the same home layout as a
-MyApp (`MyAppHomeView` with `subject: .orchestrator`) — but the two diverge on
-purpose. A myApp's Home is its **component grid alone**: no Outline (it restated
+MiniApp (`MiniAppHomeView` with `subject: .orchestrator`) — but the two diverge on
+purpose. A miniApp's Home is its **component grid alone**: no Outline (it restated
 the grid) and no "Components" header (it named the only thing on the page, with
 a count and a collapse chevron for a group that is the whole screen). The lock
 sits beside the app name; Add stays in the grid. The orchestrator has no
 components, so its page would be empty without one — it keeps the **Outline**
-explaining what it coordinates and the myapps it can drive, and lost the empty
+explaining what it coordinates and the miniapps it can drive, and lost the empty
 Components card whose only content said it was empty. Both homes leave agents,
-memories and history to the bar's menu. The MyApps sheet is presented from
+memories and history to the bar's menu. The MiniApps sheet is presented from
 `iOSBody` and constructs its content on presentation. The drawer it replaced was
 always mounted — opening slid it by `.offset` rather than cold-constructing the
 sidebar `List` inside the tap transaction, which had measured ~90-135ms tap→frame
@@ -151,7 +159,7 @@ pass. `Markdown(String)` runs cmark **inside its initializer**, i.e. inside
 whole visible transcript, and one tap causes ~4 passes. `MarkdownCache`
 (`Chat/ChatPanel.swift`) keys parsed content by bubble id and invalidates on a
 content-hash change, so a streaming bubble replaces its own entry.
-`MyAppSidebarView` is `Equatable` for the same reason — the stores it reads are
+`MiniAppSidebarView` is `Equatable` for the same reason — the stores it reads are
 `@Observable`, so real data changes still invalidate it from within; the gate
 only suppresses the redundant passes.
 
@@ -165,7 +173,7 @@ governs agents sits under **Agents**, a hub of its own:
 Account · Backend · Notifications                    ← needed first
    └── Account ── Acknowledgements  AcknowledgementsView  third-party notices
 
-Manage MyApps                                        ← once you own an app
+Manage MiniApps                                        ← once you own an app
    Agents · Import & Export · Pinned snapshots · Archive · Recently deleted
    └── Agents ├── Roster   AgentRosterView    roster + lifetime stats
               ├── Tools    ToolsSettingsView  harness permissions
@@ -177,8 +185,8 @@ Examples · Screen share                              ← side doors
 ```
 
 Three sections, in that order. The opening one is the only one a first-run
-user has to read; everything that only means something once you own a MyApp is
-grouped under **Manage MyApps**, and the two side doors sit last. **Screen
+user has to read; everything that only means something once you own a MiniApp is
+grouped under **Manage MiniApps**, and the two side doors sit last. **Screen
 share** is a row, not a category: it dismisses the sheet and pushes
 `.screenShare` on `AppView`'s own detail stack (`onOpenScreenShare`), so the
 video surface gets the whole window instead of a 600pt modal.
@@ -219,7 +227,7 @@ disagreement, so the two cannot drift apart silently.
   Catches render-side cost (offscreen rasterization) that *main* misses.
 
 Lines carry `cold`/`warm`, so "first open slow" is a column, not an anecdote.
-Wired at `setRoot`, the MyApps sheet, Settings open, and the History push.
+Wired at `setRoot`, the MiniApps sheet, Settings open, and the History push.
 
 `PerfTrace.region` times a synchronous span *inside* an interaction, to
 attribute cost to a block rather than guess at it. `PUPA_PERF_FOCUS=<drive>`
@@ -252,7 +260,7 @@ ack, which lands *before* the transcript loads and before the two re-pins from
 cost.
 
 The chat lives in a user-resizable `ChatOverlay` card anchored bottom-trailing
-of the detail pane. Its launcher lives in the per-MyApp bottom bar (below); on
+of the detail pane. Its launcher lives in the per-MiniApp bottom bar (below); on
 pages without that bar (screen share, settings) `ChatOverlay` shows
 its own fallback pupa circle so chat stays reachable everywhere. On iOS the card
 does its own keyboard avoidance (it tracks the keyboard height and lifts/shrinks
@@ -279,7 +287,7 @@ whole bubble.
 therefore lives on the session — `ChatViewModel.draft` / `.draftImages`, plus
 the tour typewriter's `streamedDraft` — which `ChatSessionCoordinator` caches
 per `(scope, threadId)`. Reopening the overlay re-fetches the same session and
-finds the text and staged attachments intact; each thread and each myApp keeps
+finds the text and staged attachments intact; each thread and each miniApp keeps
 its own draft, and deleting a thread (`discardSession`) drops its draft with
 it. In-memory only: drafts don't survive a relaunch. The composer clears them
 on send.
@@ -301,15 +309,15 @@ so nothing queues until the interrupt resolves and the turn fully settles. The
 send button is **Stop** only when streaming with an empty composer; with text
 typed mid-stream it's an arrow-up that queues.
 
-On a myApp's home / component / memories / agents / history pages — and the
+On a miniApp's home / component / memories / agents / history pages — and the
 orchestrator's home / memories / agent pages — the detail pane hosts a persistent
-**bottom bar** (`MyApps/MyAppBottomBar.swift`) — the per-subject "tab bar",
+**bottom bar** (`MiniApps/MiniAppBottomBar.swift`) — the per-subject "tab bar",
 mounted via `.safeAreaInset(edge: .bottom)` so the page content insets above it
-instead of hiding under a floating overlay. It's keyed by `MyAppHomeView.Subject`
-(`.myApp(id)` / `.orchestrator`). Left to right: **Home** (`house`),
-**Memories** (`brain`, opens `MyAppMemoriesView` — a browse page of the subject's note tree;
+instead of hiding under a floating overlay. It's keyed by `MiniAppHomeView.Subject`
+(`.miniApp(id)` / `.orchestrator`). Left to right: **Home** (`house`),
+**Memories** (`brain`, opens `MiniAppMemoriesView` — a browse page of the subject's note tree;
 folders drill in, files open as a **sheet** over the current page rather than
-pushing — `AppView.presentOrPush` turns a `.myAppMemoryFile` / `.memoryFile`
+pushing — `AppView.presentOrPush` turns a `.miniAppMemoryFile` / `.memoryFile`
 selection into a `MemoryFileRoute` and presents it, and every other selection
 still pushes. A memory file is reference material read *while* talking to the
 agent, so it overlays the canvas the way chat does. Every route to a memory
@@ -338,23 +346,23 @@ preview and buffer match byte for byte), the **Pupa** chat launcher (toggles
 the app's only menu (`line.3.horizontal`), grouped one axis per section: this
 scope's pages — **Agents** (`person.2`, opens `AgentsListView` /
 `AgentDetailView`) and **History** (`clock`, pushes `ChangeHistoryView` via
-`.myAppHistory` — **myApp only**; the orchestrator has no canvas change-log so
-it omits this) — then *which* scope you're in (**MyApps**, which presents the
+`.miniAppHistory` — **miniApp only**; the orchestrator has no canvas change-log so
+it omits this) — then *which* scope you're in (**MiniApps**, which presents the
 sidebar as a sheet, and **Orchestrator**), then app-wide (**Settings**; screen
 share moved into it as a secondary row). The rows are **data**
-(`BarMenuRow.rows(isMyApp:hasMyApps:)`), not inline `Button`s: the guided
+(`BarMenuRow.rows(isMiniApp:hasMiniApps:)`), not inline `Button`s: the guided
 tour's `TourMenuPreview` renders the same list, so a drawn-open menu and the
 real one cannot disagree. Flat-listing those axes put History
-next to Settings, two rows that don't apply to the same thing; MyApps is one
+next to Settings, two rows that don't apply to the same thing; MiniApps is one
 row onto its own surface instead. iOS flips a bottom-anchored menu, so the
 first group declared lands nearest the thumb. The orchestrator's own bar omits the
 Orchestrator item for the same reason it omits History: you're already there.
 The menu lights up as the active slot while an Agents or History page is showing. Components are deliberately absent from it: the home page already
 grids them one tap away. Glyphs are tinted the
-subject's color (a myApp's creation-order index via
-`MyAppStore.colorIndex(for:)`; `orchestratorColor` for the orchestrator), the
+subject's color (a miniApp's creation-order index via
+`MiniAppStore.colorIndex(for:)`; `orchestratorColor` for the orchestrator), the
 current page highlighted; the pupa keeps its own look. Every page these reach
-shares a `MyAppPageHeader` (`MyApps/MyAppPageHeader.swift`): a tinted page-name
+shares a `MiniAppPageHeader` (`MiniApps/MiniAppPageHeader.swift`): a tinted page-name
 eyebrow (Home / Agents / Memories / History) above the subject's icon + name, so
 the active page is always self-labelling. `AppView` gates the bar
 via `barSubject` + `barPage`; taps call `setRoot`, the single entry point for
@@ -371,7 +379,7 @@ Keep-alive is populated **lazily**. `NavState` holds the `NavigationStack`
 root and the visited-tab set together — `setRoot` moves the root *and* records
 the visit, so the recording cannot be dropped, and the subject is derived from
 the root rather than passed in. `content` mounts `nav.panes(from:)`: the
-current root plus tabs already visited, reset when the subject changes. Mounting all of a subject's tabs on a MyApp switch
+current root plus tabs already visited, reset when the subject changes. Mounting all of a subject's tabs on a MiniApp switch
 measured ~45% of the switch's cost, for pages the user hadn't asked for; a tab
 now pays its mount on first visit and stays alive after, which is what made
 repeat tab clicks free in the first place. Cost moves from every switch to the
@@ -385,16 +393,16 @@ run, but keep it out of whatever key decides the work is already done, or
 every tab switch looks like new work (`AgentsListView`'s `TaskKey` vs
 `DescriptorKey`).
 
-Keep-alive protects against *re-evaluation*, not *first mount*: switching MyApp
+Keep-alive protects against *re-evaluation*, not *first mount*: switching MiniApp
 changes the whole `keepAlivePages` set, so those panes build fresh for the new
 app inside the tap's runloop turn. Panes must therefore keep expensive work out
 of `body` — the Agents pane loads its descriptors in `.task` behind a redacted
 placeholder, because enumerating agents walks the app's memory root off disk.
 Because the bar owns the
 chat launcher on these pages, `ChatOverlay` hides its fallback circle there
-(`launcherVisible`). `MyAppMemoriesView` + `MemoryLandingRow` are
+(`launcherVisible`). `MiniAppMemoriesView` + `MemoryLandingRow` are
 subject-generalized (a path→selection closure), so one browse view + row serve
-both scopes. `MyAppMemoriesView` reloads the store from disk on appear
+both scopes. `MiniAppMemoriesView` reloads the store from disk on appear
 (`.task(id: subject)` → `MemoryStore.reloadFromDisk`), so folders written after
 the launch scan (bootstrap `pupa/`, template seeding, an iCloud pull) show
 without waiting for a mutation or the cloud watcher; `AppView` also does one
@@ -411,14 +419,14 @@ sheet, which sits outside the stack and so needs its own copy) routes it through
 inside an open note dismisses it first, so the new page is never left waiting
 behind the sheet. The agent writes
 **scope-relative** paths — `pupa://memory/<path>` is the same note path it
-reads/writes, bound to the current chat scope (a myApp → `.myAppMemoryFile`, the
+reads/writes, bound to the current chat scope (a miniApp → `.miniAppMemoryFile`, the
 orchestrator → `.memoryFile`). But `SidebarSelection` memory paths are
 **global-root-relative** — the space the shared `memory` store, browse, and
 agent-prompt links all use — so `chatLinkAction` calls
-`SidebarSelection.globalizedMemoryPath` to prefix the scope folder (the myApp
+`SidebarSelection.globalizedMemoryPath` to prefix the scope folder (the miniApp
 id, or `orchestrator/`) before routing; otherwise the target note can't be
-read. `pupa://component/<id>` targets the current myApp; the explicit
-`pupa://myapp/<uuid>/memory/<path>` form is for cross-scope links. Distinct from
+read. `pupa://component/<id>` targets the current miniApp; the explicit
+`pupa://miniapp/<uuid>/memory/<path>` form is for cross-scope links. Distinct from
 Slack's `pupa-mention://` and the `.pupa` file type.
 
 Tracker `.link` fields hold a bare URL with no markdown title, so the card pill
@@ -461,8 +469,8 @@ after the backend has aged the thread out; an empty backend reply never clobbers
 the cache. Only the `.user` bubbles re-seed the agent, so a backend-lost thread
 resumes with the user's turns but not prior assistant/tool context — display is
 full, agent continuity is best-effort. Cache files are reaped when a thread is
-removed (`removeThread`), evicted by the cap (`enforceThreadCap`), or its MyApp
-is deleted (`removeMyApp`). `ChatBubble` is `Codable` for this; inline image
+removed (`removeThread`), evicted by the cap (`enforceThreadCap`), or its MiniApp
+is deleted (`removeMiniApp`). `ChatBubble` is `Codable` for this; inline image
 bytes are stripped on write (they'd ride the iCloud mirror uncounted by the
 cap), so the cache is a text-history fallback.
 
@@ -619,11 +627,11 @@ backgrounded-then-killed case gets the full wall.
 
 **Chat-storage cap.** An opt-in **Settings ▸ Account ▸ Chat storage** cap
 (`SettingsStore.threadCapEnabled` / `threadCapMB` — off by default, fractional MB)
-bounds the bytes a scope's chats occupy: `MyAppStore.enforceThreadCap` — run on
+bounds the bytes a scope's chats occupy: `MiniAppStore.enforceThreadCap` — run on
 new-chat, on settings change (`pruneAllThreads`), and once at launch via
 `AppView` — drops the OLDEST threads (front of the array, robust to `createdAt`
 ties / merge skew) until the scope fits, always keeping the newest and the
-currently-open thread, never emptying a scope. `MyAppStore.load` re-points a
+currently-open thread, never emptying a scope. `MiniAppStore.load` re-points a
 dangling `currentThreadId` when another device pruned the open thread first.
 
 **Status badges.** `ChatActivityStatus` (`Chat/ChatActivityStatus.swift`) is a
@@ -657,7 +665,7 @@ thread's status and `aggregateStatus(for:)` folds a scope's threads to the
 highest. The shared `StatusBadge` view renders an amber / red / blue
 exclamation (or a spinner while `running`) on the bottom bar's **Pupa** button
 (and `ChatOverlay`'s fallback circle on pages without the bar) — scope
-aggregate, upgraded to `running` when `busyMyApps` covers the scope — plus the
+aggregate, upgraded to `running` when `busyMiniApps` covers the scope — plus the
 thread dropdown rows + label and the Agents dashboard thread rows.
 
 ## Launch sequence
@@ -681,7 +689,7 @@ card* explains each step while the tour programmatically navigates the **real**
 app to that surface. **Eighteen steps, app first and configuration second** —
 the app is easier to grasp than the settings that wire it up:
 
-1. **Welcome**, on the **MyApps list** (`opensMyApps`): a MyApp is the thing
+1. **Welcome**, on the **MiniApps list** (`opensMiniApps`): a MiniApp is the thing
    you build and use in Pupa, so the tour opens on the list of them rather
    than inside one. A fresh install seeds
    `ExampleRegistry.freshInstallSeedCount` (2) apps so that list is never a
@@ -692,15 +700,15 @@ the app is easier to grasp than the settings that wire it up:
    one card doing both described everything and explained nothing.
 3. **What's behind the menu** — three steps that draw it *open*
    (`TourMenuPreview`, below) rather than teleporting: this app's pages
-   (Agents, History), moving between workspaces (MyApps, Orchestrator), and
+   (Agents, History), moving between workspaces (MiniApps, Orchestrator), and
    Settings. Between them the two destinations that are worth seeing open for
-   real: the **MyApps sheet** again, now that the row reaching it has been
-   shown, and the **Orchestrator**, prefilled with "create a new myapp".
+   real: the **MiniApps sheet** again, now that the row reaching it has been
+   shown, and the **Orchestrator**, prefilled with "create a new miniapp".
 4. **Settings** — each page is introduced by a step that lands on the root list
    and rings the section it lives in, so the page it opens has a visible
    origin: **The essentials** (`highlight: .settingsEssentials`) before Backend
-   and Account, **Manage MyApps** (`.settingsManageMyApps`) before Share a
-   MyApp.
+   and Account, **Manage MiniApps** (`.settingsManageMiniApps`) before Share a
+   MiniApp.
 5. **The closing pair**, both on Settings · Examples: the **marketplace**
    (`.settingsMarketplace`), where the current official apps live, then the
    bundled **examples** (`.settingsExamples`) as toys, so the user taps
@@ -709,7 +717,7 @@ the app is easier to grasp than the settings that wire it up:
 Agents and History are *named*, never navigated to: the tour points at their
 menu row instead of stranding the user on a page they did not choose. Screen
 share has no step at all. Card placement is per step and load-bearing: a
-preview step's card goes `.top` (the preview sits above the bar), the MyApps
+preview step's card goes `.top` (the preview sits above the bar), the MiniApps
 step's goes `.bottom` (its list fills from the top, and a new user has one row
 in it). Step copy carries no em dashes, pinned by a test. It
 is
@@ -721,7 +729,7 @@ chat with a prefill) — `selection`, `settingsPage`, `opensChat`,
 `chatPrefill`, `highlight` — that target the stable routing layer, never
 geometry.
 `AppView.applyTourStep()` reconciles them: it routes the step's selection
-through `setRoot` (so the chat scope follows), closes the MyApps sheet, and
+through `setRoot` (so the chat scope follows), closes the MiniApps sheet, and
 writes the store's intent flags (`wantSettingsOpen` / `wantSettingsPage` /
 `wantChatOpen` / `chatPrefill` / `wantHighlight`). Host views then mirror those
 declaratively:
@@ -741,7 +749,7 @@ menu as it looks when open, above the bar's trailing corner, with the step's
 rows lit and the rest dimmed; `AppView` hosts it over the ring and under the
 coach card, and every such step places its card at `.top` so the two don't
 collide (a test pins that). Its rows come from **`BarMenuRow.rows`**
-(`MyApps/BarMenuRow.swift`) — the one list `MyAppBottomBar.moreMenu` also
+(`MiniApps/BarMenuRow.swift`) — the one list `MiniAppBottomBar.moreMenu` also
 builds from — so the picture the tour shows cannot drift from the menu the user
 then opens, and the preview correctly drops History and Orchestrator on the
 orchestrator's own bar. It is presentation only: no actions,
@@ -765,7 +773,7 @@ blocks the control it points at. The card is gated on
 `tour.isActive` and rendered above
 the sidebar + chat; because an iOS `.sheet` covers that ZStack, `SettingsSheet`
 re-renders the same card as its own overlay during the Settings steps. (`AppView`
-owns that sheet, and `applyTourStep` closes the MyApps sheet on every step —
+owns that sheet, and `applyTourStep` closes the MiniApps sheet on every step —
 no step opens it.) Each step starts the card
 at its `placement` anchor, but a grab handle lets the user drag it anywhere; the
 position snaps back to the anchor on the next step. The tour
@@ -785,10 +793,10 @@ it can reach real app data. Used by the UI tests; see
 
 ## Canvas mutations
 
-All canvas / item mutation goes through **`MyAppStore`**
-([MyApps/MyAppStore.swift](../Pupa/Sources/PupaApp/MyApps/MyAppStore.swift))
+All canvas / item mutation goes through **`MiniAppStore`**
+([MiniApps/MiniAppStore.swift](../Pupa/Sources/PupaApp/MiniApps/MiniAppStore.swift))
 — either via `mutate(_:kind:_:)` (kind-routed) or
-`mutate(myAppId:byComponentId:_:)` (explicit component). Views never
+`mutate(miniAppId:byComponentId:_:)` (explicit component). Views never
 mutate state directly; they read it and call store methods or registered
 tools. Each mutation appends a lightweight `ItemEvent` to `ItemEventLog`
 that captions the History timeline (verb + component-kind noun); the log
@@ -797,7 +805,7 @@ no longer drives undo.
 ### Canvas events → automations (issue #209)
 
 The same choke-point also emits a typed **`CanvasEvent`** stream (the
-trigger side of bundle automations) via the `MyAppStore.onCanvasEvent`
+trigger side of bundle automations) via the `MiniAppStore.onCanvasEvent`
 closure — decoupled from the automation layer the way `threadCapBytes`
 decouples the settings cap. v1 emits one event: `item.moved`, once per
 **`.select` field** a **user** edit through `patchItem(id:with:)`
@@ -814,7 +822,7 @@ guard, so a reaction can't re-trigger its own rule (no dedicated
 
 `AppView` wires the stream to a **`RuleEngine`**
 ([Automations/](../Pupa/Sources/PupaApp/Automations/)): for each event
-it loads that MyApp's rules fresh from `pupa/automations.json`
+it loads that MiniApp's rules fresh from `pupa/automations.json`
 (`AutomationStore`, mirroring `SkillStore`), matches them, and applies
 the guards — an **in-flight lock** keyed `(ruleId, itemId)` (dropped
 while a reaction runs; cleared on dismiss/complete or a timeout
@@ -824,7 +832,7 @@ later re-entry fires again; the field in the key keeps a two-select
 patch from collapsing to one event). A match
 with `confirm: true` (default) surfaces a Start/Dismiss confirm bubble
 reusing the notification "propose a chat" path; `confirm: false`
-auto-fires. **Imported rules can't auto-fire**: `MyAppImporter` rewrites
+auto-fires. **Imported rules can't auto-fire**: `MiniAppImporter` rewrites
 `pupa/automations.json` on the way in to force `confirm: true`, matching
 the path through `MemoryStore.canonicalise` so a differently-spelled path
 can't sidestep it. Locally authored rules keep the flag. The action (`startThread`) opens a fresh thread and
@@ -848,11 +856,11 @@ never fatal.
 
 Agent-driven writes never route by the **active/view** component. Every
 write-bearing tool (tracker / calendar / checklist / chart / slack)
-resolves its target through `MyAppStore.resolveWriteTarget(kind:…)` (item
+resolves its target through `MiniAppStore.resolveWriteTarget(kind:…)` (item
 / body edits) or `resolveRenderTarget(kind:…)` (full renders, which may
 also land on a lone empty seed). Rules: an explicit `componentId` is
 honoured exactly or **fails loudly** (unknown id / wrong kind); an omitted
-id resolves only when the myApp holds **exactly one** component of that
+id resolves only when the miniApp holds **exactly one** component of that
 kind — otherwise the resolver returns a `.failure` that the tool layer
 echoes back to the agent, listing the candidate ids. This stops two
 writes in a turn (e.g. a render then an item add) from silently landing
@@ -872,7 +880,7 @@ only drives the on-screen view.
 
 State is versioned by **`SnapshotStore`**
 ([Sync/SnapshotStore.swift](../Pupa/Sources/PupaApp/Sync/SnapshotStore.swift)):
-git-style, per-MyApp snapshots at `state/snapshots/<appId>/<snapshotId>.json`,
+git-style, per-MiniApp snapshots at `state/snapshots/<appId>/<snapshotId>.json`,
 riding the same `CloudDocument`/`PupaStorage` seam so history syncs across
 devices. Each snapshot stores either a full `base` state or a `JSONPatch`
 delta from its parent (`AGUIKit/JSONDiff`), diff-chained with a full base at
@@ -909,29 +917,29 @@ state forever" milestone. Pins are always stored as a full `base`
 (self-contained) and are **exempt from `prune`**: never aged out, never
 counted toward the cap. Each pinned row carries an **Export** button that opens the *same* shared
 export screen as **Settings ▸ Share an app** (`ExportShareScreen`), scoped to
-the resolved pin (`MyAppStore.restoredApp(forSnapshot:appId:)`) with a "Pinned
+the resolved pin (`MiniAppStore.restoredApp(forSnapshot:appId:)`) with a "Pinned
 version" banner and the same component + records + memories toggles (both
 default **off** — a share is stripped unless you opt in). Pinning is unlimited
 (no gate).
 
-**Pins survive deletion.** Deleting a MyApp keeps its pins:
+**Pins survive deletion.** Deleting a MiniApp keeps its pins:
 `persist()` calls `SnapshotStore.deleteNonPinned` (drops only automatic
 snapshots; removes the dir only when no pins remain). **Settings ▸ Pinned
 snapshots** (`PinnedSnapshotsView`, shown when any pin exists) lists every
-pin grouped per MyApp — including deleted apps, flagged "deleted", with
+pin grouped per MiniApp — including deleted apps, flagged "deleted", with
 name/icon resolved from the pin's own state. Each row **Export**s or
 **Restore**s: a live app restores append-only; a deleted app is *revived*
-(`MyAppStore.restorePinnedSnapshot` re-inserts it under its original id, so
+(`MiniAppStore.restorePinnedSnapshot` re-inserts it under its original id, so
 its surviving pins stay attached).
 
-Snapshots are captured at three hook points in `MyAppStore`: a **debounced
+Snapshots are captured at three hook points in `MiniAppStore`: a **debounced
 edit** capture in `persist()`, a **pre-reload checkpoint** before a remote
 iCloud reload overwrites dirty local state, and **conflict capture** — on
 `reloadFromDisk` any unresolved `NSFileVersion` conflict has every side
 snapshotted before the live file is resolved newest-wins, so no offline edit
 is ever silently lost.
 
-`ChangeHistoryView` (per-MyApp bottom bar **History**) lists the snapshots
+`ChangeHistoryView` (per-MiniApp bottom bar **History**) lists the snapshots
 newest-first, grouped by day, with a **Restore** button per older entry.
 Restore is **append-only** (git-`revert`, not `git reset`): the current state
 is checkpointed first, then the chosen state is applied and recorded as a new
@@ -946,10 +954,10 @@ non-read operation. Enforcement is layered:
 
 - **Backstop (authoritative):** both `mutate` choke points — plus the direct
   `removeComponent` / `linkItems` / `unlinkItems` paths — bail when the target
-  component is locked and set `MyAppStore.lastWriteBlockedByLock`. No write
+  component is locked and set `MiniAppStore.lastWriteBlockedByLock`. No write
   (UI, agent, or future caller) can slip through.
 - **Agent message:** every frontend tool declares its intent via
-  `ClientTool.readOnly`. After all tools are registered, `registerMyAppTools`
+  `ClientTool.readOnly`. After all tools are registered, `registerMiniAppTools`
   wraps each *mutating* tool (`ToolRegistry.transformAll`): it resets the lock
   flag, runs the handler, and if a write was blocked returns
   `{ok:false, locked:true, error:…}` so the model asks the user to unlock.
@@ -957,23 +965,23 @@ non-read operation. Enforcement is layered:
 - **UI:** `CanvasView` shows a lock icon on top of the component and applies
   `.disabled` to the locked body (controls inert, scrolling intact). The lock
   toggle itself (and `setComponentLocked`, the agent's lock/unlock tool) edit
-  the flag directly, so unlocking is never gated. The MyApp **home** page adds
+  the flag directly, so unlocking is never gated. The MiniApp **home** page adds
   a lock-all toggle (`setAllComponentsLocked`) that locks/unlocks every
   component at once.
 
 ### Memory lock
 
-`MyApp.isMemoryLocked` (per-app flag, round-tripped like `isArchived`) locks
+`MiniApp.isMemoryLocked` (per-app flag, round-tripped like `isArchived`) locks
 the app's whole memory subtree read-only — the memory counterpart of the
 component lock. Enforcement is a single `MemoryStore.writeGuard` closure
 consulted (with the target path) before every mutating op; it throws
 `MemoryError.locked` when the path is locked, leaving reads open:
 
 - **Agent:** the per-session scoped store wired in `ChatSessionCoordinator`
-  returns its MyApp's `isMemoryLocked`, so a locked app's memory-write tools
+  returns its MiniApp's `isMemoryLocked`, so a locked app's memory-write tools
   echo `{ok:false, error:…}`.
 - **UI:** the global (sidebar) store's guard maps a path's leading folder to a
-  MyApp via `MyAppStore.isMemoryLocked(forRootPath:)`, so `MyAppMemoriesView`
+  MiniApp via `MiniAppStore.isMemoryLocked(forRootPath:)`, so `MiniAppMemoriesView`
   and `MemoryFileView` refuse edits too. The **Memories** page carries the
   lock toggle (`setMemoryLocked`) and hides its add/edit/rename/delete
   affordances while locked.
@@ -982,7 +990,7 @@ consulted (with the target path) before every mutating op; it throws
 
 A "shape" (canvas component kind) is a SwiftUI view backed by a typed
 data model, plus render + mutator frontend tools, registered on
-`MyAppType.supportedComponentKinds`. Built-ins: `tracker`, `calendar`,
+`MiniAppType.supportedComponentKinds`. Built-ins: `tracker`, `calendar`,
 `checklist`, `kanban`, `slack`, `calculator`, `chart`. The agent's `addComponent`
 tool derives its JSON-Schema `kind` enum from `supportedComponentKinds` at
 registration time — a new kind not added there is silently rejected. The
@@ -995,7 +1003,7 @@ only rides context once the kind is present. The always-on
 (`addComponent` → `get_tools_<kind>` → the kind's render tool populates it),
 so the model doesn't have to reconstruct it from individual tool descriptions.
 Each kind is declared once as a
-`ComponentKindSpec` in `MyAppType.kinds` (tools + prompt fragment + catalog
+`ComponentKindSpec` in `MiniAppType.kinds` (tools + prompt fragment + catalog
 blurb); `supportedComponentKinds`, `toolNamesByKind`, and
 `promptFragmentsByKind` all derive from it. Full recipe in
 [docs/adding-a-component.md](adding-a-component.md).
@@ -1042,11 +1050,11 @@ a filter is never applied invisibly, and it can be cleared from either view.
   which hands the parent a 150ms-debounced query. A parent-owned `@State`
   would rebuild every card on each character regardless of debounce. The
   applied query — and the filter-panel disclosure — is keyed by
-  `TrackerBoardKey` (myApp id + component id), because `CanvasView` builds
+  `TrackerBoardKey` (miniApp id + component id), because `CanvasView` builds
   component views without `.id(component.id)` and bare `@State` would leak
   across two trackers of the same kind. The component id alone is not a board
-  identity: `MyAppStore.addComponent` uniques ids within one MyApp, so every
-  MyApp's first tracker is `tracker-1` and a sidebar MyApp switch reused the
+  identity: `MiniAppStore.addComponent` uniques ids within one MiniApp, so every
+  MiniApp's first tracker is `tracker-1` and a sidebar MiniApp switch reused the
   previous board's query.
 - **Lanes never reflow.** `TrackerFiltering.lanes` returns one bucket per
   column option plus `(Unset)` unconditionally, so filtering or searching
@@ -1067,8 +1075,8 @@ a filter is never applied invisibly, and it can be cleared from either view.
   snapshot). The `onChange` observes a `TrackerShrinkKey` (board + flag), not
   the flag alone: this `@State` outlives the component it belongs to, so a bare
   flag would read a canvas swap as a button press. The key is the board, not
-  the component id — ids are allocated per MyApp, so every MyApp's first
-  tracker is `"tracker-1"` and a sidebar MyApp switch would otherwise look like
+  the component id — ids are allocated per MiniApp, so every MiniApp's first
+  tracker is `"tracker-1"` and a sidebar MiniApp switch would otherwise look like
   a button press. A flag flipped while the user is on a different board is not
   cleared; that board reads its own bucket when it returns. Board geometry
   (grid column width, lane spacing) stays on the board density; a peek grows
@@ -1088,13 +1096,13 @@ a filter is never applied invisibly, and it can be cleared from either view.
 ### Component modules — one folder, one self-registering module (#162)
 
 The per-kind wiring for a shape used to be smeared across ~10 shared files
-(`CanvasView`, `CanvasSummary`, `CanvasState`, `AppTools`, `MyAppType`, plus the
+(`CanvasView`, `CanvasSummary`, `CanvasState`, `AppTools`, `MiniAppType`, plus the
 item/export/migration registries). Tier 1 of #162 collapses that into a single
 `ComponentModule` protocol + `ComponentRegistry`
 ([`Canvas/Components/ComponentModule.swift`](../Pupa/Sources/PupaApp/Canvas/Components/ComponentModule.swift)),
 mirroring `ItemPolicyRegistry` / `ComponentExportRegistry`: a `@MainActor`
 singleton keyed by the lowercase kind string, populated at bootstrap in
-`MyAppTypeRegistry.registerBuiltins()`. A module vends everything for its kind —
+`MiniAppTypeRegistry.registerBuiltins()`. A module vends everything for its kind —
 `kindSpec`, `defaultIcon`, `makeEmptyBody`, `itemCount`, `emptyHint`, `makeView`,
 `itemPolicy`, `exportPolicy`, `registerTools` — each doing its own single-case
 unwrap on `CanvasApp` instead of the central exhaustive switch.
@@ -1104,7 +1112,7 @@ The central sites **look up the module** instead of switching on the enum:
 `emptyHint`, `CanvasSummary` size → `itemCount`, `addComponent` icon →
 `defaultIcon`, and `ComponentItemPickerSheet`'s linkable filter / section header
 / empty hint / item enumeration → `isLinkable` / `linkableItems` /
-`linkPickerEmptyHint`. `MyAppType.kinds` is **assembled** from each module's
+`linkPickerEmptyHint`. `MiniAppType.kinds` is **assembled** from each module's
 `nonisolated static let kindSpec` (no literal), and `ComponentRegistry.assertComplete`
 traps at bootstrap if a supported kind lacks a module. The `CanvasApp` enum stays
 the **Codable persistence discriminator** (its `case` arms, `Kind`,
@@ -1118,14 +1126,14 @@ the **Codable persistence discriminator** (its `case` arms, `Kind`,
 export policies live in their folders (`Marketplace/ComponentExportPolicies.swift`
 is gone). A `nil` module lookup means only `.empty` (or a future kind before its
 module lands — `assertComplete` catches that at bootstrap). Still shared in
-`MyAppStore`: the per-kind mutators, deliberately kept on the store's single
+`MiniAppStore`: the per-kind mutators, deliberately kept on the store's single
 guarded-mutation path rather than split into folders.
 
 A `Component`'s `id` is permanent (the key every cross-component ref, active
 selection, and tool dispatch resolves by), but its `name`, `iconSystemName`,
-and LLM-facing `summary` are mutable. `MyAppStore.updateComponentMeta` edits
+and LLM-facing `summary` are mutable. `MiniAppStore.updateComponentMeta` edits
 them in place, exposed to the agent as the `setComponentMeta` tool and to the
-user via the MyApp home Components grid's per-tile **Rename / icon…** context
+user via the MiniApp home Components grid's per-tile **Rename / icon…** context
 menu — so relabelling never means delete-and-re-add (which would lose the
 component's data).
 
@@ -1181,7 +1189,7 @@ round's filter (`ChatViewModel.allowedToolNames`) swaps the gate for the group
 it unlocks. That state is built per session — one per `(scope, threadId)`
 ChatViewModel, one per sub-run (`runOneShot`, `runSubagent`, Slack invoke) —
 and captured by the gate handlers registered next to it, so an unlock never
-reaches a sibling thread, a sibling MyApp, or a concurrent run, and "New
+reaches a sibling thread, a sibling MiniApp, or a concurrent run, and "New
 session" starts closed (new thread → new session key → fresh gate). Covered by
 [ToolGateIsolationTests](../Pupa/Tests/PupaAppTests/ToolGateIsolationTests.swift).
 
@@ -1224,8 +1232,8 @@ that it isn't an explicit override.
 surfaced by `ModelCatalogStore.thinkingLevels`). When non-empty, the main-agent
 and orchestrator detail pages show a **Thinking** picker under the model row
 (`AgentRegistry.thinkingProperty` → `.thinkingPicker` → `ThinkingPickerRow`); a
-"Default" sentinel clears the override. The level is stored per-MyApp under
-`MyApp.settings["llm.thinking"]` (`MyAppStore.setMyAppThinking`) and for the
+"Default" sentinel clears the override. The level is stored per-MiniApp under
+`MiniApp.settings["llm.thinking"]` (`MiniAppStore.setMiniAppThinking`) and for the
 orchestrator on `SettingsStore.orchestratorThinking`, and folded into the same
 `forwardedProps["llm"]` object as `thinking` (`ChatViewModel.effectiveThinking`
 + `forwardedPropsJSON`) — so it ships even when no model is pinned. Harnesses
@@ -1235,14 +1243,14 @@ level the current harness no longer advertises (guarded on a non-empty set, so a
 unreachable backend never wipes a valid override).
 
 Storage parallels the existing per-agent LLM storage: the main agent uses
-`MyApp.settings` (`llm.*`, `tools.disabled` as a `SettingValue.stringArray`),
+`MiniApp.settings` (`llm.*`, `tools.disabled` as a `SettingValue.stringArray`),
 subagents keep their overrides in `pupa/agents/<slug>/AGENTS.md` frontmatter
 (`model`/`provider`/`tools`/`disabled_tools`; edited via `AgentStore.setModel` /
 `setDisabledTools`), and the orchestrator uses global `SettingsStore` fields.
 Each agent's disabled set is **unioned** with the global Settings → Agents → Tools set
 (`disabledBackendTools`) and sent every turn as `state.disabled_tools`, which
 the backend `ToolGatingMiddleware` drops from the model's tool list. The send
-paths — the main-agent chat turn (`ChatViewModel`), orchestrator→MyApp sub-runs
+paths — the main-agent chat turn (`ChatViewModel`), orchestrator→MiniApp sub-runs
 and generic/Slack subagent sub-runs (`ChatSessionCoordinator`, via
 `llmForwardedProps`) — all forward the resolved per-agent model and disabled
 union, so a subagent runs on its own configured model rather than the backend
@@ -1254,7 +1262,7 @@ beside the thread-name dropdown in the chat header
 ([Chat/ChatPanel.swift](../Pupa/Sources/PupaApp/Chat/ChatPanel.swift),
 wired via [Chat/ConversationPager.swift](../Pupa/Sources/PupaApp/Chat/ConversationPager.swift)).
 The pin lives on `ChatThread.llmProvider/llmModel`
-(`MyAppStore.setThreadLLM/threadLLM`), so it persists with the thread and is
+(`MiniAppStore.setThreadLLM/threadLLM`), so it persists with the thread and is
 independent of the agent default — changing the default later doesn't move a
 pinned thread. Resolution precedence at send time
 (`ChatViewModel.forwardedPropsJSON`): **thread pin → agent default → backend
@@ -1265,7 +1273,7 @@ model}` still rides `forwardedProps["llm"]`.
 
 ## Skills & the `pupa/` config folder
 
-Each MyApp keeps its driving config in a visible `pupa/` subfolder of its
+Each MiniApp keeps its driving config in a visible `pupa/` subfolder of its
 memory root (`memories/<uuid>/pupa/`): `AGENTS.md` (main agent),
 `agents/<sub>/AGENTS.md` (subagents), and `skills/<name>/SKILL.md` (a
 playbook can be a skill — e.g. the Content Studio `setup` skill provides
@@ -1275,7 +1283,7 @@ rides the sidebar, per-turn snapshot, and the `.pupa` bundle; writes are
 limited to `.md` / `.json`.
 
 `AGENTS.md` *layers over* the resolved type fragment, it does not replace it
-(`MyAppPolicy.buildSystemPrompt`): the dynamic base + `kindCatalogLine` +
+(`MiniAppPolicy.buildSystemPrompt`): the dynamic base + `kindCatalogLine` +
 per-kind prose is always prepended, then AGENTS.md rides on top as the user's
 customization. Seeding therefore no longer bakes the fragment into AGENTS.md —
 otherwise per-kind guidance froze at creation and was lost as the canvas
@@ -1293,11 +1301,11 @@ them per scope and:
   via `ChatViewModel.skillsContextEntry` — present in all three context paths
   (main chat, sub-run, Slack);
 - the agent loads a body on demand with `app_skill_view`, always advertised
-  through `MyAppType.skillToolNames`.
+  through `MiniAppType.skillToolNames`.
 
 Skills are seeded three ways: per-example (each example's `seedAgentsMd`);
 universally via `DefaultSkills`, seeded **once at app birth**
-(`MyAppStore.seedBirthFiles` — `addMyApp` / example restore / fresh-install
+(`MiniAppStore.seedBirthFiles` — `addMiniApp` / example restore / fresh-install
 default), file-exists-guarded so user/agent edits *and deletions* survive
 later launches — every app ships `/to-memory` (records durable learnings into
 `pupa/MEMORIES.md`); and via `GuideSkills`, the managed user-facing guide
@@ -1325,15 +1333,15 @@ subagent exists — `AgentStore`
 discovers them per scope by walking `pupa/agents/*/AGENTS.md`, exactly mirroring
 `SkillStore`. `AgentRegistry.enumerateAgents` builds **one** `MemoryStore` for
 the whole enumeration and passes it down: every `MemoryStore.init` is a full
-recursive scan of the app's memory root, and this runs on the MyApp-switch path. `AgentStore.createAgent` is the canonical writer (used by the Slack
+recursive scan of the app's memory root, and this runs on the MiniApp-switch path. `AgentStore.createAgent` is the canonical writer (used by the Slack
 create-agent UI and any future `create_agent` tool); an agent can also author one
 by hand-writing the file with the memory tools.
 
 The main agent — and, by default, any subagent (A2A) — invokes one with the
 `invoke_agent(name, prompt)` frontend tool (`AppTools.registerSubagentTools`,
-advertised via `MyAppType.subagentToolNames`). The handler calls
+advertised via `MiniAppType.subagentToolNames`). The handler calls
 `ChatSessionCoordinator.runSubagent`, which spins a transient `AgentSession`
-scoped to the parent MyApp: memory + canvas surface inherited, tool set narrowed
+scoped to the parent MiniApp: memory + canvas surface inherited, tool set narrowed
 by `SubagentPolicy.narrowedTools` (the frontmatter `tools` allowlist minus
 `disabled_tools`, minus main-chat-only admin tools, always plus `invoke_agent`),
 persona pinned as a context entry, and the frontmatter model/provider forwarded.
@@ -1342,26 +1350,26 @@ each subagent's `{name, description, when_to_use}`; the persona loads only when
 the subagent runs.
 
 Every subagent run is gated by the shared `AgentInvocationGate` under a
-`.subagent(myAppId:slug:)` key, so reentrancy, chain-depth, and per-pair turn
-budgets bound A2A chains exactly as they bound orchestrator→MyApp delegation.
+`.subagent(miniAppId:slug:)` key, so reentrancy, chain-depth, and per-pair turn
+budgets bound A2A chains exactly as they bound orchestrator→MiniApp delegation.
 Entry points thread an `AgentCallerContext` saying who delegated — `.agent(id)`
 (nests under a live run), `.session(key)` (an ungated chat panel: roots a tree,
 costs no depth or turn budget, but is credited in the stats), or `.user`.
 
 **Slack is a UI over subagents.** A Slack component holds only channels +
 messages (`SlackData`); its workspace roster is *all* subagents discovered under
-the MyApp. Channels reference agents by slug; @-mentioning one (or posting in a
+the MiniApp. Channels reference agents by slug; @-mentioning one (or posting in a
 DM) calls `invokeSlackAgent`, a thin Slack wrapper over the same subagent runner
 that adds channel-history context, live `SlackInvoker` bubbles, and auto-posting
 of the reply.
 
 Per-channel scroll restoration lives in `SlackView` `@State`, keyed by
-`SlackChannelKey` (myApp id + component id + channel id) — and the message
+`SlackChannelKey` (miniApp id + component id + channel id) — and the message
 `ScrollView` is identified the same way. All three parts are load-bearing:
 `nextSlackId` uniques channel ids within one component and `addComponent`
-uniques component ids within one MyApp, so `channel-1` of `slack-1` names a
-different channel in every MyApp, and in every Slack component of the same
-MyApp. `CanvasView` builds component views without `.id(component.id)`, so this
+uniques component ids within one MiniApp, so `channel-1` of `slack-1` names a
+different channel in every MiniApp, and in every Slack component of the same
+MiniApp. `CanvasView` builds component views without `.id(component.id)`, so this
 `@State` outlives the component it belongs to. Same shape as tracker's
 `TrackerBoardKey`, one level further down.
 
@@ -1373,7 +1381,7 @@ Full reference: [skills.md](skills.md).
 always local `~/Library/Application Support/pupa`; the stores read and write it
 directly and never block on iCloud. iCloud is a **mirror**, not the canonical
 root — so turning it off in iOS Settings (which relaunches the app) can't hide
-MyApps ("app looks lost") or strand offline edits, the way the old
+MiniApps ("app looks lost") or strand offline edits, the way the old
 switch-roots-per-launch design did (pupa#110). All synced file IO goes through
 `CloudDocument`, which writes the local tree with **plain atomic** writes (no
 `NSFileCoordinator`: the local store is single-process with no file presenter,
@@ -1429,7 +1437,7 @@ Provisioning runs that settle loop for `memories/` (parity with the forced
 `state/` pull) **before** guide seeding, and `convergeAndReloadStores` re-kicks
 both subtrees on every trigger.
 
-**Conflict-twin adoption.** Two devices that each seed a MyApp's
+**Conflict-twin adoption.** Two devices that each seed a MiniApp's
 `memories/<uuid>/` before the first sync collide on that path; iCloud keeps one
 and renames the other to `memories/<uuid> 2` (a space + digits — a uuid has no
 space, so never app-addressable). `MemoryStore.foldConflictTwinDirs`
@@ -1457,7 +1465,7 @@ screen's real "Status" ("Up to date", "Syncing N…", "Waiting for iCloud").
 launch a device whose local `state/` is empty but iCloud is active does **not**
 seed-and-push a default roster — that would race the first pull and overwrite
 the real apps on every device (the reported "everything replaced by Daily
-Briefing" wipe). Instead `MyAppStore` enters `isProvisioning` (holds an
+Briefing" wipe). Instead `MiniAppStore` enters `isProvisioning` (holds an
 in-memory placeholder, persists nothing) and `finishProvisioning()` forces the
 `state/` subtree to download, converges, and either **adopts** the pulled roster
 or seeds the default only if the cloud is genuinely empty. If the window
@@ -1516,14 +1524,14 @@ rest of the session (bodies still do, and union-load recovers roster membership
 from them on the other side). A relaunch that adopts a roster clears it.
 
 Separately, when a
-remote reload removes MyApps this user did **not** delete, `reloadFromDisk`
+remote reload removes MiniApps this user did **not** delete, `reloadFromDisk`
 snapshots them and raises a dismissible **restore banner**: the merge still
 applies (losers are in History), but the user is advised and can restore in one
 tap rather than silently losing apps.
 
 Debounced background writers are **quiescable**: `StorageMirror.drain()`
 cancels the armed debounce and awaits an in-flight pass, and
-`MyAppStore.clearStorage()` (async) bumps a storage epoch that expires armed
+`MiniAppStore.clearStorage()` (async) bumps a storage epoch that expires armed
 snapshot debounces, drains the mirror, and removes the merge baseline. Tests
 run serially (`--no-parallel`, see Makefile) and rely on these so no
 background disk task crosses a suite boundary.
@@ -1542,10 +1550,10 @@ already resolves per-container. It matters when you go looking for the files by
 hand, and it means `make mac-demo` reads a different tree from an Xcode build —
 see [App Sandbox & entitlements](#app-sandbox--entitlements).
 
-- **Canvas + MyApps state** → **per-file** under `state/`: one
-  `apps/<uuid>.json` per MyApp plus `index.json` (active id, order,
+- **Canvas + MiniApps state** → **per-file** under `state/`: one
+  `apps/<uuid>.json` per MiniApp plus `index.json` (active id, order,
   orchestrator threads, audit log, and the UI-only component-folder layout).
-  One mutation rewrites only the touched file (dirty-hashed in `MyAppStore`),
+  One mutation rewrites only the touched file (dirty-hashed in `MiniAppStore`),
   so iCloud syncs minimal traffic and per-app snapshots stay cheap. **The roster
   is the union of `index.json`'s `order` and every decodable `apps/<uuid>.json`
   body on disk** — the index gives *order*, the disk gives *existence*. So a
@@ -1554,12 +1562,12 @@ see [App Sandbox & entitlements](#app-sandbox--entitlements).
   in id-sorted order). A genuine delete removes the body file, so a deleted app
   is absent from disk and never resurrects. `sweepOrphanAppFiles` then only ages
   out genuine junk — non-`<uuid>.json` files and files that don't decode as a
-  `MyApp` (undecodable / partial), never a real body the index happens to omit —
+  `MiniApp` (undecodable / partial), never a real body the index happens to omit —
   and `persist()` only deletes files it saw during its own session; the age gate
   protects an iCloud merge that lands an app file before its index.
 - **Deletion tombstones.** Because union-load treats any on-disk body as a live
   app, a delete needs a durable record or a not-yet-synced copy on another device
-  would resurrect it. So deleting a MyApp writes a mirrored marker
+  would resurrect it. So deleting a MiniApp writes a mirrored marker
   `state/tombstones/<uuid>.json` (`{id, deletedAt, name?}`) alongside removing the
   body, and records a `.deleted` snapshot first — the restore point behind
   **Settings → Recently deleted**, which lists tombstoned apps for the marker's
@@ -1587,7 +1595,7 @@ see [App Sandbox & entitlements](#app-sandbox--entitlements).
   retires the marker for any id that is live in the incoming roster, so a body
   that comes back isn't listed as removed alongside itself. A surprise removal
   that *does* carry a tombstone is untouched — it already lists.
-- **Memory files come back with the app.** A `MyApp` carries no memory files (they
+- **Memory files come back with the app.** A `MiniApp` carries no memory files (they
   live in `memories/`, keyed by app id), so no snapshot holds them and an app
   restored after iCloud dropped its data came back with empty `pupa/agents/` and
   `pupa/skills/` folders (#251). The bytes survive — `.deleteLocal` quarantines
@@ -1623,7 +1631,7 @@ see [App Sandbox & entitlements](#app-sandbox--entitlements).
   `preservedFiles` filters on — since unlike a removed app there is no Recently
   deleted row to fall back on. A later loss still raises.
 - **Permanent delete.** A Recently deleted row also offers "delete permanently"
-  (`purgeDeletedMyApp`, behind a confirmation): `SnapshotStore.deleteAll` — pins
+  (`purgeDeletedMiniApp`, behind a confirmation): `SnapshotStore.deleteAll` — pins
   included, since the label promises it — plus the body, then the tombstone is
   re-written with `purged: true`, keeping its `deletedAt` so GC's age check is
   unchanged — in place, in whichever directory it lives (`markerURL`), so
@@ -1631,7 +1639,7 @@ see [App Sandbox & entitlements](#app-sandbox--entitlements).
   deliberately withheld. The marker stays until the TTL because it's the only
   thing stopping an un-synced device from re-pushing the body; the sweep skips
   its capture-before-reap for a purged id, so that body can't resurrect a
-  restore point. `deletedMyApps` / `hasTombstones` list `listableTombstoneIds`
+  restore point. `deletedMiniApps` / `hasTombstones` list `listableTombstoneIds`
   (every marker of either kind, minus the purged), so the row and — once nothing
   is left — the whole Settings entry disappear.
 - **A restore point is never left behind.** `.deleted` records are exempt from
@@ -1639,18 +1647,18 @@ see [App Sandbox & entitlements](#app-sandbox--entitlements).
   thing that retires it is whatever retires its marker. So every exit is
   covered: `gcTombstones` at 180 days (it sweeps `tombstones/` and `lost/` on
   the same clock, and drops the restore point only once *both* markers for an id
-  are gone), and `MyAppStore.clearDeleteMarkers` (tombstone + lost marker +
+  are gone), and `MiniAppStore.clearDeleteMarkers` (tombstone + lost marker +
   `SnapshotStore.dropRecords(reasons: [.deleted])`) on
-  **every** un-delete path — `restoreDeletedMyApp`, `restorePinnedSnapshot`,
-  `restoreSyncRemovedApps`, `importMyApp`. Clearing a tombstone alone retires
+  **every** un-delete path — `restoreDeletedMiniApp`, `restorePinnedSnapshot`,
+  `restoreSyncRemovedApps`, `importMiniApp`. Clearing a tombstone alone retires
   the record's only collector and strands a full base (the whole serialized
-  MyApp, chats included) permanently, mirrored to iCloud — so the pair always
+  MiniApp, chats included) permanently, mirrored to iCloud — so the pair always
   goes together, which is why the un-delete paths call the helper and not
   `clearTombstone`. Callers resolve what they're restoring *before* the call and
   record any new snapshot *after*, so nothing reads a record on its way out or
   diffs off one. `dropRecords` re-bases any survivor that diffed off a dropped
   record, so history still resolves.
-- **Every tombstoned app stays restorable.** `MyAppStore.restorableApp` takes
+- **Every tombstoned app stays restorable.** `MiniAppStore.restorableApp` takes
   the newest snapshot that resolves, else the body file itself — a tombstone
   arriving from another device suppresses the local body before that device's
   `.deleted` snapshot has necessarily synced. The orphan sweep captures a
@@ -1658,7 +1666,7 @@ see [App Sandbox & entitlements](#app-sandbox--entitlements).
   lossless. Only a pre-0.0.240 delete (which captured nothing) lists as
   non-restorable. The Recently deleted *listing* answers restorability with
   `hasRestoreSource` — a `stat` per source rather than a chain walk and a whole
-  `MyApp` decode per row, which made the screen's cost scale with app size
+  `MiniApp` decode per row, which made the screen's cost scale with app size
   rather than app count; the full resolve happens on the tap.
   Union-load subtracts tombstoned ids (a tombstone suppresses a body even while
   it's still on disk), and the orphan sweep reaps a tombstoned body regardless of
@@ -1671,11 +1679,11 @@ see [App Sandbox & entitlements](#app-sandbox--entitlements).
   generous so one always outlives an un-synced stale body (which sweeps at 7 days);
   a corrupt tombstone ages out via file mtime so it can't suppress forever.
 - **Component folders (UI-only)** → the home-page grid
-  (`MyAppHomeView.componentsPanel`) lets you drag component tiles into folders,
+  (`MiniAppHomeView.componentsPanel`) lets you drag component tiles into folders,
   iOS-home-screen style. The layout (`ComponentFolderLayout`: folders +
   componentId→folderId assignments) is **presentational**, kept off-model in
-  `index.json` (`MyAppStore.componentFolders`, keyed by MyApp `id.uuidString`).
-  It is deliberately *not* on `Component`/`MyApp`, so the agent
+  `index.json` (`MiniAppStore.componentFolders`, keyed by MiniApp `id.uuidString`).
+  It is deliberately *not* on `Component`/`MiniApp`, so the agent
   (`getCanvasState`) and marketplace exports never see it. It syncs across
   devices but is not part of per-app History snapshots.
 - **Settings** → JSON file `state/settings.json` (backend list,
@@ -1687,7 +1695,7 @@ see [App Sandbox & entitlements](#app-sandbox--entitlements).
   hub — Roster/Tools/Limits/Threads; shell approval + backend tool toggles
   under Tools, the `AgentInvocationGate` conversation-rounds + chain-depth
   limits under Limits; see below), Notifications (Active / Past over
-  `NotificationLogStore`; Active is grouped by Origin — a section per myApp,
+  `NotificationLogStore`; Active is grouped by Origin — a section per miniApp,
   then Orchestrator, then You — and rows can be edited or cancelled), and
   Examples.
 - **Notifications** → `NotificationCenterCoordinator` (singleton wrapper
@@ -1711,20 +1719,20 @@ see [App Sandbox & entitlements](#app-sandbox--entitlements).
   `GuidedTourStore.chatPrefill` / `runAgent` writes `chatAutoSend`, which
   `ChatPanel` mirrors into the composer / sends as a turn. A scheduled prompt
   always starts a new conversation — it never appends to an existing thread.
-  - **Cross-myApp isolation** (`AppTools.scopeNotificationRequest`, pure /
+  - **Cross-miniApp isolation** (`AppTools.scopeNotificationRequest`, pure /
     unit-tested): a notification's target is **bound to the scope of the agent
     that scheduled it, never taken from the model** — the `sendNotification`
-    schema has no `myAppId` field, and any id in the args is dropped at parse
-    (`NotificationRequest.init`). A MyApp-scoped call (or a sub-run/slack
-    subagent acting for one) always has the owning `myAppId` injected, so every
-    banner routes back into *that* myApp and nowhere else — foreground taps open
+    schema has no `miniAppId` field, and any id in the args is dropped at parse
+    (`NotificationRequest.init`). A MiniApp-scoped call (or a sub-run/slack
+    subagent acting for one) always has the owning `miniAppId` injected, so every
+    banner routes back into *that* miniApp and nowhere else — foreground taps open
     it, `populateChat`/`runAgent` taps run in *its* new chat. The orchestrator /
-    `.memory` scope (`ownerMyAppId == nil`) carries no id; its injecting taps are
+    `.memory` scope (`ownerMiniAppId == nil`) carries no id; its injecting taps are
     routed to the orchestrator's own new chat at delivery time
-    (`handleNotificationTap`). One myApp therefore cannot open or message
+    (`handleNotificationTap`). One miniApp therefore cannot open or message
     another. Delivery-side, `handleNotificationTap` re-checks the target still
-    exists (`store.myApp(withId:)`) and drops the tap with a "Reminder
-    unavailable" popup if the myApp was deleted after scheduling.
+    exists (`store.miniApp(withId:)`) and drops the tap with a "Reminder
+    unavailable" popup if the miniApp was deleted after scheduling.
   - **The log** (`NotificationLogStore`, `NotificationRecord`): the OS queue
     holds only *pending* requests, so a fired one-shot vanishes from it
     entirely — there is no way to tell "fired" from "cancelled" from "never
@@ -1736,7 +1744,7 @@ see [App Sandbox & entitlements](#app-sandbox--entitlements).
     request the log has no record of (its file lost or reset while the queue
     kept going) is adopted so it stays visible and cancellable — `request` is
     nil for those, so they can't be edited.
-    - **Origin** — who *created* it (`user` / `orchestrator` / `myApp(id)` /
+    - **Origin** — who *created* it (`user` / `orchestrator` / `miniApp(id)` /
       `unknown`), distinct from the deep-link Target above and the field the
       Active list groups by. Set from the caller's scope
       (`AppTools.notificationOrigin`) and mirrored into `userInfo` as
@@ -1766,21 +1774,21 @@ see [App Sandbox & entitlements](#app-sandbox--entitlements).
   through — `delegationsMade` on the caller, `invocationsReceived` on the
   target. The hook fires whenever the `AgentCallerContext` resolves to an
   agent key: `.agent(id)` for a live gated run, **and** `.session(key)` for an
-  ungated chat panel, so first-level delegations (orchestrator chat → MyApp
-  agent, MyApp chat → subagent) are counted too. `.user` — the composer, a
+  ungated chat panel, so first-level delegations (orchestrator chat → MiniApp
+  agent, MiniApp chat → subagent) are counted too. `.user` — the composer, a
   Slack @-mention — roots a tree and credits nobody. Stats are advisory/lossy-tolerant
   (missing key → zero; orphans ignored). **Settings → Agents → Roster**
   (`AgentRosterView`) reads the roster through the existing
   `AgentRegistry` descriptor pipeline and renders it as nested dropdowns
-  (each MyApp expands to its agents — main agent + Slack personas, derived
-  from `AgentDescriptor.kind`/`myAppId`; each agent expands to its stats;
+  (each MiniApp expands to its agents — main agent + Slack personas, derived
+  from `AgentDescriptor.kind`/`miniAppId`; each agent expands to its stats;
   the orchestrator is a top-level agent dropdown) showing these counters +
-  per-agent conversation counts (derived live from `MyAppStore.threads`),
+  per-agent conversation counts (derived live from `MiniAppStore.threads`),
   plus a threads collection grouped by agent.
 - **Memories** → markdown files under `<storage root>/memories/`
   (per-agent namespaces under `agents/<agentId>/`). Survive "New session".
   Each file syncs individually via iCloud. The per-app folder is the app's
-  **immutable uuid** (`MemoryStore.myAppFolder(myAppId:)`), never its display
+  **immutable uuid** (`MemoryStore.miniAppFolder(miniAppId:)`), never its display
   name — so a rename moves nothing and an import can't collide with the app it
   was exported from. The Memories UI labels the folder with the live app
   name. Pre-0.0.249 trees were keyed on the name slug instead;
@@ -1808,8 +1816,8 @@ see [App Sandbox & entitlements](#app-sandbox--entitlements).
 
 ## Export / Import (marketplace)
 
-A MyApp can be exported as a portable, **inert** `.pupa` bundle (versioned
-header + the `Codable` `MyApp` tree + memory files) and rebuilt on another
+A MiniApp can be exported as a portable, **inert** `.pupa` bundle (versioned
+header + the `Codable` `MiniApp` tree + memory files) and rebuilt on another
 install — **no code from the bundle is executed**. UI lives in Settings ▸
 Import & Export: export is a **Share…** action on iOS (`ShareLink` → AirDrop /
 Messages / WhatsApp / Files) and a **Save…** action on Mac (`.fileExporter` →
@@ -1834,7 +1842,7 @@ Three further guards keep an imported app from acting on its own:
   file lands — so a differently-spelled path can't reach the file while
   dodging the rewrite.
 - **No remote images until the user says so.** Imported apps are stamped
-  `media.remoteImages: false` (`MyApp.allowsRemoteImages`). `AppView` puts the
+  `media.remoteImages: false` (`MiniApp.allowsRemoteImages`). `AppView` puts the
   answer in `\.remoteImagesAllowed` for every detail route and the chat
   overlay; the tracker hero and both markdown surfaces (chat bubbles, memory
   notes) render `WithheldImage` instead of fetching, which carries the button

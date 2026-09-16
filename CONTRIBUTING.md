@@ -249,13 +249,13 @@ The most useful thing you can contribute is a new piece of the app.
 
 - **A canvas shape** is a SwiftUI view, a typed `Codable` model, and the
   render + mutator tools the agent calls. Kind registration lives on
-  `MyAppType`. Full recipe, including the tests and the export policy:
+  `MiniAppType`. Full recipe, including the tests and the export policy:
   [docs/adding-a-component.md](docs/adding-a-component.md). Existing
   shapes are documented in [docs/components/](docs/components/).
-- **A MyApp template** is a `.pupa` bundle, no Swift involved. It has to
+- **A MiniApp template** is a `.pupa` bundle, no Swift involved. It has to
   clear the realism bar in [docs/templates.md](docs/templates.md) before
-  it ships as an `ExampleMyApp`.
-- **A skill** is markdown in a MyApp's `pupa/` folder, surfaced as a slash
+  it ships as an `ExampleMiniApp`.
+- **A skill** is markdown in a MiniApp's `pupa/` folder, surfaced as a slash
   command and as a model-loadable playbook: [docs/skills.md](docs/skills.md).
 
 ## TestFlight

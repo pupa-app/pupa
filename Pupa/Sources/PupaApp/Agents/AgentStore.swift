@@ -3,7 +3,7 @@ import Observation
 
 /// Discovers and caches the subagents under a scope's `pupa/agents/` folder.
 ///
-/// One `AgentStore` is bound to one (scope-rooted) `MemoryStore` — a MyApp's
+/// One `AgentStore` is bound to one (scope-rooted) `MemoryStore` — a MiniApp's
 /// memory root. Discovery is a cheap walk of `memory.snapshotPaths()`: only
 /// the `pupa/agents/<slug>/AGENTS.md` entrypoint of each subagent folder
 /// becomes a `Subagent` (supporting files — the agent's private notes — are

@@ -60,9 +60,9 @@ struct ToolRoundBubbleTests {
     // MARK: - Helpers
 
     private func makeViewModel() -> ChatViewModel {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApp = MyApp(name: "A", iconSystemName: "circle", typeId: MyAppType.tracker.id)
-        let store = MyAppStore(initial: ([myApp], myApp.id))
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApp = MiniApp(name: "A", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
+        let store = MiniAppStore(initial: ([miniApp], miniApp.id))
         let memory = MemoryStore(
             rootOverride: URL(fileURLWithPath: NSTemporaryDirectory())
                 .appendingPathComponent("pupa-tests-\(UUID().uuidString)")
@@ -72,8 +72,8 @@ struct ToolRoundBubbleTests {
             memory: memory,
             settings: SettingsStore(backendURL: URL(string: "http://localhost:65535/")!),
             registry: ToolRegistry(),
-            scope: .myApp(myApp.id),
-            threadId: store.currentThreadId(for: .myApp(myApp.id)),
+            scope: .miniApp(miniApp.id),
+            threadId: store.currentThreadId(for: .miniApp(miniApp.id)),
             toolGateState: ToolGateState()
         )
     }

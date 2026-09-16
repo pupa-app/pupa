@@ -13,20 +13,20 @@ import Testing
 @Suite("Slack invoker UI state")
 struct SlackInvokerReentrancyTests {
 
-    private let myAppId = UUID()
+    private let miniAppId = UUID()
 
     /// Convenience: decide(caller: nil) then invoker.enter. Returns the invocationId.
     @discardableResult
     func enterSlack(_ inv: SlackInvoker, agentId: String, agentName: String, channelId: String) -> UUID {
         let gate = inv.gate
         guard case let .proceed(id, root) = gate.decide(
-            caller: nil, target: .subagent(myAppId: myAppId, slug: agentId)
+            caller: nil, target: .subagent(miniAppId: miniAppId, slug: agentId)
         ) else {
             Issue.record("Expected .proceed")
             return UUID()
         }
         return inv.enter(agentId, agentName: agentName, channelId: channelId,
-                         myAppId: myAppId, invocationId: id, caller: .user, treeRoot: root)
+                         miniAppId: miniAppId, invocationId: id, caller: .user, treeRoot: root)
     }
 
     @Test("activeInvocations tracks live agent state per channel")

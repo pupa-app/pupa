@@ -5,22 +5,22 @@ import SwiftUI
 /// one extra `AgentProperty` in `AgentRegistry`, no view changes here
 /// unless the new value needs a new render shape.
 public struct AgentDetailView: View {
-    let store: MyAppStore
+    let store: MiniAppStore
     let memory: MemoryStore
     let settings: SettingsStore
     let modelCatalog: ModelCatalogStore
-    /// `nil` for the orchestrator (which has no MyApp parent); set for every
-    /// MyApp + Slack sub-agent.
-    let myAppId: UUID?
+    /// `nil` for the orchestrator (which has no MiniApp parent); set for every
+    /// MiniApp + Slack sub-agent.
+    let miniAppId: UUID?
     let agentId: String
     var onNavigate: (SidebarSelection) -> Void
 
     public init(
-        store: MyAppStore,
+        store: MiniAppStore,
         memory: MemoryStore,
         settings: SettingsStore,
         modelCatalog: ModelCatalogStore,
-        myAppId: UUID?,
+        miniAppId: UUID?,
         agentId: String,
         onNavigate: @escaping (SidebarSelection) -> Void
     ) {
@@ -28,19 +28,19 @@ public struct AgentDetailView: View {
         self.memory = memory
         self.settings = settings
         self.modelCatalog = modelCatalog
-        self.myAppId = myAppId
+        self.miniAppId = miniAppId
         self.agentId = agentId
         self.onNavigate = onNavigate
     }
 
-    private var myApp: MyApp? {
-        guard let myAppId else { return nil }
-        return store.myApps.first(where: { $0.id == myAppId })
+    private var miniApp: MiniApp? {
+        guard let miniAppId else { return nil }
+        return store.miniApps.first(where: { $0.id == miniAppId })
     }
 
     private var appColor: Color {
-        guard let myAppId else { return .accentColor }
-        return Color.color(atIndex: store.colorIndex(for: myAppId))
+        guard let miniAppId else { return .accentColor }
+        return Color.color(atIndex: store.colorIndex(for: miniAppId))
     }
 
     private var descriptor: AgentDescriptor? {
@@ -48,9 +48,9 @@ public struct AgentDetailView: View {
         if agentId == AgentRegistry.orchestratorAgentId {
             return AgentRegistry.buildOrchestratorAgent(store: store, settings: settings, memory: memory, catalog: modelCatalog)
         }
-        guard let app = myApp else { return nil }
-        return AgentRegistry.enumerateAgents(myApp: app, store: store, settings: settings, catalog: modelCatalog)
-            .first(where: { $0.id == agentId })
+        guard let app = miniApp else { return nil }
+        return AgentRegistry.enumerateAgents(miniApp: app, store: store, settings: settings, catalog: modelCatalog)
+            .first(where: { $0.id == AgentRegistry.canonicalAgentId(agentId) })
     }
 
     public var body: some View {
@@ -128,7 +128,7 @@ public struct AgentDetailView: View {
 
     /// Persist a new model selection for whichever agent this view is showing.
     /// The Slack-vs-main routing is keyed off `descriptor.kind` — main agents
-    /// store in `MyApp.settings`; Slack sub-agents store on the SlackAgent
+    /// store in `MiniApp.settings`; Slack sub-agents store on the SlackAgent
     /// struct itself (the parent component is recovered by parsing the agent
     /// id, which is built by `AgentRegistry.slackAgentId`).
     private func selectModel(_ newId: String, for descriptor: AgentDescriptor) {
@@ -145,12 +145,12 @@ public struct AgentDetailView: View {
         }
 
         switch descriptor.kind {
-        case .myApp:
-            guard let myAppId = descriptor.myAppId else { return }
-            store.setMyAppLLM(provider: provider, model: modelId, for: myAppId)
+        case .miniApp:
+            guard let miniAppId = descriptor.miniAppId else { return }
+            store.setMiniAppLLM(provider: provider, model: modelId, for: miniAppId)
         case .subagent:
-            guard let (myAppId, slug) = subagentTarget(descriptor) else { return }
-            let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myAppId))
+            guard let (miniAppId, slug) = subagentTarget(descriptor) else { return }
+            let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(miniAppId: miniAppId))
             _ = try? AgentStore(memory: appMemory).setModel(slug: slug, provider: provider, model: modelId)
         case .orchestrator:
             settings.setOrchestratorLLM(provider: provider, model: modelId)
@@ -158,15 +158,15 @@ public struct AgentDetailView: View {
     }
 
     /// Persist a new extended-thinking level for whichever agent this view
-    /// shows. `thinkingDefaultId` clears the override. Only the main MyApp agent
+    /// shows. `thinkingDefaultId` clears the override. Only the main MiniApp agent
     /// and the orchestrator surface a thinking picker (see `AgentRegistry`), so
     /// subagents are a no-op here.
     private func selectThinking(_ newLevel: String, for descriptor: AgentDescriptor) {
         let level: String? = newLevel == KnownLLMModelCatalog.thinkingDefaultId ? nil : newLevel
         switch descriptor.kind {
-        case .myApp:
-            guard let myAppId = descriptor.myAppId else { return }
-            store.setMyAppThinking(level, for: myAppId)
+        case .miniApp:
+            guard let miniAppId = descriptor.miniAppId else { return }
+            store.setMiniAppThinking(level, for: miniAppId)
         case .orchestrator:
             settings.setOrchestratorThinking(level)
         case .subagent:
@@ -174,17 +174,17 @@ public struct AgentDetailView: View {
         }
     }
 
-    /// Unwind a subagent descriptor id (`subagent:<myAppId>:<slug>`) built by
+    /// Unwind a subagent descriptor id (`subagent:<miniAppId>:<slug>`) built by
     /// `AgentRegistry.subagentId`.
-    private func subagentTarget(_ descriptor: AgentDescriptor) -> (myAppId: UUID, slug: String)? {
+    private func subagentTarget(_ descriptor: AgentDescriptor) -> (miniAppId: UUID, slug: String)? {
         let parts = descriptor.id.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
         guard parts.count == 3, parts[0] == "subagent",
-              let myAppId = UUID(uuidString: String(parts[1])) else { return nil }
-        return (myAppId, String(parts[2]))
+              let miniAppId = UUID(uuidString: String(parts[1])) else { return nil }
+        return (miniAppId, String(parts[2]))
     }
 
     /// Enable/disable one tool for whichever agent this view shows. Routes by
-    /// `descriptor.kind` exactly like `selectModel`: main → `MyApp.settings`,
+    /// `descriptor.kind` exactly like `selectModel`: main → `MiniApp.settings`,
     /// Slack → the SlackAgent struct (id unwound via `AgentRegistry.slackAgentId`),
     /// orchestrator → global settings. The current disabled set is recovered
     /// from the rendered `.toolToggles` property so we mutate the live value.
@@ -193,12 +193,12 @@ public struct AgentDetailView: View {
         if enabled { disabled.remove(name) } else { disabled.insert(name) }
 
         switch descriptor.kind {
-        case .myApp:
-            guard let myAppId = descriptor.myAppId else { return }
-            store.setMyAppDisabledTools(disabled, for: myAppId)
+        case .miniApp:
+            guard let miniAppId = descriptor.miniAppId else { return }
+            store.setMiniAppDisabledTools(disabled, for: miniAppId)
         case .subagent:
-            guard let (myAppId, slug) = subagentTarget(descriptor) else { return }
-            let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(myAppId: myAppId))
+            guard let (miniAppId, slug) = subagentTarget(descriptor) else { return }
+            let appMemory = MemoryStore(rootOverride: MemoryStore.appRoot(miniAppId: miniAppId))
             _ = try? AgentStore(memory: appMemory).setDisabledTools(slug: slug, disabled)
         case .orchestrator:
             settings.setOrchestratorDisabledTools(disabled)

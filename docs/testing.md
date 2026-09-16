@@ -69,6 +69,8 @@ parse — and `//` comments are skipped.
 
 ```sh
 make ctl ARGS='replay Pupa/Fixtures/add-tracker.jsonl --send "add a Books tracker"'
+make ctl ARGS='replay Pupa/Fixtures/create-miniapp.jsonl --orchestrator --send "create Garden"'
+make ctl ARGS='dump --miniapp-id <UUID from createMiniApp result>'
 ```
 
 Failure injection, for the paths a happy stream can't reach:
@@ -171,8 +173,8 @@ app is backgrounded — there is no accessibility tree then — so `ui-test-reco
 also captures the app's unified log (`dev.pupa.aguikit`) to `build/trace.log`,
 which is the only thing that keeps reporting across that window.
 
-MyApps is a sheet opened from the bar's menu, so a UI test that needs it taps
-`Menu` then `MyApps` rather than pre-setting a launch default — the old
+MiniApps is a sheet opened from the bar's menu, so a UI test that needs it taps
+`Menu` then `MiniApps` rather than pre-setting a launch default — the old
 `-pupa.ui.sidebarOpen` argument is gone with the drawer it controlled. `isHittable` is
 no guard here: XCUITest reports the covered toggle as hittable.
 

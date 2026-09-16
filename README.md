@@ -9,14 +9,14 @@
 </p>
 
 <p align="center">
-  <a href="Pupa/Sources/PupaApp/Version.swift"><img src="https://img.shields.io/badge/Pupa-0.0.285-000000?logo=apple&logoColor=white" alt="Pupa version" /></a>
+  <a href="Pupa/Sources/PupaApp/Version.swift"><img src="https://img.shields.io/badge/Pupa-0.0.286-000000?logo=apple&logoColor=white" alt="Pupa version" /></a>
   <a href="AGUIKit/Sources/AGUIKit/Version.swift"><img src="https://img.shields.io/badge/AGUIKit-0.0.30-f05138?logo=swift&logoColor=white" alt="AGUIKit version" /></a>
 </p>
 
 Pupa is a native iOS and macOS app where your agent builds you real apps.
 Say what you need, and the canvas moulds into the shape that fits it:
 trackers, calendars, checklists, charts, calculators, rooms of agents
-talking to each other. Each one is a **MyApp**, with its own long-lived
+talking to each other. Each one is a **MiniApp**, with its own long-lived
 Memories filesystem, so the work keeps growing instead of disappearing
 when the chat ends.
 
@@ -26,7 +26,7 @@ context stay on your machine.
 
 |  One for everything you're juggling  |  Your agent builds you a real app  |  Just say what you need  |
 | :---: | :---: | :---: |
-| <img src="docs/assets/shot-library.png" alt="MyApps library" width="240" /> | <img src="docs/assets/shot-canvas.png" alt="A MyApp home screen" width="240" /> | <img src="docs/assets/shot-chat.png" alt="Chat driving the canvas" width="240" /> |
+| <img src="docs/assets/shot-library.png" alt="MiniApps library" width="240" /> | <img src="docs/assets/shot-canvas.png" alt="A MiniApp home screen" width="240" /> | <img src="docs/assets/shot-chat.png" alt="Chat driving the canvas" width="240" /> |
 
 ## Build, use, share, contribute
 
@@ -35,7 +35,7 @@ context stay on your machine.
   laptop, synced over iCloud.
 - **Share** any app as a portable `.pupa` bundle, and install what others
   have made from the [marketplace](https://pupa-app.com/marketplace).
-- **Contribute** the pieces themselves. Canvas shapes, MyApp templates and
+- **Contribute** the pieces themselves. Canvas shapes, MiniApp templates and
   skills are all things you can add. See below.
 
 ## How it works
@@ -45,7 +45,7 @@ the [Pupa backend](https://github.com/pupa-app/pupa-backend) over a single
 SSE stream. The backend runs wherever you want it, wraps your agent, and
 forwards the client's tool definitions to the model. The model then drives
 the canvas by calling those tools: the shapes render locally, the state
-lives on device, and a MyApp exports as a self-contained `.pupa` bundle.
+lives on device, and a MiniApp exports as a self-contained `.pupa` bundle.
 
 Two Swift packages sit behind that: `Pupa` (the app) and
 [`AGUIKit`](AGUIKit/), a standalone AG-UI client for Apple platforms with
@@ -82,7 +82,7 @@ Pupa; the download above is the whole app.
 | [architecture.md](docs/architecture.md) | How the app actually works. The source of truth. |
 | [adding-a-component.md](docs/adding-a-component.md) | End to end recipe for a new canvas shape. |
 | [marketplace.md](docs/marketplace.md) | `.pupa` bundle format, export and import, threat model. |
-| [skills.md](docs/skills.md) | The per-MyApp `pupa/` folder: slash commands and playbooks. |
+| [skills.md](docs/skills.md) | The per-MiniApp `pupa/` folder: slash commands and playbooks. |
 | [templates.md](docs/templates.md) | The realism bar for shipping a `.pupa` template. |
 | [testing-turn-recovery.md](docs/testing-turn-recovery.md) | By-hand playbook for interrupted turns. |
 | [components/](docs/components/) | Per-shape notes: [calculator](docs/components/calculator.md), [chart](docs/components/chart.md), [slack](docs/components/slack.md). |
@@ -93,7 +93,7 @@ Extending Pupa is the point. A canvas shape is a self-contained SwiftUI
 view plus a typed model and its tools, so adding one is a small change
 rather than surgery:
 [docs/adding-a-component.md](docs/adding-a-component.md) walks the whole
-recipe. MyApp templates and skills are plain files, no Swift required.
+recipe. MiniApp templates and skills are plain files, no Swift required.
 
 [CONTRIBUTING.md](CONTRIBUTING.md) covers setup, build and test commands,
 the architecture tour, and the branch workflow (`dev` is the integration

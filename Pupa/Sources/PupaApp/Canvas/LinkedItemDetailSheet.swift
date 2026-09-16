@@ -38,13 +38,13 @@ private struct LinkedRefTarget: Identifiable {
 /// explicit `componentId:` so the editor's save / delete paths target the
 /// right component even when it isn't the active one.
 struct LinkedItemDetailSheet: View {
-    @Bindable var store: MyAppStore
+    @Bindable var store: MiniAppStore
     let ref: ComponentItemRef
-    let myAppId: UUID
+    let miniAppId: UUID
     let onClose: () -> Void
 
     var body: some View {
-        switch store.componentKind(ref.componentId, myAppId: myAppId) {
+        switch store.componentKind(ref.componentId, miniAppId: miniAppId) {
         case "tracker":
             trackerEditor
         case "calendar":
@@ -64,7 +64,7 @@ struct LinkedItemDetailSheet: View {
                 store: store,
                 fields: fields,
                 initialItem: item.values,
-                myAppId: myAppId,
+                miniAppId: miniAppId,
                 componentId: ref.componentId,
                 initialLinkedItems: item.linkedItems,
                 onClose: onClose
@@ -79,7 +79,7 @@ struct LinkedItemDetailSheet: View {
         if let event = calendarEvent {
             CalendarEventEditorSheet(
                 store: store,
-                myAppId: myAppId,
+                miniAppId: miniAppId,
                 target: .edit(event),
                 componentId: ref.componentId,
                 onClose: onClose
@@ -94,7 +94,7 @@ struct LinkedItemDetailSheet: View {
         if let item = checklistItem {
             ChecklistItemEditorSheet(
                 store: store,
-                myAppId: myAppId,
+                miniAppId: miniAppId,
                 item: item,
                 componentId: ref.componentId,
                 onClose: onClose
@@ -125,7 +125,7 @@ struct LinkedItemDetailSheet: View {
     }
 
     private func component() -> Component? {
-        store.myApps.first(where: { $0.id == myAppId })?
+        store.miniApps.first(where: { $0.id == miniAppId })?
             .components.first(where: { $0.id == ref.componentId })
     }
 
@@ -160,8 +160,8 @@ struct LinkedItemDetailSheet: View {
 /// body (so a stacked sheet appears above the open editor instead of being
 /// swallowed by the already-presented modal).
 struct LinkedItemPopupHostModifier: ViewModifier {
-    @Bindable var store: MyAppStore
-    let myAppId: UUID
+    @Bindable var store: MiniAppStore
+    let miniAppId: UUID
     @State private var target: LinkedRefTarget?
 
     func body(content: Content) -> some View {
@@ -173,7 +173,7 @@ struct LinkedItemPopupHostModifier: ViewModifier {
                 LinkedItemDetailSheet(
                     store: store,
                     ref: wrapped.ref,
-                    myAppId: myAppId,
+                    miniAppId: miniAppId,
                     onClose: { target = nil }
                 )
             }
@@ -181,8 +181,8 @@ struct LinkedItemPopupHostModifier: ViewModifier {
 }
 
 extension View {
-    func linkedItemPopupHost(store: MyAppStore, myAppId: UUID) -> some View {
-        modifier(LinkedItemPopupHostModifier(store: store, myAppId: myAppId))
+    func linkedItemPopupHost(store: MiniAppStore, miniAppId: UUID) -> some View {
+        modifier(LinkedItemPopupHostModifier(store: store, miniAppId: miniAppId))
     }
 }
 

@@ -53,7 +53,7 @@ inside a calculator.
   — `series(...)` extends the Phase-1 reducer: group → reduce → one
   `ChartPoint` per bucket, ascending-by-x when `xIsNumericOrDate`.
 - [`Calculator/ChartResolver.swift`](../../Pupa/Sources/PupaApp/Calculator/ChartResolver.swift)
-  — `@MainActor` → `[ChartSeries]` against a MyApp's sibling components. Mostly
+  — `@MainActor` → `[ChartSeries]` against a MiniApp's sibling components. Mostly
   one series per `ChartSeriesSpec` (empty / broken specs drop out), but
   `calculatorLinkedSweep` fans **one** spec out to a curve per ref. Default
   series names come from the source (`valueField`, calc title / row name, or
@@ -96,7 +96,7 @@ guards.
 
 ## Mutator surface
 
-[`MyApps/MyAppStore.swift`](../../Pupa/Sources/PupaApp/MyApps/MyAppStore.swift):
+[`MiniApps/MiniAppStore.swift`](../../Pupa/Sources/PupaApp/MiniApps/MiniAppStore.swift):
 `setChart` (destructive), `patchChart` (+`ChartPatch`), `setChartKind`,
 `addChartSeries`, `removeChartSeries`, `chartComponentId`,
 `setCalculatorInlineChart`. Mutations are component-level edits, no per-item

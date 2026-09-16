@@ -6,7 +6,7 @@ import AGUIKit
 /// Pins the `/tools` slash-command rendering: descriptors are bucketed by
 /// component (`Canvas`, `Tracker`, `Calendar`, `Checklist`, `Memory`,
 /// `Notifications`, `Orchestrator`) instead of dumped as one flat list.
-/// Groups are derived from `MyAppType` so the wiring stays a derived view
+/// Groups are derived from `MiniAppType` so the wiring stays a derived view
 /// of the same sets `allowedToolNames` reads — no parallel tool-name list.
 @MainActor
 @Suite("Slash `/tools` grouped rendering")
@@ -20,15 +20,15 @@ struct SlashToolsRenderingTests {
         names.sorted().map { descriptor($0) }
     }
 
-    private func freshStore(typeId: String = "tracker") -> (MyAppStore, MyApp) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApp = MyApp(
+    private func freshStore(typeId: String = "tracker") -> (MiniAppStore, MiniApp) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApp = MiniApp(
             name: "T",
             iconSystemName: "list.bullet.rectangle",
             typeId: typeId
         )
-        let store = MyAppStore(initial: ([myApp], myApp.id))
-        return (store, myApp)
+        let store = MiniAppStore(initial: ([miniApp], miniApp.id))
+        return (store, miniApp)
     }
 
     // MARK: - groupFrontendTools
@@ -47,40 +47,40 @@ struct SlashToolsRenderingTests {
         #expect(labels == ["Tool Gates", "Memory", "Skills", "Orchestrator", "Human-in-the-loop"])
 
         let memoryNames = groups.first(where: { $0.label == "Memory" })!.tools.map(\.name)
-        #expect(Set(memoryNames) == MyAppType.memoryToolNames)
+        #expect(Set(memoryNames) == MiniAppType.memoryToolNames)
         let gateNames = Set(groups.first(where: { $0.label == "Tool Gates" })!.tools.map(\.name))
         #expect(gateNames == ["get_tools_notifications"])
         let orchNames = groups.first(where: { $0.label == "Orchestrator" })!.tools.map(\.name)
-        #expect(Set(orchNames) == MyAppType.orchestratorToolNames)
+        #expect(Set(orchNames) == MiniAppType.orchestratorToolNames)
     }
 
-    @Test("MyApp scope (empty placeholder): Canvas + Tool Gates (memory + notifications), no kind groups")
-    func myAppScopeEmptyCanvasGroups() {
-        let (store, myApp) = freshStore()
-        let allowed = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, toolGateState: ToolGateState())
+    @Test("MiniApp scope (empty placeholder): Canvas + Tool Gates (memory + notifications), no kind groups")
+    func miniAppScopeEmptyCanvasGroups() {
+        let (store, miniApp) = freshStore()
+        let allowed = ChatViewModel.allowedToolNames(scope: .miniApp(miniApp.id), store: store, toolGateState: ToolGateState())
         let groups = ChatViewModel.groupFrontendTools(
             descriptors: Self.descriptors(Array(allowed)),
-            scope: .myApp(myApp.id),
+            scope: .miniApp(miniApp.id),
             store: store
         )
         // No components → no kind gates; memories + notifications gates advertised.
         #expect(groups.map(\.label) == ["Canvas", "Tool Gates", "Skills", "Subagents", "Human-in-the-loop"])
         let canvasNames = Set(groups.first(where: { $0.label == "Canvas" })!.tools.map(\.name))
-        #expect(canvasNames == MyAppType.tracker.baseToolNames)
+        #expect(canvasNames == MiniAppType.tracker.baseToolNames)
         let gateNames = Set(groups.first(where: { $0.label == "Tool Gates" })!.tools.map(\.name))
         #expect(gateNames == ["get_tools_memories", "get_tools_notifications"])
     }
 
-    @Test("MyApp scope (all kinds, no tools activated): Canvas + Tool Gates, kind tools hidden")
-    func myAppScopeAllKindsGated() {
-        let (store, myApp) = freshStore()
-        store.addComponent(kind: "tracker", name: "Books", iconSystemName: "book", myAppId: myApp.id)
-        store.addComponent(kind: "calendar", name: "Cal", iconSystemName: "calendar", myAppId: myApp.id)
-        store.addComponent(kind: "checklist", name: "Errands", iconSystemName: "checklist", myAppId: myApp.id)
-        let allowed = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, toolGateState: ToolGateState())
+    @Test("MiniApp scope (all kinds, no tools activated): Canvas + Tool Gates, kind tools hidden")
+    func miniAppScopeAllKindsGated() {
+        let (store, miniApp) = freshStore()
+        store.addComponent(kind: "tracker", name: "Books", iconSystemName: "book", miniAppId: miniApp.id)
+        store.addComponent(kind: "calendar", name: "Cal", iconSystemName: "calendar", miniAppId: miniApp.id)
+        store.addComponent(kind: "checklist", name: "Errands", iconSystemName: "checklist", miniAppId: miniApp.id)
+        let allowed = ChatViewModel.allowedToolNames(scope: .miniApp(miniApp.id), store: store, toolGateState: ToolGateState())
         let groups = ChatViewModel.groupFrontendTools(
             descriptors: Self.descriptors(Array(allowed)),
-            scope: .myApp(myApp.id),
+            scope: .miniApp(miniApp.id),
             store: store
         )
         // Kind tools are hidden until a gate is called; only gate tool names appear.
@@ -92,33 +92,33 @@ struct SlashToolsRenderingTests {
         ])
     }
 
-    @Test("MyApp scope (all tools activated): Canvas + kind groups + Memory + Notifications visible")
-    func myAppScopeAllKindsUnlocked() {
-        let (store, myApp) = freshStore()
-        store.addComponent(kind: "tracker", name: "Books", iconSystemName: "book", myAppId: myApp.id)
-        store.addComponent(kind: "calendar", name: "Cal", iconSystemName: "calendar", myAppId: myApp.id)
-        store.addComponent(kind: "checklist", name: "Errands", iconSystemName: "checklist", myAppId: myApp.id)
+    @Test("MiniApp scope (all tools activated): Canvas + kind groups + Memory + Notifications visible")
+    func miniAppScopeAllKindsUnlocked() {
+        let (store, miniApp) = freshStore()
+        store.addComponent(kind: "tracker", name: "Books", iconSystemName: "book", miniAppId: miniApp.id)
+        store.addComponent(kind: "calendar", name: "Cal", iconSystemName: "calendar", miniAppId: miniApp.id)
+        store.addComponent(kind: "checklist", name: "Errands", iconSystemName: "checklist", miniAppId: miniApp.id)
         let toolGateState = ToolGateState()
         toolGateState.activate(kind: "tracker")
         toolGateState.activate(kind: "calendar")
         toolGateState.activate(kind: "checklist")
         toolGateState.activateMemories()
         toolGateState.activateNotifications()
-        let allowed = ChatViewModel.allowedToolNames(scope: .myApp(myApp.id), store: store, toolGateState: toolGateState)
+        let allowed = ChatViewModel.allowedToolNames(scope: .miniApp(miniApp.id), store: store, toolGateState: toolGateState)
         let groups = ChatViewModel.groupFrontendTools(
             descriptors: Self.descriptors(Array(allowed)),
-            scope: .myApp(myApp.id),
+            scope: .miniApp(miniApp.id),
             store: store
         )
         #expect(groups.map(\.label) == [
             "Canvas", "Tracker", "Calendar", "Checklist", "Memory", "Skills", "Subagents", "Notifications", "Human-in-the-loop",
         ])
         let trackerNames = Set(groups.first(where: { $0.label == "Tracker" })!.tools.map(\.name))
-        #expect(trackerNames == MyAppType.tracker.toolNamesByKind["tracker"])
+        #expect(trackerNames == MiniAppType.tracker.toolNamesByKind["tracker"])
         let calendarNames = Set(groups.first(where: { $0.label == "Calendar" })!.tools.map(\.name))
-        #expect(calendarNames == MyAppType.tracker.toolNamesByKind["calendar"])
+        #expect(calendarNames == MiniAppType.tracker.toolNamesByKind["calendar"])
         let checklistNames = Set(groups.first(where: { $0.label == "Checklist" })!.tools.map(\.name))
-        #expect(checklistNames == MyAppType.tracker.toolNamesByKind["checklist"])
+        #expect(checklistNames == MiniAppType.tracker.toolNamesByKind["checklist"])
     }
 
     @Test("Descriptors not in any known group fall into `Other`")

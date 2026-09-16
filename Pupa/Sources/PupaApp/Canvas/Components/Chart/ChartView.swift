@@ -145,23 +145,23 @@ struct ColorScaleModifier: ViewModifier {
     }
 }
 
-/// Store-bound wrapper: resolves a `ChartData` spec against its MyApp's
+/// Store-bound wrapper: resolves a `ChartData` spec against its MiniApp's
 /// sibling components every render via `ChartResolver`, then renders a
 /// titled `ChartView` — or a placeholder when nothing resolves. Used both by
 /// the standalone `chart` component and by the calculator's `inlineChart`.
 public struct ChartContainerView: View {
-    @Bindable var store: MyAppStore
+    @Bindable var store: MiniAppStore
     let data: ChartData
-    let myAppId: UUID
+    let miniAppId: UUID
 
-    public init(store: MyAppStore, data: ChartData, myAppId: UUID) {
+    public init(store: MiniAppStore, data: ChartData, miniAppId: UUID) {
         self.store = store
         self.data = data
-        self.myAppId = myAppId
+        self.miniAppId = miniAppId
     }
 
     private var siblingComponents: [Component] {
-        store.myApps.first(where: { $0.id == myAppId })?.components ?? []
+        store.miniApps.first(where: { $0.id == miniAppId })?.components ?? []
     }
 
     /// Resolve every series ONCE per render via `ChartResolver.displaySeries`,

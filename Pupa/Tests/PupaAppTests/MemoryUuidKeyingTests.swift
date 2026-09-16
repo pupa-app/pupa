@@ -2,42 +2,42 @@ import Foundation
 import Testing
 @testable import PupaApp
 
-/// Memory is keyed on the immutable myApp UUID, not the mutable display-name
+/// Memory is keyed on the immutable miniApp UUID, not the mutable display-name
 /// slug. This makes agent-root ≡ app-root by construction: rename never moves a
 /// subtree, and a re-import gets a fresh id so it can never collide with or
 /// divert the source app's memories. (Fixes the export→reimport→rename
 /// stranding.)
 @MainActor
-@Suite("Memory keyed by myApp UUID")
+@Suite("Memory keyed by miniApp UUID")
 struct MemoryUuidKeyingTests {
     /// `registerBuiltins` so the import path resolves `tracker` when this suite
     /// runs on its own (`make test FILTER=…`), not just after another suite.
     init() {
         TestStorage.activate()
-        MyAppTypeRegistry.shared.registerBuiltins()
+        MiniAppTypeRegistry.shared.registerBuiltins()
     }
 
     private func rootedMemory() -> MemoryStore {
         MemoryStore(rootOverride: PupaStorage.memoriesRoot)
     }
 
-    @Test("A myApp's memory folder is its id")
+    @Test("A miniApp's memory folder is its id")
     func folderIsAppId() {
-        let store = MyAppStore(initial: ([], UUID()))
-        let id = store.addMyApp(typeId: "tracker", name: "Alpha", iconSystemName: "star")
+        let store = MiniAppStore(initial: ([], UUID()))
+        let id = store.addMiniApp(typeId: "tracker", name: "Alpha", iconSystemName: "star")
         let expected = id.uuidString.lowercased()
-        #expect(MemoryStore.myAppFolder(myAppId: id) == expected)
-        #expect(MemoryStore.appRoot(myAppId: id).lastPathComponent == expected)
+        #expect(MemoryStore.miniAppFolder(miniAppId: id) == expected)
+        #expect(MemoryStore.appRoot(miniAppId: id).lastPathComponent == expected)
     }
 
     @Test("Rename does not move memory; the folder stays the app id")
     func renameKeepsFolder() throws {
-        let store = MyAppStore(initial: ([], UUID()))
-        let id = store.addMyApp(typeId: "tracker", name: "Alpha", iconSystemName: "star")
+        let store = MiniAppStore(initial: ([], UUID()))
+        let id = store.addMiniApp(typeId: "tracker", name: "Alpha", iconSystemName: "star")
         let mem = rootedMemory()
         try mem.appScopedStore(forAppId: id).writeFile(path: "notes/a.md", content: "hi")
 
-        store.renameMyApp(id, to: "Bravo")
+        store.renameMiniApp(id, to: "Bravo")
 
         // File still under the id folder; no name-slug folder was ever created.
         #expect(mem.appScopedStore(forAppId: id).fileExists(at: "notes/a.md"))
@@ -47,26 +47,26 @@ struct MemoryUuidKeyingTests {
 
     @Test("Re-importing a still-present app gets a fresh id; memories don't collide")
     func reimportFreshIdNoCollision() throws {
-        let store = MyAppStore(initial: ([], UUID()))
-        let id1 = store.addMyApp(typeId: "tracker", name: "Studio", iconSystemName: "star")
+        let store = MiniAppStore(initial: ([], UUID()))
+        let id1 = store.addMiniApp(typeId: "tracker", name: "Studio", iconSystemName: "star")
         let mem = rootedMemory()
         try mem.appScopedStore(forAppId: id1).writeFile(path: "notes/keep.md", content: "original")
 
-        let app = try #require(store.myApp(withId: id1))
-        let opts = MyAppExporter.Options(
+        let app = try #require(store.miniApp(withId: id1))
+        let opts = MiniAppExporter.Options(
             selectedComponentIds: Set(app.components.map(\.id)),
             includeRecords: true, includeMemories: true)
-        let bundle = MyAppExporter.makeBundle(app: app, options: opts, memory: mem)
-        let result = try MyAppImporter.importBundle(try bundle.encoded(), into: store, memory: mem)
+        let bundle = MiniAppExporter.makeBundle(app: app, options: opts, memory: mem)
+        let result = try MiniAppImporter.importBundle(try bundle.encoded(), into: store, memory: mem)
 
         // Fresh id — the reimport can't reuse or clobber the source app's folder.
-        #expect(result.myAppId != id1)
-        #expect(store.myApps.count == 2)
+        #expect(result.miniAppId != id1)
+        #expect(store.miniApps.count == 2)
         // Both apps' memories live under their own id folders, both intact.
         #expect(mem.appScopedStore(forAppId: id1).fileExists(at: "notes/keep.md"))
-        #expect(mem.appScopedStore(forAppId: result.myAppId).fileExists(at: "notes/keep.md"))
-        #expect(MemoryStore.myAppFolder(myAppId: id1)
-            != MemoryStore.myAppFolder(myAppId: result.myAppId))
+        #expect(mem.appScopedStore(forAppId: result.miniAppId).fileExists(at: "notes/keep.md"))
+        #expect(MemoryStore.miniAppFolder(miniAppId: id1)
+            != MemoryStore.miniAppFolder(miniAppId: result.miniAppId))
     }
 
     /// The stale-session-root defect: the session used to bake `appRoot(name)`
@@ -74,15 +74,15 @@ struct MemoryUuidKeyingTests {
     /// slug while the UI read the new one.
     @Test("A session created before a rename still writes under the app id")
     func sessionSurvivesMidSessionRename() async throws {
-        let store = MyAppStore(initial: ([], UUID()))
-        let id = store.addMyApp(typeId: "tracker", name: "Alpha", iconSystemName: "star")
+        let store = MiniAppStore(initial: ([], UUID()))
+        let id = store.addMiniApp(typeId: "tracker", name: "Alpha", iconSystemName: "star")
         let coord = ChatSessionCoordinator(
             store: store,
             memory: rootedMemory(),
             settings: SettingsStore(backendURL: URL(string: "http://localhost:65535/")!))
-        let session = coord.session(for: .myApp(id))
+        let session = coord.session(for: .miniApp(id))
 
-        store.renameMyApp(id, to: "Bravo")
+        store.renameMiniApp(id, to: "Bravo")
 
         // Write the way the agent does — through the session's own scoped store.
         let write = try #require(session.registry.resolve("writeMemoryFile"))
@@ -103,7 +103,7 @@ struct MemoryUuidKeyingTests {
         let memory = rootedMemory()
         let view = MemoryFileView(
             store: memory,
-            path: "\(MemoryStore.myAppFolder(myAppId: id))/notes/a.md",
+            path: "\(MemoryStore.miniAppFolder(miniAppId: id))/notes/a.md",
             onDeleted: {})
         #expect(view.displayPath == "notes/a.md")
 
@@ -120,24 +120,24 @@ struct MemoryUuidKeyingTests {
     /// store. Memories must land under the new app's id, not any name slug.
     @Test("Export → fresh store → import lands memories under the new id")
     func exportImportIntoFreshStore() throws {
-        let source = MyAppStore(initial: ([], UUID()))
-        let id = source.addMyApp(typeId: "tracker", name: "Studio", iconSystemName: "star")
+        let source = MiniAppStore(initial: ([], UUID()))
+        let id = source.addMiniApp(typeId: "tracker", name: "Studio", iconSystemName: "star")
         let mem = rootedMemory()
         try mem.appScopedStore(forAppId: id).writeFile(path: "notes/keep.md", content: "carried")
 
-        let app = try #require(source.myApp(withId: id))
-        let opts = MyAppExporter.Options(
+        let app = try #require(source.miniApp(withId: id))
+        let opts = MiniAppExporter.Options(
             selectedComponentIds: Set(app.components.map(\.id)),
             includeRecords: true, includeMemories: true)
-        let bundle = try MyAppExporter.makeBundle(app: app, options: opts, memory: mem).encoded()
+        let bundle = try MiniAppExporter.makeBundle(app: app, options: opts, memory: mem).encoded()
 
         // A fresh install: empty store, same name free again.
-        let fresh = MyAppStore(initial: ([], UUID()))
-        let result = try MyAppImporter.importBundle(bundle, into: fresh, memory: mem)
+        let fresh = MiniAppStore(initial: ([], UUID()))
+        let result = try MiniAppImporter.importBundle(bundle, into: fresh, memory: mem)
 
-        let imported = try #require(fresh.myApps.first { $0.id == result.myAppId })
+        let imported = try #require(fresh.miniApps.first { $0.id == result.miniAppId })
         #expect(imported.name == "Studio")          // no dedup suffix — nothing to clash with
-        #expect(mem.appScopedStore(forAppId: result.myAppId).fileExists(at: "notes/keep.md"))
-        #expect(mem.folderExists(at: MemoryStore.myAppFolder(myAppId: result.myAppId)))
+        #expect(mem.appScopedStore(forAppId: result.miniAppId).fileExists(at: "notes/keep.md"))
+        #expect(mem.folderExists(at: MemoryStore.miniAppFolder(miniAppId: result.miniAppId)))
     }
 }

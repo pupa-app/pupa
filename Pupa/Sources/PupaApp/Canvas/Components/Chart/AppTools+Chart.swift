@@ -7,14 +7,14 @@ extension AppTools {
     @MainActor
     static func registerChartTools(
         on registry: ToolRegistry,
-        store: MyAppStore,
-        myAppId: UUID
+        store: MiniAppStore,
+        miniAppId: UUID
     ) {
         registry.register(ClientTool(
             descriptor: ToolDescriptor(
                 name: "renderChart",
                 description: """
-                Render a chart on the first chart component in this MyApp (or \
+                Render a chart on the first chart component in this MiniApp (or \
                 the active component if it's a chart). DESTRUCTIVE — overwrites \
                 title / kind / series. `kind` is one of pie | bar | line. \
                 `series` is an ARRAY of overlaid series (line/bar overlay with \
@@ -51,14 +51,14 @@ extension AppTools {
                 let series = parseChartSeries(from: args["series"])
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveRenderTarget(kind: "chart", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveRenderTarget(kind: "chart", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
                         resolvedId = id
                     }
-                    store.setChart(title: title, kind: kind, series: series, myAppId: myAppId, componentId: resolvedId)
-                    return chartEcho(store: store, myAppId: myAppId, componentId: resolvedId)
+                    store.setChart(title: title, kind: kind, series: series, miniAppId: miniAppId, componentId: resolvedId)
+                    return chartEcho(store: store, miniAppId: miniAppId, componentId: resolvedId)
                 }
             }
         ))
@@ -85,25 +85,25 @@ extension AppTools {
             ),
             handler: { args in
                 let componentIdArg = args["componentId"]?.stringValue
-                var patch = MyAppStore.ChartPatch()
+                var patch = MiniAppStore.ChartPatch()
                 if let t = args["title"]?.stringValue { patch.title = t }
                 if let k = args["kind"]?.stringValue, let kind = ChartKind(rawValue: k) { patch.kind = kind }
                 if args["series"] != nil { patch.series = parseChartSeries(from: args["series"]) }
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "chart", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "chart", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
                         resolvedId = id
                     }
-                    guard store.patchChart(patch: patch, myAppId: myAppId, componentId: resolvedId) else {
+                    guard store.patchChart(patch: patch, miniAppId: miniAppId, componentId: resolvedId) else {
                         return .object([
                             "ok": .bool(false),
-                            "error": "no chart component in this MyApp — call addComponent(kind:\"chart\", …) or renderChart first",
+                            "error": "no chart component in this MiniApp — call addComponent(kind:\"chart\", …) or renderChart first",
                         ])
                     }
-                    return chartEcho(store: store, myAppId: myAppId, componentId: resolvedId)
+                    return chartEcho(store: store, miniAppId: miniAppId, componentId: resolvedId)
                 }
             }
         ))
@@ -131,19 +131,19 @@ extension AppTools {
                 let specs = parseChartSeries(from: args["series"])
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "chart", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "chart", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
                         resolvedId = id
                     }
-                    guard store.addChartSeries(specs, myAppId: myAppId, componentId: resolvedId) != nil else {
+                    guard store.addChartSeries(specs, miniAppId: miniAppId, componentId: resolvedId) != nil else {
                         return .object([
                             "ok": .bool(false),
-                            "error": "no chart component in this MyApp — call addComponent(kind:\"chart\", …) or renderChart first",
+                            "error": "no chart component in this MiniApp — call addComponent(kind:\"chart\", …) or renderChart first",
                         ])
                     }
-                    return chartEcho(store: store, myAppId: myAppId, componentId: resolvedId)
+                    return chartEcho(store: store, miniAppId: miniAppId, componentId: resolvedId)
                 }
             }
         ))
@@ -171,19 +171,19 @@ extension AppTools {
                 let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "chart", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "chart", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
                         resolvedId = id
                     }
-                    guard store.removeChartSeries(index: index, myAppId: myAppId, componentId: resolvedId) else {
+                    guard store.removeChartSeries(index: index, miniAppId: miniAppId, componentId: resolvedId) else {
                         return .object([
                             "ok": .bool(false),
                             "error": "no chart series at that index (or no chart component).",
                         ])
                     }
-                    return chartEcho(store: store, myAppId: myAppId, componentId: resolvedId)
+                    return chartEcho(store: store, miniAppId: miniAppId, componentId: resolvedId)
                 }
             }
         ))
@@ -212,14 +212,14 @@ extension AppTools {
                 let componentIdArg = args["componentId"]?.stringValue
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "chart", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "chart", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
                         resolvedId = id
                     }
-                    store.setChartKind(kind, myAppId: myAppId, componentId: resolvedId)
-                    return chartEcho(store: store, myAppId: myAppId, componentId: resolvedId)
+                    store.setChartKind(kind, miniAppId: miniAppId, componentId: resolvedId)
+                    return chartEcho(store: store, miniAppId: miniAppId, componentId: resolvedId)
                 }
             }
         ))

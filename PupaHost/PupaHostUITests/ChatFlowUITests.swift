@@ -84,7 +84,7 @@ final class ChatFlowUITests: XCTestCase {
     /// toggle.isHittable` silently did nothing, which turned every downstream
     /// assertion into the same misleading "chat composer never appeared".
     ///
-    /// The drawer-dismissal dance this used to open with is gone: MyApps is a
+    /// The drawer-dismissal dance this used to open with is gone: MiniApps is a
     /// sheet now, never up at launch, so there is nothing covering the bar.
     @MainActor
     private func openChat(_ app: XCUIApplication) {

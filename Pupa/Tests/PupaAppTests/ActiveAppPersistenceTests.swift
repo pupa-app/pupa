@@ -13,25 +13,25 @@ struct ActiveAppPersistenceTests {
 
     init() { TestStorage.activate() }
 
-    @Test("picking a MyApp survives a relaunch")
+    @Test("picking a MiniApp survives a relaunch")
     func setActiveSurvivesReload() async {
         // Disk suites share one process-global root; without this the reload
         // below can pick up another suite's roster. Observed as a rare
         // spurious failure under load.
-        await MyAppStore.clearStorage()
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let store = MyAppStore(initial: nil)
-        let first = store.addMyApp(
-            typeId: MyAppType.tracker.id, name: "Persist A", iconSystemName: "square")
-        let second = store.addMyApp(
-            typeId: MyAppType.tracker.id, name: "Persist B", iconSystemName: "circle")
-        // `addMyApp` leaves the app it just made active.
-        #expect(store.activeMyAppId == second)
+        await MiniAppStore.clearStorage()
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let store = MiniAppStore(initial: nil)
+        let first = store.addMiniApp(
+            typeId: MiniAppType.tracker.id, name: "Persist A", iconSystemName: "square")
+        let second = store.addMiniApp(
+            typeId: MiniAppType.tracker.id, name: "Persist B", iconSystemName: "circle")
+        // `addMiniApp` leaves the app it just made active.
+        #expect(store.activeMiniAppId == second)
 
         store.setActive(first)
-        #expect(store.activeMyAppId == first)
+        #expect(store.activeMiniAppId == first)
 
-        let reloaded = MyAppStore(initial: nil)
-        #expect(reloaded.activeMyAppId == first, "active app did not survive the reload")
+        let reloaded = MiniAppStore(initial: nil)
+        #expect(reloaded.activeMiniAppId == first, "active app did not survive the reload")
     }
 }

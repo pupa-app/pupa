@@ -2,24 +2,24 @@ import Foundation
 
 /// Coarse classification used to badge a row on the agents list.
 public enum AgentKind: String, Sendable {
-    case myApp
+    case miniApp
     /// A `pupa/agents/<slug>/AGENTS.md` subagent (surfaced in Slack rooms
     /// and invokable via `invoke_agent`).
     case subagent
-    /// The cross-MyApp meta-agent. Has no `myAppId` — it routes against
-    /// every MyApp via `invokeMyAppAgent` and lives in the `.memory` scope.
+    /// The cross-MiniApp meta-agent. Has no `miniAppId` — it routes against
+    /// every MiniApp via `invokeMiniAppAgent` and lives in the `.memory` scope.
     case orchestrator
 
     public var displayName: String {
         switch self {
-        case .myApp: return "MyApp"
+        case .miniApp: return "MiniApp"
         case .subagent: return "Subagent"
         case .orchestrator: return "Orchestrator"
         }
     }
 }
 
-/// View-model snapshot of one agent, surfaced on the per-MyApp Agents
+/// View-model snapshot of one agent, surfaced on the per-MiniApp Agents
 /// list and details pages. The struct intentionally exposes its
 /// attributes as an ordered `[AgentProperty]` so adding a new field
 /// later is one `append(...)` in `AgentRegistry.enumerateAgents` plus,
@@ -29,9 +29,9 @@ public struct AgentDescriptor: Identifiable, Sendable, Hashable {
     public let name: String
     public let kind: AgentKind
     public let iconSystemName: String
-    /// The owning MyApp. `nil` for the orchestrator, which is scope-wide
-    /// and not parented to any MyApp.
-    public let myAppId: UUID?
+    /// The owning MiniApp. `nil` for the orchestrator, which is scope-wide
+    /// and not parented to any MiniApp.
+    public let miniAppId: UUID?
     /// Optional one-liner shown under the name in the list (e.g. a
     /// Slack agent's role).
     public let subtitle: String?
@@ -49,7 +49,7 @@ public struct AgentDescriptor: Identifiable, Sendable, Hashable {
         name: String,
         kind: AgentKind,
         iconSystemName: String,
-        myAppId: UUID?,
+        miniAppId: UUID?,
         subtitle: String? = nil,
         modelSummary: String,
         toolSummary: String,
@@ -59,7 +59,7 @@ public struct AgentDescriptor: Identifiable, Sendable, Hashable {
         self.name = name
         self.kind = kind
         self.iconSystemName = iconSystemName
-        self.myAppId = myAppId
+        self.miniAppId = miniAppId
         self.subtitle = subtitle
         self.modelSummary = modelSummary
         self.toolSummary = toolSummary
@@ -96,7 +96,7 @@ public enum AgentPropertyValue: Sendable, Hashable {
     case list([String])
     /// Tappable row that opens `destination`. Every one of these is a memory
     /// file, so it presents as a sheet rather than pushing.
-    /// Used for AGENTS.md prompt links (`.myAppMemoryFile`).
+    /// Used for AGENTS.md prompt links (`.miniAppMemoryFile`).
     case link(label: String, destination: SidebarSelection)
     /// Long, multi-section content (e.g. the agent's full tool surface
     /// grouped by component). Rendered as a collapsed DisclosureGroup —

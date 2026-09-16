@@ -12,16 +12,16 @@ import Testing
 @Suite("Chat drafts")
 struct ChatDraftTests {
 
-    private func makeStore(spaceCount: Int = 2) -> (store: MyAppStore, ids: [UUID]) {
-        MyAppTypeRegistry.shared.registerBuiltins()
-        let myApps = (0..<spaceCount).map { i in
-            MyApp(name: "MyApp \(i)", iconSystemName: "circle", typeId: MyAppType.tracker.id)
+    private func makeStore(spaceCount: Int = 2) -> (store: MiniAppStore, ids: [UUID]) {
+        MiniAppTypeRegistry.shared.registerBuiltins()
+        let miniApps = (0..<spaceCount).map { i in
+            MiniApp(name: "MiniApp \(i)", iconSystemName: "circle", typeId: MiniAppType.tracker.id)
         }
-        let store = MyAppStore(initial: (myApps, myApps[0].id))
-        return (store, myApps.map(\.id))
+        let store = MiniAppStore(initial: (miniApps, miniApps[0].id))
+        return (store, miniApps.map(\.id))
     }
 
-    private func makeCoordinator(store: MyAppStore) -> ChatSessionCoordinator {
+    private func makeCoordinator(store: MiniAppStore) -> ChatSessionCoordinator {
         ChatSessionCoordinator(
             store: store,
             memory: MemoryStore(rootOverride: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("pupa-tests-\(UUID().uuidString)")),
@@ -33,15 +33,15 @@ struct ChatDraftTests {
     func draftSurvivesRefetch() {
         let (store, ids) = makeStore()
         let coord = makeCoordinator(store: store)
-        let tid = store.currentThreadId(for: .myApp(ids[0]))
+        let tid = store.currentThreadId(for: .miniApp(ids[0]))
 
-        coord.session(for: .myApp(ids[0]), threadId: tid).draft = "half-written thought"
-        coord.session(for: .myApp(ids[0]), threadId: tid).draftImages =
+        coord.session(for: .miniApp(ids[0]), threadId: tid).draft = "half-written thought"
+        coord.session(for: .miniApp(ids[0]), threadId: tid).draftImages =
             [PickedImage(data: Data([0x1]), mimeType: "image/png")]
 
         // Closing + reopening the overlay rebuilds ChatPanel, which asks the
         // coordinator for the session again — same instance, same draft.
-        let reopened = coord.session(for: .myApp(ids[0]), threadId: tid)
+        let reopened = coord.session(for: .miniApp(ids[0]), threadId: tid)
         #expect(reopened.draft == "half-written thought")
         #expect(reopened.draftImages.count == 1)
     }
@@ -50,7 +50,7 @@ struct ChatDraftTests {
     func draftPerThread() {
         let (store, ids) = makeStore()
         let coord = makeCoordinator(store: store)
-        let scope = ChatScope.myApp(ids[0])
+        let scope = ChatScope.miniApp(ids[0])
         let first = store.currentThreadId(for: scope)
         store.addThread(for: scope)
         let second = store.currentThreadId(for: scope)
@@ -62,14 +62,14 @@ struct ChatDraftTests {
         #expect(coord.session(for: scope, threadId: first).draft == "thread one")
     }
 
-    @Test("Drafts are per myApp scope")
+    @Test("Drafts are per miniApp scope")
     func draftPerScope() {
         let (store, ids) = makeStore()
         let coord = makeCoordinator(store: store)
 
-        coord.session(for: .myApp(ids[0])).draft = "for the first myApp"
+        coord.session(for: .miniApp(ids[0])).draft = "for the first miniApp"
 
-        #expect(coord.session(for: .myApp(ids[1])).draft.isEmpty)
+        #expect(coord.session(for: .miniApp(ids[1])).draft.isEmpty)
         #expect(coord.session(for: .memory).draft.isEmpty)
     }
 
@@ -77,11 +77,11 @@ struct ChatDraftTests {
     func discardClearsDraft() {
         let (store, ids) = makeStore()
         let coord = makeCoordinator(store: store)
-        let tid = store.currentThreadId(for: .myApp(ids[0]))
+        let tid = store.currentThreadId(for: .miniApp(ids[0]))
 
-        coord.session(for: .myApp(ids[0]), threadId: tid).draft = "gone with the thread"
-        coord.discardSession(for: .myApp(ids[0]), threadId: tid)
+        coord.session(for: .miniApp(ids[0]), threadId: tid).draft = "gone with the thread"
+        coord.discardSession(for: .miniApp(ids[0]), threadId: tid)
 
-        #expect(coord.session(for: .myApp(ids[0]), threadId: tid).draft.isEmpty)
+        #expect(coord.session(for: .miniApp(ids[0]), threadId: tid).draft.isEmpty)
     }
 }

@@ -23,8 +23,8 @@ extension AppTools {
     @MainActor
     public static func registerSlackTools(
         on registry: ToolRegistry,
-        store: MyAppStore,
-        myAppId: UUID,
+        store: MiniAppStore,
+        miniAppId: UUID,
         memory: MemoryStore? = nil,
         context: SlackToolContext
     ) {
@@ -34,7 +34,7 @@ extension AppTools {
             descriptor: ToolDescriptor(
                 name: "slackListAgents",
                 description: """
-                List every subagent available in this MyApp (the `pupa/agents/` \
+                List every subagent available in this MiniApp (the `pupa/agents/` \
                 roster) — these are the agents a channel can add and users can \
                 @-mention. Result echoes {agents: [{id, name, description}]}, \
                 where `id` is the slug used in channel rosters and @-mentions.
@@ -63,7 +63,7 @@ extension AppTools {
             descriptor: ToolDescriptor(
                 name: "slackListChannels",
                 description: """
-                List every channel / group-DM / DM in this MyApp's \
+                List every channel / group-DM / DM in this MiniApp's \
                 Slack canvas. Result echoes \
                 {channels: [{id, name, type, memberAgentIds}]}.
                 """,
@@ -71,7 +71,7 @@ extension AppTools {
             ),
             handler: { _ in
                 return await MainActor.run {
-                    guard let s = slackData(store, myAppId: myAppId) else {
+                    guard let s = slackData(store, miniAppId: miniAppId) else {
                         return .object(["ok": .bool(false), "error": "no slack component"])
                     }
                     let entries: [AnyJSON] = s.channels.map { c in
@@ -123,7 +123,7 @@ extension AppTools {
                 let limit = args["limit"]?.intValue ?? 50
                 let before = args["before"]?.stringValue
                 return await MainActor.run {
-                    guard let s = slackData(store, myAppId: myAppId) else {
+                    guard let s = slackData(store, miniAppId: miniAppId) else {
                         return .object(["ok": .bool(false), "error": "no slack component"])
                     }
                     let all = (s.messagesByChannel[channelId] ?? [])
@@ -213,7 +213,7 @@ extension AppTools {
                 let mentions = SlackView.parseMentions(text: trimmedText, agents: rosterSnapshot)
                 // Resolve componentId for the store mutator.
                 let componentId = await MainActor.run {
-                    store.slackComponentId(myAppId: myAppId)
+                    store.slackComponentId(miniAppId: miniAppId)
                 }
                 guard let componentId else {
                     return .object([
@@ -228,7 +228,7 @@ extension AppTools {
                         authorId: currentAgentId,
                         text: trimmedText,
                         mentionedAgentIds: mentions,
-                        myAppId: myAppId,
+                        miniAppId: miniAppId,
                         componentId: componentId
                     )
                 }
@@ -268,7 +268,7 @@ extension AppTools {
                 name: "slackCreateChannels",
                 description: """
                 Create one or more channels / group DMs / 1-on-1 DMs \
-                in this MyApp's Slack canvas. Always pass a `channels` \
+                in this MiniApp's Slack canvas. Always pass a `channels` \
                 array — wrap a single channel as `[{ ... }]`. Each entry \
                 is `{name, type, memberAgentIds?}`. `type` is one of \
                 "channel", "groupDM", "dm". Unknown agent ids in \
@@ -309,7 +309,7 @@ extension AppTools {
                 let entries = args["channels"]?.arrayValue ?? []
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "slack", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "slack", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
@@ -327,7 +327,7 @@ extension AppTools {
                             name: name,
                             type: type,
                             memberAgentIds: memberIds,
-                            myAppId: myAppId,
+                            miniAppId: miniAppId,
                             componentId: resolvedId
                         ) {
                             created.append(.object([
@@ -379,7 +379,7 @@ extension AppTools {
                     .compactMap { $0.stringValue }
                 return await MainActor.run {
                     let resolvedId: String
-                    switch store.resolveWriteTarget(kind: "slack", componentId: componentIdArg, myAppId: myAppId) {
+                    switch store.resolveWriteTarget(kind: "slack", componentId: componentIdArg, miniAppId: miniAppId) {
                     case .failure(let msg):
                         return .object(["ok": .bool(false), "error": .string(msg)])
                     case .resolved(let id):
@@ -388,7 +388,7 @@ extension AppTools {
                     let changed = store.slackAddAgentsToChannel(
                         channelId: channelId,
                         agentIds: agentIds,
-                        myAppId: myAppId,
+                        miniAppId: miniAppId,
                         componentId: resolvedId
                     )
                     return .object([
@@ -402,14 +402,14 @@ extension AppTools {
         ))
     }
 
-    /// Resolve the MyApp's `SlackData` body when it holds exactly one slack
+    /// Resolve the MiniApp's `SlackData` body when it holds exactly one slack
     /// component — else nil. The active/view component is never consulted.
-    /// Mirrors `tracker(_:myAppId:)` etc.
+    /// Mirrors `tracker(_:miniAppId:)` etc.
     @MainActor
-    private static func slackData(_ store: MyAppStore, myAppId: UUID) -> SlackData? {
-        guard case .resolved(let id) = store.resolveWriteTarget(kind: "slack", componentId: nil, myAppId: myAppId),
-              let myApp = store.myApps.first(where: { $0.id == myAppId }),
-              let comp = myApp.components.first(where: { $0.id == id }),
+    private static func slackData(_ store: MiniAppStore, miniAppId: UUID) -> SlackData? {
+        guard case .resolved(let id) = store.resolveWriteTarget(kind: "slack", componentId: nil, miniAppId: miniAppId),
+              let miniApp = store.miniApps.first(where: { $0.id == miniAppId }),
+              let comp = miniApp.components.first(where: { $0.id == id }),
               case .slack(let s) = comp.body else { return nil }
         return s
     }
@@ -420,7 +420,7 @@ extension AppTools {
     /// invoking agent can react without parsing free-form text.
     ///
     /// TODO(#193 follow-up): bring this echo to parity with
-    /// `invokeMyAppAgent`'s `agent_unavailable` payload — surface
+    /// `invokeMiniAppAgent`'s `agent_unavailable` payload — surface
     /// `target` (as `AgentInvocationKey.wireValue`), `callPath`, and
     /// `treeRootedAt` so a Slack agent can reason about the forest
     /// programmatically instead of only reading the human-readable
