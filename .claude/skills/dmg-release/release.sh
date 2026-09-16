@@ -324,7 +324,8 @@ codesign --verify --strict --deep "$STAGE/Pupa.app" 2>/dev/null \
   || die "Signature broke while staging the app for the DMG."
 ln -s /Applications "$STAGE/Applications"
 rm -f "$DMG"
-hdiutil create -volname "Pupa" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null \
+# A "Pupa" volume fails copying Pupa.app with EPERM on macOS 26.5.
+hdiutil create -volname "Pupa Release" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null \
   || die "hdiutil create failed."
 # Sign the disk image itself, not just the app inside it. Notarization staples a
 # ticket to the DMG either way, but Gatekeeper still evaluates the image's own
