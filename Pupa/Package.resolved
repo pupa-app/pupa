@@ -1,5 +1,5 @@
 {
-  "originHash" : "ea836d28524ddd2d3a6ec9df4940c5a06c829bc8ca81af8303ef0f155af1dcdf",
+  "originHash" : "e52c49c98a1be624f95d56ddaa331af98e84c2448b12836c2cdaa2fc5f6d6601",
   "pins" : [
     {
       "identity" : "networkimage",
@@ -33,8 +33,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/stasel/WebRTC.git",
       "state" : {
-        "revision" : "0c0ad84dac6c1941c16a414dfcfba94691866e4c",
-        "version" : "154.0.0"
+        "revision" : "44f36788497f701bc8c0306de3a1c2511d56019d",
+        "version" : "155.0.0"
       }
     }
   ],
